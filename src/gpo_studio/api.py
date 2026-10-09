@@ -123,6 +123,7 @@ from .gpp import (
     _validate_unknown_attrs,
     _validate_unknown_children,
     item_carries_cpassword,
+    namespaced_content,
     serialize_gpp,
     without_native_records,
 )
@@ -1721,6 +1722,29 @@ def _refuse_cpassword(key: str, item: Any, context: str) -> None:
                 path="unknown_attrs",
             )
         ])
+    _refuse_namespaced_content(item, context)
+
+
+def _refuse_namespaced_content(value: Any, context: str) -> None:
+    """Refuse unknown content in an XML namespace (WI-080 review).
+
+    No native GPP capture uses one, and the writer copies unknown attributes,
+    children and raw filter predicates out verbatim. Import and load refuse it
+    too.
+    """
+    found = namespaced_content(value)
+    if found is not None:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="xml_namespace_refused",
+                message=(
+                    f"{context} uses an XML namespace ({found}); no native GPP "
+                    "capture does."
+                ),
+                path="unknown_attrs",
+            )
+        ])
 
 
 def _refuse_cpassword_attrs(unknown: tuple[tuple[str, str], ...], context: str) -> None:
@@ -1748,6 +1772,7 @@ def _gpp_member_data_to_model(data: GppGroupMemberData) -> GppGroupMember:
         member.unknown_attrs, _MEMBER_RESERVED_ATTRS, f"member {member.name!r}"
     )
     _refuse_cpassword_attrs(member.unknown_attrs, f"member {member.name!r}")
+    _refuse_namespaced_content(member, f"member {member.name!r}")
     return member
 
 
@@ -1805,6 +1830,7 @@ def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistry
         f"registry value {value.name!r}",
     )
     _refuse_cpassword_attrs(value.unknown_attrs, f"registry value {value.name!r}")
+    _refuse_namespaced_content(value, f"registry value {value.name!r}")
     return value
 
 

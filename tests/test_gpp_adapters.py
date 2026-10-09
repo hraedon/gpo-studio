@@ -837,10 +837,15 @@ def test_folder_roundtrip() -> None:
 
 
 def test_folder_suppress_is_read_from_old_output_but_never_written() -> None:
-    """No Folders capture has ``suppress`` (WI-081); Files does."""
-    folder = GppFolder(path=r"C:\Temp\Folder", suppress=True)
-    data = serialize_gpp_folders((folder,), "computer")
+    """No Folders capture has ``suppress`` (WI-081); Files does.
+
+    It is never written; a folder that sets it is refused rather than written
+    without it (WI-080 review).
+    """
+    data = serialize_gpp_folders((GppFolder(path=r"C:\Temp\Folder"),), "computer")
     assert b"suppress" not in data
+    with pytest.raises(GppError, match="suppress cannot be written"):
+        serialize_gpp_folders((GppFolder(path=r"C:\Temp\Folder", suppress=True),), "computer")
     legacy = data.replace(b'<Properties action="U" ', b'<Properties action="U" suppress="1" ')
     assert b'suppress="1"' in legacy
     assert parse_gpp_folders(legacy)[0].suppress is True

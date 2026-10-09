@@ -88,7 +88,7 @@
       "document_position": 0,
       "icon_index": 0,
       "icon_path": "…\\icon.ico",
-      "id": "caacd25b-09b4-4f6a-94c9-ff8685f678e2",
+      "id": "00000000-0000-4010-8000-000000000001",
       "ilt_filter": {
        "items": [
         {
@@ -153,7 +153,7 @@
       "document_position": 1,
       "icon_index": 0,
       "icon_path": "",
-      "id": "c3e2ee5f-6031-4c48-94d0-89a50ab25ca5",
+      "id": "00000000-0000-4010-8000-000000000002",
       "ilt_filter": null,
       "name": "",
       "shortcut_path": "%USERPROFILE%\\Desktop\\Ü &.lnk",
@@ -194,7 +194,7 @@
       "document_position": 2,
       "icon_index": 0,
       "icon_path": "",
-      "id": "accd5c41-89d9-49f1-9fed-413079a47143",
+      "id": "00000000-0000-4010-8000-000000000003",
       "ilt_filter": null,
       "name": "",
       "shortcut_path": "Old App",

@@ -32,7 +32,7 @@
        "user_security_context": true
       },
       "document_position": 0,
-      "id": "f11a4a04-2093-4de4-961d-7ae78a3eb4a4",
+      "id": "00000000-0000-4001-8000-000000000001",
       "ilt_filter": {
        "items": [
         {
@@ -87,7 +87,7 @@
        "user_security_context": false
       },
       "document_position": 1,
-      "id": "c27fd9a1-3633-4eff-a98b-e078075117ce",
+      "id": "00000000-0000-4001-8000-000000000002",
       "ilt_filter": null,
       "label": "Projects",
       "letter": "P",
@@ -125,7 +125,7 @@
        "user_security_context": false
       },
       "document_position": 2,
-      "id": "d7b408fc-d4ce-4c43-8f15-8821f0fc7270",
+      "id": "00000000-0000-4001-8000-000000000003",
       "ilt_filter": null,
       "label": "",
       "letter": "X",
@@ -163,7 +163,7 @@
        "user_security_context": false
       },
       "document_position": 3,
-      "id": "aa7f51a5-3086-4658-9685-1ff643e29524",
+      "id": "00000000-0000-4001-8000-000000000004",
       "ilt_filter": null,
       "label": "Ünïcödé <\"&> label",
       "letter": "H",

@@ -1248,29 +1248,44 @@ def _written_for(key: str, item: Any, scope: GppScope) -> tuple[ET.Element, ET.E
     """
     render = _item_renderer(key, scope)
     parse = _item_parser(key)
-    item = _with_payload_edits(key, item, parse)
-    rendered = render(item)
-    return rendered, _written_element(item, rendered, render, parse)
+    edited = _with_payload_edits(key, item, parse)
+    rendered = render(edited)
+    written = _written_element(edited, rendered, render, parse)
+    if key in _PAYLOAD_FAMILIES and not getattr(item, "native_xml", ""):
+        # The read-back check for a task with no import record (an imported one
+        # has `_refuse_lost_edits`): every payload value it sets is in the file.
+        from .gpp_adapters import payload_values_written
+
+        missing = payload_values_written(item, parse(written))
+        if missing:
+            raise GppError(
+                f"{type(item).__name__} {_item_label(item)!r}: {', '.join(missing)} "
+                "cannot be written into its <Task> payload"
+            )
+    return rendered, written
+
+
+#: Families whose typed values partly live in an embedded payload.
+_PAYLOAD_FAMILIES: frozenset[str] = frozenset({"scheduled_tasks", "immediate_tasks"})
 
 
 def _with_payload_edits(key: str, item: Any, parse: Callable[[ET.Element], Any]) -> Any:
-    """Carry an imported task's edited typed values into its <Task> payload.
+    """Carry a task's edited typed values into its <Task> payload.
 
-    Only an item with a retained element has a record of what was imported,
-    so only there can an edited value be told from an unset one
-    (`gpp_adapters.reconcile_payload_edits`).
+    An imported item is compared with its import record; any other task with
+    the values its own payload holds (`gpp_adapters.reconcile_payload_edits`).
     """
-    if key not in ("scheduled_tasks", "immediate_tasks"):
-        return item
-    raw: str = getattr(item, "native_xml", "")
-    if not raw:
-        return item
-    try:
-        imported = parse(_bounded_parse(raw.encode("utf-8")))
-    except GppError:
+    if key not in _PAYLOAD_FAMILIES:
         return item
     from .gpp_adapters import reconcile_payload_edits
 
+    imported: Any = None
+    raw: str = getattr(item, "native_xml", "")
+    if raw:
+        try:
+            imported = parse(_bounded_parse(raw.encode("utf-8")))
+        except GppError:
+            imported = None
     return reconcile_payload_edits(item, imported)
 
 
@@ -1294,6 +1309,71 @@ def _with_payload_edits(key: str, item: Any, parse: Callable[[ET.Element], Any])
 # The API never accepts ``native_xml``: the store carries an item's record
 # over an edit (``store._keep_document_position``), and the writer decides,
 # value by value, what the edit changed.
+
+
+def namespaced_content(value: Any) -> str | None:
+    """The first namespace-qualified name in *value*'s retained stores, or ``None``.
+
+    The retained stores are what the writer copies out verbatim: unknown
+    attributes (an item's, its ``Properties``', a member's, a registry value's,
+    a filter predicate's, a root's), raw unknown children, and raw filter
+    predicates. No native GPP capture uses an XML namespace, and the parser
+    matches local names, so a namespaced name in one of them would be written
+    back in a namespace no Windows file was seen to use (second review: an item
+    attribute did, though its retained element was discarded). *value* is a
+    collection, an item, or anything inside one. The task payload (typed) and
+    ``native_xml`` (checked on its own) are not stores here.
+    """
+    if isinstance(value, IltFilter):
+        for entry in value.items:
+            found = (
+                _namespaced_raw(entry) if isinstance(entry, str) else namespaced_content(entry)
+            )
+            if found is not None:
+                return found
+        return None
+    if not hasattr(value, "__dataclass_fields__"):
+        if isinstance(value, (list, tuple)):
+            for entry in value:
+                found = namespaced_content(entry)
+                if found is not None:
+                    return found
+        return None
+    for f in fields(value):
+        if f.name in ("native_xml", "task_xml", "source_files"):
+            continue
+        field_value = getattr(value, f.name)
+        # unknown_attrs, unknown_props_attrs, <family>_unknown_attrs ...
+        if "unknown" in f.name and f.name.endswith("_attrs"):
+            for name, _ in field_value:
+                if str(name).startswith("{"):
+                    return str(name)
+        elif "unknown" in f.name and f.name.endswith("_children"):
+            for raw in field_value:
+                found = _namespaced_raw(raw)
+                if found is not None:
+                    return found
+        else:
+            found = namespaced_content(field_value)
+            if found is not None:
+                return found
+    return None
+
+
+def _namespaced_raw(raw: str) -> str | None:
+    try:
+        return namespaced_name(_bounded_parse(raw.encode("utf-8")))
+    except GppError:
+        return None  # malformed raw XML is refused by its own validation
+
+
+def _refuse_namespaced(value: Any, context: str) -> None:
+    found = namespaced_content(value)
+    if found is not None:
+        raise GppError(
+            f"{context} uses an XML namespace ({found}); no native GPP capture does, "
+            "and Studio would write it back verbatim"
+        )
 
 
 def item_carries_cpassword(key: str, item: Any, scope: GppScope = "computer") -> bool:
@@ -1471,32 +1551,80 @@ def _typed_view(value: Any) -> Any:
 def _refuse_lost_edits(
     item: Any, imported_item: Any, written: ET.Element, parse: Callable[[ET.Element], Any]
 ) -> None:
-    """Refuse an element in which an edited typed value reads back unedited.
+    """Refuse an element in which an edited typed value does not read back as edited.
 
-    For each typed field the edit changed (the item differs from what its
-    import parsed to), the written element is parsed back: a value that reads
-    back as the edit, or as something else the writer normalised it to, is
-    written; one that reads back as the IMPORTED value was dropped somewhere
-    between the model and the wire, and exporting the item would silently undo
-    the edit. That is a GppError, which every export path reports as a refusal.
+    Per scalar (second review, N2): every leaf of the model -- a field, a
+    member's or a predicate's field, one string of a multi-string value -- that
+    the edit changed (it differs from what the import parsed to) must read back
+    from the written element EQUAL to the edited value, or be one of the
+    documented `TYPED_NORMALISATIONS`. Anything else -- the imported value, or
+    a third value the writer turned the edit into -- would export something
+    the operator did not set, and is a GppError, which every export path
+    reports as a refusal.
     """
     try:
         written_item = parse(written)
     except GppError as error:
         raise GppError(f"an edited preference item cannot be read back: {error}") from error
-    for f in fields(item):
-        if f.name in _NOT_TYPED_VALUES:
-            continue
-        want = _typed_view(getattr(item, f.name))
-        was = _typed_view(getattr(imported_item, f.name))
-        if want == was:
-            continue
-        got = _typed_view(getattr(written_item, f.name))
-        if got != want and got == was:
-            raise GppError(
-                f"{type(item).__name__} {_item_label(item)!r}: the edit to {f.name} "
-                "cannot be written (it would export as the imported value)"
+    want = typed_leaves(item)
+    was = typed_leaves(imported_item)
+    got = typed_leaves(written_item)
+    lost = [
+        path
+        for path in sorted(set(want) | set(was))
+        if want.get(path, _ABSENT) != was.get(path, _ABSENT)
+        and not _reads_back(path, want.get(path, _ABSENT), got.get(path, _ABSENT))
+    ]
+    if lost:
+        raise GppError(
+            f"{type(item).__name__} {_item_label(item)!r}: the edit to {', '.join(lost)} "
+            "cannot be written (it would not read back as edited)"
+        )
+
+
+#: The only ways an edited value may read back other than equal, each with its
+#: reason. Keyed by the leaf's field name (the last part of its path).
+TYPED_NORMALISATIONS: dict[str, str] = {
+    "task_xml": (
+        "an XML payload is compared as a parsed document: the writer re-serialises "
+        "it, so attribute quoting and empty-element forms may differ"
+    ),
+}
+
+_ABSENT = object()
+
+
+def _reads_back(path: str, want: Any, got: Any) -> bool:
+    if got == want:
+        return True
+    leaf = path.rsplit(".", 1)[-1].split("[", 1)[0]
+    if leaf == "task_xml" and isinstance(want, str) and isinstance(got, str):
+        try:
+            return same_rendering(
+                _bounded_parse(want.encode("utf-8")), _bounded_parse(got.encode("utf-8"))
             )
+        except GppError:
+            return False
+    return False
+
+
+def typed_leaves(value: Any, path: str = "") -> dict[str, Any]:
+    """Every scalar of a model value, by path (``members[0].sid``), bookkeeping excluded."""
+    if hasattr(value, "__dataclass_fields__"):
+        leaves: dict[str, Any] = {}
+        for f in fields(value):
+            if f.name in _NOT_TYPED_VALUES:
+                continue
+            leaves |= typed_leaves(getattr(value, f.name), f"{path}.{f.name}" if path else f.name)
+        return leaves
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return {path: ()}
+        leaves = {}
+        for index, entry in enumerate(value):
+            leaves |= typed_leaves(entry, f"{path}[{index}]")
+        return leaves
+    return {path: value}
 
 
 def _item_label(item: Any) -> str:
@@ -1908,6 +2036,7 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
         source_files=tuple(sorted(files.items())),
         **adapter_data,
     )
+    _refuse_namespaced(collection, f"{scope} preference XML")
     return _record_document_positions(collection, files)
 
 
@@ -2763,6 +2892,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         ),
     )
     _validate_document_positions(collection)
+    _refuse_namespaced(collection, f"stored {scope} preference collection")
     return collection
 
 
@@ -3053,13 +3183,21 @@ def contains_cpassword(xml: bytes) -> bool:
     on import, in an unknown child the API accepted, or in a retained native
     element -- was stored and exported. Every import and export path calls
     this, and refuses (``cpassword_detected`` on export).
+
+    The check runs on the PARSED tree, which the bounded parser decodes from
+    UTF-8 or UTF-16 (either byte order, with or without a byte order mark).
+    It used to start with a scan of the raw bytes for ``b"cpassword"``, which a
+    UTF-16 file never contains, so a UTF-16 preference file with a cpassword
+    imported (second review). XML that does not parse counts as holding one if
+    the word appears in any of those decodings.
     """
-    if b"cpassword" not in xml.lower():
-        return False
     try:
         root = _bounded_parse(xml)
     except GppError:
-        return True
+        return any(
+            "cpassword" in xml.decode(encoding, errors="ignore").casefold()
+            for encoding in ("utf-8", "utf-16-le", "utf-16-be")
+        )
     return has_never_retained_name(root)
 
 

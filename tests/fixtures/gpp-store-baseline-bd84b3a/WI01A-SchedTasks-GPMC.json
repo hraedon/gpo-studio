@@ -52,7 +52,7 @@
        "user_security_context": false
       },
       "document_position": 1,
-      "id": "a882f3b1-b794-4f2b-8117-af8cb6f5793d",
+      "id": "00000000-0000-400c-8000-000000000003",
       "ilt_filter": null,
       "name": "GpoStudio-Init",
       "program": "C:\\Windows\\System32\\cmd.exe",
@@ -119,7 +119,7 @@
       "document_position": 0,
       "element_variant": "TaskV2",
       "enabled": true,
-      "id": "99f14906-0034-4f58-87e9-1e1ab9bcf619",
+      "id": "00000000-0000-400c-8000-000000000001",
       "ilt_filter": null,
       "name": "GpoStudio-Cleanup",
       "program": "C:\\Windows\\System32\\cleanmgr.exe",
@@ -160,7 +160,7 @@
       "document_position": 2,
       "element_variant": "TaskV2",
       "enabled": true,
-      "id": "8fde593b-3010-4d1e-86ca-4e92d7f507c5",
+      "id": "00000000-0000-400c-8000-000000000002",
       "ilt_filter": null,
       "name": "Replace Test",
       "program": "C:\\windows\\system32\\notepad.exe",
@@ -270,7 +270,7 @@
       "document_position": 0,
       "element_variant": "TaskV2",
       "enabled": true,
-      "id": "713e948c-0bce-45b7-8ca4-161d53770ac3",
+      "id": "00000000-0000-400c-8000-000000000004",
       "ilt_filter": {
        "items": [
         {
@@ -327,7 +327,7 @@
       "document_position": 1,
       "element_variant": "TaskV2",
       "enabled": true,
-      "id": "380fd780-fa58-4ed1-99ab-80def4e8ea26",
+      "id": "00000000-0000-400c-8000-000000000005",
       "ilt_filter": null,
       "name": "Delete Test",
       "program": "",

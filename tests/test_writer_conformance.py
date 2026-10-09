@@ -437,9 +437,19 @@ def test_taskv2_authoring_now_emits_the_native_shape() -> None:
 
 
 def test_explicit_task_payload_is_preserved_over_synthesis() -> None:
-    """An operator-supplied payload wins; synthesis only fills a gap."""
+    """An operator-supplied payload wins; synthesis only fills a gap.
+
+    The payload is the task's own record (WI-080 review): scalars left unset
+    (empty, or the default schedule) leave it as it is. A SET scalar that
+    disagrees is an edit and is written into it (see
+    tests/test_gpp_retained_edits.py).
+    """
     embedded = replace(
         TASK,
+        program="",
+        arguments="",
+        trigger_type="once",
+        trigger_time="",
         task_xml=(
             '<Task version="1.2"><Actions Context="Author"><Exec>'
             "<Command>C:\\Windows\\System32\\notepad.exe</Command>"

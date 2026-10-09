@@ -1987,6 +1987,12 @@ def parse_gpp_files(data: bytes) -> tuple[GppFile, ...]:
 
 
 def _serialize_folder(folder: GppFolder) -> ET.Element:
+    if folder.suppress:
+        # No Folders capture has suppress (WI-081): refused, not silently dropped.
+        raise GppError(
+            f"folder {folder.path!r}: suppress cannot be written; GPMC's Folders item "
+            "has no such attribute (only Files does)"
+        )
     return _build_item_element(
         "folders",
         item_name=_windows_leaf(folder.path),
@@ -2158,6 +2164,13 @@ def parse_gpp_network_shares(data: bytes) -> tuple[GppNetworkShare, ...]:
 def _serialize_printer(printer: GppPrinter) -> ET.Element:
     # Printers use a C/D/U action code on <Properties> rather than the generic
     # GppAction code, so we pass an explicit action_code override.
+    if printer.action != "update":
+        # Never written: a printer's action is action_type. Refused rather than
+        # dropped, as NT Services' fixed action is (WI-080 review).
+        raise GppError(
+            f"printer {printer.path!r}: action {printer.action!r} cannot be written; "
+            "a shared printer's action is action_type"
+        )
     return _build_item_element(
         "printers",
         item_name=_windows_leaf(printer.path),
@@ -2999,52 +3012,154 @@ def _typed_task_payload(
 _TRIGGER_FIELDS = ("trigger_type", "trigger_time", "trigger_days")
 
 
-def reconcile_payload_edits(item: Any, imported: Any) -> Any:
+def reconcile_payload_edits(item: Any, imported: Any | None) -> Any:
     """Write a task's edited typed values into its <Task> payload (WI-080 review).
 
-    *imported* is the item as its retained native element parses, so a field
-    that differs between the two was EDITED -- which nothing else can tell: a
-    caller who builds a task from a payload leaves the scalars unset, and that
-    payload is authoritative, as it always was. Only an imported item has a
-    record to compare with, so only an imported item's edits are carried into
-    its payload; ``gpp`` calls this before writing one.
+    A TaskV2 or ImmediateTaskV2 keeps ``program``, ``arguments``, ``start_in``
+    and (TaskV2) ``enabled`` only in its payload, and the parser reads them from
+    there, so an edit that is not written into the payload exports the old value
+    (the review's P1; the TaskV2 ``arguments`` case predates WI-080). What counts
+    as an edit depends on the record there is:
 
-    The payload is the only copy on the wire of ``program``, ``arguments``,
-    ``start_in`` and (TaskV2) ``enabled``, so an edit to one used to export the
-    old value (the review's P1; the TaskV2 ``arguments`` case predates WI-080).
-    A changed schedule is refused: the payload's ``Triggers`` are not rebuilt.
-    If the payload itself was edited, it is authoritative and nothing is
-    synchronised (and a scalar edit it contradicts is caught by
-    `gpp._refuse_lost_edits`). ``runAs`` is not synchronised with the payload's
-    ``UserId``: the captures show them differ (WI01A-SchedTasks-GPMC runs as
-    ``NT AUTHORITY\\System`` with ``UserId`` ``%LogonDomain%\\%LogonUser%``).
+    * *imported* (the item as its retained native element parses): a field that
+      differs from it was edited, deletion included;
+    * no import record (``None``: authored from a payload, stored before WI-080,
+      or an import whose namespaced element was not retained): the PAYLOAD is
+      the record. A command field that is set and differs from the payload's was
+      edited; an EMPTY one is unset, never a deletion -- a task built from a
+      payload alone leaves its scalars empty, and the payload stands, as it
+      always did (the endpoint lane's tasks). ``enabled`` cannot be unset: a
+      ``False`` the payload does not say is written, and a ``True`` against a
+      disabled payload is refused as ambiguous rather than guessed at.
+
+    A changed schedule is refused either way: the payload's ``Triggers`` are not
+    rebuilt (with no import record, a trigger field at its default is unset, so
+    only a set one that disagrees is refused). If an imported item's payload
+    itself was edited, the payload is written as edited, and a scalar edited
+    alongside it must agree with it: one the edited payload contradicts is
+    refused here, rather than letting either silently win. ``runAs`` is not
+    synchronised with the payload's ``UserId``: the captures show them differ
+    (WI01A-SchedTasks-GPMC runs as ``NT AUTHORITY\\System`` with ``UserId``
+    ``%LogonDomain%\\%LogonUser%``).
     """
-    if not isinstance(item, (GppScheduledTask, GppImmediateTask)):
-        return item
-    if not item.task_xml or item.task_xml != imported.task_xml:
+    if not isinstance(item, (GppScheduledTask, GppImmediateTask)) or not item.task_xml:
         return item
     if isinstance(item, GppScheduledTask) and item.element_variant != "TaskV2":
         return item  # the v1 element writes its scalars as attributes
-    command = {
-        name: getattr(item, name)
-        for _, name in _EXEC_FIELDS
-        if getattr(item, name) != getattr(imported, name)
-    }
-    enabled: bool | None = None
     context = f"{type(item).__name__} {item.name!r}"
-    if isinstance(item, GppScheduledTask):
-        if item.enabled != imported.enabled:
-            enabled = item.enabled
-        if any(getattr(item, n) != getattr(imported, n) for n in _TRIGGER_FIELDS):
-            raise GppError(
-                f"{context}: its schedule is read from the <Task> payload's Triggers, "
-                "which Studio does not rewrite; edit task_xml instead of the trigger fields"
+    enabled: bool | None = None
+    if imported is not None:
+        if item.task_xml != imported.task_xml:
+            _refuse_contradicted_scalars(item, imported, context)
+            return item
+        command = {
+            name: getattr(item, name)
+            for _, name in _EXEC_FIELDS
+            if getattr(item, name) != getattr(imported, name)
+        }
+        if isinstance(item, GppScheduledTask):
+            if item.enabled != imported.enabled:
+                enabled = item.enabled
+            if any(getattr(item, n) != getattr(imported, n) for n in _TRIGGER_FIELDS):
+                raise GppError(_schedule_refusal(context))
+    else:
+        projected_command = dict(
+            zip((name for _, name in _EXEC_FIELDS), _project_from_task_xml(item.task_xml),
+                strict=True)
+        )
+        command = {
+            name: getattr(item, name)
+            for _, name in _EXEC_FIELDS
+            if getattr(item, name) and getattr(item, name) != projected_command[name]
+        }
+        if isinstance(item, GppScheduledTask):
+            projected_enabled = _project_enabled_from_task_xml(item.task_xml)
+            if projected_enabled is None:
+                projected_enabled = True  # no Settings/Enabled: the task is enabled
+            if item.enabled != projected_enabled:
+                if item.enabled:
+                    raise GppError(
+                        f"{context}: enabled is True but its <Task> payload says the task "
+                        "is disabled; set enabled to match the payload, or edit task_xml"
+                    )
+                enabled = False
+            projected_trigger = _project_triggers_from_task_xml(item.task_xml)
+            typed_trigger = (item.trigger_type, item.trigger_time, item.trigger_days)
+            # A field at its default is unset and the payload's stands -- except
+            # the type: "once" is unset only alongside an unset time and days,
+            # so a schedule edited to "once" is not mistaken for no edit.
+            unset = (
+                item.trigger_type == "once" and not item.trigger_time and not item.trigger_days,
+                not item.trigger_time,
+                not item.trigger_days,
             )
+            for index, value in enumerate(typed_trigger):
+                if unset[index]:
+                    continue
+                if projected_trigger is None or projected_trigger[index] != value:
+                    raise GppError(_schedule_refusal(context))
     if not command and enabled is None:
         return item
     return replace(
         item, task_xml=_typed_task_payload(item.task_xml, context, command, enabled=enabled)
     )
+
+
+def _refuse_contradicted_scalars(item: Any, imported: Any, context: str) -> None:
+    """Refuse a scalar edit that the item's edited payload contradicts."""
+    projected = dict(
+        zip((name for _, name in _EXEC_FIELDS), _project_from_task_xml(item.task_xml),
+            strict=True)
+    )
+    contradicted = [
+        name
+        for _, name in _EXEC_FIELDS
+        if getattr(item, name) != getattr(imported, name)
+        and getattr(item, name) != projected[name]
+    ]
+    if isinstance(item, GppScheduledTask):
+        projected_enabled = _project_enabled_from_task_xml(item.task_xml)
+        if item.enabled != imported.enabled and item.enabled != (
+            True if projected_enabled is None else projected_enabled
+        ):
+            contradicted.append("enabled")
+        projected_trigger = _project_triggers_from_task_xml(item.task_xml)
+        for index, name in enumerate(_TRIGGER_FIELDS):
+            if getattr(item, name) != getattr(imported, name) and (
+                projected_trigger is None or projected_trigger[index] != getattr(item, name)
+            ):
+                contradicted.append(name)
+    if contradicted:
+        raise GppError(
+            f"{context}: both task_xml and {', '.join(contradicted)} were edited, and the "
+            "edited payload says otherwise; edit one so that they agree"
+        )
+
+
+def _schedule_refusal(context: str) -> str:
+    return (
+        f"{context}: its schedule is read from the <Task> payload's Triggers, which "
+        "Studio does not rewrite; edit task_xml instead of the trigger fields"
+    )
+
+
+def payload_values_written(item: Any, written: Any) -> list[str]:
+    """The typed payload values of *item* that *written* (its export, parsed) lacks.
+
+    The read-back check for a task with no import record: every command field
+    the item SETS, and its enabled state, must read back from the file. ``gpp``
+    refuses the item if any does not.
+    """
+    if not isinstance(item, (GppScheduledTask, GppImmediateTask)) or not item.task_xml:
+        return []
+    missing = [
+        name
+        for _, name in _EXEC_FIELDS
+        if getattr(item, name) and getattr(written, name) != getattr(item, name)
+    ]
+    if isinstance(item, GppScheduledTask) and written.enabled != item.enabled:
+        missing.append("enabled")
+    return missing
 
 
 def _append_task_xml_to_props(elem: ET.Element, task_xml: str) -> None:

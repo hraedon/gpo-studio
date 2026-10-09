@@ -50,12 +50,12 @@
       },
       "description": "",
       "document_position": 0,
-      "id": "18d0b354-c609-4905-9f05-c4833476f64d",
+      "id": "00000000-0000-4007-8000-000000000002",
       "ilt_filter": null,
       "members": [
        {
         "action": "add",
-        "id": "52ef4c79-7453-47d5-b257-08724eab5010",
+        "id": "00000000-0000-4007-8000-000000000001",
         "name": "HRAENET\\lab-admins",
         "sid": "S-1-5-21-0000000000-0000000000-0000000000-4674",
         "unknown_attrs": []
@@ -137,7 +137,7 @@
       "document_position": 0,
       "element_variant": "TaskV2",
       "enabled": true,
-      "id": "80c6ed02-a602-4e79-ad00-d2ab2e4d6f77",
+      "id": "00000000-0000-4007-8000-000000000003",
       "ilt_filter": null,
       "name": "Mixed Task",
       "program": "C:\\windows\\system32\\notepad.exe",
@@ -198,7 +198,7 @@
        "user_security_context": false
       },
       "document_position": 0,
-      "id": "1d63e0af-cf0e-4d65-aeb3-a0753e8e6020",
+      "id": "00000000-0000-4007-8000-000000000004",
       "ilt_filter": null,
       "label": "Ünïcödé <\"&> label",
       "letter": "X",

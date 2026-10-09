@@ -36,6 +36,7 @@ from gpo_studio.gpp import (
     GppGroup,
     GppRegistry,
     GppRegistryValue,
+    contains_cpassword,
     ensure_editor_ids,
     gpp_collection_from_dict,
     gpp_collection_to_dict,
@@ -264,3 +265,150 @@ def test_an_api_edit_of_an_authored_registry_items_action_is_written(client: Any
     stored = store.get_gpo(gpo.guid).gpp_collections[0].registry[0]
     assert (stored.action, stored.value.action) == ("update", "update")
 
+
+
+# ---------------------------------------------------------------------------
+# Encodings: the check runs on the parsed tree (second review, P1)
+# ---------------------------------------------------------------------------
+
+_ENCODINGS = {
+    "utf-16-le with BOM": ("utf-16-le", b"\xff\xfe"),
+    "utf-16-be with BOM": ("utf-16-be", b"\xfe\xff"),
+    "utf-16-le without BOM": ("utf-16-le", b""),
+    "utf-16-be without BOM": ("utf-16-be", b""),
+    "utf-8 with BOM": ("utf-8", b"\xef\xbb\xbf"),
+}
+
+
+def _encoded(text: str, encoding: str, bom: bytes) -> bytes:
+    declared = "utf-8" if encoding == "utf-8" else "utf-16"
+    return bom + text.replace('encoding="utf-8"', f'encoding="{declared}"', 1).encode(encoding)
+
+
+@pytest.mark.parametrize("label", sorted(_ENCODINGS))
+def test_an_import_in_any_encoding_is_held_to_the_cpassword_ban(
+    client: Any, label: str
+) -> None:
+    test_client, store, inbox = client
+    encoding, bom = _ENCODINGS[label]
+    shutil.copytree(PRINTERS_CAPTURE, inbox)
+    (target,) = inbox.glob("*/DomainSysvol/GPO/User/Preferences/Printers/Printers.xml")
+    text = PRINTERS.read_bytes().decode("utf-8")
+    # The control: the same file, clean, imports in that encoding.
+    target.write_bytes(_encoded(text, encoding, bom))
+    clean = test_client.post(
+        "/api/backups/import",
+        json={"path": str(inbox), "actor": "encoding", "reason": "clean"},
+    )
+    assert clean.status_code == 201, clean.text
+    planted = text.replace('port=""/>', 'port=""><cpassword>SECRET</cpassword></Properties>', 1)
+    target.write_bytes(_encoded(planted, encoding, bom))
+    response = test_client.post(
+        "/api/backups/import",
+        json={"path": str(inbox), "actor": "encoding", "reason": "planted"},
+    )
+    assert response.status_code == 422, response.text
+    assert "SECRET" not in response.text
+    assert len(store.list_gpos()) == 1  # only the clean import
+
+
+@pytest.mark.parametrize("label", sorted(_ENCODINGS))
+def test_contains_cpassword_reads_every_encoding(label: str) -> None:
+    encoding, bom = _ENCODINGS[label]
+    text = '<?xml version="1.0" encoding="utf-8"?><Printers><cpassword>S</cpassword></Printers>'
+    assert contains_cpassword(_encoded(text, encoding, bom)) is True
+    clean = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        "<Printers><Comment>cpassword-free</Comment></Printers>"
+    )
+    assert contains_cpassword(_encoded(clean, encoding, bom)) is False
+
+
+@pytest.mark.parametrize("label", sorted(_ENCODINGS))
+def test_a_backup_inventory_in_any_encoding_is_held_to_the_ban(label: str) -> None:
+    encoding, bom = _ENCODINGS[label]
+    text = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        "<GroupPolicyBackupScheme><cpassword>SECRET</cpassword></GroupPolicyBackupScheme>"
+    )
+    planted = base64.b64encode(_encoded(text, encoding, bom)).decode()
+    with pytest.raises(StudioError, match="cpassword"):
+        inventory_from_dict({"backup_xml_base64": planted, "report_xml_base64": "", "files": []})
+
+
+# ---------------------------------------------------------------------------
+# No retained store may hold a namespaced name (second review, P2)
+# ---------------------------------------------------------------------------
+
+
+def test_an_import_with_a_namespaced_unknown_attribute_is_refused(client: Any) -> None:
+    test_client, store, inbox = client
+    shutil.copytree(PRINTERS_CAPTURE, inbox)
+    (target,) = inbox.glob("*/DomainSysvol/GPO/User/Preferences/Printers/Printers.xml")
+    data = target.read_bytes()
+    target.write_bytes(data.replace(
+        b'<SharedPrinter clsid=', b'<SharedPrinter xmlns:x="urn:review" x:extra="1" clsid=', 1
+    ))
+    response = test_client.post(
+        "/api/backups/import",
+        json={"path": str(inbox), "actor": "namespace", "reason": "planted"},
+    )
+    assert response.status_code == 422, response.text
+    assert store.list_gpos() == []
+
+
+def _stored_printers() -> dict[str, Any]:
+    return gpp_collection_to_dict(ensure_editor_ids(
+        parse_gpp_collection("user", {"Printers/Printers.xml": PRINTERS.read_bytes()})
+    ))
+
+
+@pytest.mark.parametrize(
+    "plant",
+    [
+        lambda d: d["printers"][0]["unknown_attrs"].append(["{urn:review}extra", "1"]),
+        lambda d: d["printers"][0]["unknown_children"].append(
+            '<x:Extra xmlns:x="urn:review"/>'
+        ),
+        lambda d: d["printers"][0]["unknown_props_children"].append(
+            '<Extra xmlns="urn:review"/>'
+        ),
+        lambda d: d["printers_unknown_attrs"].append(["{urn:review}root", "1"]),
+        lambda d: d["printers_unknown_children"].append('<Extra xmlns="urn:review"/>'),
+        lambda d: d["printers"][0]["ilt_filter"]["items"].append(
+            '<FilterX xmlns="urn:review" bool="AND" not="0"/>'
+        ),
+    ],
+    ids=["item attribute", "item child", "properties child", "root attribute",
+         "root child", "raw filter"],
+)
+def test_a_stored_namespaced_name_in_any_store_is_refused_on_load(plant: Any) -> None:
+    data = _stored_printers()
+    data["printers"][0]["native_xml"] = ""
+    plant(data)
+    with pytest.raises(GppError, match="XML namespace"):
+        gpp_collection_from_dict(data)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _group_payload(unknown_attrs=[["{urn:review}a", "1"]]),
+        _group_payload(unknown_children=['<Extra xmlns="urn:review"/>']),
+        _group_payload(members=[{"sid": "S-1-5-32-544", "name": "Administrators",
+                                 "unknown_attrs": [["{urn:review}a", "1"]]}]),
+    ],
+    ids=["item attribute", "item child", "member attribute"],
+)
+def test_the_api_refuses_a_namespaced_name(client: Any, payload: Any) -> None:
+    test_client, store, _inbox = client
+    gpo = test_client.post(
+        "/api/gpos", json={"name": "Namespaced", "actor": "namespace", "reason": "add"},
+    ).json()["gpo"]
+    response = test_client.post(
+        f"/api/gpos/{gpo['guid']}/preferences/groups",
+        json={"scope": "computer", "group": payload, "actor": "namespace", "reason": "add",
+              "expected_revision": gpo["revision"]},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["issues"][0]["code"] == "xml_namespace_refused"

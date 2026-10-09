@@ -53,7 +53,7 @@
        "user_security_context": false
       },
       "document_position": 0,
-      "id": "6f7b1852-5505-4975-98c0-f16f5b42cab6",
+      "id": "00000000-0000-4005-8000-000000000001",
       "ilt_filter": null,
       "path": "C:\\Windows\\Ünïcödé <\"&>.xml",
       "property": "%",
@@ -90,7 +90,7 @@
        "user_security_context": false
       },
       "document_position": 1,
-      "id": "90ef6b40-696f-4bb8-a1d3-3d30533c2ace",
+      "id": "00000000-0000-4005-8000-000000000002",
       "ilt_filter": null,
       "path": "C:\\Windows\\%.ini",
       "property": "<>\"&",
@@ -127,7 +127,7 @@
        "user_security_context": false
       },
       "document_position": 2,
-      "id": "16b5967c-d3c7-4a5d-8dee-3552f3207ddd",
+      "id": "00000000-0000-4005-8000-000000000003",
       "ilt_filter": null,
       "path": "C:\\Windows\\demo.ini",
       "property": "DemoName",
@@ -164,7 +164,7 @@
        "user_security_context": false
       },
       "document_position": 3,
-      "id": "97c4f031-56d7-445a-87a2-1036d7a6c8d9",
+      "id": "00000000-0000-4005-8000-000000000004",
       "ilt_filter": null,
       "path": "C:\\Windows\\replace .ini",
       "property": "With",

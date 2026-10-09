@@ -556,6 +556,40 @@ def test_the_baseline_covers_every_capture_and_came_from_bd84b3a() -> None:
         assert provenance["generated_by"] == "scripts/generate_gpp_baseline_fixture.py"
 
 
+def test_the_baseline_regenerates_byte_for_byte_at_bd84b3a(tmp_path: Path) -> None:
+    """The committed records are exactly what bd84b3a makes (second review, N6).
+
+    Runs scripts/generate_gpp_baseline_fixture.py --check on bd84b3a's own
+    tree, taken from the repository; skipped only where that commit is not in
+    the clone (a shallow checkout).
+    """
+    import subprocess
+    import sys
+    import tarfile
+
+    available = subprocess.run(
+        ["git", "-C", str(ROOT), "cat-file", "-e", "bd84b3a^{commit}"],
+        capture_output=True, check=False,
+    )
+    if available.returncode != 0:
+        pytest.skip("bd84b3a is not in this clone")
+    archive = tmp_path / "bd84b3a.tar"
+    subprocess.run(
+        ["git", "-C", str(ROOT), "archive", "--output", str(archive), "bd84b3a", "src"],
+        check=True,
+    )
+    with tarfile.open(archive) as tar:
+        tar.extractall(tmp_path / "tree", filter="data")
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/generate_gpp_baseline_fixture.py"),
+         "--source", str(tmp_path / "tree/src"), "--commit", "bd84b3a",
+         "--out", str(BASELINE), "--check"],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "19 records reproduce byte for byte" in result.stdout
+
+
 @pytest.mark.parametrize("record_path", BASELINE_RECORDS, ids=lambda path: path.stem)
 def test_a_record_bd84b3a_stored_keeps_its_digests_and_export(record_path: Path) -> None:
     record = json.loads(record_path.read_text("utf-8"))

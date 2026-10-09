@@ -22,6 +22,7 @@ from .gpp import (
     GppCollection,
     GppGroup,
     GppRegistry,
+    GppScope,
     gpp_document_order,
     retained_rendering,
 )
@@ -335,7 +336,7 @@ def _gpp_members_equal(a: GppGroup, b: GppGroup) -> bool:
     return a_seq == b_seq
 
 
-def _gpp_groups_equal(a: GppGroup, b: GppGroup) -> bool:
+def _gpp_groups_equal(a: GppGroup, b: GppGroup, scope: str) -> bool:
     return (
         a.name.casefold() == b.name.casefold()
         and a.sid.lower() == b.sid.lower()
@@ -346,7 +347,7 @@ def _gpp_groups_equal(a: GppGroup, b: GppGroup) -> bool:
         and a.unknown_attrs == b.unknown_attrs
         and a.unknown_props_attrs == b.unknown_props_attrs
         and a.unknown_children == b.unknown_children
-        and _retained_equal("groups", a, b)
+        and _retained_equal("groups", a, b, scope)
         and _gpp_members_equal(a, b)
         and _ilt_equal(a.ilt_filter, b.ilt_filter)
     )
@@ -364,7 +365,7 @@ def _gpp_registry_value_equal(a: GppRegistry, b: GppRegistry) -> bool:
     )
 
 
-def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
+def _gpp_registry_equal(a: GppRegistry, b: GppRegistry, scope: str) -> bool:
     return (
         a.key.casefold() == b.key.casefold()
         and a.hive.casefold() == b.hive.casefold()
@@ -372,7 +373,7 @@ def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
         and a.uid == b.uid
         and a.unknown_attrs == b.unknown_attrs
         and a.unknown_children == b.unknown_children
-        and _retained_equal("registry", a, b)
+        and _retained_equal("registry", a, b, scope)
         and _ilt_equal(a.ilt_filter, b.ilt_filter)
         and _gpp_registry_value_equal(a, b)
     )
@@ -547,7 +548,7 @@ def _diff_gpp_groups(
             )
         else:
             old_group = old_map[identity]
-            if not _gpp_groups_equal(old_group, new_group):
+            if not _gpp_groups_equal(old_group, new_group, scope):
                 changes.append(
                     GppGroupChange(
                         kind="modified",
@@ -598,7 +599,7 @@ def _diff_gpp_registry(
             )
         else:
             old_reg = old_map[identity]
-            if not _gpp_registry_equal(old_reg, new_reg):
+            if not _gpp_registry_equal(old_reg, new_reg, scope):
                 changes.append(
                     GppRegistryChange(
                         kind="modified",
@@ -704,19 +705,20 @@ def _gpp_collection_equal(a: GppCollection, b: GppCollection) -> bool:
     )
 
 
-def _retained_equal(key: str, a: Any, b: Any) -> bool:
+def _retained_equal(key: str, a: Any, b: Any, scope: str) -> bool:
     """Whether two items' retained native elements write the same thing (WI-080).
 
     Not the raw ``native_xml``: that is provenance. A Studio-authored item and
     its re-import write identical XML, as do a draft edit and a re-import of
     the draft's export, though their ``native_xml`` differ (review P2: both
     were reported as changes, the second as a conflict). What the export
-    writes beyond the model (`gpp.retained_rendering`) is what is compared.
-    Groups and registry items render the same in either scope.
+    writes beyond the model (`gpp.retained_rendering`) is what is compared,
+    in the collection's own scope.
     """
     if a.native_xml == b.native_xml:
         return True
-    return retained_rendering(key, a, "computer") == retained_rendering(key, b, "computer")
+    side: GppScope = "user" if scope == "user" else "computer"
+    return retained_rendering(key, a, side) == retained_rendering(key, b, side)
 
 
 def _adapter_retained(collection: GppCollection) -> tuple[tuple[str, ...], ...]:
@@ -1091,7 +1093,7 @@ def _three_way_gpp_conflicts(
                 )
             )
             continue
-        if not _gpp_groups_equal(draft_group, observed_group):
+        if not _gpp_groups_equal(draft_group, observed_group, draft_group_change.scope):
             conflicts.append(
                 GppGroupConflict(
                     kind="group",
@@ -1124,7 +1126,7 @@ def _three_way_gpp_conflicts(
                 )
             )
             continue
-        if not _gpp_registry_equal(draft_reg, observed_reg):
+        if not _gpp_registry_equal(draft_reg, observed_reg, draft_reg_change.scope):
             conflicts.append(
                 GppRegistryConflict(
                     kind="registry",
