@@ -1118,6 +1118,36 @@ RETIRED_VERDICTS.update({
 })
 
 
+# The release 1.1.0 successor batch, 2026-10-09: six lanes re-run at
+# `9940561` (`fix/gpp-attribute-preservation`, WI-080/081/082), which changed
+# `gpp.py`, `gpp_adapters.py`, `canonical.py`, `report_parity.py` and
+# `backup_inventory.py`. Exactly the six release 1.1.0 verdicts binding those
+# files expired; their successors are registered here and they are retired. The
+# other 19 still bind the shipping tree. `docs/plan-033/release110-successors-batch.md`.
+LANE_VERDICTS.update({
+    'wp1b-evidence/release110-rerun-20261009/wp1b/verification.json': 'finalize_wp1b_run.py',
+    'wp1b-evidence/release110-rerun-20261009/scripts-metadata/verification.json': (
+        'finalize_scripts_backup_run.py'
+    ),
+    'wp1b-evidence/release110-rerun-20261009/publication/verification.json': (
+        'finalize_publication_run.py'
+    ),
+    'wp2-evidence/release110-rerun-20261009/report-parity/verification.json': (
+        'finalize_report_parity_run.py'
+    ),
+    'wp3-evidence/release110-rerun-20261009/firewall/verification.json': 'finalize_firewall_run.py',
+    'wp4-evidence/release110-rerun-20261009/fdeploy/verification.json': 'finalize_fdeploy_run.py',
+})
+RETIRED_VERDICTS.update({
+    'wp1b-evidence/release110-20261009/wp1b/verification.json',
+    'wp1b-evidence/release110-20261009/scripts-metadata/verification.json',
+    'wp1b-evidence/release110-20261009/publication/verification.json',
+    'wp2-evidence/release110-20261009/report-parity/verification.json',
+    'wp3-evidence/release110-20261009/firewall/verification.json',
+    'wp4-evidence/release110-20261009/fdeploy/verification.json',
+})
+
+
 #: WI-062: verdicts whose bound harness changed and whose replacement the next
 #: estate batch owes. Enumerated, never pattern-matched, for the same reason
 #: RETIRED_VERDICTS is: parking a verdict here is a deliberate act with a

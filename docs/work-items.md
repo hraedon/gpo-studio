@@ -32,11 +32,8 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**6 open.**
+**3 open.**
 
-- [WI-082](#wi-082--a-workbench-edit-reset-a-preference-items-common-options) - fixed in code; requalify with WI-080.
-- [WI-081](#wi-081--the-gpp-writer-typed-attribute-names-windows-does-not-write) - fixed in code; requalify the lanes binding `gpp_adapters.py` and `canonical.py` with WI-080.
-- [WI-080](#wi-080--exporting-a-stored-gpo-rewrote-its-preference-xml-dropping-what-the-model-does-not-type) - fixed in code; requalify the lanes binding `gpp.py`, `gpp_adapters.py`, `canonical.py` and `report_parity.py`.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
@@ -3494,7 +3491,7 @@ user-side task. Immediate tasks have no default principal on either side (an emp
 ## WI-080 — exporting a stored GPO rewrote its preference XML, dropping what the model does not type
 
 **Opened:** 2026-10-08 (an import, store and export of every committed native GPP capture, compared with the Windows bytes).
-**Status:** open. Fixed in code on 2026-10-08 (`fix/gpp-attribute-preservation`); pending requalification of the lanes that bind the changed files.
+**Status:** closed 2026-10-09. The requalification runs of every lane binding the changed files banked on them at `9940561` ([release 1.1.0 successor batch](plan-033/release110-successors-batch.md)): fdeploy `fd-20261009080824-4244`, firewall `firewall-20261009080610-2829523`, publication `publication-completeness-20261009080352-5754`, report-parity `report-parity-20261009080432-2383`, scripts-metadata `scripts-r10-20261009080318-5148`, wp1b `wp1b-writer-20261009080228-1849`. The other 19 live verdicts bind none of the five changed files and still bind the tree.
 
 **What was wrong.** Studio kept an imported GPO's preference XML only in memory
 (`GppCollection.source_files`, never persisted). Every export of a STORED GPO --
@@ -3730,7 +3727,7 @@ as the imported value; supplying the default explicitly works (second re-check).
 ## WI-081 — the GPP writer typed attribute names Windows does not write
 
 **Opened:** 2026-10-08 (found while fixing WI-080).
-**Status:** open. Fixed in code on 2026-10-08 (`fix/gpp-attribute-preservation`); pending requalification with WI-080.
+**Status:** closed 2026-10-09. The WI-080 requalification banked at `9940561` ([release 1.1.0 successor batch](plan-033/release110-successors-batch.md)).
 
 **What was wrong.** Printers' typed `set_default` and `use_local` were read and written
 as `setDefault` and `useLocal`. No capture contains either: GPMC writes `default`
@@ -3790,7 +3787,7 @@ folder, shortcut or immediate task).
 ## WI-082 — a workbench edit reset a preference item's common options
 
 **Opened:** 2026-10-08 (found while fixing WI-080).
-**Status:** open. Fixed in code on 2026-10-08 (`fix/gpp-attribute-preservation`); pending requalification with WI-080.
+**Status:** closed 2026-10-09. The WI-080 requalification banked at `9940561` ([release 1.1.0 successor batch](plan-033/release110-successors-batch.md)).
 
 **What was wrong.** The API's group and registry payloads carried no common options,
 and the store replaced the edited item wholesale. So every edit through the

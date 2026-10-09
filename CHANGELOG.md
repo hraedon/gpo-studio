@@ -15,7 +15,7 @@ Current version: `1.1.0rc1` (release candidate). The latest final release is
 Operator-facing:
 
 - **A stored GPO's preferences are exported as Windows wrote them, fixed and
-  awaiting requalification (WI-080).** Studio kept an imported GPO's
+  requalified (WI-080).** Studio kept an imported GPO's
   preference XML only in memory, so every export of a stored GPO (the GPMC
   backup, `export.zip`, the publication planner) rebuilt it from the typed
   model, edited or not. That dropped every `Properties` attribute the model
@@ -82,7 +82,7 @@ Operator-facing:
   firewall, publication, report-parity, scripts-metadata and WP-1B lanes must
   re-run; every lane candidate builds byte for byte as before.
 - **A GPMC default printer reads as the default, and the GPP writer types only
-  attribute names Windows writes, fixed and awaiting requalification
+  attribute names Windows writes, fixed and requalified
   (WI-081).** Printers' typed `set_default` and `use_local` were read and
   written as `setDefault` and `useLocal`, which no capture contains; GPMC
   writes `default` and `skipLocal`. So the model, the API, reports and diffs
@@ -100,7 +100,7 @@ Operator-facing:
   capture. Families with no capture are not claimed. Every lane candidate
   builds byte for byte as before.
 - **A workbench edit keeps a preference item's common options, fixed and
-  awaiting requalification (WI-082).** The group and registry edit payloads
+  requalified (WI-082).** The group and registry edit payloads
   carried no common options and the store replaced the item, so every edit
   reset apply-once (dropping its run-once filter), disabled,
   remove-when-not-applied, run-in-user-context and stop-on-error. An add or
@@ -111,6 +111,24 @@ Operator-facing:
   (`tests/test_gpp_common_option_edits.py`), and by saving every group and
   registry item of every native capture back through the API, after which the
   export must still equal the capture.
+
+### Evidence
+
+- **Banked the release 1.1.0 successor batch**
+  ([batch note](docs/plan-033/release110-successors-batch.md)). The WI-080,
+  WI-081 and WI-082 fix changed `gpp.py`, `gpp_adapters.py`, `canonical.py`,
+  `report_parity.py` and `backup_inventory.py`, which exactly six release 1.1.0
+  verdicts bind. Those six lanes (WP-1B, scripts-metadata, publication, report
+  parity, firewall, fdeploy) re-ran at `9940561` and all passed (schema 3
+  manifest: `test_scope_tool` and `exec_failed` false on every row), with a
+  clean post-batch directory check. Their verdicts replace the six, which are
+  retired; the other 19 release 1.1.0 verdicts still bind the tree unchanged.
+  The lane evidence tests, `platforms.json`, the environment spec, the
+  capability matrix, the results headers and the 1.1.0 release-evidence
+  records cite the successor runs. WI-080, WI-081 and WI-082 close.
+- `scripts/plan-033/bank-requal-batch.py retarget` no longer rewrites a commit
+  that lanes outside the new batch still bind (it rewrote all 19 unchanged
+  lanes' citations in `platforms.json` before this fix).
 
 ## [1.1.0-rc.1] - 2026-10-09
 

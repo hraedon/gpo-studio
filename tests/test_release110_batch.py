@@ -8,7 +8,9 @@ lane binds; the manifest records it under `superseded_attempts`. The batch note
 is `docs/plan-033/release110-batch.md`.
 
 Run ids, commit and pack paths are read from the manifest, never restated, so
-a later batch re-points this file by replacing the manifest.
+a later batch re-points this file by replacing the manifest. Six lanes were
+re-run at 9940561 by a successor batch (`release110-successors-batch.json`);
+the live-set and platform checks here take those runs in place of this batch's.
 """
 
 from __future__ import annotations
@@ -34,6 +36,12 @@ BATCH = json.loads((EVIDENCE / "release110-batch.json").read_text(encoding="utf-
 FROZEN = BATCH["source_commit"]
 ALL_RUNS = BATCH["runs"] + BATCH["successors"]
 CLEANUP = "release110-cleanup"
+#: The successor batch (9940561, WI-080/081/082) re-ran six of these lanes; its
+#: runs replace this batch's for those lanes in the live set and the records.
+SUCCESSORS = json.loads(
+    (EVIDENCE / "release110-successors-batch.json").read_text(encoding="utf-8")
+)
+SUCCEEDED = {run["name"] for run in SUCCESSORS["runs"]}
 #: Every field the driver writes on a progress row (schema 2).
 PROGRESS_FIELDS = (
     "runner", "started_utc", "completed_utc", "exit_status", "budget_seconds",
@@ -191,16 +199,27 @@ def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None
 
 
 def test_the_batch_is_the_live_set() -> None:
-    """25 batch verdicts are live; every verdict live before it is retired."""
+    """This batch's verdicts are live, but for the six its successor replaced.
+
+    Every verdict live before the batch is retired. Since the successor batch
+    (`release110-successors-batch.json`), the six lanes it re-ran are live
+    through its runs and their 1.1.0 verdicts are retired; the other 19 are
+    this batch's.
+    """
     registry = _registry()
     batch_verdicts = {r["verdict"] for r in BATCH["runs"] if r["name"] != "wp0"}
     assert len(batch_verdicts) == 25
     assert batch_verdicts <= set(registry["LANE_VERDICTS"])
     assert set(registry["RETIRED_VERDICTS"]) >= RETIRED_BY_THE_BATCH
     assert set(registry["PENDING_REQUALIFICATION"]) == set()
-    assert set(registry["LIVE_VERDICTS"]) == batch_verdicts, (
-        "The live set must be exactly this batch's verdicts; anything else is "
-        "either an unretired stale binding or a missing registration."
+    replaced = {r["verdict"] for r in BATCH["runs"] if r["name"] in SUCCEEDED}
+    successors = {r["verdict"] for r in SUCCESSORS["runs"]}
+    assert len(replaced) == len(successors) == 6
+    assert replaced <= set(registry["RETIRED_VERDICTS"])
+    assert set(registry["LIVE_VERDICTS"]) == (batch_verdicts - replaced) | successors, (
+        "The live set must be exactly this batch's verdicts with the successor "
+        "batch's runs in place of the six it replaced; anything else is either an "
+        "unretired stale binding or a missing registration."
     )
     # Every lane replaced exactly one earlier verdict.
     lanes = sorted(Path(v).parent.name for v in batch_verdicts)
@@ -376,6 +395,7 @@ def test_the_firewall_write_leg_registers_the_native_tool_guid() -> None:
 def test_platform_lane_records_name_the_current_qualification() -> None:
     """platforms.json names the run and commit each lane is qualified by today."""
     runs = {run["name"]: run for run in ALL_RUNS}
+    runs.update({run["name"]: run for run in SUCCESSORS["runs"]})
     platforms = json.loads(
         (ROOT / "tests/fixtures/scenarios/platforms.json").read_text(encoding="utf-8")
     )

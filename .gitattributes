@@ -139,3 +139,8 @@ docs/release-evidence-report-*.json text eol=lf
 # SHA-256s cover those bytes.
 docs/plan-033/*-evidence/release110-20261009/** -text -whitespace
 docs/plan-033/release110-cleanup/** -text -whitespace
+
+# Release 1.1.0 successor batch (9940561, WI-080/081/082): six re-run lanes, same
+# pack form; the successor manifest's SHA-256s cover those bytes.
+docs/plan-033/*-evidence/release110-rerun-20261009/** -text -whitespace
+docs/plan-033/release110-rerun-cleanup/** -text -whitespace

@@ -1,11 +1,12 @@
 """The firewall lane's current certifying run, as the batch manifest records it.
 
-The release 1.1.0 batch's run of the lane (run id, commit and pack read from
-`docs/plan-033/release110-batch.json`), banked the way every batch pack is:
-the controller's local run directory verbatim, plus `controller-candidate/`
-(the builder's output) and `controller.log`. It replaced the lane's first
-verdict, `firewall-20261008094055-2092337` at `a6e0002`, which is retired with
-its pack and tag unchanged. The
+The release 1.1.0 successor batch's run of the lane (9940561, WI-080/081/082;
+run id, commit and pack read from `docs/plan-033/release110-successors-batch.json`),
+banked the way every batch pack is: the controller's local run directory
+verbatim, plus `controller-candidate/` (the builder's output) and
+`controller.log`. It replaced the release 1.1.0 batch's run at `de9736e`, and
+before that the lane's first verdict, `firewall-20261008094055-2092337` at
+`a6e0002`; both are retired with their packs and tags unchanged. The
 generic gates in `test_committed_evidence.py` cover the registry, the
 manifest-form binding at the commit and the live-harness hashes. This file pins
 what is specific to this pack: every byte is accounted for, the shipping
@@ -38,7 +39,7 @@ ROOT = Path(__file__).resolve().parents[1]
 _BATCH_RUN = next(
     run
     for run in json.loads(
-        (ROOT / "docs/plan-033/release110-batch.json").read_text(encoding="utf-8")
+        (ROOT / "docs/plan-033/release110-successors-batch.json").read_text(encoding="utf-8")
     )["runs"]
     if run["name"] == "firewall"
 )

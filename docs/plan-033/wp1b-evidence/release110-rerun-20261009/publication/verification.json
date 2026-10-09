@@ -1,0 +1,145 @@
+{
+  "artifacts": {
+    "builder.stdout.txt": "6f6130a709e580c263208eeccc2d501ef867f277300236625d49e87b369bcbb4",
+    "candidate.zip": "e68ce3d2f09f913436f303203754152474ed282fa81c8ba03974eee64c6432c5",
+    "commands/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import.stdout.txt": "5c5cfc6163b5e898fafe46f01e00afebc2a9453866dd794fb49cb3f794cc7e76",
+    "commands/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "deployed/run-publication-import.ps1": "a59a52d38f79233847238a2fde2d76f44c20b60062960b8fca3082fa9ac0e9a4",
+    "input/manifest.xml": "e74c34a77f9247730ada41621761476e8c688c8c2517e60f2b827e7a4979c03b",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/Backup.xml": "b6cdd6f0a97d07fd5213d8d62bb57361319ad3aad7b5bbdb2945debe7ebb3a3f",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml": "88a027fd9da2365d93fa8538cb0016023bedd473d7c62eb0ff64429a6a9cd091",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/DomainSysvol/GPO/Machine/registry.pol": "1c78e62222391e07ea06a6876e1a69470857e4fd488025ebc4be8fe02b95695f",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml": "12ac227b209ff1a5d4f1bb2ef2c77397f1868aaddca19e8f685d2241b18b7e4c",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/DomainSysvol/GPO/User/registry.pol": "980b383efa1b32ec812887f20f076aa50f4ade74c7d21646adc01b4a8a49809b",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/bkupInfo.xml": "e9c5e1451c06cb861947ac66e886bb2c778e464149ffe050b33472fb752f4155",
+    "report.xml": "3515a76b0b15494a599136ea22c083e0defc4c3dd5fe089ad2ee868ee61e802b",
+    "result.json": "665188d41725efe7f0525429230192a1565cac984ae1631d95f047b5c1a94f26"
+  },
+  "candidate": {
+    "builder.stdout.txt": "6f6130a709e580c263208eeccc2d501ef867f277300236625d49e87b369bcbb4",
+    "expected.json": "96d746b5213da198acd28e761c9998911c7e511aa67684e521e96f9ec841a9d3",
+    "studio-publication-backup.zip": "e68ce3d2f09f913436f303203754152474ed282fa81c8ba03974eee64c6432c5"
+  },
+  "candidate_delivery": {
+    "controller_sha256": "e68ce3d2f09f913436f303203754152474ed282fa81c8ba03974eee64c6432c5",
+    "guest_sha256": "e68ce3d2f09f913436f303203754152474ed282fa81c8ba03974eee64c6432c5"
+  },
+  "checks": {
+    "ad_version_number_moved_the_declared_half": true,
+    "candidate_delivered_intact": true,
+    "candidate_identity_matches_manifest": true,
+    "cleanup_state_restored": true,
+    "cleanup_succeeded": true,
+    "deployed_harness_matches_source": true,
+    "disposable_gpo_unlinked": true,
+    "environment_matches_frozen_spec": true,
+    "gpo_cmt_present_only_if_planned": true,
+    "gpt_version_moved_the_declared_half": true,
+    "harness_reported_no_error": true,
+    "import_succeeded": true,
+    "machine_extension_names_exact": true,
+    "member_server_host_role": true,
+    "plan_names_every_file_windows_wrote": true,
+    "raw_command_artifacts_complete": true,
+    "result_schema_exact": true,
+    "source_tree_clean": true,
+    "sysvol_path_is_the_owned_gpos": true,
+    "user_extension_names_exact": true,
+    "windows_wrote_every_file_the_plan_names": true
+  },
+  "comparison": {
+    "expected_machine_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}][{91FBB303-0CD5-4055-BF42-E512A681B325}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}]",
+    "expected_user_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F73-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}][{5794DAFD-BE60-433F-88A2-1A31939AC01F}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}]",
+    "expected_version_half": "both",
+    "missing_files": [],
+    "observed_ds_version_halves": {
+      "machine": 1,
+      "user": 1
+    },
+    "observed_gpt_ini_version": 65537,
+    "observed_machine_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}][{91FBB303-0CD5-4055-BF42-E512A681B325}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}]",
+    "observed_sysvol_paths": [
+      "gpt.ini",
+      "machine/preferences/services/services.xml",
+      "machine/registry.pol",
+      "user/preferences/drives/drives.xml",
+      "user/registry.pol"
+    ],
+    "observed_sysvol_version_halves": {
+      "machine": 1,
+      "user": 1
+    },
+    "observed_user_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F73-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}][{5794DAFD-BE60-433F-88A2-1A31939AC01F}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}]",
+    "observed_version_number": 65537,
+    "planned_sysvol_paths": [
+      "gpt.ini",
+      "machine/preferences/services/services.xml",
+      "machine/registry.pol",
+      "user/preferences/drives/drives.xml",
+      "user/registry.pol"
+    ],
+    "unplanned_files": []
+  },
+  "comparison_error": null,
+  "environment": {
+    "computer_system_domain": "ad.labdomain.dev",
+    "computer_system_domain_role": 3,
+    "computer_system_name": "LABMS01",
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.33438",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "environment_violations": [],
+  "harness_error": null,
+  "passed": true,
+  "run_id": "publication-completeness-20261009080352-5754",
+  "schema_version": 2,
+  "source": {
+    "banked_copies": [
+      "run-publication-import.ps1"
+    ],
+    "commit": "99405618105edaa4b408be92047f83b6a24dd217",
+    "dirty": false,
+    "files": {
+      "build-publication-candidate.py": "b05b9a632e9658881a0e8c3c427299f6a4df0db600b687c5efb5b6afbf7dc3ab",
+      "canonical.py": "105426905fd7db12634424208184ab2ec35d07b4c6236807714c7d62ce125866",
+      "deterministic_zip.py": "334eee3fabceacb0a96189ea9d6734122328b2d2d06ecc3d8b9150874a90094c",
+      "export.py": "dfaebb0881402dedf72dd94226af7a2e13bc7bf49c79ad8f4eaac2e0d6c2a25e",
+      "finalize_publication_run.py": "674abcd35edd6b207be48d93360c5194246c5019e11ac27029bcb0d5645e13f4",
+      "gpp.py": "db1473094d06cf11ba074877f23196fe78c46bc8135f5d06b79b1f7d923a44b4",
+      "model.py": "a02e3958cd7d18f3e3d90f9b8da84668f73332f7a74cd8bbf87f8b09574f75ab",
+      "oracle_evidence.py": "87d413de0d4017b230eea2767f9d62fe7ffb26fca155d90a00d38b5697bad40c",
+      "psdirect.ps1": "d2fb2ffd09869f1214ca916bdc3ea5c31c149b4d98ebcc322d1af7c29410aeb3",
+      "publication.py": "83f017ee848285f4cc69319690e7b5886c6d7b509c002ecf8abfdd8aa60f72d5",
+      "registry_pol.py": "893014badac42eb3c98c5c951564a5969d886018e81b7431138e50e1486ecc3a",
+      "run-publication-import.ps1": "a59a52d38f79233847238a2fde2d76f44c20b60062960b8fca3082fa9ac0e9a4",
+      "run-publication-oracle.sh": "368fa2f2a8118c197457ffd2477a8df42ffd4f96b1b743703f3a96efcac6687c",
+      "validation.py": "18148137d32222884e7cb03cea8dbb259b2b2d40d273ce3475f14f9adb1ac032",
+      "xml_safety.py": "c0d196739b4accd494049b9d9959a78078e4934258734c00c0cd3e38df030a11"
+    },
+    "paths": {
+      "build-publication-candidate.py": "scripts/plan-033/build-publication-candidate.py",
+      "canonical.py": "src/gpo_studio/canonical.py",
+      "deterministic_zip.py": "src/gpo_studio/deterministic_zip.py",
+      "export.py": "src/gpo_studio/export.py",
+      "finalize_publication_run.py": "scripts/windows-oracle/finalize_publication_run.py",
+      "gpp.py": "src/gpo_studio/gpp.py",
+      "model.py": "src/gpo_studio/model.py",
+      "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+      "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+      "publication.py": "src/gpo_studio/publication.py",
+      "registry_pol.py": "src/gpo_studio/registry_pol.py",
+      "run-publication-import.ps1": "scripts/windows-oracle/run-publication-import.ps1",
+      "run-publication-oracle.sh": "scripts/windows-oracle/run-publication-oracle.sh",
+      "validation.py": "src/gpo_studio/validation.py",
+      "xml_safety.py": "src/gpo_studio/xml_safety.py"
+    }
+  },
+  "transport": "psdirect"
+}

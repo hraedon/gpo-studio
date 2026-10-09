@@ -1,6 +1,14 @@
 # Report parity — Windows results
 
-**Current qualification (2026-10-09):** `report-parity-20261009001727-3532`, 26/26, on
+**Current qualification (2026-10-09):** `report-parity-20261009080432-2383`, 26/26, on
+clean frozen `99405618105edaa4b408be92047f83b6a24dd217`
+([evidence](wp2-evidence/release110-rerun-20261009/report-parity/verification.json),
+[release 1.1.0 successor batch](release110-successors-batch.md)), tagged
+`evidence/report-parity-20261009080432-2383`. 30 corpus cases plus the guest-authored case. It replaces the release 1.1.0 batch's run below: the WI-080/081/082 fix
+changed `gpp.py`, `gpp_adapters.py`, `canonical.py`, `report_parity.py` and
+`backup_inventory.py`, and this lane binds some of them.
+
+**Previous qualification (2026-10-09):** `report-parity-20261009001727-3532`, 26/26, on
 clean frozen `de9736ed3a4148b91cf2267fbe4640e260cc232f`
 ([evidence](wp2-evidence/release110-20261009/report-parity/verification.json),
 [release 1.1.0 batch](release110-batch.md)), tagged
