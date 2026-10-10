@@ -511,8 +511,9 @@ jobs:
     # Restores defects a self-consistent round-trip test cannot see (a parser
     # that reads nothing, a comparator that always agrees, an export that
     # ignores what import retained) in throwaway copies of the tree, and
-    # requires the tests named for each to fail. About 40 s locally for 17
-    # mutants (2026-10-09). A surviving mutant exits 1.
+    # requires the tests named for each to fail. 17 mutants took 36-68 s on a
+    # 12-vCPU dev host across three runs (2026-10-09/10), depending on load.
+    # A surviving mutant exits 1.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

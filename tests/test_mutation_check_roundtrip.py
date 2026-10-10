@@ -1,7 +1,7 @@
 """Keep the round-trip mutation check runnable and run.
 
 ``scripts/mutation_check_roundtrip.py`` proves the round-trip and parity tests
-fail when the code they name is broken. It runs as its own CI job (about 40 s);
+fail when the code they name is broken. It runs as its own CI job (about a minute);
 these fast checks fail in the ordinary test run when a refactor moves one of
 its anchors, or when the job is dropped, rather than leaving a check that has
 quietly stopped mutating anything.
