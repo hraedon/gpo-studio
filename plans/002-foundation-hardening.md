@@ -1,6 +1,10 @@
 # Plan 002 — Foundation hardening
 
-Status: executable plan  
+Status: implemented — WP-1 to WP-7 landed in `5d79239` (2026-07-11). WP-8, the
+Windows lab, was deferred in this plan and delivered by its successors, Plan
+017 WP-5 and [Plan 033](033-windows-external-oracle-validation.md). **Surfaced**
+through Plan 003, except `payload.py`, which no API route reaches. This plan
+ran no Windows evidence; current verification is in the [capability matrix](../docs/capability-matrix.md).  
 Scope: strengthen the information and trust foundations of the offline
 workbench without weakening the v0.1 safety boundary  
 Depends on: existing v0.1 editor, `docs/architecture.md`, `plans/001-maximalist-platform.md` §14

@@ -1,6 +1,8 @@
 # Plan 011 — Estate import and baseline forking (Milestone 1 close-out)
 
-Status: executable plan
+Status: implemented — `b724710` (2026-07-12). **Surfaced**: estate import,
+baseline fork and estate diff. File upload was deferred and delivered by Plan
+013 (`e3aa321`). No Windows path applies (estate import row of the [capability matrix](../docs/capability-matrix.md)).
 Scope: import gpo-lens estate exports as read-only baselines, fork baselines
 into editable drafts, wire three-way diff to estate data
 Depends on: Plan 009 (validation hardening), Plan 010 (UI module split)

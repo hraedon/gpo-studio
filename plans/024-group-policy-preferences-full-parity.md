@@ -1,6 +1,6 @@
 # Plan 024 — Group Policy Preferences full parity
 
-Status: implemented — domain layer landed and **surfaced**. `gpp_adapters.py`
+Status: implemented — domain layer landed (`a2c31cd`, 2026-07-26) and **surfaced**. `gpp_adapters.py`
 is reachable from the API through `gpp.py`, `canonical.py`, and
 `import_export.py`. Native GPP backup emission is a strict allowlist (Drive
 Maps, Local Users and Groups, Scheduled Tasks); the remaining families require

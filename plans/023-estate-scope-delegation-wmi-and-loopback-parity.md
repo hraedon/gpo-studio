@@ -1,6 +1,7 @@
 # Plan 023 — Estate, scope, delegation, WMI, and loopback parity
 
-Status: implemented — domain layer landed and **surfaced**. `som.py`,
+Status: implemented — domain layer landed (`a2c31cd`, 2026-07-26; `ad_discovery.py` in
+`6b23d39`) and **surfaced**. `som.py`,
 `delegation.py`, `wmi_filter.py`, and `ad_discovery.py` are reachable from the
 API (`/api/gpos/{guid}/links`, `/api/loopback/*`, `/api/discovery/*`,
 `/api/delegation/effective-rights`). Not yet Windows-verified: no capability

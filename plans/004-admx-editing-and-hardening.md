@@ -1,6 +1,8 @@
 # Plan 004 — ADMX policy editing and post-integration hardening
 
-Status: executable plan  
+Status: implemented — `55a300a` (2026-07-12). **Surfaced**: the ADMX configure
+dialog and its API. Enum elements were deferred to Plan 005. This plan ran no
+Windows evidence; ADMX verification is in the [capability matrix](../docs/capability-matrix.md).  
 Scope: deliver the first policy-configuration capability (ADMX → Registry.pol),
 surface GPMC backup export in the UI, and harden types and structure flagged
 by the Plan 003 adversarial review  

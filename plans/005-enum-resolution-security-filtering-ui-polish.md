@@ -1,6 +1,8 @@
 # Plan 005 — Enum value resolution, security filtering foundation, and UI polish
 
-Status: executable plan  
+Status: implemented — `60c80d2` (2026-07-12). **Surfaced**: the Security tab
+(security filters, WMI filter) and the ADMX enum dropdown. This plan ran no
+Windows evidence; current verification is in the [capability matrix](../docs/capability-matrix.md).  
 Scope: resolve the deferred ADMX enum element gap, lay groundwork for  
 security filtering (SDDL), and round out the authoring UX  
 Depends on: Plan 004 (ADMX policy editing, typed CSE metadata, import_export  

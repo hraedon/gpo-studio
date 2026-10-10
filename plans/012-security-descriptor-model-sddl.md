@@ -1,6 +1,11 @@
 # Plan 012 — Security descriptor model (Milestone 2 start)
 
-Status: executable plan
+Status: implemented in part — WP-1 (`sddl.py`) in `b724710` (2026-07-12); WP-2
+and WP-3 delivered by [Plan 013](013-gpmc-xml-migration-tables-estate-diff-ui.md)
+(`e3aa321`), and WP-2's GPMC XML emission was later removed by `96f3aec`. WP-4
+(SDDL-based security filter validation) never landed: `validation.py` does not
+use `sddl.py`. Not Windows-verified; see the SDDL and migration-table rows of
+the [capability matrix](../docs/capability-matrix.md).
 Scope: SDDL string parsing and generation, GPMC-compliant SecurityFilter
 XML structure, migration table support for cross-domain SID mapping
 Depends on: Plan 009 (principal format validation), Plan 011 (estate import)

@@ -1,6 +1,10 @@
 # Plan 003 — Integration & first GPMC-grade capabilities
 
-Status: executable plan  
+Status: implemented — `8a248e2` (2026-07-12; plan text `4929f54`). **Surfaced**:
+ADMX search and browse, `/api/diff`, GPMC backup import and export. This plan
+ran no Windows evidence. The GPMC backup format it exported was later replaced
+by Plan 033's `Backup.xml` v2.0 export (`96f3aec`); current verification is in
+the [capability matrix](../docs/capability-matrix.md).  
 Scope: wire Plan 002 foundations into the application and deliver the first
 user-visible capabilities from Phase 1 (GPMC-grade offline editor)  
 Depends on: Plan 002 modules (`canonical`, `admx`, `diff`, `backup`, `payload`,
