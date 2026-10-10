@@ -147,6 +147,13 @@ Operator-facing:
 
 ### Evidence
 
+- `tests/test_release_downgrade_refusal.py` re-executes 1.0.0's own version
+  guards, vendored verbatim from the tag (and compared with it when present),
+  against what this tree writes: 1.0.0 refuses the upgraded workspace without
+  changing a byte of it, and refuses a backup of it from the sidecar this
+  tree's `backup_workspace` writes today. It also requires a release-written
+  workspace fixture for every schema a release left behind, and holds this
+  tree to refusing a newer workspace without writing to it.
 - **Banked the release 1.1.0 successor batch**
   ([batch note](docs/plan-033/release110-successors-batch.md)). The WI-080,
   WI-081 and WI-082 fix changed `gpp.py`, `gpp_adapters.py`, `canonical.py`,
