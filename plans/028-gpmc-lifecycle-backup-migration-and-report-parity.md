@@ -1,6 +1,6 @@
 # Plan 028 — GPMC lifecycle, backup, migration, and report parity
 
-Status: **same-domain half reconciled (2026-10-08): lane-certified and
+Status: **reconciled for the same-domain half (2026-10-08): lane-certified and
 surfaced, review only**. `lifecycle.py` is reachable at
 `POST /api/lifecycle/restore-plan`, over the same-domain lifecycle lane's
 verdict `lifecycle-20261008093248-2000-c76d10eb3f2849fe` (all 30 survival cells
