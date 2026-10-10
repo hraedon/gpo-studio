@@ -311,6 +311,8 @@ if ($Requirements) {
     if ($LASTEXITCODE -ne 0) { throw "Installing the locked dependencies failed." }
     & $Python -m pip install --no-deps --no-index $Wheel.FullName
     if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
+    & $Python -m pip check
+    if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
 } else {
     & $Python -m pip install $Wheel.FullName
 }

@@ -263,3 +263,14 @@ def test_the_quickstart_verifies_the_lockfile_and_the_attestations() -> None:
     assert "--signer-workflow hraedon/gpo-studio/.github/workflows/release.yml" in text
     release = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
     assert "actions/attest-build-provenance" in _job_block(release, "publish")
+
+
+def test_every_locked_quickstart_install_ends_with_pip_check() -> None:
+    """Install, upgrade and rollback alike (DeepSeek N7: rollback had none)."""
+    for block in _powershell_blocks():
+        text = "\n".join(block)
+        for locked in re.findall(r"if \(\$Requirements\) \{\n(.*?)\n\} else \{", text, re.S):
+            assert "--require-hashes -r $Requirements.FullName" in locked
+            assert locked.rstrip().splitlines()[-2].strip() == "& $Python -m pip check", locked
+    count = sum("\n".join(block).count("& $Python -m pip check") for block in _powershell_blocks())
+    assert count == 3
