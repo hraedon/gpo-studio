@@ -489,6 +489,14 @@ def test_the_serializer_never_hands_back_the_parsed_input() -> None:
     tampered = dataclasses.replace(document, raw_text="this text is not the document\r\n")
     assert format_fdeploy(tampered) == rebuilt
     assert "not the document" not in format_fdeploy(tampered)
+    # The 2026-09-11 defect returned `raw_text` only when it re-parsed to the
+    # document, so the text above never triggered it. Text that does re-parse
+    # to the same document but is not what the serializer writes (the LF form
+    # of a CRLF file) must not come back either.
+    lf = dataclasses.replace(document, raw_text=document.raw_text.replace("\r\n", "\n"))
+    assert lf.raw_text != document.raw_text
+    assert parse_fdeploy(lf.raw_text) == lf
+    assert format_fdeploy(lf) == rebuilt
 
 
 def test_the_size_ceiling_is_measured_in_the_file_s_own_bytes() -> None:
