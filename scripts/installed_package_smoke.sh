@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Installed-package smoke test: build wheel, install in clean venv, exercise CLI+API.
-# Run: bash scripts/installed_package_smoke.sh
+# Run from the repository root: bash scripts/installed_package_smoke.sh
 set -euo pipefail
+
+if [ ! -f scripts/print_installed_version.py ]; then
+  echo "FAIL: run from the repository root (the checks call scripts/*.py)"
+  exit 1
+fi
 
 TMPDIR=$(mktemp -d)
 SERVER_PID=""
@@ -52,8 +57,8 @@ echo "=== Creating clean venv ==="
 "$TMPDIR/venv/bin/pip" check
 
 echo "=== Checking version consistency ==="
-VENV_VERSION=$("$TMPDIR/venv/bin/python" -c "from gpo_studio import __version__; print(__version__)")
-META_VERSION=$("$TMPDIR/venv/bin/python" -c "import importlib.metadata as m; print(m.version('gpo-studio'))")
+VENV_VERSION=$("$TMPDIR/venv/bin/python" scripts/print_installed_version.py)
+META_VERSION=$("$TMPDIR/venv/bin/python" scripts/print_installed_version.py --metadata)
 if [ "$VENV_VERSION" != "$META_VERSION" ]; then
   echo "FAIL: __version__ ($VENV_VERSION) != package metadata ($META_VERSION)"
   exit 1
@@ -70,7 +75,7 @@ sleep 2
 
 echo "=== Checking installed API version ==="
 HEALTH=$(curl -sf "http://127.0.0.1:$PORT/api/health")
-HEALTH_VERSION=$(echo "$HEALTH" | "$TMPDIR/venv/bin/python" -c "import sys,json; print(json.load(sys.stdin)['version'])")
+HEALTH_VERSION=$(echo "$HEALTH" | "$TMPDIR/venv/bin/python" scripts/read_json_field.py version)
 if [ "$HEALTH_VERSION" != "$VENV_VERSION" ]; then
   echo "FAIL: API version ($HEALTH_VERSION) != installed version ($VENV_VERSION)"
   exit 1
@@ -80,7 +85,7 @@ echo "=== Creating GPO ==="
 RESPONSE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/gpos" \
   -H "Content-Type: application/json" \
   -d '{"name":"Smoke Test GPO","domain":"test.local","actor":"smoke","reason":"installed-package smoke test"}')
-GPO_GUID=$(echo "$RESPONSE" | "$TMPDIR/venv/bin/python" -c "import sys,json; print(json.load(sys.stdin)['gpo']['guid'])")
+GPO_GUID=$(echo "$RESPONSE" | "$TMPDIR/venv/bin/python" scripts/read_json_field.py gpo.guid)
 echo "Created GPO: $GPO_GUID"
 
 echo "=== Adding registry setting ==="

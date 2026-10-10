@@ -229,14 +229,14 @@ jobs:
           /tmp/sdist-venv/bin/pip check
       - name: Verify version consistency
         run: |
-          VENV_VERSION=$(/tmp/smoke-venv/bin/python -c "from gpo_studio import __version__; print(__version__)")
-          META_VERSION=$(/tmp/smoke-venv/bin/python -c "import importlib.metadata as m; print(m.version('gpo-studio'))")
+          VENV_VERSION=$(/tmp/smoke-venv/bin/python scripts/print_installed_version.py)
+          META_VERSION=$(/tmp/smoke-venv/bin/python scripts/print_installed_version.py --metadata)
           if [ "$VENV_VERSION" != "$META_VERSION" ]; then
             echo "FAIL: __version__ ($VENV_VERSION) != metadata ($META_VERSION)"
             exit 1
           fi
           echo "Version: $VENV_VERSION (consistent)"
-          SDIST_VERSION=$(/tmp/sdist-venv/bin/python -c "from gpo_studio import __version__; print(__version__)")
+          SDIST_VERSION=$(/tmp/sdist-venv/bin/python scripts/print_installed_version.py)
           test "$VENV_VERSION" = "$SDIST_VERSION"
       - name: Verify CLI entry point
         run: /tmp/smoke-venv/bin/gpo-studio --help
@@ -250,12 +250,7 @@ jobs:
             curl -sf http://127.0.0.1:8799/api/health > /tmp/health.json && break
             sleep 0.25
           done
-          /tmp/smoke-venv/bin/python - <<'PY'
-          import json
-          from gpo_studio import __version__
-          with open('/tmp/health.json', encoding='utf-8') as stream:
-              assert json.load(stream)['version'] == __version__
-          PY
+          /tmp/smoke-venv/bin/python scripts/check_health_version.py /tmp/health.json
           # Create a GPO
           curl -sf -X POST http://127.0.0.1:8799/api/gpos \
             -H "Content-Type: application/json" \
@@ -404,7 +399,7 @@ jobs:
             echo "FAIL: SBOM is empty or missing"
             exit 1
           fi
-          python -c "import json; data=json.load(open('sbom.cdx.json')); assert data['bomFormat'] == 'CycloneDX'; assert data['serialNumber'].startswith('urn:uuid:')"
+          python scripts/check_sbom_shape.py sbom.cdx.json
           echo "SBOM generated: $(stat -c%s sbom.cdx.json) bytes"
       - name: Upload SBOM
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
