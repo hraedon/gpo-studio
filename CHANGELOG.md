@@ -138,7 +138,23 @@ Operator-facing:
   the clean-environment installs of the built wheel and sdist); before, only the
   Windows test job did. Build, SBOM and audit tools come from a locked
   `release` dependency group, the build uses its hatchling without isolation,
-  and CI runs `uv lock --check`. `tests/test_locked_installs.py` holds the rule.
+  and CI runs `uv lock --check`. `tests/test_locked_installs.py` holds the rule
+  with a small grammar over the parsed workflows (allowlisted programs, listed
+  install shapes, everything else refused) rather than substring matches, which
+  review bypassed five ways.
+- The project build itself now uses the locked backend too. An editable
+  `uv sync --locked` still built gpo-studio in an isolated environment that
+  resolved `[build-system].requires` (`hatchling`, unversioned) from the index;
+  `[tool.uv]` now turns isolation off for gpo-studio and makes the locked
+  `build-backend` group (hatchling, editables) a default group.
+  `scripts/check_locked_build_backend.py`, run in CI, proves it offline against
+  a cache holding only that group, with an isolated build failing as control.
+  Requirements exports use `--no-default-groups`, so the backend stays out of
+  `requirements-lock.txt`.
+- The dependency audit covers every platform's locked packages: pip-audit
+  evaluates markers against the Linux runner, so `colorama` (Windows only) was
+  not audited; the markers are now dropped from the audited copy. CI installs
+  uv 0.12.0, the version that generated `uv.lock`, in every job.
 - `uv.lock` moves `anyio` 4.14.1 → 4.15.1 and `cryptography` 49.0.0 → 50.0.2:
   `pip-audit --strict` against the locked runtime set reported known
   vulnerabilities in both pinned versions (run 2026-10-09). The previous CI

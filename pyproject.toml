@@ -24,6 +24,7 @@ dev = [
   "pytest-cov>=6.1,<8",
   "ruff>=0.16,<0.17",
   "jsonschema>=4.26.0",
+  "pyyaml>=6.0.2,<7",
 ]
 
 [project.scripts]
@@ -32,11 +33,16 @@ gpo-studio = "gpo_studio.__main__:main"
 # Tools the CI and release workflows run, resolved from uv.lock like everything
 # else. A group, not an extra: it is never part of the wheel's metadata, and
 # `uv sync` does not install it unless asked (`--only-group release`).
-# `build-backend` is the locked copy of the [build-system] backend: the workflows
-# build with `--no-isolation`, and install the sdist with
-# `--no-build-isolation`, so no build resolves its own unpinned hatchling.
+# `build-backend` is the locked copy of the [build-system] backend (plus
+# `editables`, which hatchling asks for when building an editable install). No
+# build of this project resolves its own backend from the index:
+# - `uv sync`/`uv run`/`uv build` build gpo-studio without isolation (see
+#   [tool.uv] below), from this group's hash-checked, locked packages;
+# - the workflows build distributions with `python -m build --no-isolation` and
+#   install the sdist with `--no-build-isolation` after this group.
+# `tests/test_locked_build_backend.py` holds the group to [build-system].requires.
 [dependency-groups]
-build-backend = ["hatchling>=1.27"]
+build-backend = ["editables>=0.5", "hatchling>=1.27"]
 release = [
   { include-group = "build-backend" },
   "build>=1.2",
@@ -44,6 +50,19 @@ release = [
   "pip-audit>=2.9",
   "pip-licenses>=5",
 ]
+
+# A default group, so every `uv sync` installs the locked backend before it builds
+# the project; with build isolation off for gpo-studio, an environment without it
+# fails the build instead of fetching one. Re-locking after a dependency edit
+# needs that backend in the environment: run `uv sync --locked` first.
+#
+# `required-version` refuses a uv older than the one that generated uv.lock
+# (0.12.0); CI installs exactly that uv (setup-uv `version:`, held equal across
+# every use and inside this range by tests/test_locked_installs.py).
+[tool.uv]
+required-version = ">=0.12.0"
+default-groups = ["build-backend"]
+no-build-isolation-package = ["gpo-studio"]
 
 [tool.hatch.version]
 path = "src/gpo_studio/__init__.py"

@@ -15,11 +15,16 @@ if [ -n "${GPO_STUDIO_WHEEL:-}" ]; then
   WHEEL=$(realpath "$GPO_STUDIO_WHEEL")
 else
   echo "=== Building wheel ==="
-  if command -v uv >/dev/null 2>&1; then
-    uv build --wheel --out-dir "$TMPDIR/dist"
-  else
-    "$PYTHON" -m build --wheel --outdir "$TMPDIR/dist"
+  # With the locked backend only: a throwaway environment gets uv.lock's
+  # `build-backend` group, and `uv build` builds gpo-studio in it without
+  # isolation ([tool.uv] in pyproject.toml), so nothing resolves a backend from
+  # the index. No uv, no build: an isolated `python -m build` would.
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "FAIL: building the wheel needs uv (or set GPO_STUDIO_WHEEL to a built wheel)"
+    exit 1
   fi
+  UV_PROJECT_ENVIRONMENT="$TMPDIR/build-env" uv sync --locked --only-group build-backend
+  UV_PROJECT_ENVIRONMENT="$TMPDIR/build-env" uv build --wheel --out-dir "$TMPDIR/dist"
   WHEEL=$(find "$TMPDIR/dist" -maxdepth 1 -name 'gpo_studio-*.whl' -print -quit)
 fi
 echo "Wheel: $WHEEL"
@@ -32,7 +37,7 @@ if [ -n "${GPO_STUDIO_REQUIREMENTS:-}" ]; then
   REQUIREMENTS=$(realpath "$GPO_STUDIO_REQUIREMENTS")
 elif command -v uv >/dev/null 2>&1; then
   REQUIREMENTS="$TMPDIR/requirements-lock.txt"
-  uv export --locked --no-dev --no-emit-project --format requirements.txt \
+  uv export --locked --no-default-groups --no-emit-project --format requirements.txt \
     --output-file "$REQUIREMENTS" > /dev/null
 else
   echo "FAIL: set GPO_STUDIO_REQUIREMENTS to a hash-pinned requirements file, or install uv"

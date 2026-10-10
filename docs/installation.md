@@ -61,12 +61,14 @@ python -m venv .venv
 .venv/bin/gpo-studio run
 ```
 
-If you have no wheel, build one from source. It lands in `dist/`. Export the
-matching lock from `uv.lock`:
+If you have no wheel, build one from source. It lands in `dist/`. `uv sync`
+installs the locked build backend, and `uv build` then builds with it, without
+fetching a backend of its own. Export the matching lock from `uv.lock`:
 
 ```bash
+uv sync --locked
 uv build
-uv export --locked --no-dev --no-emit-project --format requirements.txt \
+uv export --locked --no-default-groups --no-emit-project --format requirements.txt \
   --output-file requirements-lock.txt
 ```
 

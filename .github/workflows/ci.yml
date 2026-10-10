@@ -45,6 +45,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       # `--locked` below already refuses a stale lockfile; this step says so by
@@ -53,6 +54,12 @@ jobs:
         run: uv lock --check
       - name: Install
         run: uv sync --locked --extra dev
+      # Offline, from a cache holding only the locked backend: the editable
+      # project build must use it, and an isolated build must fail (control).
+      - name: The project builds only with the locked backend
+        run: >-
+          uv run --locked python scripts/check_locked_build_backend.py
+          --tmp-root "$RUNNER_TEMP/backend-check"
       - name: Ruff
         run: uv run --locked ruff check .
       - name: Mypy
@@ -99,6 +106,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - name: Install
@@ -124,6 +132,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
           enable-cache: true
       - name: Set up Node
@@ -176,6 +185,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
           enable-cache: true
       - name: Build sdist and wheel
@@ -196,7 +206,7 @@ jobs:
       - name: Export locked requirements
         run: |
           mkdir -p "$RUNNER_TEMP/locked"
-          uv export --locked --no-dev --no-emit-project --format requirements.txt \
+          uv export --locked --no-default-groups --no-emit-project --format requirements.txt \
             --output-file "$RUNNER_TEMP/locked/requirements-lock.txt" > /dev/null
           uv export --locked --only-group build-backend --no-emit-project \
             --format requirements.txt \
@@ -299,6 +309,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
           enable-cache: true
       # Hash-pinned requirements from uv.lock: the runtime closure the release
@@ -308,7 +319,7 @@ jobs:
       - name: Export locked requirements
         run: |
           mkdir -p "$RUNNER_TEMP/locked"
-          uv export --locked --no-dev --no-emit-project --format requirements.txt \
+          uv export --locked --no-default-groups --no-emit-project --format requirements.txt \
             --output-file "$RUNNER_TEMP/locked/requirements-lock.txt" > /dev/null
           uv export --locked --only-group build-backend --no-emit-project \
             --format requirements.txt \
@@ -322,12 +333,18 @@ jobs:
           /tmp/audit-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl
           /tmp/audit-venv/bin/pip check
           /tmp/audit-venv/bin/pip uninstall --yes pip
-      # The audit reads the locked file itself, every platform's entries
-      # included, rather than one Linux environment's `pip freeze` of it.
+      # The audit reads the locked file itself, not one environment's
+      # `pip freeze`. pip-audit evaluates environment markers against this
+      # Linux runner, so the markers are dropped first: every package the lock
+      # pins for any platform is audited (colorama is Windows-only). Licenses
+      # are read from the installed Linux environment, so they cover its set.
       - name: Audit shipped dependencies
         run: |
+          python scripts/requirements_all_platforms.py \
+            "$RUNNER_TEMP/locked/requirements-lock.txt" \
+            "$RUNNER_TEMP/locked/requirements-all-platforms.txt"
           uv run --locked --only-group release pip-audit --strict --require-hashes \
-            --disable-pip --requirement "$RUNNER_TEMP/locked/requirements-lock.txt"
+            --disable-pip --requirement "$RUNNER_TEMP/locked/requirements-all-platforms.txt"
           uv run --locked --only-group release pip-licenses \
             --python /tmp/audit-venv/bin/python \
             --allow-only 'MIT;MIT License;MIT-0;BSD-2-Clause;BSD-3-Clause;Apache-2.0 OR BSD-2-Clause;Apache-2.0 OR BSD-3-Clause;MPL-2.0;Mozilla Public License 2.0 (MPL 2.0);PSF-2.0'
@@ -346,6 +363,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
           enable-cache: true
       # Hash-pinned requirements from uv.lock: the runtime closure the release
@@ -355,7 +373,7 @@ jobs:
       - name: Export locked requirements
         run: |
           mkdir -p "$RUNNER_TEMP/locked"
-          uv export --locked --no-dev --no-emit-project --format requirements.txt \
+          uv export --locked --no-default-groups --no-emit-project --format requirements.txt \
             --output-file "$RUNNER_TEMP/locked/requirements-lock.txt" > /dev/null
           uv export --locked --only-group build-backend --no-emit-project \
             --format requirements.txt \
@@ -405,6 +423,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
           enable-cache: true
       - name: Install
@@ -422,6 +441,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
           enable-cache: true
       - name: Install
@@ -500,6 +520,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
           enable-cache: true
       - name: Install
@@ -523,6 +544,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
           enable-cache: true
       - name: Install

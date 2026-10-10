@@ -81,6 +81,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
       - name: Set up Node
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -129,6 +130,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
       # Every tool below runs from uv.lock's `release` dependency group, and
       # the build uses that group's hatchling instead of an isolated build
@@ -159,7 +161,7 @@ jobs:
       # meaning "the distributions".
       - name: Export locked requirements
         run: |
-          uv export --locked --no-dev --no-emit-project --format requirements.txt \
+          uv export --locked --no-default-groups --no-emit-project --format requirements.txt \
             --output-file requirements-lock.txt > /dev/null
           mkdir -p "$RUNNER_TEMP/locked"
           uv export --locked --only-group build-backend --no-emit-project \
