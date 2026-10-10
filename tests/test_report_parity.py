@@ -715,3 +715,32 @@ def test_a_gpp_registry_item_without_its_measured_shape_is_unmeasured() -> None:
     inventory = windows_inventory(_report(computer=_extension(_GPP_NS, body)))
     assert inventory.family("computer", GPP_REGISTRY_FAMILY) == ()
     assert f"unmeasured:{{{_GPP_NS}}}Registry" in [f.family for f in inventory.families]
+
+
+def test_a_gpp_item_carries_the_uid_windows_reported() -> None:
+    inventory = windows_inventory(_report(computer=_extension(_GPP_NS, _GPP_ITEM)))
+    (item,) = inventory.family("computer", GPP_REGISTRY_FAMILY)
+    assert item.uid == "{80BA2F39-55EC-40E1-A554-A6096468D60E}"
+
+
+def test_a_changed_uid_is_a_divergence() -> None:
+    """The `uid=""` mutant of `_gpp_item` survived: nothing compared two different UIDs."""
+    windows = windows_inventory(_report(computer=_extension(_GPP_NS, _GPP_ITEM)))
+    changed = windows_inventory(
+        _report(computer=_extension(_GPP_NS, _GPP_ITEM.replace("80BA2F39", "80BA2F3A")))
+    )
+    kinds = sorted(divergence.kind for divergence in compare(windows, changed).divergences)
+    assert kinds == ["extra_in_studio", "missing_in_studio"]
+
+
+def test_the_uids_of_a_real_report_are_the_uids_windows_wrote() -> None:
+    """Read independently of the inventory code: every uid attribute in the report bytes."""
+    import re
+
+    report = _gpreport(NATIVE / "WI01A-Printers-GPMC")
+    assert report[:2] == b"\xff\xfe", "GPMC writes the report as UTF-16LE with a BOM"
+    written = sorted(re.findall(r'uid="(\{[0-9A-Fa-f-]{36}\})"', report.decode("utf-16")))
+    assert len(written) >= 2, "the capture carries too few uid attributes; pick another"
+    inventory = windows_inventory(report)
+    read = sorted(item.uid for family in inventory.families for item in family.items if item.uid)
+    assert read == written

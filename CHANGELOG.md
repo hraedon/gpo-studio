@@ -164,7 +164,7 @@ Operator-facing:
 ### Evidence
 
 - `scripts/mutation_check_roundtrip.py`, run by a new `mutation-check` CI
-  job, restores 17 defects in throwaway copies of the tree (parsers that read
+  job, restores 20 defects in throwaway copies of the tree (parsers that read
   nothing, serialisers that drop what they were given, comparators that always
   agree, the WI-080 and WI-081 export defects) and requires the tests named for
   each to fail. Its first run found three survivors, and the two tests behind
@@ -172,7 +172,10 @@ Operator-facing:
   2026-09-11 "return `raw_text` when it re-parses" defect it was written
   against, and the unmodelled-attribute preservation test checked only an
   attribute WI-081 had since typed, so it passed with the retained element
-  ignored entirely.
+  ignored entirely. Review then found two more survivors, now killed by new
+  tests and kept as mutants: Registry.pol `**del.` / `**delvals.` markers read
+  case-sensitively (every test spelled them in lower case), and report parity
+  dropping the GPP item UIDs Windows reported.
 - `tests/test_release_downgrade_refusal.py` re-executes 1.0.0's own version
   guards, vendored verbatim from the tag (and compared with it when present),
   against what this tree writes: 1.0.0 refuses the upgraded workspace without

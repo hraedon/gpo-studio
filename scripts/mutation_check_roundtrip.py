@@ -308,6 +308,41 @@ MUTANTS: tuple[Mutant, ...] = (
         why="Registry.pol parsing validates every record and returns none of them.",
     ),
     Mutant(
+        name="registry-pol-delete-marker-case-sensitive",
+        file="src/gpo_studio/registry_pol.py",
+        anchor='        elif value_name.casefold().startswith("**del."):\n',
+        replacement='        elif value_name.startswith("**del."):\n',
+        required=(
+            f"{T_POL}::test_a_delete_marker_is_recognised_in_any_case[**DEL.]",
+            f"{T_POL}::test_a_delete_marker_is_recognised_in_any_case[**Del.]",
+            f"{T_POL}::test_a_delete_marker_is_recognised_in_any_case[**dEl.]",
+        ),
+        why="Registry.pol parsing matches **del. case-sensitively (DeepSeek N1's survivor).",
+    ),
+    Mutant(
+        name="registry-pol-delvals-marker-case-sensitive",
+        file="src/gpo_studio/registry_pol.py",
+        anchor='        if value_name.casefold() == "**delvals.":\n',
+        replacement='        if value_name == "**delvals.":\n',
+        required=(
+            f"{T_POL}::test_a_delete_all_values_marker_is_recognised_in_any_case[**DELVALS.]",
+            f"{T_POL}::test_a_delete_all_values_marker_is_recognised_in_any_case[**DelVals.]",
+        ),
+        why="Registry.pol parsing matches **delvals. case-sensitively.",
+    ),
+    Mutant(
+        name="report-parity-drops-uid",
+        file="src/gpo_studio/report_parity.py",
+        anchor='        uid=elem.get("uid", ""),\n',
+        replacement='        uid="",\n',
+        required=(
+            f"{T_PARITY}::test_a_gpp_item_carries_the_uid_windows_reported",
+            f"{T_PARITY}::test_a_changed_uid_is_a_divergence",
+            f"{T_PARITY}::test_the_uids_of_a_real_report_are_the_uids_windows_wrote",
+        ),
+        why="The Windows report's GPP item UIDs are dropped on read (Sol N2's survivor).",
+    ),
+    Mutant(
         name="registry-pol-serialize-drops-deletes",
         file="src/gpo_studio/registry_pol.py",
         anchor='        elif record.action == "delete":\n',
