@@ -29,6 +29,22 @@ dev = [
 [project.scripts]
 gpo-studio = "gpo_studio.__main__:main"
 
+# Tools the CI and release workflows run, resolved from uv.lock like everything
+# else. A group, not an extra: it is never part of the wheel's metadata, and
+# `uv sync` does not install it unless asked (`--only-group release`).
+# `build-backend` is the locked copy of the [build-system] backend: the workflows
+# build with `--no-isolation`, and install the sdist with
+# `--no-build-isolation`, so no build resolves its own unpinned hatchling.
+[dependency-groups]
+build-backend = ["hatchling>=1.27"]
+release = [
+  { include-group = "build-backend" },
+  "build>=1.2",
+  "cyclonedx-bom>=6",
+  "pip-audit>=2.9",
+  "pip-licenses>=5",
+]
+
 [tool.hatch.version]
 path = "src/gpo_studio/__init__.py"
 

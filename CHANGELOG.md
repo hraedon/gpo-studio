@@ -124,6 +124,27 @@ Operator-facing:
   registry item of every native capture back through the API, after which the
   export must still equal the capture.
 
+### Changed
+
+- **Releases publish `requirements-lock.txt`, and the Windows quickstart
+  installs from it.** The file is the runtime closure of `uv.lock`, pinned by
+  SHA-256, and is listed in `SHA256SUMS`, attested with the distributions and
+  attached to the release. The quickstart installs it with
+  `pip install --require-hashes`, then the wheel with `--no-deps --no-index`,
+  and adds an optional `gh attestation verify` step. A release without the file
+  keeps the old install.
+- Every Python install in `ci.yml` and `release.yml` now resolves from
+  `uv.lock` (`uv sync --locked`, or the exported hash-pinned requirements for
+  the clean-environment installs of the built wheel and sdist); before, only the
+  Windows test job did. Build, SBOM and audit tools come from a locked
+  `release` dependency group, the build uses its hatchling without isolation,
+  and CI runs `uv lock --check`. `tests/test_locked_installs.py` holds the rule.
+- `uv.lock` moves `anyio` 4.14.1 → 4.15.1 and `cryptography` 49.0.0 → 50.0.2:
+  `pip-audit --strict` against the locked runtime set reported known
+  vulnerabilities in both pinned versions (run 2026-10-09). The previous CI
+  audit installed the wheel from its version ranges, which pip resolves to the
+  newest matching release, so it audited different versions than the lock pins.
+
 ### Evidence
 
 - **Banked the release 1.1.0 successor batch**

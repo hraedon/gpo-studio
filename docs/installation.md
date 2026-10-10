@@ -49,17 +49,25 @@ python -m venv .venv
 
 ### From a wheel
 
+Use the wheel and `requirements-lock.txt` from the same release (verify both
+against its `SHA256SUMS`). The lock pins every runtime dependency by hash, so
+the environment is the one the release was tested with:
+
 ```bash
 python -m venv .venv
-.venv/bin/pip install gpo_studio-<version>-py3-none-any.whl
+.venv/bin/pip install --require-hashes -r requirements-lock.txt
+.venv/bin/pip install --no-deps --no-index gpo_studio-<version>-py3-none-any.whl
+.venv/bin/pip check
 .venv/bin/gpo-studio run
 ```
 
-If you have no wheel, build one from source. It lands in `dist/`:
+If you have no wheel, build one from source. It lands in `dist/`. Export the
+matching lock from `uv.lock`:
 
 ```bash
 uv build
-# or: pip wheel . --no-deps -w dist/
+uv export --locked --no-dev --no-emit-project --format requirements.txt \
+  --output-file requirements-lock.txt
 ```
 
 ### From source (editable, no uv)

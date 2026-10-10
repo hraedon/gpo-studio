@@ -24,9 +24,27 @@ else
 fi
 echo "Wheel: $WHEEL"
 
+# Dependencies come from the hash-pinned lock, never from version ranges: the
+# release passes its requirements-lock.txt asset; otherwise it is exported from
+# uv.lock here. The wheel itself goes in with --no-deps --no-index, and
+# `pip check` proves the locked set satisfies its metadata.
+if [ -n "${GPO_STUDIO_REQUIREMENTS:-}" ]; then
+  REQUIREMENTS=$(realpath "$GPO_STUDIO_REQUIREMENTS")
+elif command -v uv >/dev/null 2>&1; then
+  REQUIREMENTS="$TMPDIR/requirements-lock.txt"
+  uv export --locked --no-dev --no-emit-project --format requirements.txt \
+    --output-file "$REQUIREMENTS" > /dev/null
+else
+  echo "FAIL: set GPO_STUDIO_REQUIREMENTS to a hash-pinned requirements file, or install uv"
+  exit 1
+fi
+echo "Requirements: $REQUIREMENTS"
+
 echo "=== Creating clean venv ==="
 "$PYTHON" -m venv "$TMPDIR/venv" --clear
-"$TMPDIR/venv/bin/pip" install "$WHEEL"
+"$TMPDIR/venv/bin/pip" install --require-hashes -r "$REQUIREMENTS"
+"$TMPDIR/venv/bin/pip" install --no-deps --no-index "$WHEEL"
+"$TMPDIR/venv/bin/pip" check
 
 echo "=== Checking version consistency ==="
 VENV_VERSION=$("$TMPDIR/venv/bin/python" -c "from gpo_studio import __version__; print(__version__)")
