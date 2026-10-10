@@ -18,14 +18,15 @@ Run it from the repository root::
     uv run python scripts/mutation_check_roundtrip.py --tmp-root DIR
 
 It never touches the worktree. Each run (the baseline and every mutant) copies
-the tree, without ``.git``, ``.venv``, ``node_modules`` and caches, into a fresh
-temporary directory (under ``--tmp-root`` when given, else ``$TMPDIR`` or the
-system default; each copy is about 110 MB, so pass ``--tmp-root`` where the temp
-directory is RAM-backed), edits the copy, and runs pytest there with
-``PYTHONPATH`` pointing at the copy's ``src``. Before each pytest run it checks
-that ``import gpo_studio`` resolves to that copy, so an editable install in
-``.venv`` cannot shadow the mutant. At the end it checks the worktree's mutated
-files are byte-identical to how it found them.
+the files git tracks -- no ``.git``, environments, caches or scratch, whatever
+they are called -- into a fresh temporary directory under ``--tmp-root`` (else
+``$TMPDIR`` or the system default), which must be outside the repository: a root
+inside it is refused before anything is created. Each copy is about 58 MB, so
+pass ``--tmp-root`` where the temp directory is RAM-backed. It edits the copy
+and runs pytest there with ``PYTHONPATH`` pointing at the copy's ``src``. Before
+each pytest run it checks that ``import gpo_studio`` resolves to that copy, so
+an editable install in ``.venv`` cannot shadow the mutant. At the end it checks
+the worktree's mutated files are byte-identical to how it found them.
 
 First, a baseline: every required test must pass on the unmutated copy, or a
 "kill" would mean nothing. Then a mutant is KILLED only if pytest exits 1 and
@@ -60,17 +61,6 @@ from typing import Literal
 
 ROOT = Path(__file__).resolve().parent.parent
 
-#: Never copied into a sandbox: VCS state, the environment, and caches.
-_IGNORED = shutil.ignore_patterns(
-    ".git",
-    ".venv",
-    "node_modules",
-    "__pycache__",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".mypy_cache",
-    ".hypothesis",
-)
 _PYTEST_TIMEOUT_SECONDS = 1800
 _TAIL_LINES = 40
 _SUMMARY = re.compile(r"^(\d+ \w+(?:, \d+ \w+)*) in [\d.]+s")
@@ -352,10 +342,39 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _make_sandbox(parent: str | None) -> tuple[tempfile.TemporaryDirectory[str], Path]:
+def resolve_tmp_root(requested: str | None) -> Path:
+    """The parent for sandbox trees, refused when it is inside the repository.
+
+    A temp root inside the checkout makes each copy of the tree contain the copy
+    being made (Sol B3 / DeepSeek N6). Checked on resolved paths, before
+    anything is created, and for the default too: ``$TMPDIR`` may point inside.
+    """
+    root = Path(requested if requested is not None else tempfile.gettempdir()).resolve()
+    repository = ROOT.resolve()
+    if root == repository or repository in root.parents:
+        raise SetupError(f"the temp root {root} is inside the repository {repository}")
+    return root
+
+
+def tracked_files() -> list[str]:
+    """What a sandbox holds: the files git tracks, as they are in the worktree.
+
+    Not a copy of the directory: scratch, environments, caches and anything
+    else untracked never enter a sandbox, whatever they are called.
+    """
+    listed = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True
+    ).stdout.decode("utf-8")
+    return [name for name in listed.split("\0") if name and (ROOT / name).is_file()]
+
+
+def _make_sandbox(parent: Path) -> tuple[tempfile.TemporaryDirectory[str], Path]:
     holder = tempfile.TemporaryDirectory(prefix="gpo-studio-mutant-", dir=parent)
     tree = Path(holder.name) / "tree"
-    shutil.copytree(ROOT, tree, ignore=_IGNORED, symlinks=True)
+    for name in tracked_files():
+        target = tree / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / name, target, follow_symlinks=False)
     return holder, tree
 
 
@@ -453,7 +472,7 @@ def _required_union(mutants: Sequence[Mutant]) -> list[str]:
     return sorted({node for mutant in mutants for node in mutant.required})
 
 
-def run_baseline(mutants: Sequence[Mutant], tmp_root: str | None) -> None:
+def run_baseline(mutants: Sequence[Mutant], tmp_root: Path) -> None:
     """Every required test passes on the unmutated tree, and none is skipped."""
     required = _required_union(mutants)
     holder, tree = _make_sandbox(tmp_root)
@@ -469,7 +488,7 @@ def run_baseline(mutants: Sequence[Mutant], tmp_root: str | None) -> None:
     print(f"BASELINE: {len(required)} required tests pass on the unmutated tree", flush=True)
 
 
-def run_mutant(mutant: Mutant, tmp_root: str | None) -> tuple[Outcome, str]:
+def run_mutant(mutant: Mutant, tmp_root: Path) -> tuple[Outcome, str]:
     holder, tree = _make_sandbox(tmp_root)
     with holder:
         target = tree / mutant.file
@@ -516,7 +535,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--tmp-root",
         metavar="DIR",
         default=None,
-        help="parent directory for the temporary trees (default: the system temp dir)",
+        help=(
+            "parent directory for the temporary trees, outside the repository "
+            "(default: the system temp dir)"
+        ),
     )
     args = parser.parse_args(argv)
     started = time.monotonic()
@@ -525,9 +547,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.list:
             _print_table(mutants)
             return 0
-        tmp_root: str | None = args.tmp_root
-        if tmp_root is not None:
-            Path(tmp_root).mkdir(parents=True, exist_ok=True)
+        tmp_root = resolve_tmp_root(args.tmp_root)
+        tmp_root.mkdir(parents=True, exist_ok=True)
         check_anchors(mutants)
         guarded = sorted({mutant.file for mutant in mutants})
         before = {file: _digest(ROOT / file) for file in guarded}
