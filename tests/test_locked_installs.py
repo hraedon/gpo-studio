@@ -19,6 +19,7 @@ the refusals are for the command, not the template around it.
 from __future__ import annotations
 
 import json
+import os
 import re
 import tomllib
 from pathlib import Path
@@ -872,6 +873,15 @@ def test_no_tracked_file_configures_the_tools_the_templates_run() -> None:
     assert configuration_violations() == []
 
 
+def _case_insensitive(directory: Path) -> bool:
+    probe = directory / "CaseProbe"
+    probe.write_text("x", encoding="utf-8")
+    try:
+        return (directory / "caseprobe").exists()
+    finally:
+        probe.unlink()
+
+
 def _repository(tmp_path: Path, files: dict[str, str]) -> Path:
     import subprocess
 
@@ -884,7 +894,10 @@ def _repository(tmp_path: Path, files: dict[str, str]) -> Path:
     }.items():
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        if text.startswith("@symlink:"):
+            path.symlink_to(text.removeprefix("@symlink:"))
+        else:
+            path.write_text(text, encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
     return tmp_path
@@ -987,6 +1000,42 @@ TRACKED_CONFIGURATION = {
             }
         ),
     },
+    # DeepSeek r6 B1, verbatim shape: tracked symlinks at a tree root.
+    "venv_symlink": {"evil/pyvenv.cfg": "home = /usr/bin\n", ".venv": "@symlink:evil"},
+    "node_modules_symlink": {
+        "evil/.bin/playwright": "#!/bin/sh\n",
+        "node_modules": "@symlink:evil",
+    },
+    "dist_symlink": {"evil/gpo_studio-1.0-py3-none-any.whl": "x", "dist": "@symlink:evil"},
+    "scripts_file_symlink": {"scripts/print_installed_version.py": "@symlink:/tmp/evil.py"},
+    "venv_regular_file": {".venv": "not a directory\n"},
+    # Sol r7 B2, verbatim: Playwright applies tsconfig.json paths to the config's imports.
+    "playwright_tsconfig": {
+        "tsconfig.json": '{"compilerOptions":{"allowJs":true,"baseUrl":".",'
+        '"paths":{"@playwright/test":["./evil.mjs"]}}}\n',
+        "evil.mjs": "export const x = 1;\n",
+    },
+    "jsconfig": {"tests/browser/jsconfig.json": '{"compilerOptions":{"paths":{}}}\n'},
+    "tsconfig_variant": {"tsconfig.base.json": "{}\n"},
+    "browserslistrc": {".browserslistrc": "defaults\n"},
+    # Sol r7 B3, verbatim shape: NTFS opens PYTEST.TOML as pytest.toml.
+    "uppercase_pytest_toml": {
+        "PYTEST.TOML": '[pytest]\naddopts = ["-p", "evil"]\npythonpath = ["."]\n',
+        "evil.py": "x = 1\n",
+    },
+    "mixed_case_npmrc": {".NpmRc": "script-shell=./attacker.sh\n"},
+    "uppercase_reviewed_config": {"ESLINT.CONFIG.MJS": "export default [];\n"},
+    "case_variant_shadow": {"scripts/JSON.py": "x = 1\n"},
+    "case_variant_config_tree": {".Config/postcssrc.json": "{}\n"},
+    "case_variant_untracked_tree": {"Node_Modules/.bin/playwright": "#!/bin/sh\n"},
+    "case_collision": {"Docs/readme.md": "x\n", "docs/README.md": "y\n"},
+    "nfd_collision": {"caf\u00e9.txt": "x\n", "cafe\u0301.txt": "y\n"},
+    "tracked_written_file": {"requirements-lock.txt": "roguepkg==1.0 --hash=sha256:00\n"},
+    "uv_lock_foreign_host": {
+        "uv.lock": (REPO_ROOT / "uv.lock")
+        .read_text(encoding="utf-8")
+        .replace("https://files.pythonhosted.org/", "https://example.invalid/", 1),
+    },
     "package_manager": {
         "package.json": json.dumps(
             {
@@ -1000,8 +1049,22 @@ TRACKED_CONFIGURATION = {
 
 @pytest.mark.parametrize("name", sorted(TRACKED_CONFIGURATION))
 def test_a_tracked_tool_configuration_is_refused(name: str, tmp_path: Path) -> None:
-    root = _repository(tmp_path, TRACKED_CONFIGURATION[name])
+    files = TRACKED_CONFIGURATION[name]
+    if any(text.startswith("@symlink:") for text in files.values()) and os.name != "posix":
+        pytest.skip("creating a symlink needs privileges on Windows")
+    if name == "case_collision" and _case_insensitive(tmp_path):
+        pytest.skip("the two spellings are one file on this disk, so git sees one path")
+    root = _repository(tmp_path, files)
     assert configuration_violations(root), name
+
+
+def test_a_reusable_workflow_call_takes_no_inputs(tmp_path: Path) -> None:
+    """DeepSeek r6 N2: `with:` would reach the called workflow as unchecked data."""
+    steps = (
+        "      - run: echo hi\n  delegated:\n    uses: ./.github/workflows/ci.yml\n"
+        "    with:\n      python: '3.12'"
+    )
+    assert any("call keys" in problem for problem in _verdict(tmp_path, steps))
 
 
 def test_the_configuration_control_repository_is_clean(tmp_path: Path) -> None:
@@ -1191,6 +1254,10 @@ def _node_tool_names() -> dict[str, set[str]]:
         names["@playwright/test"] = {
             "playwright.config" + ext for ext in re.findall(r'"([^"]+)"', listed[1])
         }
+        start = source.index("function loadAndValidateTsconfigsForFolder")
+        tsconfigs = re.search(r"for \(const name of \[([^\]]*)\]\)", source[start : start + 800])
+        assert tsconfigs is not None
+        names["@playwright/test"] |= set(re.findall(r'"([^"]+)"', tsconfigs[1]))
     return names
 
 
@@ -1477,3 +1544,113 @@ def test_every_locked_quickstart_install_ends_with_pip_check() -> None:
             assert locked.rstrip().splitlines()[-2].strip() == "& $Python -m pip check", locked
     count = sum("\n".join(block).count("& $Python -m pip check") for block in _powershell_blocks())
     assert count == 3
+
+
+# --- the lexer against bash itself ------------------------------------------------
+
+_VARIABLE_NAME = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _first_word(word: str) -> str:
+    """A program word as both sides can compare it: an assignment by name, a path by base."""
+    assignment = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\+?=", word)
+    if assignment:
+        return assignment[1] + "="
+    return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", r"$\1", word).rsplit("/", 1)[-1]
+
+
+def _grammar_programs(script: str) -> set[str]:
+    programs: set[str] = set()
+    for command in split_commands(script):
+        if command.assignments:
+            programs |= {_first_word(token) for token in command.assignments}
+        if command.words:
+            programs.add(_first_word(command.words[0]))
+            if command.words[0] == "trap" and len(command.words) > 2:
+                programs |= _grammar_programs(command.words[1])
+    return programs
+
+
+def _bash_programs(script: str, directory: Path, environment: dict[str, str]) -> set[str]:
+    """What bash runs for *script*, traced with nothing on PATH (so nothing external runs)."""
+    import shlex
+    import subprocess
+
+    empty = directory / "empty-path"
+    empty.mkdir(exist_ok=True)
+    body = directory / "body.sh"
+    body.write_text(script, encoding="utf-8")
+    trace = directory / "trace"
+    wrapper = (
+        "exec 7>" + shlex.quote(str(trace)) + "\nBASH_XTRACEFD=7\n"
+        "set() { :; }\nexit() { :; }\nbuiltin set -x\nsource " + shlex.quote(str(body)) + "\n"
+    )
+    subprocess.run(
+        ["/bin/bash", "-c", wrapper],
+        cwd=directory,
+        env={"PATH": str(empty), **environment},
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    programs: set[str] = set()
+    for line in trace.read_text(encoding="utf-8").splitlines():
+        stripped = line.lstrip("+").lstrip()
+        if not line.startswith("+") or not stripped:
+            continue
+        words = shlex.split(stripped)
+        if words[:1] in (["source"], [":"], ["case"]):  # the wrapper, set/exit stubs, case
+            continue
+        programs.add(_first_word(words[0]))
+    return programs
+
+
+def _real_scripts() -> list[tuple[str, str]]:
+    import yaml
+
+    scripts: list[tuple[str, str]] = []
+    for path in WORKFLOW_FILES:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job_name, job in (document.get("jobs") or {}).items():
+            windows = job.get("runs-on") == "windows-latest"
+            for number, step in enumerate(job.get("steps") or [], 1):
+                if "run" in step and step.get("shell") != "pwsh" and not windows:
+                    scripts.append((f"{path.name}:{job_name}#{number}", str(step["run"])))
+    scripts.append(("smoke", SMOKE.read_text(encoding="utf-8")))
+    package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
+    scripts.extend((f"npm:{name}", body) for name, body in package["scripts"].items())
+    return scripts
+
+
+_POSIX_BASH = pytest.mark.skipif(
+    not Path("/bin/bash").exists(), reason="traces the scripts with the runner's bash"
+)
+
+
+@_POSIX_BASH
+@pytest.mark.parametrize("where,script", _real_scripts(), ids=lambda value: str(value)[:40])
+def test_bash_runs_no_command_the_grammar_did_not_see(
+    where: str, script: str, tmp_path: Path
+) -> None:
+    """Sol r7 B1's class: whatever the lexer misreads, bash's own trace shows.
+
+    Each accepted script runs under ``bash -x`` with an empty PATH (every external
+    command fails to start, after being traced) and ``set``/``exit`` disabled so the
+    trace keeps going; both arms of the smoke script's hand-off branches are taken.
+    Every command bash reaches, substitutions included, must be one the grammar found.
+    """
+    expected = _grammar_programs(script)
+    names = set(_VARIABLE_NAME.findall(script)) - {"PATH", "BASH_XTRACEFD"}
+    for variant in (names, {name for name in names if not name.startswith("GPO_STUDIO_")}):
+        environment = {name: f"${name}" for name in variant}
+        traced = _bash_programs(script, tmp_path, environment)
+        assert traced <= expected, (where, sorted(traced - expected))
+
+
+@_POSIX_BASH
+def test_the_bash_trace_sees_what_a_misreading_lexer_would_miss(tmp_path: Path) -> None:
+    """The control, on Sol r7's exact script: bash runs `pip`, and the grammar refuses it."""
+    script = 'echo "$(\n# )\npip --version\n)"\n'
+    assert "pip" in _bash_programs(script, tmp_path, {})
+    with pytest.raises(workflow_grammar.GrammarError, match="comment syntax"):
+        split_commands(script)

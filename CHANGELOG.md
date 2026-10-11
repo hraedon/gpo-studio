@@ -164,7 +164,9 @@ Operator-facing:
   the checkout cannot stand in for the locked tool it names. The files each
   locked tool discovers on its own (pytest 9's `pytest.toml` among them) are
   listed against the tool's locked version, and a version change fails a test
-  until the list is re-read.
+  until the list is re-read. Names are compared as the Windows job's NTFS
+  compares them, tracked symlinks are refused, and every accepted script is
+  also traced through bash to confirm it runs nothing the check did not see.
 - The project build itself now uses the locked backend too. An editable
   `uv sync --locked` still built gpo-studio in an isolated environment that
   resolved `[build-system].requires` (`hatchling`, unversioned) from the index;

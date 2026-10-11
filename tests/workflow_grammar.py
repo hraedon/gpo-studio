@@ -32,6 +32,13 @@ script into simple commands with a small shell lexer, it requires:
   nor the working directory comes first on ``sys.path``;
 * every PowerShell step, and every step of a Windows job (PowerShell by
   default), to be exactly one of ``PWSH_BODIES``;
+* no comment inside a command substitution (bash would ignore a ``)`` on that
+  line and this lexer would not); a test runs every accepted script under
+  ``bash -x`` with nothing on PATH and requires each command bash reaches to be
+  one the grammar found;
+* no tracked symlink or submodule, no two tracked paths that are one path on a
+  case-insensitive disk, and every name below compared case- and
+  Unicode-normalisation-insensitively, as the Windows job's NTFS compares it;
 * no tracked file to change what those tools load or run
   (``configuration_violations``, which inventories each tool's discovery rules
   in ``TOOL_DISCOVERY``, read from the locked version's source and re-read when
@@ -75,10 +82,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
 import tomllib
+import unicodedata
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -143,6 +152,10 @@ def _read_balanced(text: str, start: int) -> int:
                 quote = ""
         elif char in "'\"":
             quote = char
+        elif char == "#":
+            # Bash would read a comment here and ignore a `)` on that line; this reader
+            # would not. No reviewed command needs one, so refuse rather than model it.
+            raise GrammarError("comment syntax inside a command substitution")
         elif char == "(":
             depth += 1
         elif char == ")":
@@ -1841,7 +1854,16 @@ TOOL_DISCOVERY: dict[str, tuple[str | None, list[str]]] = {
         ],
     ),
     # playwright/lib/common: playwright.config + each extension it tries.
-    "@playwright/test": ("1.61.1", _variants("playwright.config", "ts js mts mjs cts cjs")),
+    # playwright/lib/common: playwright.config + each extension it tries, and the
+    # tsconfig.json / jsconfig.json it applies (paths, baseUrl) to every file it loads.
+    "@playwright/test": (
+        "1.61.1",
+        [
+            *_variants("playwright.config", "ts js mts mjs cts cjs"),
+            "tsconfig.json",
+            "jsconfig.json",
+        ],
+    ),
     # Runner-provided: npm (with Node 24), pip (ensurepip), git, curl, CPython.
     "npm": (None, [".npmrc", "npm-shrinkwrap.json", "package-lock.json", "package.json"]),
     "pip": (None, ["pip.conf", "pip.ini"]),
@@ -1862,6 +1884,9 @@ _ALSO_REFUSED = {
     ".pypirc",
     ".eslintrc",
     ".babelrc",
+    ".browserslistrc",
+    "browserslist",
+    ".swcrc",
 }
 DISCOVERED = {name for _version, names in TOOL_DISCOVERY.values() for name in names}
 #: The three files every check above already pins by content at the root; elsewhere
@@ -1869,7 +1894,9 @@ DISCOVERED = {name for _version, names in TOOL_DISCOVERY.values() for name in na
 #: from the file they are working on, so a nested one would win).
 _PINNED_AT_ROOT = {"pyproject.toml", "package.json", "package-lock.json", "uv.lock"}
 CONFIG_PATTERNS = re.compile(
-    r"^(\.env\..*|\.eslintrc\..*|\.babelrc\..*|babel\.config\..*|.*\.pth)$"
+    r"^(\.env\..*|\.eslintrc\..*|\.babelrc\..*|babel\.config\..*|tsconfig\..*\.json"
+    r"|jsconfig\..*\.json|.*\.pth)$",
+    re.IGNORECASE,
 )
 
 
@@ -1887,7 +1914,20 @@ REVIEWED_CONFIG: dict[str, str] = {
 _ANALYZER_CODE_KEYS = re.compile(r"CustomRulePath|RecurseCustomRulePath|IncludeDefaultRules", re.I)
 #: Trees a checkout must not carry: their contents would stand in for what a
 #: template builds or installs (a node_modules/.bin shim, a prebuilt dist/).
-UNTRACKED_TREES = ("node_modules/", ".venv/", "dist/", "dist-repro/", ".git/")
+UNTRACKED_TREES = ("node_modules", ".venv", "dist", "dist-repro", ".git")
+#: Files a template writes at the root: a tracked one would be read where the job
+#: expects its own output (an export, a checksum list, an SBOM).
+WRITTEN_AT_ROOT = {
+    "requirements-lock.txt",
+    "SHA256SUMS",
+    "sbom.cdx.json",
+    "release-evidence.md",
+    "release-evidence-report.json",
+    "coverage.json",
+}
+#: Tracked symlinks (git mode 120000) reviewed by path and target. None: a symlink
+#: can make any path the checks above approve (`.venv`, `scripts`) mean another.
+REVIEWED_SYMLINKS: dict[str, str] = {}
 #: Module names a tracked file must not provide where Python could find it first.
 SHADOWED = set(sys.stdlib_module_names) | {
     "_pytest",
@@ -1984,41 +2024,77 @@ def uv_lock_violations(lock_path: Path) -> list[str]:
             str(artifact.get("hash", "")).startswith("sha256:") for artifact in artifacts
         ):
             found.append(f"uv.lock: {package['name']} has an artifact without a SHA-256")
+        # uv re-derives these URLs from the index today; checked anyway, like npm's.
+        if not all(
+            str(artifact.get("url", "")).startswith("https://files.pythonhosted.org/")
+            for artifact in artifacts
+        ):
+            found.append(f"uv.lock: {package['name']} has an artifact not on PyPI's file host")
     return found
 
 
+def _fold(text: str) -> str:
+    """How a case- and normalisation-insensitive filesystem (NTFS, APFS) sees a name.
+
+    The Windows test job runs on NTFS, so ``PYTEST.TOML`` is ``pytest.toml`` there.
+    """
+    return unicodedata.normalize("NFC", text).casefold()
+
+
+_DISCOVERED_FOLDED = {_fold(name) for name in DISCOVERED | _ALSO_REFUSED}
+_SHADOWED_FOLDED = {_fold(name) for name in SHADOWED}
+
+
 def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
-    """Tracked files that would change what a reviewed template loads or runs."""
+    """Tracked files that would change what a reviewed template loads or runs.
+
+    Every name is compared folded (case and Unicode normalisation), as the Windows
+    job's filesystem compares it; a reviewed file must sit at its exact path.
+    """
     listed = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=root, capture_output=True, check=True
+        ["git", "ls-files", "-s", "-z"], cwd=root, capture_output=True, check=True
     ).stdout.decode()
     found: list[str] = []
-    for path in filter(None, listed.split("\0")):
-        name = path.rsplit("/", 1)[-1]
+    seen: dict[str, str] = {}
+    for record in filter(None, listed.split("\0")):
+        mode, _object, rest = record.split(" ", 2)
+        path = rest.split("\t", 1)[1]
+        folded = _fold(path)
+        if folded in seen and seen[folded] != path:
+            found.append(f"{path}: the same path as {seen[folded]} on a case-insensitive disk")
+        seen.setdefault(folded, path)
+        if mode == "120000":
+            target = os.readlink(root / path) if (root / path).is_symlink() else ""
+            if REVIEWED_SYMLINKS.get(path) != target:
+                found.append(f"{path}: a tracked symlink, which can redirect a reviewed path")
+        elif mode == "160000":
+            found.append(f"{path}: a submodule, whose content is fetched from elsewhere")
+        name = folded.rsplit("/", 1)[-1]
+        first = folded.split("/", 1)[0]
         if "$" in path or "`" in path:
             found.append(f"{path}: a tracked path a template's variable could spell literally")
-        if path.startswith(UNTRACKED_TREES):
-            found.append(f"{path}: tracked inside {path.split('/', 1)[0]}/")
-        if name.endswith(".pyc") or "__pycache__/" in path:
+        if first in {_fold(tree) for tree in UNTRACKED_TREES}:
+            found.append(f"{path}: tracked as or inside {first}")
+        if folded in {_fold(written) for written in WRITTEN_AT_ROOT}:
+            found.append(f"{path}: a file a template writes, tracked")
+        if name.endswith(".pyc") or "__pycache__" in folded.split("/"):
             found.append(f"{path}: compiled Python, which can run in place of its source")
-        module = _shadows(path)
-        if module in SHADOWED:
+        module = _shadows(folded)
+        if module in _SHADOWED_FOLDED:
             found.append(f"{path}: shadows the {module!r} module a template runs or imports")
-        if name.endswith(".py") and (path.startswith("tests/") or "/" not in path):
+        if name.endswith(".py") and (folded.startswith("tests/") or "/" not in folded):
             # pytest imports a module-level `pytest_plugins` as plugins, before any test.
             source = (root / path).read_text(encoding="utf-8", errors="replace")
             if re.search(r"^pytest_plugins\s*[:=]", source, re.M):
                 found.append(f"{path}: pytest_plugins loads modules as pytest plugins")
-        if path.startswith(".config/") or "/.config/" in path:
+        if ".config" in folded.split("/")[:-1]:
             found.append(f"{path}: a .config/ tree is where several tools look for config")
-        if name in _PINNED_AT_ROOT:
-            config = "/" in path
+        if name in {_fold(pinned) for pinned in _PINNED_AT_ROOT}:
+            config = path not in _PINNED_AT_ROOT  # pinned below by content, at the root only
         elif name == "conftest.py":
-            config = not path.startswith("tests/")
+            config = path != "tests/conftest.py" and not folded.startswith("tests/")
         else:
-            config = bool(
-                name in DISCOVERED or name in _ALSO_REFUSED or CONFIG_PATTERNS.match(name)
-            )
+            config = bool(name in _DISCOVERED_FOLDED or CONFIG_PATTERNS.match(name))
         if config:
             content = (root / path).read_bytes()
             if REVIEWED_CONFIG.get(path) != hashlib.sha256(content).hexdigest():
@@ -2114,6 +2190,8 @@ REVIEWED_EXPRESSIONS = {
     "steps.manifest.outputs.manifest",
     "steps.manifest.outputs.report",
 }
+#: The keys a job that calls a local reusable workflow may have.
+_REUSABLE_CALL_KEYS = {"uses", "needs", "permissions", "secrets"}
 #: ``if:`` conditions a step or job may carry.
 REVIEWED_CONDITIONS = {"failure()"}
 _EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
@@ -2229,6 +2307,10 @@ def workflow_violations(
                     "in this repository's .github/workflows"
                 )
             found.extend(_expression_violations(job, f"{path.name}:{job_name}", {}))
+            extra = sorted(set(job) - _REUSABLE_CALL_KEYS)
+            if extra:
+                # `with:` inputs would reach the called workflow as data this file never sees.
+                found.append(f"{path.name}:{job_name}: reusable-workflow call keys {extra}")
             continue
         found.extend(_env_violations(job.get("env"), f"{path.name}:{job_name}"))
         found.extend(_defaults_violations(job, f"{path.name}:{job_name}"))
