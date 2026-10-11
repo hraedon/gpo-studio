@@ -55,7 +55,7 @@ def test_the_release_group_includes_the_backend() -> None:
 
 def test_ci_runs_the_offline_backend_proof() -> None:
     ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "uv run --locked python scripts/check_locked_build_backend.py" in ci
+    assert "uv run --locked python -I scripts/check_locked_build_backend.py" in ci
 
 
 def test_the_backend_proof_refuses_a_tmp_root_inside_the_repository(tmp_path: Path) -> None:
@@ -87,5 +87,5 @@ def test_the_audit_input_keeps_every_platform_s_packages_and_hashes() -> None:
 def test_the_audit_reads_the_marker_free_file() -> None:
     ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     audit = ci.split("- name: Audit shipped dependencies", 1)[1].split("\n  sbom:", 1)[0]
-    assert "python scripts/requirements_all_platforms.py" in audit
+    assert "python -I scripts/requirements_all_platforms.py" in audit
     assert '--requirement "$RUNNER_TEMP/locked/requirements-all-platforms.txt"' in audit

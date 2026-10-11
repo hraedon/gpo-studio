@@ -719,7 +719,7 @@ def test_release_workflow_no_longer_greps_the_unversioned_manifest() -> None:
     text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
     assert "grep -q '^> " not in text
     assert "cp docs/release-evidence.md" not in text
-    assert text.count("python scripts/check_release_manifest.py") == 4
+    assert text.count("python -I scripts/check_release_manifest.py") == 4
 
 
 def test_publish_needs_identity_ci_identifier_gate_and_verify() -> None:
@@ -866,7 +866,7 @@ def test_publish_checks_the_remote_tag_immediately_before_creating_the_release()
 
 def test_publish_checks_the_built_distributions_before_anything_is_attested() -> None:
     publish = _job_block((WORKFLOWS / "release.yml").read_text(encoding="utf-8"), "publish")
-    build = publish.index("python -m build --no-isolation --outdir dist\n")
+    build = publish.index("python -I -m build --no-isolation --outdir dist\n")
     check = publish.index('--wheel "${WHEELS[0]}" --sdist "${SDISTS[0]}"')
     attest = publish.index("actions/attest-build-provenance")
     assert build < check < attest

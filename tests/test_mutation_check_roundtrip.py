@@ -36,7 +36,7 @@ def test_every_mutant_names_tests_that_exist() -> None:
 def test_ci_runs_the_mutation_check() -> None:
     ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     job = ci.split("\n  mutation-check:\n", 1)[1].split("\n  secret-scan:\n", 1)[0]
-    assert "uv run --locked python scripts/mutation_check_roundtrip.py" in job
+    assert "uv run --locked python -I scripts/mutation_check_roundtrip.py" in job
 
 
 def test_a_tmp_root_inside_the_repository_is_refused_before_anything_exists(

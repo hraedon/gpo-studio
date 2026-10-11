@@ -22,18 +22,26 @@ script into simple commands with a small shell lexer, it requires:
   ``&&``/``||`` list, a pipeline, the background or a substitution, not in an
   ``if:`` step, and visible only inside the block (branch, loop, group) that
   established it; ``continue-on-error`` is refused outright;
-* every package.json script a template runs to be held to the same table, and
-  no project npm configuration (``.npmrc``) to replace the shell it runs in;
+* every package.json script a template runs to be held to the same table, no
+  project npm configuration (``.npmrc``) to replace the shell it runs in, and
+  every npm program a template runs (``LOCKED_BINS``) to be pinned in
+  package.json, present in package-lock.json at that version, and run from
+  ``node_modules/.bin`` -- never fetched by ``npx``; every lock entry, npm and uv
+  alike, to carry a hash;
+* every Python template to run with ``-I``, so neither the script's directory
+  nor the working directory comes first on ``sys.path``;
 * every PowerShell step, and every step of a Windows job (PowerShell by
   default), to be exactly one of ``PWSH_BODIES``;
-* no tracked file to configure the tools the templates run
-  (``configuration_violations``: ``.npmrc``, ``pip.conf``, ``uv.toml``,
-  ``sitecustomize.py``, ``*.pth``, ``.python-version`` ..., [tool.uv] and
-  [build-system] exactly as reviewed, and no tracked ``node_modules/`` or
-  ``dist/``);
-* every action and input to be on ``ACTIONS``, every job to run on one of
-  ``RUNNERS``, and no ``shell:``, ``working-directory``, default or container
-  that would change how the text above runs.
+* no tracked file to change what those tools load or run
+  (``configuration_violations``, which inventories each tool's discovery rules:
+  config files by name, pinned by path and SHA-256 where one is reviewed;
+  modules that would shadow a tool or the standard library; compiled ``.pyc``;
+  every ``[tool.*]`` table and ``[build-system]`` exactly as reviewed; no
+  tracked ``node_modules/`` or ``dist/``);
+* every action and input to be on ``ACTIONS`` (an input that selects what the
+  action downloads, to a listed value), every job to run on one of ``RUNNERS``,
+  and no ``shell:``, ``working-directory``, default, ``container`` or
+  ``services`` image that would change how the text above runs.
 
 Anything else is a violation. A new command is a deliberate edit to the table.
 
@@ -48,13 +56,14 @@ What it does *not* establish, so nobody leans on it for more:
   sets them is one literal template (``python``, the wheel found in the ``dist``
   built in that job, the requirements exported in that job); a person running
   the script by hand can point it anywhere.
-* ``npx playwright install --with-deps`` downloads the browser builds the locked
+* ``playwright install --with-deps`` downloads the browser builds the locked
   ``@playwright/test`` names, which package-lock.json does not hash, and installs
   their system libraries through the runner's distribution package manager.
   PSScriptAnalyzer, the one PowerShell module, is outside both locks too; it is
   pinned by the SHA-256 of its package instead, checked before it is imported.
-* GitHub's runner image itself, and the pinned actions' own downloads (uv,
-  Python, Node), are trusted as provisioned.
+* GitHub's runner image itself, and the pinned actions -- their code, and what
+  they download with the listed input values (uv 0.12.0, CPython, Node 24, the
+  Playwright cache, checkout's credentials) -- are trusted as provisioned.
 """
 
 from __future__ import annotations
@@ -63,6 +72,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -501,7 +511,7 @@ TEMPLATES: tuple[Template, ...] = (
         provides=("var:LOCKED",),
     ),
     _t(
-        "python -m venv @VENV@",
+        "python -I -m venv @VENV@",
         "an empty venv from the runner's Python",
         provides=("venv:@VENV@",),
     ),
@@ -574,17 +584,20 @@ TEMPLATES: tuple[Template, ...] = (
         requires=("venv:@VENV@",),
     ),
     _t(
-        ("uv run --locked --only-group release python -m build --no-isolation --outdir dist"),
+        ("uv run --locked --only-group release python -I -m build --no-isolation --outdir dist"),
         "builds with the locked backend, no isolation",
         provides=("dist",),
     ),
     _t(
-        ("uv run --locked --only-group release python -m build --no-isolation --outdir dist-repro"),
+        (
+            "uv run --locked --only-group release python -I -m build --no-isolation "
+            "--outdir dist-repro"
+        ),
         "rebuilds for the reproducibility comparison",
         provides=("dist-repro",),
     ),
     _t(
-        "uv run --locked --only-group release python -m build --no-isolation --wheel",
+        "uv run --locked --only-group release python -I -m build --no-isolation --wheel",
         "builds the wheel with the locked backend, no isolation",
         provides=("dist",),
     ),
@@ -641,34 +654,34 @@ TEMPLATES: tuple[Template, ...] = (
         requires=("venv:/tmp/sbom-venv",),
     ),
     _t(
-        "uv run --locked python scripts/check_coverage.py coverage.json",
+        "uv run --locked python -I scripts/check_coverage.py coverage.json",
         _LOCKED_SCRIPT,
     ),
     _t(
         (
-            "uv run --locked python scripts/check_locked_build_backend.py --tmp-root "
+            "uv run --locked python -I scripts/check_locked_build_backend.py --tmp-root "
             '"$RUNNER_TEMP/backend-check"'
         ),
         _LOCKED_SCRIPT,
     ),
     _t(
-        "uv run --locked python scripts/check_safety.py",
+        "uv run --locked python -I scripts/check_safety.py",
         _LOCKED_SCRIPT,
     ),
     _t(
         (
-            "uv run --locked python scripts/mutation_check_roundtrip.py --tmp-root "
+            "uv run --locked python -I scripts/mutation_check_roundtrip.py --tmp-root "
             '"$RUNNER_TEMP/mutants"'
         ),
         _LOCKED_SCRIPT,
     ),
     _t(
-        "uv run --locked python scripts/rehearse_upgrade_rollback.py",
+        "uv run --locked python -I scripts/rehearse_upgrade_rollback.py",
         _LOCKED_SCRIPT,
     ),
     _t(
         (
-            "python scripts/requirements_all_platforms.py "
+            "python -I scripts/requirements_all_platforms.py "
             '"$RUNNER_TEMP/locked/requirements-lock.txt" '
             '"$RUNNER_TEMP/locked/requirements-all-platforms.txt"'
         ),
@@ -676,72 +689,72 @@ TEMPLATES: tuple[Template, ...] = (
     ),
     _t(
         (
-            "python scripts/finalize_sbom.py sbom.cdx.json --repository "
+            "python -I scripts/finalize_sbom.py sbom.cdx.json --repository "
             '"$GITHUB_REPOSITORY" --source-commit "$GITHUB_SHA"'
         ),
         _SCRIPT,
     ),
     _t(
-        "python scripts/check_sbom_shape.py sbom.cdx.json",
+        "python -I scripts/check_sbom_shape.py sbom.cdx.json",
         _SCRIPT,
     ),
     _t(
-        "python scripts/record_release_identity.py",
+        "python -I scripts/record_release_identity.py",
         _SCRIPT,
     ),
     _t(
         (
-            'python scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" '
+            'python -I scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" '
             '--github-output "${GITHUB_OUTPUT}"'
         ),
         _SCRIPT,
     ),
     _t(
         (
-            'python scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" '
+            'python -I scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" '
             '--github-output "${GITHUB_OUTPUT}" --remote-tag-sha "${GITHUB_SHA}"'
         ),
         _SCRIPT,
     ),
     _t(
         (
-            'python scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" '
+            'python -I scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" '
             '--remote-tag-sha "${GITHUB_SHA}"'
         ),
         _SCRIPT,
     ),
     _t(
         (
-            'python scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" --wheel '
+            'python -I scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" --wheel '
             '"${WHEELS[0]}" --sdist "${SDISTS[0]}"'
         ),
         _SCRIPT,
     ),
     _t(
-        "python3 scripts/check_committed_identifiers.py --strict",
+        "python3 -I scripts/check_committed_identifiers.py --strict",
         _SCRIPT,
     ),
     _t(
-        "python3 tests/test_identifier_gate_visibility.py",
+        "python3 -I tests/test_identifier_gate_visibility.py",
         _SCRIPT,
     ),
     _t(
-        "@VENV@/bin/python scripts/print_installed_version.py",
+        "@VENV@/bin/python -I scripts/print_installed_version.py",
         _VENV_RUN,
         requires=("venv:@VENV@",),
     ),
     _t(
-        "@VENV@/bin/python scripts/print_installed_version.py --metadata",
+        "@VENV@/bin/python -I scripts/print_installed_version.py --metadata",
         _VENV_RUN,
         requires=("venv:@VENV@",),
     ),
     _t(
-        "@VENV@/bin/python scripts/check_health_version.py /tmp/health.json",
+        "@VENV@/bin/python -I scripts/check_health_version.py /tmp/health.json",
         _VENV_RUN,
         requires=("venv:@VENV@",),
     ),
     _t(
-        "@VENV@/bin/python scripts/rehearse_upgrade_rollback.py",
+        "@VENV@/bin/python -I scripts/rehearse_upgrade_rollback.py",
         _VENV_RUN,
         requires=("venv:@VENV@",),
     ),
@@ -756,18 +769,18 @@ TEMPLATES: tuple[Template, ...] = (
         requires=("venv:@VENV@",),
     ),
     _t(
-        ("VENV_VERSION=$(/tmp/smoke-venv/bin/python scripts/print_installed_version.py)"),
+        ("VENV_VERSION=$(/tmp/smoke-venv/bin/python -I scripts/print_installed_version.py)"),
         _ASSIGN,
     ),
     _t(
         (
             "META_VERSION=$(/tmp/smoke-venv/bin/python "
-            "scripts/print_installed_version.py --metadata)"
+            "-I scripts/print_installed_version.py --metadata)"
         ),
         _ASSIGN,
     ),
     _t(
-        ("SDIST_VERSION=$(/tmp/sdist-venv/bin/python scripts/print_installed_version.py)"),
+        ("SDIST_VERSION=$(/tmp/sdist-venv/bin/python -I scripts/print_installed_version.py)"),
         _ASSIGN,
     ),
     _t(
@@ -1035,7 +1048,7 @@ TEMPLATES: tuple[Template, ...] = (
         "reports advisories; installs nothing",
     ),
     _t(
-        "npx playwright install --with-deps chromium firefox",
+        "node_modules/.bin/playwright install --with-deps chromium firefox",
         "the browsers the locked @playwright/test names, after npm ci in this job",
         requires=("npm-ci",),
     ),
@@ -1209,32 +1222,35 @@ TEMPLATES: tuple[Template, ...] = (
         requires=("venv",),
     ),
     _t(
-        '"$TMPDIR/venv/bin/python" scripts/print_installed_version.py',
+        '"$TMPDIR/venv/bin/python" -I scripts/print_installed_version.py',
         _VENV_RUN,
         scope="smoke",
     ),
     _t(
-        '"$TMPDIR/venv/bin/python" scripts/print_installed_version.py --metadata',
+        '"$TMPDIR/venv/bin/python" -I scripts/print_installed_version.py --metadata',
         _VENV_RUN,
         scope="smoke",
     ),
     _t(
-        '"$TMPDIR/venv/bin/python" scripts/read_json_field.py version',
+        '"$TMPDIR/venv/bin/python" -I scripts/read_json_field.py version',
         _VENV_RUN,
         scope="smoke",
     ),
     _t(
-        '"$TMPDIR/venv/bin/python" scripts/read_json_field.py gpo.guid',
+        '"$TMPDIR/venv/bin/python" -I scripts/read_json_field.py gpo.guid',
         _VENV_RUN,
         scope="smoke",
     ),
     _t(
-        'VENV_VERSION=$("$TMPDIR/venv/bin/python" scripts/print_installed_version.py)',
+        'VENV_VERSION=$("$TMPDIR/venv/bin/python" -I scripts/print_installed_version.py)',
         _ASSIGN,
         scope="smoke",
     ),
     _t(
-        ('META_VERSION=$("$TMPDIR/venv/bin/python" scripts/print_installed_version.py --metadata)'),
+        (
+            'META_VERSION=$("$TMPDIR/venv/bin/python" -I '
+            "scripts/print_installed_version.py --metadata)"
+        ),
         _ASSIGN,
         scope="smoke",
     ),
@@ -1276,7 +1292,7 @@ TEMPLATES: tuple[Template, ...] = (
     _t(
         (
             'HEALTH_VERSION=$(echo "$HEALTH" | "$TMPDIR/venv/bin/python" '
-            "scripts/read_json_field.py version)"
+            "-I scripts/read_json_field.py version)"
         ),
         _ASSIGN,
         scope="smoke",
@@ -1309,7 +1325,7 @@ TEMPLATES: tuple[Template, ...] = (
     _t(
         (
             'GPO_GUID=$(echo "$RESPONSE" | "$TMPDIR/venv/bin/python" '
-            "scripts/read_json_field.py gpo.guid)"
+            "-I scripts/read_json_field.py gpo.guid)"
         ),
         _ASSIGN,
         scope="smoke",
@@ -1469,7 +1485,7 @@ PWSH_BODIES: dict[str, str] = {
         "uv run --locked pytest -q --cov=src/gpo_studio --cov-branch"
         " --cov-report=json:coverage.json"
     ): _LOCKED_RUN,
-    "uv run --locked python scripts/check_coverage.py coverage.json": _LOCKED_SCRIPT,
+    "uv run --locked python -I scripts/check_coverage.py coverage.json": _LOCKED_SCRIPT,
 }
 
 
@@ -1624,8 +1640,51 @@ def _check_npm_config(ctx: Context, where: str) -> Iterator[str]:
             yield f"{where}: {name} configures npm itself, outside these templates"
 
 
+#: The programs the npm templates run (node_modules/.bin on PATH, or by that path),
+#: and the package each must come from: pinned exactly in package.json, present
+#: in package-lock.json with that version, and providing that binary. Otherwise a
+#: script's `vitest` or npx's `playwright` resolves from the runner or the registry.
+LOCKED_BINS = {
+    "eslint": "eslint",
+    "playwright": "@playwright/test",
+    "prettier": "prettier",
+    "vitest": "vitest",
+}
+
+
+def npm_lock_violations(package_json: Path, lock_path: Path) -> list[str]:
+    """package-lock.json hashes every package and locks every program a template runs."""
+    if not lock_path.is_file():
+        return [f"{lock_path.name}: missing, so npm ci would resolve from package.json"]
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    package = json.loads(package_json.read_text(encoding="utf-8"))
+    packages: dict[str, Any] = lock.get("packages") or {}
+    found: list[str] = []
+    for path, entry in packages.items():
+        if not path or entry.get("link"):
+            continue
+        resolved = str(entry.get("resolved", ""))
+        if not resolved.startswith("https://registry.npmjs.org/"):
+            found.append(f"{lock_path.name}: {path} is not resolved from the npm registry")
+        if not str(entry.get("integrity", "")).startswith("sha512-"):
+            found.append(f"{lock_path.name}: {path} has no sha512 integrity, so nothing pins it")
+    declared = package.get("devDependencies") or {}
+    for program, name in sorted(LOCKED_BINS.items()):
+        entry = packages.get(f"node_modules/{name}") or {}
+        if not re.fullmatch(r"\d+\.\d+\.\d+", str(declared.get(name, ""))):
+            found.append(f"package.json: {name} (for {program}) is not pinned to one version")
+        elif entry.get("version") != declared[name]:
+            found.append(f"{lock_path.name}: {name} {declared[name]} is not the locked version")
+        if program not in (entry.get("bin") or {}):
+            found.append(f"{lock_path.name}: no locked package provides {program}")
+    return found
+
+
 def _check_npm_ci(ctx: Context, where: str) -> Iterator[str]:
     yield from _check_npm_config(ctx, where)
+    package_json = ctx.package_json or ctx.root / "package.json"
+    for problem in npm_lock_violations(package_json, package_json.parent / "package-lock.json"):
+        yield f"{where}: {problem}"
     hooks = sorted(_NPM_INSTALL_HOOKS & set(ctx.npm_scripts()))
     if hooks:
         yield f"{where}: npm ci would run package.json lifecycle scripts {hooks}"
@@ -1668,53 +1727,155 @@ def _check_npm_script(name: str, ctx: Context, where: str) -> Iterator[str]:
 
 # --- the files that configure those tools ---------------------------------------
 
-#: Tracked files that would configure a tool the templates run: an installer's index
-#: or config, the interpreter's startup, git's transports, npm's script shell. None
-#: exists today; one added later must be reviewed here, by content.
-CONFIG_NAMES = {
-    ".curlrc",
-    ".gitconfig",
-    ".gitmodules",
-    ".node-version",
-    ".npmrc",
-    ".nvmrc",
-    ".pnpmfile.cjs",
-    ".pydistutils.cfg",
-    ".pypirc",
-    ".python-version",
-    ".tool-versions",
-    ".wgetrc",
-    ".yarnrc",
-    ".yarnrc.yml",
-    "_curlrc",
-    "pip.conf",
-    "pip.ini",
-    "pytest.ini",
-    "setup.cfg",
-    "setup.py",
-    "sitecustomize.py",
-    "tox.ini",
-    "usercustomize.py",
-    "uv.toml",
+#: What each templated tool discovers on its own, beyond its arguments, and how
+#: that input is closed. A tracked file can change what an allowed tool loads or
+#: runs in three ways; each is neutralised in the template or pinned here:
+#:
+#: * module shadowing: Python puts the script's directory (or the working
+#:   directory, for ``-m``) first on sys.path. Every Python template runs with
+#:   ``-I``, and no tracked module at the top of the checkout, scripts/ or tests/
+#:   may shadow the standard library or a tool the templates run (SHADOWED); no
+#:   compiled ``.pyc`` may be tracked either (an unchecked-hash pyc runs in place
+#:   of its source).
+#: * configuration discovery: pip, uv, npm, git, curl, pytest, mypy, coverage,
+#:   hatchling, prettier, eslint, vitest/vite, Playwright and PSScriptAnalyzer each
+#:   look for config files by name (CONFIG_PATTERNS) or in pyproject.toml and
+#:   package.json. A tracked match must be reviewed here by path and SHA-256
+#:   (REVIEWED_CONFIG); the pyproject tables are pinned whole (REVIEWED_TOOL).
+#: * plugins and rule paths: prettier/eslint/vitest/Playwright configs and the
+#:   PSScriptAnalyzer settings can load modules; their content is pinned, and the
+#:   analyzer settings may name no custom rule path either.
+#:
+#: Environment variables that would do the same are closed by ENV, and the npm
+#: programs must come from package-lock.json (LOCKED_BINS). Tests, scripts/ and
+#: these pinned configs are code the tools exist to run; they are reviewed as code.
+CONFIG_PATTERNS = re.compile(
+    r"^("
+    r"\.curlrc|_curlrc|\.wgetrc|\.gitconfig|\.gitmodules"
+    r"|\.npmrc|\.yarnrc|\.yarnrc\.yml|\.pnpmfile\.cjs|\.node-version|\.nvmrc|\.tool-versions"
+    r"|pip\.conf|pip\.ini|uv\.toml|\.python-version|\.pypirc|\.pydistutils\.cfg"
+    r"|setup\.cfg|setup\.py|sitecustomize\.py|usercustomize\.py|hatch\.toml|hatch_build\.py"
+    r"|pytest\.ini|\.pytest\.ini|tox\.ini|mypy\.ini|\.mypy\.ini|\.coveragerc"
+    r"|\.prettierrc(\..*)?|prettier\.config\..*|\.editorconfig"
+    r"|eslint\.config\..*|\.eslintrc(\..*)?"
+    r"|vitest\.config\..*|vitest\.workspace\..*|vite\.config\..*|postcss\.config\..*"
+    r"|\.postcssrc(\..*)?|babel\.config\..*|\.babelrc(\..*)?|playwright\.config\..*"
+    r"|PSScriptAnalyzerSettings\.psd1"
+    r")$"
+)
+#: path -> SHA-256 of each reviewed configuration file the tools discover today.
+REVIEWED_CONFIG: dict[str, str] = {
+    ".prettierrc.json": "7752dba7407ce87e2bc87866f69a8f41d38b9d6ae30e7ebcf04bbbebdf9458d5",
+    "PSScriptAnalyzerSettings.psd1": (
+        "0dcee3b3aa0c2b11c3aba45d1d897a3f712ca00603b02a4d72764a3e77cbe069"
+    ),
+    "eslint.config.mjs": "aeab775a04d5c68c037f474ad1dea8db5a629bef1300fd38b32c22673f15daa9",
+    "playwright.config.mjs": "6bb4b13ed0a761e11af43831b3dde1977991034eaf767a833a8118b8330b6640",
+    "vitest.config.mjs": "656c53e8b1c94f0efee345cebfb1fd7ec4ab46523bc365430a79517663f717d3",
 }
-#: path -> SHA-256 of a reviewed configuration file. Empty: none is needed.
-REVIEWED_CONFIG: dict[str, str] = {}
+#: Keys that make PSScriptAnalyzer import and run modules named by its settings.
+_ANALYZER_CODE_KEYS = re.compile(r"CustomRulePath|RecurseCustomRulePath|IncludeDefaultRules", re.I)
 #: Trees a checkout must not carry: their contents would stand in for what a
 #: template builds or installs (a node_modules/.bin shim, a prebuilt dist/).
 UNTRACKED_TREES = ("node_modules/", ".venv/", "dist/", "dist-repro/", ".git/")
-#: pyproject.toml's [tool.uv] and [build-system], exactly as reviewed.
-REVIEWED_TOOL_UV = {
-    "required-version": ">=0.12.0",
-    "default-groups": ["build-backend"],
-    "no-build-isolation-package": ["gpo-studio"],
+#: Module names a tracked file must not provide where Python could find it first.
+SHADOWED = set(sys.stdlib_module_names) | {
+    "_pytest",
+    "build",
+    "cyclonedx",
+    "cyclonedx_py",
+    "editables",
+    "gpo_studio",
+    "hatchling",
+    "mypy",
+    "packaging",
+    "pip",
+    "pip_audit",
+    "piplicenses",
+    "pluggy",
+    "pyproject_hooks",
+    "pytest",
+    "ruff",
+    "setuptools",
+    "sitecustomize",
+    "usercustomize",
+}
+_SHADOW_DIRS = ("", "scripts/", "tests/")
+#: pyproject.toml's tool tables and [build-system], exactly as reviewed. ruff's is
+#: free: ruff loads no code. Any other [tool.*] table is refused.
+REVIEWED_TOOL: dict[str, Any] = {
+    "uv": {
+        "required-version": ">=0.12.0",
+        "default-groups": ["build-backend"],
+        "no-build-isolation-package": ["gpo-studio"],
+    },
+    "hatch": {
+        "version": {"path": "src/gpo_studio/__init__.py"},
+        "build": {
+            "targets": {
+                "wheel": {"packages": ["src/gpo_studio"]},
+                "sdist": {
+                    "exclude": [
+                        ".venv",
+                        "node_modules",
+                        "*.db",
+                        "*.sqlite3",
+                        "exports/",
+                        "playwright-report/",
+                        "test-results/",
+                        ".claude/",
+                        "githooks/",
+                        "reflections/",
+                        "dist/",
+                        "dist-repro/",
+                        "build/",
+                    ]
+                },
+            }
+        },
+    },
+    "pytest": {"ini_options": {"testpaths": ["tests"]}},
+    "mypy": {"python_version": "3.13", "strict": True, "files": ["src"]},
 }
 REVIEWED_BUILD_SYSTEM = {"requires": ["hatchling"], "build-backend": "hatchling.build"}
 #: package.json's top-level keys: no packageManager, workspaces, overrides or config.
 PACKAGE_JSON_KEYS = {"name", "private", "type", "engines", "scripts", "devDependencies"}
 
 
+def _shadows(path: str) -> str | None:
+    """The module name *path* would provide on a sys.path entry it sits directly in."""
+    for directory in _SHADOW_DIRS:
+        if not path.startswith(directory):
+            continue
+        rest = path[len(directory) :]
+        parts = rest.split("/")
+        if len(parts) == 1 and re.search(r"\.(py|pyc|pyw|so|pyd)$", rest):
+            return rest.split(".", 1)[0]
+        if len(parts) == 2 and parts[1] == "__init__.py":
+            return parts[0]
+    return None
+
+
+def uv_lock_violations(lock_path: Path) -> list[str]:
+    """Every package uv.lock names comes from PyPI with a SHA-256 for every artifact."""
+    lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    found: list[str] = []
+    for package in lock.get("package", []):
+        source = package.get("source", {})
+        if source == {"editable": "."}:
+            continue
+        if source.get("registry") != "https://pypi.org/simple":
+            found.append(f"uv.lock: {package['name']} is not from PyPI ({source})")
+        artifacts = ([package["sdist"]] if "sdist" in package else []) + package.get("wheels", [])
+        if not artifacts or not all(
+            str(artifact.get("hash", "")).startswith("sha256:") for artifact in artifacts
+        ):
+            found.append(f"uv.lock: {package['name']} has an artifact without a SHA-256")
+    return found
+
+
 def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
-    """Tracked files that would change what a reviewed template does."""
+    """Tracked files that would change what a reviewed template loads or runs."""
     listed = subprocess.run(
         ["git", "ls-files", "-z"], cwd=root, capture_output=True, check=True
     ).stdout.decode()
@@ -1725,24 +1886,36 @@ def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
             found.append(f"{path}: a tracked path a template's variable could spell literally")
         if path.startswith(UNTRACKED_TREES):
             found.append(f"{path}: tracked inside {path.split('/', 1)[0]}/")
+        if name.endswith(".pyc") or "__pycache__/" in path:
+            found.append(f"{path}: compiled Python, which can run in place of its source")
+        module = _shadows(path)
+        if module in SHADOWED:
+            found.append(f"{path}: shadows the {module!r} module a template runs or imports")
         config = (
-            name in CONFIG_NAMES
+            CONFIG_PATTERNS.match(name)
             or name.endswith(".pth")
             or (name == "conftest.py" and not path.startswith("tests/"))
         )
         if config:
-            digest = hashlib.sha256((root / path).read_bytes()).hexdigest()
-            if REVIEWED_CONFIG.get(path) != digest:
+            content = (root / path).read_bytes()
+            if REVIEWED_CONFIG.get(path) != hashlib.sha256(content).hexdigest():
                 found.append(f"{path}: configures a tool the templates run, unreviewed")
+            if name.endswith(".psd1") and _ANALYZER_CODE_KEYS.search(content.decode("utf-8")):
+                found.append(f"{path}: names analyzer rule modules to load")
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    if pyproject.get("tool", {}).get("uv") != REVIEWED_TOOL_UV:
-        found.append("pyproject.toml: [tool.uv] differs from the reviewed table")
+    tools = pyproject.get("tool", {})
+    for table in sorted(set(tools) - {"ruff"}):
+        if tools[table] != REVIEWED_TOOL.get(table):
+            found.append(f"pyproject.toml: [tool.{table}] differs from the reviewed table")
     if pyproject.get("build-system") != REVIEWED_BUILD_SYSTEM:
         found.append("pyproject.toml: [build-system] differs from the reviewed table")
     package = json.loads((root / "package.json").read_text(encoding="utf-8"))
     extra = sorted(set(package) - PACKAGE_JSON_KEYS)
     if extra:
         found.append(f"package.json: unreviewed top-level keys {extra}")
+    found.extend(npm_lock_violations(root / "package.json", root / "package-lock.json"))
+    if (root / "uv.lock").is_file():
+        found.extend(uv_lock_violations(root / "uv.lock"))
     return found
 
 
@@ -1752,15 +1925,26 @@ _PINNED_ACTION = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
 #: Remote actions a workflow may use, and the inputs each may be given. An action
 #: that installs packages (setup-python's ``pip-install``, say) is an install this
 #: grammar cannot see, so a new action or input is a deliberate edit here.
+#: An input that selects what the action downloads or runs has its values listed;
+#: ``None`` marks one that only names files to upload or attest. The pinned actions
+#: and what they fetch with these inputs (uv, CPython, Node, the cache) are trusted.
+_PYTHONS = {"3.13", "${{ matrix.python-version }}"}
 ACTIONS: dict[str, dict[str, set[str] | None]] = {
     "actions/attest": {"sbom-path": None, "subject-path": None},
     "actions/attest-build-provenance": {"subject-path": None},
-    "actions/cache": {"key": None, "path": {"~/.cache/ms-playwright"}},
-    "actions/checkout": {"fetch-depth": None},
-    "actions/setup-node": {"cache": {"npm"}, "node-version": None},
-    "actions/setup-python": {"python-version": None},
+    "actions/cache": {
+        "key": {"${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}"},
+        "path": {"~/.cache/ms-playwright"},
+    },
+    "actions/checkout": {"fetch-depth": {"0"}},
+    "actions/setup-node": {"cache": {"npm"}, "node-version": {"24"}},
+    "actions/setup-python": {"python-version": {"3.13"}},
     "actions/upload-artifact": {"if-no-files-found": None, "name": None, "path": None},
-    "astral-sh/setup-uv": {"enable-cache": None, "python-version": None, "version": None},
+    "astral-sh/setup-uv": {
+        "enable-cache": {"True"},
+        "python-version": _PYTHONS,
+        "version": {"0.12.0"},
+    },
     "gitleaks/gitleaks-action": {},
 }
 
@@ -1821,8 +2005,10 @@ def workflow_violations(
             continue
         found.extend(_env_violations(job.get("env"), f"{path.name}:{job_name}"))
         found.extend(_defaults_violations(job, f"{path.name}:{job_name}"))
-        if "container" in job:
-            found.append(f"{path.name}:{job_name}: a job container is an unscanned environment")
+        for key in ("container", "services"):
+            if key in job:
+                # Both start an image (mutable, outside either lock) before any step.
+                found.append(f"{path.name}:{job_name}: a job {key} runs an unscanned image")
         if "continue-on-error" in job:
             found.append(f"{path.name}:{job_name}: continue-on-error hides a failed install")
         runner = job.get("runs-on")

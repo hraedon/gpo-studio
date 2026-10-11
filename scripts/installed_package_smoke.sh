@@ -23,7 +23,7 @@ else
   # With the locked backend only: a throwaway environment gets uv.lock's
   # `build-backend` group, and `uv build` builds gpo-studio in it without
   # isolation ([tool.uv] in pyproject.toml), so nothing resolves a backend from
-  # the index. No uv, no build: an isolated `python -m build` would.
+  # the index. No uv, no build: an isolated `python -I -m build` would.
   if ! command -v uv >/dev/null 2>&1; then
     echo "FAIL: building the wheel needs uv (or set GPO_STUDIO_WHEEL to a built wheel)"
     exit 1
@@ -57,8 +57,8 @@ echo "=== Creating clean venv ==="
 "$TMPDIR/venv/bin/pip" check
 
 echo "=== Checking version consistency ==="
-VENV_VERSION=$("$TMPDIR/venv/bin/python" scripts/print_installed_version.py)
-META_VERSION=$("$TMPDIR/venv/bin/python" scripts/print_installed_version.py --metadata)
+VENV_VERSION=$("$TMPDIR/venv/bin/python" -I scripts/print_installed_version.py)
+META_VERSION=$("$TMPDIR/venv/bin/python" -I scripts/print_installed_version.py --metadata)
 if [ "$VENV_VERSION" != "$META_VERSION" ]; then
   echo "FAIL: __version__ ($VENV_VERSION) != package metadata ($META_VERSION)"
   exit 1
@@ -75,7 +75,7 @@ sleep 2
 
 echo "=== Checking installed API version ==="
 HEALTH=$(curl -sf "http://127.0.0.1:$PORT/api/health")
-HEALTH_VERSION=$(echo "$HEALTH" | "$TMPDIR/venv/bin/python" scripts/read_json_field.py version)
+HEALTH_VERSION=$(echo "$HEALTH" | "$TMPDIR/venv/bin/python" -I scripts/read_json_field.py version)
 if [ "$HEALTH_VERSION" != "$VENV_VERSION" ]; then
   echo "FAIL: API version ($HEALTH_VERSION) != installed version ($VENV_VERSION)"
   exit 1
@@ -85,7 +85,7 @@ echo "=== Creating GPO ==="
 RESPONSE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/gpos" \
   -H "Content-Type: application/json" \
   -d '{"name":"Smoke Test GPO","domain":"test.local","actor":"smoke","reason":"installed-package smoke test"}')
-GPO_GUID=$(echo "$RESPONSE" | "$TMPDIR/venv/bin/python" scripts/read_json_field.py gpo.guid)
+GPO_GUID=$(echo "$RESPONSE" | "$TMPDIR/venv/bin/python" -I scripts/read_json_field.py gpo.guid)
 echo "Created GPO: $GPO_GUID"
 
 echo "=== Adding registry setting ==="

@@ -58,7 +58,7 @@ jobs:
       # project build must use it, and an isolated build must fail (control).
       - name: The project builds only with the locked backend
         run: >-
-          uv run --locked python scripts/check_locked_build_backend.py
+          uv run --locked python -I scripts/check_locked_build_backend.py
           --tmp-root "$RUNNER_TEMP/backend-check"
       - name: Ruff
         run: uv run --locked ruff check .
@@ -69,7 +69,7 @@ jobs:
           uv run --locked pytest -q --cov=src/gpo_studio --cov-branch
           --cov-report=json:coverage.json
       - name: Risk-based coverage floors
-        run: uv run --locked python scripts/check_coverage.py coverage.json
+        run: uv run --locked python -I scripts/check_coverage.py coverage.json
 
   test-windows:
     # Windows mirror of `test`, ENFORCING since 2026-09-06. The baseline it was
@@ -120,7 +120,7 @@ jobs:
           uv run --locked pytest -q --cov=src/gpo_studio --cov-branch
           --cov-report=json:coverage.json
       - name: Risk-based coverage floors
-        run: uv run --locked python scripts/check_coverage.py coverage.json
+        run: uv run --locked python -I scripts/check_coverage.py coverage.json
 
   frontend:
     runs-on: ubuntu-latest
@@ -152,7 +152,7 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
       - name: Install browser binaries
-        run: npx playwright install --with-deps chromium firefox
+        run: node_modules/.bin/playwright install --with-deps chromium firefox
       - name: Frontend checks
         run: npm run check
       - name: Browser tests
@@ -194,8 +194,8 @@ jobs:
         # The locked `build` and hatchling (dependency group `release`), not an
         # isolated build environment that resolves the backend at run time.
         run: |
-          uv run --locked --only-group release python -m build --no-isolation --outdir dist
-          uv run --locked --only-group release python -m build --no-isolation --outdir dist-repro
+          uv run --locked --only-group release python -I -m build --no-isolation --outdir dist
+          uv run --locked --only-group release python -I -m build --no-isolation --outdir dist-repro
           for artifact in dist/*; do
             cmp "$artifact" "dist-repro/$(basename "$artifact")"
           done
@@ -217,11 +217,11 @@ jobs:
       - name: Install wheel and sdist in clean environments
         run: |
           LOCKED="$RUNNER_TEMP/locked"
-          python -m venv /tmp/smoke-venv
+          python -I -m venv /tmp/smoke-venv
           /tmp/smoke-venv/bin/pip install --require-hashes -r "$LOCKED/requirements-lock.txt"
           /tmp/smoke-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl
           /tmp/smoke-venv/bin/pip check
-          python -m venv /tmp/sdist-venv
+          python -I -m venv /tmp/sdist-venv
           /tmp/sdist-venv/bin/pip install --require-hashes \
             -r "$LOCKED/requirements-lock.txt" -r "$LOCKED/build-backend-lock.txt"
           /tmp/sdist-venv/bin/pip install --no-deps --no-index --no-build-isolation \
@@ -229,14 +229,14 @@ jobs:
           /tmp/sdist-venv/bin/pip check
       - name: Verify version consistency
         run: |
-          VENV_VERSION=$(/tmp/smoke-venv/bin/python scripts/print_installed_version.py)
-          META_VERSION=$(/tmp/smoke-venv/bin/python scripts/print_installed_version.py --metadata)
+          VENV_VERSION=$(/tmp/smoke-venv/bin/python -I scripts/print_installed_version.py)
+          META_VERSION=$(/tmp/smoke-venv/bin/python -I scripts/print_installed_version.py --metadata)
           if [ "$VENV_VERSION" != "$META_VERSION" ]; then
             echo "FAIL: __version__ ($VENV_VERSION) != metadata ($META_VERSION)"
             exit 1
           fi
           echo "Version: $VENV_VERSION (consistent)"
-          SDIST_VERSION=$(/tmp/sdist-venv/bin/python scripts/print_installed_version.py)
+          SDIST_VERSION=$(/tmp/sdist-venv/bin/python -I scripts/print_installed_version.py)
           test "$VENV_VERSION" = "$SDIST_VERSION"
       - name: Verify CLI entry point
         run: /tmp/smoke-venv/bin/gpo-studio --help
@@ -250,7 +250,7 @@ jobs:
             curl -sf http://127.0.0.1:8799/api/health > /tmp/health.json && break
             sleep 0.25
           done
-          /tmp/smoke-venv/bin/python scripts/check_health_version.py /tmp/health.json
+          /tmp/smoke-venv/bin/python -I scripts/check_health_version.py /tmp/health.json
           # Create a GPO
           curl -sf -X POST http://127.0.0.1:8799/api/gpos \
             -H "Content-Type: application/json" \
@@ -282,7 +282,7 @@ jobs:
           done
           echo "sdist contains all required files"
       - name: Rehearse upgrade and rollback with installed wheel
-        run: /tmp/smoke-venv/bin/python scripts/rehearse_upgrade_rollback.py
+        run: /tmp/smoke-venv/bin/python -I scripts/rehearse_upgrade_rollback.py
       - name: Upload candidate distributions
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -321,8 +321,8 @@ jobs:
             --output-file "$RUNNER_TEMP/locked/build-backend-lock.txt" > /dev/null
       - name: Install
         run: |
-          uv run --locked --only-group release python -m build --no-isolation --wheel
-          python -m venv /tmp/audit-venv
+          uv run --locked --only-group release python -I -m build --no-isolation --wheel
+          python -I -m venv /tmp/audit-venv
           /tmp/audit-venv/bin/pip install --require-hashes \
             -r "$RUNNER_TEMP/locked/requirements-lock.txt"
           /tmp/audit-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl
@@ -335,7 +335,7 @@ jobs:
       # are read from the installed Linux environment, so they cover its set.
       - name: Audit shipped dependencies
         run: |
-          python scripts/requirements_all_platforms.py \
+          python -I scripts/requirements_all_platforms.py \
             "$RUNNER_TEMP/locked/requirements-lock.txt" \
             "$RUNNER_TEMP/locked/requirements-all-platforms.txt"
           uv run --locked --only-group release pip-audit --strict --require-hashes \
@@ -375,8 +375,8 @@ jobs:
             --output-file "$RUNNER_TEMP/locked/build-backend-lock.txt" > /dev/null
       - name: Build wheel
         run: |
-          uv run --locked --only-group release python -m build --no-isolation --wheel
-          python -m venv /tmp/sbom-venv
+          uv run --locked --only-group release python -I -m build --no-isolation --wheel
+          python -I -m venv /tmp/sbom-venv
           /tmp/sbom-venv/bin/pip install --require-hashes \
             -r "$RUNNER_TEMP/locked/requirements-lock.txt"
           /tmp/sbom-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl
@@ -390,7 +390,7 @@ jobs:
             --output-reproducible \
             --output-format JSON \
             --output-file sbom.cdx.json
-          python scripts/finalize_sbom.py sbom.cdx.json \
+          python -I scripts/finalize_sbom.py sbom.cdx.json \
             --repository "$GITHUB_REPOSITORY" \
             --source-commit "$GITHUB_SHA"
       - name: Verify SBOM
@@ -399,7 +399,7 @@ jobs:
             echo "FAIL: SBOM is empty or missing"
             exit 1
           fi
-          python scripts/check_sbom_shape.py sbom.cdx.json
+          python -I scripts/check_sbom_shape.py sbom.cdx.json
           echo "SBOM generated: $(stat -c%s sbom.cdx.json) bytes"
       - name: Upload SBOM
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -424,7 +424,7 @@ jobs:
       - name: Install
         run: uv sync --locked --extra dev
       - name: Run static safety checks
-        run: uv run --locked python scripts/check_safety.py
+        run: uv run --locked python -I scripts/check_safety.py
 
   identifier-gate-test:
     runs-on: ubuntu-latest
@@ -559,7 +559,7 @@ jobs:
         run: uv sync --locked --extra dev
       - name: Kill every round-trip mutant
         run: >-
-          uv run --locked python scripts/mutation_check_roundtrip.py
+          uv run --locked python -I scripts/mutation_check_roundtrip.py
           --tmp-root "$RUNNER_TEMP/mutants"
 
   secret-scan:

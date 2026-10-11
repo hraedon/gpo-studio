@@ -549,7 +549,7 @@ UNLOCKED_VARIANTS = {
     "venv_used_before_created": ("", "      - run: /tmp/smoke-venv/bin/pip check"),
     "wheel_without_build": (
         "",
-        "      - run: |\n          python -m venv /tmp/smoke-venv\n"
+        "      - run: |\n          python -I -m venv /tmp/smoke-venv\n"
         "          /tmp/smoke-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl",
     ),
     "input_redirect": (
@@ -571,7 +571,7 @@ UNLOCKED_VARIANTS = {
 
 # Build, export and hand over a wheel exactly as release.yml does.
 _HAND_OFF = (
-    "      - run: uv run --locked --only-group release python -m build --no-isolation"
+    "      - run: uv run --locked --only-group release python -I -m build --no-isolation"
     " --outdir dist\n"
     "      - run: uv export --locked --no-default-groups --no-emit-project"
     " --format requirements.txt --output-file requirements-lock.txt\n"
@@ -628,9 +628,9 @@ def test_every_template_is_reviewed_and_used_by_a_real_command(
     assert len(set(TEMPLATES)) == len(TEMPLATES)
 
 
-def test_npx_playwright_needs_npm_ci_in_the_same_job(tmp_path: Path) -> None:
+def test_locked_playwright_needs_npm_ci_in_the_same_job(tmp_path: Path) -> None:
     """Sol r3 B4: without the lock installed, npx fetches playwright from the registry."""
-    install = "      - run: npx playwright install --with-deps chromium firefox"
+    install = "      - run: node_modules/.bin/playwright install --with-deps chromium firefox"
     (problem,) = _verdict(tmp_path, install)
     assert "npm-ci" in problem
     assert _verdict(tmp_path, f"      - run: npm ci\n{install}") == []
@@ -643,7 +643,7 @@ def test_exported_requirements_do_not_cross_jobs(tmp_path: Path) -> None:
         " --output-file requirements-lock.txt"
     )
     install = (
-        "python -m venv /tmp/wheel-venv\n"
+        "python -I -m venv /tmp/wheel-venv\n"
         "          /tmp/wheel-venv/bin/pip install --require-hashes -r requirements-lock.txt"
     )
     cross = (
@@ -759,7 +759,7 @@ def test_single_quoted_reviewed_values_are_refused(tmp_path: Path) -> None:
         "          LOCKED='$RUNNER_TEMP/locked'\n"
         "          uv export --locked --no-default-groups --no-emit-project --format"
         ' requirements.txt --output-file "$RUNNER_TEMP/locked/requirements-lock.txt"\n'
-        "          python -m venv /tmp/smoke-venv\n"
+        "          python -I -m venv /tmp/smoke-venv\n"
         "          /tmp/smoke-venv/bin/pip install --require-hashes"
         ' -r "$LOCKED/requirements-lock.txt"'
     )
@@ -794,7 +794,7 @@ UNENFORCED_PROVIDERS = {
         "      - run: |\n          for attempt in $(seq 1 20); do npm ci; done\n          {use}"
     ),
 }
-_NPX = "npx playwright install --with-deps chromium firefox"
+_NPX = "node_modules/.bin/playwright install --with-deps chromium firefox"
 
 
 @pytest.mark.parametrize("name", sorted(UNENFORCED_PROVIDERS))
@@ -811,16 +811,16 @@ def test_tolerated_exports_and_builds_establish_nothing(tmp_path: Path) -> None:
         " --output-file requirements-lock.txt"
     )
     install = (
-        "python -m venv /tmp/wheel-venv\n"
+        "python -I -m venv /tmp/wheel-venv\n"
         "          /tmp/wheel-venv/bin/pip install --require-hashes -r requirements-lock.txt"
     )
     tolerated = f"      - run: |\n          {export} || true\n          {install}"
     assert any("lock:requirements-lock.txt" in p for p in _verdict(tmp_path, tolerated))
     skipped = f"      - if: always()\n        run: {export}\n      - run: |\n          {install}"
     assert any("lock:requirements-lock.txt" in p for p in _verdict(tmp_path, skipped))
-    build = "uv run --locked --only-group release python -m build --no-isolation --outdir dist"
+    build = "uv run --locked --only-group release python -I -m build --no-isolation --outdir dist"
     wheel = (
-        "python -m venv /tmp/smoke-venv\n"
+        "python -I -m venv /tmp/smoke-venv\n"
         "          /tmp/smoke-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl"
     )
     branch = (
@@ -840,13 +840,24 @@ def test_a_fact_holds_inside_the_block_that_established_it(tmp_path: Path) -> No
     assert _verdict(tmp_path, inside) == []
 
 
-def test_a_project_npmrc_is_refused(tmp_path: Path) -> None:
-    """Sol r4 probe npmrc_script_shell: script-shell replaces every script's shell."""
-    package = tmp_path / "package.json"
+def _npm_project(directory: Path, scripts: dict[str, str]) -> Path:
+    """A package.json with these scripts and the real, locked devDependencies."""
+    real = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
+    package = directory / "package.json"
     package.write_text(
-        json.dumps({"name": "probe", "version": "1.0.0", "scripts": {"test:unit": "vitest run"}}),
+        json.dumps(
+            {"name": "probe", "devDependencies": real["devDependencies"], "scripts": scripts}
+        ),
         encoding="utf-8",
     )
+    lock = (REPO_ROOT / "package-lock.json").read_text(encoding="utf-8")
+    (directory / "package-lock.json").write_text(lock, encoding="utf-8")
+    return package
+
+
+def test_a_project_npmrc_is_refused(tmp_path: Path) -> None:
+    """Sol r4 probe npmrc_script_shell: script-shell replaces every script's shell."""
+    package = _npm_project(tmp_path, {"test:unit": "vitest run"})
     (tmp_path / ".npmrc").write_text("script-shell=./attacker.sh\n", encoding="utf-8")
     workflow = tmp_path / "probe.yml"
     steps = "      - run: npm ci\n      - run: npm run test:unit"
@@ -867,6 +878,8 @@ def _repository(tmp_path: Path, files: dict[str, str]) -> Path:
     for name, text in {
         "pyproject.toml": (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"),
         "package.json": (REPO_ROOT / "package.json").read_text(encoding="utf-8"),
+        "package-lock.json": (REPO_ROOT / "package-lock.json").read_text(encoding="utf-8"),
+        "uv.lock": (REPO_ROOT / "uv.lock").read_text(encoding="utf-8"),
         **files,
     }.items():
         path = tmp_path / name
@@ -877,6 +890,7 @@ def _repository(tmp_path: Path, files: dict[str, str]) -> Path:
     return tmp_path
 
 
+LOCK_TEXT = (REPO_ROOT / "package-lock.json").read_text(encoding="utf-8")
 TRACKED_CONFIGURATION = {
     "npmrc": {".npmrc": "script-shell=./attacker.sh\n"},
     "nested_npmrc": {"tests/frontend/.npmrc": "registry=https://evil.invalid\n"},
@@ -897,6 +911,52 @@ TRACKED_CONFIGURATION = {
         .read_text(encoding="utf-8")
         .replace("[tool.uv]\n", '[tool.uv]\nindex-url = "https://evil.invalid"\n'),
     },
+    # Sol r5 B3/B4 and their class: what an allowed tool loads from the checkout.
+    "analyzer_custom_rules": {
+        "PSScriptAnalyzerSettings.psd1": "@{ CustomRulePath = @('./evil.psm1') }\n",
+    },
+    "build_py_shadows_build": {"build.py": "print('BUILD_SHADOW_RAN')\n"},
+    "build_package_shadows_build": {"build/__init__.py": "print('BUILD_SHADOW_RAN')\n"},
+    "venv_py_shadows_venv": {"venv.py": "print('shadow')\n"},
+    "scripts_json_shadows_stdlib": {"scripts/json.py": "print('shadow')\n"},
+    "tests_pytest_shadow": {"tests/pytest.py": "print('shadow')\n"},
+    "tracked_pyc": {"scripts/__pycache__/check_safety.cpython-313.pyc": "x"},
+    "prettier_plugin_config": {".prettierrc.json": '{"plugins": ["./evil.mjs"]}\n'},
+    "nested_eslint_config": {"tests/frontend/eslint.config.mjs": "export default [];\n"},
+    "vite_config": {"vite.config.mjs": "export default {};\n"},
+    "postcss_config": {"postcss.config.cjs": "module.exports = {plugins: [require('./x')]};\n"},
+    "coveragerc": {".coveragerc": "[run]\nplugins = evil\n"},
+    "mypy_ini": {"mypy.ini": "[mypy]\nplugins = evil\n"},
+    "hatch_build_hook": {"hatch_build.py": "print('hook')\n"},
+    "mypy_plugin_table": {
+        "pyproject.toml": (REPO_ROOT / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .replace("[tool.mypy]\n", '[tool.mypy]\nplugins = ["evil"]\n'),
+    },
+    "unknown_tool_table": {
+        "pyproject.toml": (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        + '\n[tool.coverage.run]\nplugins = ["evil"]\n',
+    },
+    "lock_without_integrity": {
+        "package-lock.json": json.dumps(
+            {
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {},
+                    **{
+                        key: {k: v for k, v in value.items() if k != "integrity"}
+                        for key, value in json.loads(LOCK_TEXT)["packages"].items()
+                        if key
+                    },
+                },
+            }
+        ),
+    },
+    "uv_lock_without_hash": {
+        "uv.lock": (REPO_ROOT / "uv.lock")
+        .read_text(encoding="utf-8")
+        .replace(', hash = "sha256:', ', digest = "sha256:', 1),
+    },
     "package_manager": {
         "package.json": json.dumps(
             {
@@ -916,6 +976,90 @@ def test_a_tracked_tool_configuration_is_refused(name: str, tmp_path: Path) -> N
 
 def test_the_configuration_control_repository_is_clean(tmp_path: Path) -> None:
     assert configuration_violations(_repository(tmp_path, {"tests/conftest.py": "x = 1\n"})) == []
+
+
+def test_the_npm_programs_must_come_from_the_lock(tmp_path: Path) -> None:
+    """Sol r5 B1: `npm ci` of a lock without Playwright, then npx fetched it from the registry."""
+    package = tmp_path / "package.json"
+    package.write_text(json.dumps({"name": "probe", "version": "1.0.0"}), encoding="utf-8")
+    lock = {
+        "name": "probe",
+        "version": "1.0.0",
+        "lockfileVersion": 3,
+        "requires": True,
+        "packages": {"": {"name": "probe", "version": "1.0.0"}},
+    }
+    (tmp_path / "package-lock.json").write_text(json.dumps(lock), encoding="utf-8")
+    workflow = tmp_path / "probe.yml"
+    for install in (_NPX, "npx playwright install --with-deps chromium firefox"):
+        steps = f"      - run: npm ci\n      - run: {install}"
+        workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
+        problems = workflow_violations(workflow, root=tmp_path, package_json=package)
+        assert any("no locked package provides playwright" in p for p in problems), problems
+    # A range in package.json is not the locked version, even with the real lock.
+    loose = _npm_project(tmp_path, {})
+    declared = json.loads(loose.read_text(encoding="utf-8"))
+    declared["devDependencies"]["@playwright/test"] = "^1.61.1"
+    loose.write_text(json.dumps(declared), encoding="utf-8")
+    steps = f"      - run: npm ci\n      - run: {_NPX}"
+    workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
+    problems = workflow_violations(workflow, root=tmp_path, package_json=loose)
+    assert any("not pinned to one version" in p for p in problems), problems
+    # The control: the real package.json and lock pass.
+    _npm_project(tmp_path, {})
+    assert (
+        workflow_violations(workflow, root=tmp_path, package_json=tmp_path / "package.json") == []
+    )
+
+
+def test_a_service_or_container_image_is_refused(tmp_path: Path) -> None:
+    """Sol r5 B2, verbatim: GitHub starts service images before any reviewed step."""
+    service = "services:\n      unlocked:\n        image: ghcr.io/example/outside-both-locks:latest"
+    (problem,) = _verdict(tmp_path, "      - run: uv sync --locked --extra dev", env=service)
+    assert "services" in problem
+
+
+def test_python_runs_isolated_from_the_checkout(tmp_path: Path) -> None:
+    """Sol r5 B4: without -I, a tracked build.py (or venv.py) runs in place of the tool."""
+    for unisolated in (
+        "uv run --locked --only-group release python -m build --no-isolation --outdir dist",
+        "python -m venv /tmp/smoke-venv",
+        "uv run --locked python scripts/check_safety.py",
+        "python scripts/check_sbom_shape.py sbom.cdx.json",
+        "python -P scripts/check_sbom_shape.py sbom.cdx.json",
+    ):
+        assert _verdict(tmp_path, f"      - run: {unisolated}"), unisolated
+    assert (
+        _verdict(tmp_path, "      - run: python -I scripts/check_sbom_shape.py sbom.cdx.json") == []
+    )
+
+
+ACTION_INPUTS = {
+    "setup_uv_latest": (
+        "astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d",
+        "version: latest",
+    ),
+    "setup_node_url": (
+        "actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444",
+        "node-version: https://example.invalid/node.tar.gz",
+    ),
+    "setup_python_other": (
+        "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+        "python-version: pypy3.10",
+    ),
+    "cache_other_key": (
+        "actions/cache@caa296126883cff596d87d8935842f9db880ef25",
+        "path: ~/.cache/ms-playwright\n          key: attacker-chosen",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(ACTION_INPUTS))
+def test_an_action_input_that_selects_a_download_is_pinned(name: str, tmp_path: Path) -> None:
+    """DeepSeek r4 Q6: inputs choosing what a trusted action fetches are listed values."""
+    action, inputs = ACTION_INPUTS[name]
+    steps = f"      - uses: {action}\n        with:\n          {inputs}"
+    assert _verdict(tmp_path, steps), name
 
 
 NPM_SCRIPT_VARIANTS = {
@@ -960,8 +1104,7 @@ NPM_SCRIPT_VARIANTS = {
 @pytest.mark.parametrize("name", sorted(NPM_SCRIPT_VARIANTS))
 def test_an_npm_script_is_read_and_held_to_the_same_grammar(name: str, tmp_path: Path) -> None:
     scripts, command = NPM_SCRIPT_VARIANTS[name]
-    package = tmp_path / "package.json"
-    package.write_text(json.dumps({"scripts": scripts}), encoding="utf-8")
+    package = _npm_project(tmp_path, scripts)
     workflow = tmp_path / "probe.yml"
     steps = f"      - run: npm ci\n      - run: {command}"
     workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
@@ -972,7 +1115,7 @@ def test_the_npm_negative_template_itself_is_accepted(tmp_path: Path) -> None:
     package = tmp_path / "package.json"
     lint = "eslint src/gpo_studio/static/js tests/browser tests/frontend *.config.mjs"
     scripts = {"check": "npm run lint && vitest run", "lint": lint, "precheck": "vitest run"}
-    package.write_text(json.dumps({"scripts": scripts}), encoding="utf-8")
+    package = _npm_project(tmp_path, scripts)
     workflow = tmp_path / "probe.yml"
     steps = "      - run: npm ci\n      - run: npm run check"
     workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")

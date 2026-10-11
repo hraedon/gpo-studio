@@ -155,6 +155,13 @@ Operator-facing:
 - CI no longer installs PSScriptAnalyzer from PSGallery by version: it fetches
   the 1.25.0 package, checks its SHA-256 against the value in `ci.yml`, and
   imports it from the job's temporary directory.
+- `package-lock.json` now carries `resolved` and `integrity` for every package:
+  84 of 148 entries had neither, so `npm ci` fetched them by version with
+  nothing to check them against. The values were taken from the registry for
+  the exact locked versions, and a clean `npm ci` verified them. CI runs
+  Playwright from `node_modules/.bin`, never through `npx`, and every Python
+  command in the workflows and the smoke script runs with `-I`, so a module in
+  the checkout cannot stand in for the locked tool it names.
 - The project build itself now uses the locked backend too. An editable
   `uv sync --locked` still built gpo-studio in an isolated environment that
   resolved `[build-system].requires` (`hatchling`, unversioned) from the index;
