@@ -1,34 +1,45 @@
-"""A deliberately small grammar for the commands CI, the release and the smoke script run.
+"""A closed set of reviewed command templates for CI, the release and the smoke script.
 
 ``tests/test_locked_installs.py`` uses it to hold every dependency install and
-resolution to uv.lock (Python) and package-lock.json (npm). Substring scanning
-was bypassed five ways in review (env-var indirection, folded scalars, a local
-composite action, flags in a trailing comment, ``uv pip``), and a first grammar
-was bypassed again (``command pip ...``, ``python -c``, unread ``npm run``
-scripts, requirements files that never came from the lock). So this parses the
-workflow YAML, splits each ``run:`` script into simple commands with a small
-shell lexer, and accepts a command only if its program is on an allowlist and,
-for every program that installs, resolves, or runs other commands, only in an
-explicitly listed shape. Constructs it cannot read -- inline interpreter code
-(``python -c``, ``python -``, heredocs, here-strings), command-running prefixes
-(``command``, ``env``, ``exec``, ``xargs``, ``bash -c`` ...), variables or
-expressions as program names, unknown actions -- are violations, not passes.
+resolution to uv.lock (Python) and package-lock.json (npm). Three earlier
+versions parsed the options of general-purpose programs, and every review round
+found another side channel (``command pip``, ``python -c``, ``printf -v``,
+``cp --target-directory=``, a written ``.git/config`` that turns ``git fetch``
+into ``ext::sh``, ``CURL_HOME``, PowerShell casing). So this does not interpret
+options at all. After parsing the workflow YAML and splitting each ``run:``
+script into simple commands with a small shell lexer, it requires:
+
+* every command -- assignments, ``for`` headers and the inside of every command
+  substitution included -- to equal one entry of ``TEMPLATES``: literal tokens
+  plus a few named slots with tight patterns, each entry with a one-line reason;
+* every redirection target to be one its template lists (``/dev/null`` always);
+* every ``env:`` entry, at any level, to be one of ``ENV`` (name and exact value);
+* facts a template needs (a lock exported, ``npm ci`` run, the venv or the
+  distributions built) to have been established earlier in the same job;
+* every package.json script a template runs to be held to the same table;
+* every PowerShell step, and every step of a Windows job (PowerShell by
+  default), to be one of ``PWSH_BODIES``, compared case-insensitively;
+* every action and input to be on ``ACTIONS``, every job to run on one of
+  ``RUNNERS``, and no ``shell:``, ``working-directory``, default or container
+  that would change how the text above runs.
+
+Anything else is a violation. A new command is a deliberate edit to the table.
 
 What it does *not* establish, so nobody leans on it for more:
 
 * It reads workflow text, not what the code it lets run does. ``pytest``,
-  ``eslint``, ``vitest``, the repository's own ``scripts/*.py`` and the
-  pinned actions all execute code; a test or script that shells out to pip is
-  outside this check (it would be reviewed as code).
-* It does not model data flow through files. It refuses writes (redirections,
-  ``cp``, ``curl -o``) to the paths that would turn a write into an install --
-  scripts, sources, interpreter/installer config, requirements files, a venv's
-  ``bin/`` or ``site-packages`` -- but a file written some other way and then
-  consumed by an allowed program is not tracked.
-* PowerShell steps get a line denylist (no Python or installer at all, modules
-  only at an exact version), not this grammar.
+  ``eslint``, ``vitest``, the repository's own ``scripts/*.py`` and the pinned
+  actions all execute code; a test or script that shells out to pip is outside
+  this check (it would be reviewed as code).
+* ``scripts/installed_package_smoke.sh`` trusts its caller's ``PYTHON``,
+  ``GPO_STUDIO_WHEEL`` and ``GPO_STUDIO_REQUIREMENTS``. The workflow call that
+  sets them is one literal template (``python``, the wheel found in the ``dist``
+  built in that job, the requirements exported in that job); a person running
+  the script by hand can point it anywhere.
 * ``npx playwright install`` downloads browser builds that the locked
-  ``@playwright/test`` version names; they are not hashed by package-lock.json.
+  ``@playwright/test`` names; they are not hashed by package-lock.json.
+* Facts are tracked per job in document order; a step skipped by ``if:`` is
+  treated as having run.
 """
 
 from __future__ import annotations
@@ -51,15 +62,24 @@ class GrammarError(Exception):
 
 @dataclass
 class Command:
+    #: The program and its arguments, quotes removed; substitutions keep their source text.
     words: list[str]
-    assignments: dict[str, str] = field(default_factory=dict)
+    #: ``NAME=value`` words before the program (or the whole command, for an assignment).
+    assignments: tuple[str, ...] = ()
     #: Targets of output redirections (``>``, ``>>``, ``&>``...), quotes removed.
-    writes: list[str] = field(default_factory=list)
+    writes: tuple[str, ...] = ()
+    #: Targets of input redirections (``<``).
+    reads: tuple[str, ...] = ()
+
+    @property
+    def tokens(self) -> tuple[str, ...]:
+        return (*self.assignments, *self.words)
 
 
 _OPERATORS = ("&&", "||", ";;", ";", "|", "&", "\n", "(", ")", "{", "}")
 _RESERVED_PREFIX = {"if", "then", "else", "elif", "do", "while", "until", "!"}
 _SKIPPED = {"fi", "done", "esac"}
+_CONTINUATION = re.compile(r"[ \t]*\\\n[ \t]*")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
 #: ``${NAME}``, ``${#NAME[@]}``, ``${NAME[0]}``, ``${NAME:-literal}``: nothing that runs.
 _PARAMETER = re.compile(r"^\$\{#?[A-Za-z_][A-Za-z0-9_]*(\[[^\]$`(){}]*\])?(:?[-=+?][^$`(){}]*)?\}$")
@@ -99,6 +119,7 @@ def split_commands(script: str) -> list[Command]:
     commands: list[Command] = []
     words: list[str] = []
     writes: list[str] = []
+    reads: list[str] = []
     word = ""
     in_word = False
     case_depth = 0
@@ -112,14 +133,15 @@ def split_commands(script: str) -> list[Command]:
         in_word = False
 
     def end_command() -> None:
-        nonlocal words, writes
+        nonlocal words, writes, reads
         end_word()
-        if words or writes:
-            command = _simple(words, writes)
+        if words or writes or reads:
+            command = _simple(words, writes, reads)
             if command is not None:
                 commands.append(command)
         words = []
         writes = []
+        reads = []
 
     while index < len(script):
         char = script[index]
@@ -157,7 +179,7 @@ def split_commands(script: str) -> list[Command]:
                 if script.startswith("$(", index):
                     end = _read_balanced(script, index + 2)
                     commands.extend(split_commands(script[index + 2 : end - 1]))
-                    word += script[index:end]
+                    word += _CONTINUATION.sub(" ", script[index:end])
                     index = end
                     continue
                 if script[index] == "`":
@@ -172,7 +194,7 @@ def split_commands(script: str) -> list[Command]:
         if script.startswith("$(", index) or script.startswith("<(", index):
             end = _read_balanced(script, index + 2)
             commands.extend(split_commands(script[index + 2 : end - 1]))
-            word += script[index:end]
+            word += _CONTINUATION.sub(" ", script[index:end])
             in_word = True
             index = end
             continue
@@ -207,13 +229,16 @@ def split_commands(script: str) -> list[Command]:
             operator_text = script[start:index]
             while index < len(script) and script[index] in " \t":
                 index += 1
+            if operator_text == "<" and script.startswith("<(", index):
+                continue  # `< <(...)`: the process substitution becomes a word below
             # The redirection target is not a command word.
             target = re.match(r"[^\s;&|()]*", script[index:])
             assert target is not None
             index += target.end()
             text = target[0].replace('"', "").replace("'", "")
-            if ">" in operator_text and not re.fullmatch(r"\d*-?", text):
-                writes.append(text)
+            if re.fullmatch(r"\d*-?", text) and "&" in operator_text:
+                continue  # a descriptor duplication: 2>&1
+            (writes if ">" in operator_text else reads).append(text)
             continue
         operator = next((op for op in _OPERATORS if script.startswith(op, index)), None)
         if operator is not None:
@@ -254,126 +279,707 @@ def split_commands(script: str) -> list[Command]:
     return commands
 
 
-def _simple(words: list[str], writes: list[str]) -> Command | None:
+def _simple(words: list[str], writes: list[str], reads: list[str]) -> Command | None:
     while words and words[0] in _RESERVED_PREFIX:
         words = words[1:]
-    if words and (words[0] in _SKIPPED or words[0] in {"for", "case", "in"}):
+    if words and words[0] in _SKIPPED:
         return None
-    assignments: dict[str, str] = {}
-    while words and _ASSIGNMENT.match(words[0]):
-        name, _, value = words[0].partition("=")
-        assignments[name.rstrip("+")] = value
+    if not words and not writes and not reads:
+        return None
+    # `for NAME in WORDS` assigns NAME: it stays a command the templates must match.
+    assignments: list[str] = []
+    while words and words[0] != "for" and _ASSIGNMENT.match(words[0]):
+        assignments.append(words[0])
         words = words[1:]
-    if not words and not assignments and not writes:
-        return None
-    return Command(list(words), assignments, list(writes))
+    return Command(list(words), tuple(assignments), tuple(writes), tuple(reads))
 
 
-# --- the allowlist ---------------------------------------------------------------
+# --- the template table ----------------------------------------------------------
 
-#: Programs that neither install nor resolve packages and run no other command.
-#: The ones with options that could (or that write files) are checked further below.
-PLAIN = {
-    "[",
-    "basename",
-    "break",
-    "cat",
-    "cmp",
-    "continue",
-    "cp",
-    "curl",
-    "echo",
-    "exit",
-    "export",
-    "false",
-    "find",
-    "gh",
-    "git",
-    "grep",
-    "head",
-    "kill",
-    "ls",
-    "mapfile",
-    "mkdir",
-    "mktemp",
-    "printf",
-    "pwd",
-    "realpath",
-    "return",
-    "rm",
-    "seq",
-    "set",
-    "sha256sum",
-    "shift",
-    "sleep",
-    "stat",
-    "tail",
-    "tar",
-    "test",
-    "true",
-    "wait",
-    "wc",
+#: Named slots a template token may contain, written ``@NAME@`` (``@NAME*@`` as the
+#: last token takes every remaining word). Each is as tight as the real uses allow.
+SLOTS = {
+    # The five throwaway venvs the workflows create, and nothing else under /tmp.
+    "VENV": r"/tmp/(?:smoke|sdist|audit|sbom|wheel)-venv",
+    # echo's text: it cannot run anything, and an option (-e, -n) cannot start a word.
+    "TEXT": r"(?!-)[^`]*",
+    # A package.json script name; the script itself is then held to this table.
+    "NPM_SCRIPT": r"[a-z][a-z:]*",
 }
-#: Programs that run another command (or a shell) and so would launder it past this check.
-INDIRECTION = {
-    ".",
-    "alias",
-    "builtin",
-    "busybox",
-    "chroot",
-    "coproc",
-    "dash",
-    "doas",
-    "env",
-    "eval",
-    "exec",
-    "fish",
-    "flock",
-    "function",
-    "ionice",
-    "ksh",
-    "nice",
-    "nohup",
-    "nsenter",
-    "parallel",
-    "runuser",
-    "script",
-    "setsid",
-    "sh",
-    "source",
-    "stdbuf",
-    "strace",
-    "su",
-    "sudo",
-    "systemd-run",
-    "taskset",
-    "time",
-    "timeout",
-    "unbuffer",
-    "unshare",
-    "watch",
-    "xargs",
-    "zsh",
-}
-#: Locked Python tools; only under ``uv run --locked``, where they come from uv.lock.
-PYTHON_TOOLS = {"pytest", "ruff", "mypy", "pip-audit", "pip-licenses", "cyclonedx-py"}
-#: Locked node tools; only inside a package.json script, where node_modules/.bin is on PATH.
-NODE_TOOLS = {"prettier", "eslint", "vitest", "playwright"}
-_PIP = re.compile(r"(^|/)pip3?$")
-_PYTHON = re.compile(r"(^|/)python(3(\.\d+)?)?$")
-_APP = re.compile(r"(^|/)gpo-studio$")
-_ARTIFACT = re.compile(
-    r"^(dist/gpo_studio-\*\.(whl|tar\.gz)|\$WHEEL|\$\{WHEELS\[0\]\}|\$Wheel\.FullName)$"
+_SLOT = re.compile(r"@([A-Z_]+)(\*?)@")
+
+
+@dataclass(frozen=True)
+class Template:
+    tokens: tuple[str, ...]
+    why: str
+    scopes: frozenset[str]
+    #: Redirection targets this command may write, besides /dev/null.
+    writes: frozenset[str] = frozenset()
+    #: Facts that must already hold in this job (``@SLOT@`` is filled from the match).
+    requires: tuple[str, ...] = ()
+    provides: tuple[str, ...] = ()
+    #: "npm-run" resolves the named package.json script; "npm-ci" checks install hooks.
+    action: str = ""
+
+
+def _t(
+    spec: str | tuple[str, ...],
+    why: str,
+    *,
+    scope: str = "workflow",
+    writes: tuple[str, ...] = (),
+    requires: tuple[str, ...] = (),
+    provides: tuple[str, ...] = (),
+    action: str = "",
+) -> Template:
+    tokens = _split_spec(spec) if isinstance(spec, str) else spec
+    return Template(
+        tokens, why, frozenset(scope.split()), frozenset(writes), requires, provides, action
+    )
+
+
+def _split_spec(spec: str) -> tuple[str, ...]:
+    """Split a template written as one string at spaces outside ``$(...)``."""
+    tokens: list[str] = []
+    current = ""
+    depth = 0
+    for char in spec:
+        depth += {"(": 1, ")": -1}.get(char, 0)
+        if char == " " and depth == 0:
+            tokens.append(current)
+            current = ""
+        else:
+            current += char
+    return (*tokens, current)
+
+
+_LOCKED_RUN = "a tool from uv.lock via `uv run --locked`; it resolves nothing"
+_LOCKED_SCRIPT = "a checked-in script under `uv run --locked`"
+_SCRIPT = "a checked-in script on the runner's Python; it installs nothing"
+_VENV_RUN = "a checked-in script or the installed app, inside a venv built from the lock"
+_SHELL = "shell control flow or a test; it runs nothing and writes nothing"
+_ASSIGN = "binds a variable later templates name, to this exact value only"
+_ECHO = "prints text; a redirection is checked separately"
+_LOCAL = "talks to the server this job started on 127.0.0.1 only"
+_READ = "reads or lists local files only"
+_RT = "$RUNNER_TEMP/locked"
+_REQ = f"{_RT}/requirements-lock.txt"
+_BACKEND = f"{_RT}/build-backend-lock.txt"
+_EXPORT = ("uv", "export", "--locked")
+_RUNTIME = ("--no-default-groups", "--no-emit-project", "--format", "requirements.txt")
+_BACKEND_GROUP = (
+    "--only-group",
+    "build-backend",
+    "--no-emit-project",
+    "--format",
+    "requirements.txt",
 )
-_SCANNED_SCRIPTS = {"scripts/installed_package_smoke.sh"}
-_VENV_PROGRAM = re.compile(r"^(/tmp/[A-Za-z0-9_.-]+|\$TMPDIR/venv)/bin/[A-Za-z0-9_.-]+$")
-_LOCAL_URL = re.compile(r"^http://127\.0\.0\.1:(\d+|\$PORT)(/[^@\s]*)?$")
-_CURL_FLAGS = {"-s", "-f", "-S", "-sf", "-fs", "-sS", "-sSf", "-fsS"}
-_CURL_OPTIONS = {"-X", "-H", "-d", "-o", "-w"}
-#: Variables the smoke script trusts from its caller; a workflow may set them only inline.
-_HANDOFF_ENV = {"PYTHON", "GPO_STUDIO_REQUIREMENTS"}
-#: The smoke script's hand-off: the caller passes a requirements file it exported.
-_HANDOFF = '$(realpath "$GPO_STUDIO_REQUIREMENTS")'
+_SDIST_EXCLUDES = (
+    r"\.db$|\.sqlite3$|\.venv/|node_modules/|\.claude/|githooks/|reflections/|exports/|"
+    r"playwright-report/|test-results/"
+)
+_LICENSES = (
+    "MIT;MIT License;MIT-0;BSD-2-Clause;BSD-3-Clause;Apache-2.0 OR BSD-2-Clause;"
+    "Apache-2.0 OR BSD-3-Clause;MPL-2.0;Mozilla Public License 2.0 (MPL 2.0);PSF-2.0"
+)
+_RC_NOTES = (
+    'NOTES_ARGS=(--notes "Immutable release candidate for hands-on validation. This '
+    "prerelease is not approved for production or as the final ${GITHUB_REF_NAME%-rc.*} "
+    "release. Download the wheel, requirements-lock.txt and SHA256SUMS from Assets and "
+    'follow docs/nvda-validation-runbook.md.")'
+)
+_CI_GPO = (
+    '{"name":"Smoke Test","domain":"test.local","actor":"ci",'
+    '"reason":"installed-package smoke test"}'
+)
+_SMOKE_GPO = (
+    '{"name":"Smoke Test GPO","domain":"test.local","actor":"smoke",'
+    '"reason":"installed-package smoke test"}'
+)
+_SMOKE_SETTING = (
+    '{"setting":{"side":"computer","hive":"HKLM","key":"Software\\\\Test",'
+    '"value_name":"Setting1","registry_type":"REG_DWORD","value":"1"},'
+    '"actor":"smoke","reason":"add test setting","expected_revision":1}'
+)
+_JSON = ("-H", "Content-Type: application/json", "-d")
+_SMOKE_PY = '"$TMPDIR/venv/bin/python"'
+
+TEMPLATES: tuple[Template, ...] = (
+    # Python environments: only uv.lock, through uv or its hash-pinned export.
+    _t("uv lock --check", "checks uv.lock against pyproject.toml; resolves nothing"),
+    _t("uv sync --locked --extra dev", "installs exactly uv.lock with the dev extra"),
+    _t(
+        (*_EXPORT, *_RUNTIME, "--output-file", "requirements-lock.txt"),
+        "exports uv.lock's runtime closure, hash-pinned",
+        provides=("lock:requirements-lock.txt",),
+    ),
+    _t(
+        (*_EXPORT, *_RUNTIME, "--output-file", _REQ),
+        "exports uv.lock's runtime closure, hash-pinned",
+        provides=(f"lock:{_REQ}",),
+    ),
+    _t(
+        (*_EXPORT, *_BACKEND_GROUP, "--output-file", _BACKEND),
+        "exports uv.lock's build-backend group, hash-pinned",
+        provides=(f"lock:{_BACKEND}",),
+    ),
+    _t(f"mkdir -p {_RT}", "makes the directory the exports go to, outside the checkout"),
+    _t(f"LOCKED={_RT}", _ASSIGN, provides=("var:LOCKED",)),
+    _t(
+        "python -m venv @VENV@", "an empty venv from the runner's Python", provides=("venv:@VENV@",)
+    ),
+    _t(
+        "@VENV@/bin/pip install --require-hashes -r $LOCKED/requirements-lock.txt",
+        "installs the lock exported in this job, hash-checked",
+        requires=("venv:@VENV@", "var:LOCKED", f"lock:{_REQ}"),
+    ),
+    _t(
+        "@VENV@/bin/pip install --require-hashes -r $LOCKED/requirements-lock.txt"
+        " -r $LOCKED/build-backend-lock.txt",
+        "installs the locks exported in this job, hash-checked",
+        requires=("venv:@VENV@", "var:LOCKED", f"lock:{_REQ}", f"lock:{_BACKEND}"),
+    ),
+    _t(
+        f"@VENV@/bin/pip install --require-hashes -r {_REQ}",
+        "installs the lock exported in this job, hash-checked",
+        requires=("venv:@VENV@", f"lock:{_REQ}"),
+    ),
+    _t(
+        "@VENV@/bin/pip install --require-hashes -r requirements-lock.txt",
+        "installs the lock exported in this job, hash-checked",
+        requires=("venv:@VENV@", "lock:requirements-lock.txt"),
+    ),
+    _t(
+        f"@VENV@/bin/pip install --require-hashes -r requirements-lock.txt -r {_BACKEND}",
+        "installs the locks exported in this job, hash-checked",
+        requires=("venv:@VENV@", "lock:requirements-lock.txt", f"lock:{_BACKEND}"),
+    ),
+    _t(
+        "@VENV@/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl",
+        "installs this job's built wheel alone, no index",
+        requires=("venv:@VENV@", "dist"),
+    ),
+    _t(
+        "@VENV@/bin/pip install --no-deps --no-index $WHEEL",
+        "installs this job's built wheel alone, no index",
+        requires=("venv:@VENV@", "dist", "var:WHEEL"),
+    ),
+    _t(
+        "@VENV@/bin/pip install --no-deps --no-index --no-build-isolation dist/gpo_studio-*.tar.gz",
+        "builds this job's sdist with the locked backend already installed, no index",
+        requires=("venv:@VENV@", "dist"),
+    ),
+    _t(
+        "@VENV@/bin/pip check",
+        "verifies the installed set; installs nothing",
+        requires=("venv:@VENV@",),
+    ),
+    _t(
+        "@VENV@/bin/pip uninstall --yes pip",
+        "keeps pip itself out of the SBOM'd environment",
+        requires=("venv:@VENV@",),
+    ),
+    # Builds: the locked `release` group's build, never isolated.
+    _t(
+        "uv run --locked --only-group release python -m build --no-isolation --outdir dist",
+        "builds with the locked backend, no isolation",
+        provides=("dist",),
+    ),
+    _t(
+        "uv run --locked --only-group release python -m build --no-isolation --outdir dist-repro",
+        "rebuilds for the reproducibility comparison",
+        provides=("dist-repro",),
+    ),
+    _t(
+        "uv run --locked --only-group release python -m build --no-isolation --wheel",
+        "builds the wheel with the locked backend, no isolation",
+        provides=("dist",),
+    ),
+    # Locked tools.
+    _t("uv run --locked ruff check .", _LOCKED_RUN),
+    _t("uv run --locked mypy src", _LOCKED_RUN),
+    _t(
+        "uv run --locked pytest -q --cov=src/gpo_studio --cov-branch"
+        " --cov-report=json:coverage.json",
+        _LOCKED_RUN,
+    ),
+    _t("uv run --locked pytest tests/test_identifier_gate.py -q", _LOCKED_RUN),
+    _t("uv run --locked pytest tests/test_properties.py -q", _LOCKED_RUN),
+    _t(
+        "uv run --locked --only-group release pip-audit --strict --require-hashes --disable-pip"
+        f" --requirement {_RT}/requirements-all-platforms.txt",
+        "audits the exported lock without installing it (--disable-pip)",
+        requires=(f"lock:{_REQ}",),
+    ),
+    _t(
+        (
+            "uv",
+            "run",
+            "--locked",
+            "--only-group",
+            "release",
+            "pip-licenses",
+            "--python",
+            "/tmp/audit-venv/bin/python",
+            "--allow-only",
+            _LICENSES,
+        ),
+        "reads the licences of the venv built from the lock",
+        requires=("venv:/tmp/audit-venv",),
+    ),
+    _t(
+        "uv run --locked --only-group release cyclonedx-py environment /tmp/sbom-venv/bin/python"
+        " --pyproject pyproject.toml --output-reproducible --output-format JSON"
+        " --output-file sbom.cdx.json",
+        "reads the venv built from the lock into an SBOM",
+        requires=("venv:/tmp/sbom-venv",),
+    ),
+    _t("uv run --locked python scripts/check_coverage.py coverage.json", _LOCKED_SCRIPT),
+    _t(
+        "uv run --locked python scripts/check_locked_build_backend.py"
+        " --tmp-root $RUNNER_TEMP/backend-check",
+        _LOCKED_SCRIPT,
+    ),
+    _t("uv run --locked python scripts/check_safety.py", _LOCKED_SCRIPT),
+    _t(
+        "uv run --locked python scripts/mutation_check_roundtrip.py"
+        " --tmp-root $RUNNER_TEMP/mutants",
+        _LOCKED_SCRIPT,
+    ),
+    _t("uv run --locked python scripts/rehearse_upgrade_rollback.py", _LOCKED_SCRIPT),
+    # Checked-in scripts on the runner's Python (setup-python), stdlib only.
+    _t(
+        f"python scripts/requirements_all_platforms.py {_REQ} {_RT}/requirements-all-platforms.txt",
+        _SCRIPT,
+    ),
+    _t(
+        "python scripts/finalize_sbom.py sbom.cdx.json --repository $GITHUB_REPOSITORY"
+        " --source-commit $GITHUB_SHA",
+        _SCRIPT,
+    ),
+    _t("python scripts/check_sbom_shape.py sbom.cdx.json", _SCRIPT),
+    _t("python scripts/record_release_identity.py", _SCRIPT),
+    _t(
+        "python scripts/check_release_manifest.py --tag ${GITHUB_REF_NAME}"
+        " --github-output ${GITHUB_OUTPUT}",
+        _SCRIPT,
+    ),
+    _t(
+        "python scripts/check_release_manifest.py --tag ${GITHUB_REF_NAME}"
+        " --github-output ${GITHUB_OUTPUT} --remote-tag-sha ${GITHUB_SHA}",
+        _SCRIPT,
+    ),
+    _t(
+        "python scripts/check_release_manifest.py --tag ${GITHUB_REF_NAME}"
+        " --remote-tag-sha ${GITHUB_SHA}",
+        _SCRIPT,
+    ),
+    _t(
+        "python scripts/check_release_manifest.py --tag ${GITHUB_REF_NAME}"
+        " --wheel ${WHEELS[0]} --sdist ${SDISTS[0]}",
+        _SCRIPT,
+    ),
+    _t("python3 scripts/check_committed_identifiers.py --strict", _SCRIPT),
+    _t("python3 tests/test_identifier_gate_visibility.py", _SCRIPT),
+    # Inside the venvs built above.
+    _t(
+        "@VENV@/bin/python scripts/print_installed_version.py", _VENV_RUN, requires=("venv:@VENV@",)
+    ),
+    _t(
+        "@VENV@/bin/python scripts/print_installed_version.py --metadata",
+        _VENV_RUN,
+        requires=("venv:@VENV@",),
+    ),
+    _t(
+        "@VENV@/bin/python scripts/check_health_version.py /tmp/health.json",
+        _VENV_RUN,
+        requires=("venv:@VENV@",),
+    ),
+    _t(
+        "@VENV@/bin/python scripts/rehearse_upgrade_rollback.py",
+        _VENV_RUN,
+        requires=("venv:@VENV@",),
+    ),
+    _t("@VENV@/bin/gpo-studio --help", _VENV_RUN, requires=("venv:@VENV@",)),
+    _t(
+        "@VENV@/bin/gpo-studio run --database /tmp/smoke.db --port 8799",
+        _VENV_RUN,
+        requires=("venv:@VENV@",),
+    ),
+    _t("VENV_VERSION=$(/tmp/smoke-venv/bin/python scripts/print_installed_version.py)", _ASSIGN),
+    _t(
+        "META_VERSION=$(/tmp/smoke-venv/bin/python scripts/print_installed_version.py --metadata)",
+        _ASSIGN,
+    ),
+    _t("SDIST_VERSION=$(/tmp/sdist-venv/bin/python scripts/print_installed_version.py)", _ASSIGN),
+    # The built distributions.
+    _t("for artifact in dist/*", _SHELL, requires=("dist",)),
+    _t("basename $artifact", _READ),
+    _t('cmp $artifact dist-repro/$(basename "$artifact")', _READ, requires=("dist-repro",)),
+    _t(
+        "WHEEL=$(find dist -maxdepth 1 -name 'gpo_studio-*.whl' -print -quit)",
+        "binds WHEEL to the wheel built in this job",
+        requires=("dist",),
+        provides=("var:WHEEL",),
+    ),
+    _t("find dist -maxdepth 1 -name gpo_studio-*.whl -print -quit", _READ),
+    _t("find dist -maxdepth 1 -name gpo_studio-*.whl", _READ),
+    _t("find dist -maxdepth 1 -name gpo_studio-*.tar.gz", _READ),
+    _t(("mapfile", "-t", "WHEELS", "<(find dist -maxdepth 1 -name 'gpo_studio-*.whl')"), _READ),
+    _t(("mapfile", "-t", "SDISTS", "<(find dist -maxdepth 1 -name 'gpo_studio-*.tar.gz')"), _READ),
+    _t("test ${#WHEELS[@]} -eq 1", _SHELL),
+    _t("test ${#SDISTS[@]} -eq 1", _SHELL),
+    _t("SDIST=$(ls dist/gpo_studio-*.tar.gz)", _ASSIGN),
+    _t("ls dist/gpo_studio-*.tar.gz", _READ),
+    _t("tar tzf $SDIST", _READ),
+    _t(("grep", "-qE", _SDIST_EXCLUDES), _READ),
+    _t(("grep", "-E", _SDIST_EXCLUDES), _READ),
+    _t(
+        "for required in README.md LICENSE pyproject.toml AGENTS.md SECURITY.md CHANGELOG.md"
+        " CONTRIBUTING.md",
+        _SHELL,
+    ),
+    _t("grep -q /$required$", _READ),
+    # The smoke script, handed only what this job built and exported.
+    _t(
+        "PYTHON=python GPO_STUDIO_WHEEL=$WHEEL GPO_STUDIO_REQUIREMENTS=requirements-lock.txt"
+        " bash scripts/installed_package_smoke.sh",
+        "the scanned smoke script, on this job's wheel and exported lock",
+        requires=("dist", "var:WHEEL", "lock:requirements-lock.txt"),
+    ),
+    # The CI server smoke test.
+    _t("SERVER_PID=$!", _ASSIGN, scope="workflow smoke"),
+    _t(("trap", 'kill "$SERVER_PID" 2>/dev/null || true', "EXIT"), "stops the server on exit"),
+    _t("trap - EXIT", _SHELL),
+    _t("for attempt in $(seq 1 20)", _SHELL),
+    _t("seq 1 20", _SHELL),
+    _t("curl -sf http://127.0.0.1:8799/api/health", _LOCAL, writes=("/tmp/health.json",)),
+    _t("curl -sf http://127.0.0.1:8799/api/gpos", _LOCAL),
+    _t("curl -sf http://127.0.0.1:8799/", _LOCAL),
+    _t(("curl", "-sf", "-X", "POST", "http://127.0.0.1:8799/api/gpos", *_JSON, _CI_GPO), _LOCAL),
+    _t("kill $SERVER_PID", _SHELL),
+    _t("wait $SERVER_PID", _SHELL),
+    _t("sleep 0.25", _SHELL),
+    _t("break", _SHELL),
+    _t("true", _SHELL),
+    # SBOM, audit and release bookkeeping.
+    _t("[ ! -s sbom.cdx.json ]", _SHELL),
+    _t("stat -c%s sbom.cdx.json", _READ),
+    _t(
+        "sha256sum dist/* requirements-lock.txt sbom.cdx.json release-evidence.md"
+        " release-evidence-report.json",
+        "checksums the release files into SHA256SUMS",
+        writes=("SHA256SUMS",),
+    ),
+    _t("cp ${EVIDENCE_MANIFEST} release-evidence.md", "copies the gate-approved manifest"),
+    _t("cp ${EVIDENCE_REPORT} release-evidence-report.json", "copies the gate-approved report"),
+    _t("grep -qxF manifest=${EXPECTED_MANIFEST} ${GITHUB_OUTPUT}", _READ),
+    _t("grep -qxF report=${EXPECTED_REPORT} ${GITHUB_OUTPUT}", _READ),
+    _t("git fetch --no-tags origin main", "fetches main from the checkout's own remote"),
+    _t("git merge-base --is-ancestor ${GITHUB_SHA} origin/main", _READ),
+    _t("FLAGS=()", _ASSIGN),
+    _t("FLAGS+=(--prerelease)", _ASSIGN),
+    _t("NOTES_ARGS=(--generate-notes)", _ASSIGN),
+    _t((_RC_NOTES,), _ASSIGN),
+    _t(
+        (
+            "gh",
+            "release",
+            "create",
+            "$GITHUB_REF_NAME",
+            "dist/*",
+            "requirements-lock.txt",
+            "sbom.cdx.json",
+            "SHA256SUMS",
+            "release-evidence.md",
+            "release-evidence-report.json",
+            "--verify-tag",
+            "${NOTES_ARGS[@]}",
+            "--title",
+            "GPO Studio ${GITHUB_REF_NAME#v}",
+            "${FLAGS[@]}",
+        ),
+        "publishes the attested files",
+        requires=("dist", "lock:requirements-lock.txt"),
+    ),
+    # Shared shell.
+    _t("set -euo pipefail", _SHELL, scope="workflow smoke"),
+    _t("exit 1", _SHELL, scope="workflow smoke"),
+    _t("echo @TEXT*@", _ECHO, scope="workflow smoke"),
+    _t("[ $VENV_VERSION != $META_VERSION ]", _SHELL, scope="workflow smoke"),
+    _t("test $VENV_VERSION = $SDIST_VERSION", _SHELL),
+    # npm: only package-lock.json, and only scripts read from package.json.
+    _t("npm ci", "installs exactly package-lock.json", provides=("npm-ci",), action="npm-ci"),
+    _t("npm audit --audit-level=high", "reports advisories; installs nothing"),
+    _t(
+        "npx playwright install --with-deps chromium firefox",
+        "the browsers the locked @playwright/test names, after npm ci in this job",
+        requires=("npm-ci",),
+    ),
+    _t(
+        "npm run @NPM_SCRIPT@",
+        "a package.json script, itself held to this table",
+        requires=("npm-ci",),
+        action="npm-run",
+    ),
+    _t(
+        "npm run @NPM_SCRIPT@",
+        "a package.json script, itself held to this table",
+        scope="npm",
+        action="npm-run",
+    ),
+    _t(
+        "prettier --check eslint.config.mjs playwright.config.mjs vitest.config.mjs"
+        " tests/browser tests/frontend",
+        "a locked node tool; reads only",
+        scope="npm",
+    ),
+    _t(
+        "eslint src/gpo_studio/static/js tests/browser tests/frontend *.config.mjs",
+        "a locked node tool; reads only",
+        scope="npm",
+    ),
+    _t("vitest run", "the locked unit-test runner", scope="npm"),
+    _t("playwright test", "the locked browser-test runner", scope="npm"),
+    # scripts/installed_package_smoke.sh
+    _t("[ ! -f scripts/print_installed_version.py ]", _SHELL, scope="smoke"),
+    _t("TMPDIR=$(mktemp -d)", _ASSIGN, scope="smoke"),
+    _t("mktemp -d", "makes the script's scratch directory", scope="smoke"),
+    _t("SERVER_PID=", _ASSIGN, scope="smoke"),
+    _t(
+        ("trap", 'kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$TMPDIR"', "EXIT"),
+        "stops the server and removes the scratch directory on exit",
+        scope="smoke",
+    ),
+    _t(
+        "PYTHON=${PYTHON:-python3.13}", "the caller's interpreter (documented trust)", scope="smoke"
+    ),
+    _t("PORT=8799", _ASSIGN, scope="smoke"),
+    _t("DB=$TMPDIR/smoke.db", _ASSIGN, scope="smoke"),
+    _t("[ -n ${GPO_STUDIO_WHEEL:-} ]", _SHELL, scope="smoke"),
+    _t(
+        'WHEEL=$(realpath "$GPO_STUDIO_WHEEL")',
+        "the caller's wheel (documented trust)",
+        scope="smoke",
+    ),
+    _t("realpath $GPO_STUDIO_WHEEL", _READ, scope="smoke"),
+    _t("command -v uv", "looks uv up; runs nothing", scope="smoke"),
+    _t(
+        "UV_PROJECT_ENVIRONMENT=$TMPDIR/build-env uv sync --locked --only-group build-backend",
+        "installs uv.lock's build-backend group into a throwaway environment",
+        scope="smoke",
+        provides=("build-env",),
+    ),
+    _t(
+        "UV_PROJECT_ENVIRONMENT=$TMPDIR/build-env uv build --wheel --out-dir $TMPDIR/dist",
+        "builds in that locked environment, without isolation ([tool.uv])",
+        scope="smoke",
+        requires=("build-env",),
+    ),
+    _t(
+        "WHEEL=$(find \"$TMPDIR/dist\" -maxdepth 1 -name 'gpo_studio-*.whl' -print -quit)",
+        "binds WHEEL to the wheel just built",
+        scope="smoke",
+    ),
+    _t("find $TMPDIR/dist -maxdepth 1 -name gpo_studio-*.whl -print -quit", _READ, scope="smoke"),
+    _t("[ -n ${GPO_STUDIO_REQUIREMENTS:-} ]", _SHELL, scope="smoke"),
+    _t(
+        'REQUIREMENTS=$(realpath "$GPO_STUDIO_REQUIREMENTS")',
+        "the caller's exported lock (documented trust)",
+        scope="smoke",
+    ),
+    _t("realpath $GPO_STUDIO_REQUIREMENTS", _READ, scope="smoke"),
+    _t("REQUIREMENTS=$TMPDIR/requirements-lock.txt", _ASSIGN, scope="smoke"),
+    _t(
+        (*_EXPORT, *_RUNTIME, "--output-file", "$REQUIREMENTS"),
+        "exports uv.lock's runtime closure, hash-pinned",
+        scope="smoke",
+    ),
+    _t(
+        "$PYTHON -m venv $TMPDIR/venv --clear",
+        "an empty venv from the caller's interpreter",
+        scope="smoke",
+        provides=("venv",),
+    ),
+    _t(
+        "$TMPDIR/venv/bin/pip install --require-hashes -r $REQUIREMENTS",
+        "installs the exported (or handed-off) lock, hash-checked",
+        scope="smoke",
+        requires=("venv",),
+    ),
+    _t(
+        "$TMPDIR/venv/bin/pip install --no-deps --no-index $WHEEL",
+        "installs the wheel alone, no index",
+        scope="smoke",
+        requires=("venv",),
+    ),
+    _t(
+        "$TMPDIR/venv/bin/pip check",
+        "verifies the installed set",
+        scope="smoke",
+        requires=("venv",),
+    ),
+    _t("$TMPDIR/venv/bin/python scripts/print_installed_version.py", _VENV_RUN, scope="smoke"),
+    _t(
+        "$TMPDIR/venv/bin/python scripts/print_installed_version.py --metadata",
+        _VENV_RUN,
+        scope="smoke",
+    ),
+    _t("$TMPDIR/venv/bin/python scripts/read_json_field.py version", _VENV_RUN, scope="smoke"),
+    _t("$TMPDIR/venv/bin/python scripts/read_json_field.py gpo.guid", _VENV_RUN, scope="smoke"),
+    _t(f"VENV_VERSION=$({_SMOKE_PY} scripts/print_installed_version.py)", _ASSIGN, scope="smoke"),
+    _t(
+        f"META_VERSION=$({_SMOKE_PY} scripts/print_installed_version.py --metadata)",
+        _ASSIGN,
+        scope="smoke",
+    ),
+    _t("$TMPDIR/venv/bin/gpo-studio --help", _VENV_RUN, scope="smoke"),
+    _t("head -1", _READ, scope="smoke"),
+    _t("$TMPDIR/venv/bin/gpo-studio run --database $DB --port $PORT", _VENV_RUN, scope="smoke"),
+    _t("$TMPDIR/venv/bin/gpo-studio workspace check --database $DB", _VENV_RUN, scope="smoke"),
+    _t("sleep 2", _SHELL, scope="smoke"),
+    _t("curl -sf http://127.0.0.1:$PORT/api/health", _LOCAL, scope="smoke"),
+    _t('HEALTH=$(curl -sf "http://127.0.0.1:$PORT/api/health")', _ASSIGN, scope="smoke"),
+    _t(
+        f'HEALTH_VERSION=$(echo "$HEALTH" | {_SMOKE_PY} scripts/read_json_field.py version)',
+        _ASSIGN,
+        scope="smoke",
+    ),
+    _t("[ $HEALTH_VERSION != $VENV_VERSION ]", _SHELL, scope="smoke"),
+    _t(
+        ("curl", "-sf", "-X", "POST", "http://127.0.0.1:$PORT/api/gpos", *_JSON, _SMOKE_GPO),
+        _LOCAL,
+        scope="smoke",
+    ),
+    _t(
+        (
+            'RESPONSE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/gpos" -H "Content-Type:'
+            f" application/json\" -d '{_SMOKE_GPO}')",
+        ),
+        _ASSIGN,
+        scope="smoke",
+    ),
+    _t(
+        f'GPO_GUID=$(echo "$RESPONSE" | {_SMOKE_PY} scripts/read_json_field.py gpo.guid)',
+        _ASSIGN,
+        scope="smoke",
+    ),
+    _t(
+        (
+            "curl",
+            "-sf",
+            "-X",
+            "POST",
+            "http://127.0.0.1:$PORT/api/gpos/$GPO_GUID/settings",
+            *_JSON,
+            _SMOKE_SETTING,
+        ),
+        _LOCAL,
+        scope="smoke",
+    ),
+    _t(
+        "curl -sf -o $TMPDIR/export.zip http://127.0.0.1:$PORT/api/gpos/$GPO_GUID/export.zip",
+        _LOCAL,
+        scope="smoke",
+    ),
+    _t('ZIP_SIZE=$(stat -c%s "$TMPDIR/export.zip")', _ASSIGN, scope="smoke"),
+    _t("stat -c%s $TMPDIR/export.zip", _READ, scope="smoke"),
+    _t("[ $ZIP_SIZE -lt 500 ]", _SHELL, scope="smoke"),
+    _t(
+        'PLAN=$(curl -sf "http://127.0.0.1:$PORT/api/gpos/$GPO_GUID/plan.ps1")',
+        _ASSIGN,
+        scope="smoke",
+    ),
+    _t("curl -sf http://127.0.0.1:$PORT/api/gpos/$GPO_GUID/plan.ps1", _LOCAL, scope="smoke"),
+    _t("grep -q Set-GPRegistryValue", _READ, scope="smoke"),
+    _t(
+        'UI_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/")',
+        _ASSIGN,
+        scope="smoke",
+    ),
+    _t("curl -sf -o /dev/null -w %{http_code} http://127.0.0.1:$PORT/", _LOCAL, scope="smoke"),
+    _t("[ $UI_STATUS != 200 ]", _SHELL, scope="smoke"),
+    _t("kill $SERVER_PID", _SHELL, scope="smoke"),
+)
+
+#: ``env:`` entries (workflow, job or step) a workflow may set: name -> exact values.
+ENV: dict[str, set[str]] = {
+    "EVIDENCE_MANIFEST": {"${{ steps.manifest.outputs.manifest }}"},
+    "EVIDENCE_REPORT": {"${{ steps.manifest.outputs.report }}"},
+    "EXPECTED_MANIFEST": {"${{ needs.release-identity.outputs.manifest }}"},
+    "EXPECTED_REPORT": {"${{ needs.release-identity.outputs.report }}"},
+    "GH_TOKEN": {"${{ github.token }}"},
+    "GITHUB_TOKEN": {"${{ secrets.GITHUB_TOKEN }}"},
+    "GPO_STUDIO_FORBIDDEN_IDENTIFIERS": {"${{ secrets.GPO_STUDIO_FORBIDDEN_IDENTIFIERS }}"},
+    "GPO_STUDIO_TEST_PYTHON": {"${{ github.workspace }}/.venv/bin/python"},
+    "SOURCE_DATE_EPOCH": {"315532800"},
+}
+
+#: Every PowerShell step body, and every step of a Windows job (whose default shell
+#: is PowerShell), must be one of these, compared case-insensitively with whitespace
+#: collapsed: PowerShell resolves commands without regard to case.
+PWSH_BODIES: dict[str, str] = {
+    # The only install: PSScriptAnalyzer, exact version, PSGallery, current user.
+    "Set-PSRepository PSGallery -InstallationPolicy Trusted\n"
+    "Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force\n": (
+        "installs PSScriptAnalyzer 1.25.0 exactly"
+    ),
+    "$ErrorActionPreference = 'Stop'\n"
+    "$failed = $false\n"
+    "# Repo-wide rather than scripts/-only, so a .ps1 added elsewhere\n"
+    "# cannot escape the gate -- but vendored trees are not ours to fix,\n"
+    "# and including them would make a local run disagree with CI, whose\n"
+    "# checkout has no node_modules.\n"
+    "Get-ChildItem -Recurse -Filter *.ps1 |\n"
+    "  Where-Object { $_.FullName -notmatch '[\\\\/]node_modules[\\\\/]' } |\n"
+    "  ForEach-Object {\n"
+    "  $errors = $null\n"
+    "  [System.Management.Automation.Language.Parser]::ParseFile(\n"
+    "    $_.FullName, [ref]$null, [ref]$errors) | Out-Null\n"
+    "  if ($errors) {\n"
+    "    $failed = $true\n"
+    '    Write-Output "::error file=$($_.Name)::$($errors.Count) parse error(s)"\n'
+    "    $errors | ForEach-Object "
+    '{ Write-Output "  line $($_.Extent.StartLineNumber): $($_.Message)" }\n'
+    "  }\n"
+    "}\n"
+    "if ($failed) { exit 1 }\n"
+    'Write-Output "All scripts parse."\n': "parses every .ps1; installs nothing",
+    "$ErrorActionPreference = 'Stop'\n"
+    "$targets = @(\n"
+    "  Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 |\n"
+    "    Where-Object { $_.FullName -notmatch '[\\\\/]node_modules[\\\\/]' } |\n"
+    "    ForEach-Object { $_.FullName }\n"
+    ")\n"
+    "$findings = @($targets | ForEach-Object {\n"
+    "  Invoke-ScriptAnalyzer -Path $_ -Settings ./PSScriptAnalyzerSettings.psd1\n"
+    "})\n"
+    "if ($findings) {\n"
+    "  $findings | ForEach-Object {\n"
+    '    Write-Output "::error file=$($_.ScriptName),line=$($_.Line)::'
+    '[$($_.RuleName)] $($_.Message)"\n'
+    "  }\n"
+    '  Write-Output "$($findings.Count) finding(s)."\n'
+    "  exit 1\n"
+    "}\n"
+    'Write-Output "PSScriptAnalyzer: no findings."\n': "runs the installed analyzer",
+    # The Windows test job: the same locked commands as the Linux job.
+    "uv sync --locked --extra dev": "installs exactly uv.lock with the dev extra",
+    "uv run --locked ruff check .": _LOCKED_RUN,
+    "uv run --locked mypy src": _LOCKED_RUN,
+    "uv run --locked pytest -q --cov=src/gpo_studio --cov-branch"
+    " --cov-report=json:coverage.json": _LOCKED_RUN,
+    "uv run --locked python scripts/check_coverage.py coverage.json": _LOCKED_SCRIPT,
+}
+
+
+def _normalise_pwsh(body: str) -> str:
+    return " ".join(body.split()).casefold()
+
+
+_PWSH = {_normalise_pwsh(body) for body in PWSH_BODIES}
+
 #: Lifecycle scripts ``npm ci`` would run from the root package.json.
 _NPM_INSTALL_HOOKS = {
     "preinstall",
@@ -384,59 +990,66 @@ _NPM_INSTALL_HOOKS = {
     "prepare",
     "postprepare",
 }
-_VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
-#: Environment that redirects an installer, the interpreter, or the shell itself.
-_DANGEROUS_ENV = re.compile(
-    r"^(PIP_.*|UV_.*|NPM_CONFIG_.*|PYTHON(PATH|HOME|USERBASE|STARTUP)|NODE_OPTIONS|PATH|"
-    r"BASH_ENV|ENV|LD_PRELOAD|LD_LIBRARY_PATH|GIT_.*)$",
-    re.IGNORECASE,
-)
-#: Files whose overwrite would change what gets installed or what an allowed program runs.
-_PROTECTED_NAMES = {
-    ".npmrc",
-    ".pypirc",
-    ".pydistutils.cfg",
-    "package-lock.json",
-    "package.json",
-    "pip.conf",
-    "pip.ini",
-    "pyproject.toml",
-    "setup.cfg",
-    "setup.py",
-    "uv.lock",
-    "uv.toml",
-}
-_PROTECTED_DIRS = {"scripts", "tests", "src", ".github", "githooks", "node_modules", ".venv"}
-_PROTECTED_SUFFIXES = (".py", ".pyc", ".pth", ".sh", ".js", ".mjs", ".cjs", ".ps1", ".psm1")
+
+
+def _compile(token: str) -> tuple[re.Pattern[str], bool]:
+    """A template token as a pattern, and whether it is a trailing variadic slot."""
+    variadic = _SLOT.fullmatch(token)
+    if variadic and variadic[2]:
+        return re.compile(SLOTS[variadic[1]]), True
+    parts: list[str] = []
+    last = 0
+    for slot in _SLOT.finditer(token):
+        parts.append(re.escape(token[last : slot.start()]))
+        parts.append(f"(?P<{slot[1]}>{SLOTS[slot[1]]})")
+        last = slot.end()
+    parts.append(re.escape(token[last:]))
+    return re.compile("".join(parts)), False
+
+
+_COMPILED = {template: [_compile(token) for token in template.tokens] for template in TEMPLATES}
+
+
+def _match(template: Template, tokens: tuple[str, ...]) -> dict[str, str] | None:
+    captures: dict[str, str] = {}
+    patterns = _COMPILED[template]
+    for index, (pattern, variadic) in enumerate(patterns):
+        if variadic:
+            rest = tokens[index:]
+            return captures if all(pattern.fullmatch(word) for word in rest) else None
+        if index >= len(tokens):
+            return None
+        found = pattern.fullmatch(tokens[index])
+        if found is None:
+            return None
+        for name, value in found.groupdict().items():
+            if captures.setdefault(name, value) != value:
+                return None
+    return captures if len(tokens) == len(patterns) else None
+
+
+def _fill(fact: str, captures: dict[str, str]) -> str:
+    return _SLOT.sub(lambda slot: captures[slot[1]], fact)
 
 
 @dataclass
 class Context:
-    """What the checker knows while it walks one workflow file or script."""
+    """What the checker knows while it walks one job, script or package.json script."""
 
     root: Path = REPO_ROOT
     package_json: Path | None = None
-    #: The smoke script trusts its caller's ``$PYTHON`` and requirements hand-off.
-    script: bool = False
-    #: Every ``--output-file`` of an accepted ``uv export --locked`` so far.
-    exported: set[str] = field(default_factory=set)
-    #: Every value each variable was assigned in the current step or script.
-    values: dict[str, list[str]] = field(default_factory=dict)
+    scope: str = "workflow"
+    #: Facts established earlier in this job (a lock exported, a venv built...).
+    facts: set[str] = field(default_factory=set)
+    #: ``var:`` facts: shell variables, which do not outlive their step.
+    step_facts: set[str] = field(default_factory=set)
     npm_stack: tuple[str, ...] = ()
 
-    def resolve(self, word: str) -> set[str]:
-        """The strings *word* can stand for: its first variable, by each value assigned so far.
+    def holds(self, fact: str) -> bool:
+        return fact in self.facts or fact in self.step_facts
 
-        Deliberately one level: a value that itself names a variable stays literal, so it
-        matches only an identically spelled export (both sides resolve the same way).
-        """
-        match = _VARIABLE.search(word)
-        if match is None:
-            return {word}
-        name = match[1] or match[2]
-        if name not in self.values:
-            return {word}
-        return {word[: match.start()] + value + word[match.end() :] for value in self.values[name]}
+    def establish(self, fact: str) -> None:
+        (self.step_facts if fact.startswith("var:") else self.facts).add(fact)
 
     def npm_scripts(self) -> dict[str, Any]:
         path = self.package_json or self.root / "package.json"
@@ -445,310 +1058,64 @@ class Context:
         return scripts
 
 
-def _program(word: str, ctx: Context) -> str:
-    """The program a command word names; a word that is (or ends in) a variable is refused."""
-    if word == "$PYTHON" and ctx.script:
-        return "python"
-    if "/" in word:
-        # Only a program inside a venv this workflow made: `./pip` could be anything.
-        if not _VENV_PROGRAM.match(word):
-            raise GrammarError(f"a program path outside a /tmp venv: {word!r}")
-        word = word.rsplit("/", 1)[1]
-    if "$" in word or "`" in word:
-        raise GrammarError(f"indirect command {word!r}")
-    return word
-
-
-def _protected(target: str, ctx: Context) -> bool:
-    for text in ctx.resolve(target):
-        path = re.sub(r"^(\$\{?(GITHUB_WORKSPACE|PWD)\}?/|\./)+", "", text).rstrip("/")
-        name = path.rsplit("/", 1)[-1]
-        exported_names = {item.rsplit("/", 1)[-1] for item in ctx.exported}
-        if (
-            "GITHUB_ENV" in path
-            or "GITHUB_PATH" in path
-            or path.split("/", 1)[0] in _PROTECTED_DIRS
-            or name in _PROTECTED_NAMES
-            or name.endswith(_PROTECTED_SUFFIXES)
-            or name in exported_names
-            or path in ctx.exported
-            or "site-packages" in path
-            or "/bin/" in f"/{path}"
-            or path.endswith("/bin")
-        ):
-            return True
-    return False
-
-
-def _repo_file(path: str, ctx: Context, *, under: tuple[str, ...], suffix: str) -> bool:
-    """*path* is a checked-in-style relative path to an existing file under *under*."""
-    if not path.startswith(tuple(f"{prefix}/" for prefix in under)) or not path.endswith(suffix):
-        return False
-    if ".." in path.split("/") or "$" in path:
-        return False
-    candidate = (ctx.root / path).resolve()
-    return candidate.is_file() and candidate.is_relative_to(ctx.root.resolve())
-
-
 def violations(commands: list[Command], *, where: str, ctx: Context | None = None) -> Iterator[str]:
     ctx = ctx if ctx is not None else Context()
-    previous: Command | None = None
     for command in commands:
-        yield from _check_environment(command, ctx, where)
-        for target in command.writes:
-            if _protected(target, ctx):
-                yield f"{where}: a write to a protected path {target!r}"
-        if not command.words:
-            for name, value in command.assignments.items():
-                ctx.values.setdefault(name, []).append(value)
-            continue
-        yield from _check(command, previous, ctx, where=where)
-        previous = command
+        yield from _check(command, ctx, where)
 
 
-def _check_environment(command: Command, ctx: Context, where: str) -> Iterator[str]:
-    names = list(command.assignments)
-    if command.words[:1] == ["export"]:
-        names += [arg.partition("=")[0] for arg in command.words[1:]]
-    inline_ok = {"UV_PROJECT_ENVIRONMENT"} if command.words[:1] == ["uv"] else set()
-    for name in names:
-        if _DANGEROUS_ENV.match(name) and name not in inline_ok:
-            yield f"{where}: refused environment {name!r} (it redirects an installer or the shell)"
-    if command.words[:1] == ["export"] and not ctx.script:
-        for name in sorted(_HANDOFF_ENV & set(names)):
-            yield f"{where}: export of {name} reaches the smoke script unchecked; set it inline"
-
-
-def _check(
-    command: Command, previous: Command | None, ctx: Context, *, where: str, in_uv: bool = False
-) -> Iterator[str]:
-    words = command.words
-    try:
-        program = _program(words[0], ctx)
-    except GrammarError as error:
-        yield f"{where}: {error}"
+def _check(command: Command, ctx: Context, where: str) -> Iterator[str]:
+    tokens = command.tokens
+    shown = " ".join(tokens)
+    matches = [
+        (template, captures)
+        for template in TEMPLATES
+        if ctx.scope in template.scopes and (captures := _match(template, tokens)) is not None
+    ]
+    if not matches:
+        yield f"{where}: no reviewed template matches {shown!r}"
         return
-    args = words[1:]
-    shown = " ".join(words)
-    if program in INDIRECTION:
-        yield f"{where}: refused indirection {shown!r}"
-    elif program == "command":
-        # `command -v NAME` only looks NAME up; any other form runs it.
-        if len(args) != 2 or args[0] != "-v" or not re.fullmatch(r"[A-Za-z0-9_.-]+", args[1]):
-            yield f"{where}: command only as `command -v NAME`, not {shown!r}"
-    elif program == "trap":
-        yield from _check_trap(args, ctx, where, shown)
-    elif program == "bash":
-        yield from _check_bash(command, ctx, where, shown)
-    elif _PIP.search(program):
-        yield from _check_pip(args, shown, where, ctx)
-    elif _PYTHON.search(program):
-        yield from _check_python(args, shown, where, ctx)
-    elif program == "uv":
-        yield from _check_uv(command, previous, ctx, shown, where)
-    elif program == "npm":
-        yield from _check_npm(args, ctx, where, shown)
-    elif program == "npx":
-        browsers = {"--with-deps", "chromium", "firefox", "webkit"}
-        if args[:2] != ["playwright", "install"] or not set(args[2:]) <= browsers:
-            yield f"{where}: npx only installs the Playwright browsers: {shown!r}"
-    elif program in PYTHON_TOOLS:
-        if not in_uv:
-            yield f"{where}: {program} only under `uv run --locked`: {shown!r}"
-        elif program == "mypy" and any(arg.startswith("--install-types") for arg in args):
-            yield f"{where}: mypy --install-types installs from the index: {shown!r}"
-        elif program == "pip-audit" and (
-            "--disable-pip" not in args or any("://" in arg for arg in args)
-        ):
-            yield f"{where}: pip-audit only with --disable-pip and local files: {shown!r}"
-    elif program in NODE_TOOLS:
-        if not ctx.npm_stack:
-            yield f"{where}: {program} only inside a scanned package.json script: {shown!r}"
-        elif program == "playwright" and args[:1] != ["test"]:
-            yield f"{where}: playwright only as `playwright test`: {shown!r}"
-    elif _APP.search(program):
-        pass
-    elif program in PLAIN:
-        yield from _check_plain(program, args, ctx, where, shown)
-    else:
-        yield f"{where}: unrecognised program {program!r} in {shown!r}"
-
-
-def _check_plain(
-    program: str, args: list[str], ctx: Context, where: str, shown: str
-) -> Iterator[str]:
-    if program == "curl":
-        # Every operand that is not a listed option's value is a URL to curl.
-        urls: list[str] = []
-        rest = iter(args)
-        for arg in rest:
-            if arg in _CURL_FLAGS:
-                continue
-            if arg in _CURL_OPTIONS:
-                value = next(rest, "")
-                if arg == "-o" and _protected(value, ctx):
-                    yield f"{where}: a write to a protected path {value!r}"
-                continue
-            urls.append(arg)
-        if not urls or not all(_LOCAL_URL.match(url) for url in urls):
-            yield f"{where}: curl may only reach the local server: {shown!r}"
-    elif program == "cp":
-        operands = [arg for arg in args if not arg.startswith("-")]
-        targets = operands[-1:] + [
-            value for flag, value in zip(args, args[1:], strict=False) if flag == "-t"
+    chosen = next(
+        (
+            (template, captures)
+            for template, captures in matches
+            if all(ctx.holds(_fill(fact, captures)) for fact in template.requires)
+        ),
+        None,
+    )
+    if chosen is None:
+        template, captures = matches[0]
+        missing = [
+            _fill(fact, captures)
+            for fact in template.requires
+            if not ctx.holds(_fill(fact, captures))
         ]
-        for target in targets:
-            if _protected(target, ctx):
-                yield f"{where}: a write to a protected path {target!r}"
-    elif program == "find":
-        if any(
-            arg in {"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fls"}
-            or arg.startswith("-fprint")
-            for arg in args
-        ):
-            yield f"{where}: find only to list files: {shown!r}"
-    elif program == "gh":
-        if args[:2] != ["release", "create"]:
-            yield f"{where}: gh only as `gh release create`: {shown!r}"
-    elif program == "git":
-        read_only = {"fetch", "merge-base", "rev-parse", "diff", "log", "show", "status"}
-        if (
-            args[:1] == []
-            or args[0] not in read_only
-            or any(
-                "upload-pack" in arg or arg.startswith(("--exec", "--output", "--ext-diff"))
-                for arg in args
-            )
-        ):
-            yield f"{where}: git only as {sorted(read_only)} with no program options: {shown!r}"
-    elif program == "tar":
-        if len(args) != 2 or args[0] not in {"tf", "-tf", "tzf", "-tzf", "ztf", "-ztf"}:
-            yield f"{where}: tar only to list one archive: {shown!r}"
-    elif program == "mapfile":
-        if len(args) != 2 or args[0] != "-t" or not re.fullmatch(r"[A-Za-z_]\w*", args[1]):
-            yield f"{where}: mapfile only as `mapfile -t NAME`: {shown!r}"
-    elif program == "set":
-        # Shell options only; `set -a` would export every later assignment.
-        options = {"pipefail", "errexit", "nounset", "xtrace"}
-        if not all(re.fullmatch(r"[-+][euxo]+", arg) or arg in options for arg in args):
-            yield f"{where}: set only as -e/-u/-x/-o pipefail: {shown!r}"
-
-
-def _check_trap(args: list[str], ctx: Context, where: str, shown: str) -> Iterator[str]:
-    """``trap BODY SIGNAL...``: the body is a script the shell runs later, so it is checked."""
-    if not args or args[0] in {"-", ""}:
+        yield f"{where}: {shown!r} needs {missing} established earlier in this job"
         return
-    if len(args) < 2:
-        yield f"{where}: unrecognised trap {shown!r}"
-        return
-    try:
-        yield from violations(split_commands(args[0]), where=f"{where} (trap)", ctx=ctx)
-    except GrammarError as error:
-        yield f"{where} (trap): {error}"
+    template, captures = chosen
+    for target in command.writes:
+        if target != "/dev/null" and target not in template.writes:
+            yield f"{where}: {shown!r} may not write {target!r}"
+    for target in command.reads:
+        yield f"{where}: {shown!r} may not read a redirected {target!r}"
+    for fact in template.provides:
+        ctx.establish(_fill(fact, captures))
+    if template.action == "npm-ci":
+        yield from _check_npm_ci(ctx, where)
+    elif template.action == "npm-run":
+        yield from _check_npm_script(captures["NPM_SCRIPT"], ctx, where)
 
 
-def _check_bash(command: Command, ctx: Context, where: str, shown: str) -> Iterator[str]:
-    args = command.words[1:]
-    if len(args) != 1 or args[0] not in _SCANNED_SCRIPTS:
-        yield f"{where}: bash may only run a scanned script, not {shown!r}"
-        return
-    if not _repo_file(args[0], ctx, under=("scripts",), suffix=".sh"):
-        yield f"{where}: bash script {args[0]!r} is not a checked-in file"
-    # The smoke script trusts these two from its caller; hold the caller to them.
-    python = command.assignments.get("PYTHON")
-    if python is not None and not (_PYTHON.search(python) and "$" not in python):
-        yield f"{where}: the smoke script's PYTHON must name a python: {shown!r}"
-    requirements = command.assignments.get("GPO_STUDIO_REQUIREMENTS")
-    if requirements is not None and not ctx.resolve(requirements) <= ctx.exported:
-        yield f"{where}: GPO_STUDIO_REQUIREMENTS is not a `uv export --locked` output: {shown!r}"
-
-
-def _requirement_ok(path: str, ctx: Context) -> bool:
-    """A ``-r`` file is one this file exported from uv.lock (or the smoke script's hand-off)."""
-    if "://" in path or path.startswith("-"):
-        return False
-    accepted = ctx.exported | ({_HANDOFF} if ctx.script else set())
-    return ctx.resolve(path) <= accepted
-
-
-def _check_pip(args: list[str], shown: str, where: str, ctx: Context) -> Iterator[str]:
-    if args in (["check"], ["uninstall", "--yes", "pip"]):
-        return
-    if args[:1] != ["install"]:
-        yield f"{where}: unrecognised pip use {shown!r}"
-        return
-    rest = args[1:]
-    if rest[:1] == ["--require-hashes"]:
-        files = rest[1:]
-        if not files or len(files) % 2 or any(flag != "-r" for flag in files[::2]):
-            yield f"{where}: --require-hashes must be followed only by -r FILE pairs: {shown!r}"
-            return
-        for path in files[1::2]:
-            if not _requirement_ok(path, ctx):
-                yield (
-                    f"{where}: requirements file {path!r} is not a `uv export --locked` "
-                    f"output of this file: {shown!r}"
-                )
-        return
-    flags = [arg for arg in rest if arg.startswith("-")]
-    targets = [arg for arg in rest if not arg.startswith("-")]
-    allowed = {"--no-deps", "--no-index", "--no-build-isolation", "--upgrade"}
-    if (
-        {"--no-deps", "--no-index"} <= set(flags)
-        and set(flags) <= allowed
-        and len(targets) == 1
-        and _ARTIFACT.match(targets[0])
-    ):
-        return
-    yield f"{where}: pip install neither hash-checked nor the built artifact alone: {shown!r}"
-
-
-def _check_python(args: list[str], shown: str, where: str, ctx: Context) -> Iterator[str]:
-    if args[:2] == ["-m", "pip"]:
-        yield from _check_pip(args[2:], shown, where, ctx)
-    elif args[:2] == ["-m", "build"]:
-        if "--no-isolation" not in args:
-            yield f"{where}: python -m build without --no-isolation: {shown!r}"
-    elif args[:2] == ["-m", "venv"]:
-        if len(args) not in (3, 4) or (len(args) == 4 and args[3] != "--clear"):
-            yield f"{where}: python -m venv only as `-m venv DIR [--clear]`: {shown!r}"
-    elif args[:2] == ["-m", "gpo_studio"] or (
-        args[:1] and _repo_file(args[0], ctx, under=("scripts", "tests"), suffix=".py")
-    ):
-        pass
-    elif args[:1] in (["-c"], ["-"]) or not args:
-        yield f"{where}: inline python code is unreadable here (use a scripts/*.py): {shown!r}"
-    else:
-        yield f"{where}: unrecognised python use {shown!r}"
-
-
-def _check_npm(args: list[str], ctx: Context, where: str, shown: str) -> Iterator[str]:
-    if args == ["ci"] and not ctx.npm_stack:
-        hooks = sorted(_NPM_INSTALL_HOOKS & set(ctx.npm_scripts()))
-        if hooks:
-            yield f"{where}: npm ci would run package.json lifecycle scripts {hooks}"
-        if (ctx.root / "binding.gyp").exists():
-            yield f"{where}: npm ci would run node-gyp for binding.gyp"
-        return
-    if args[:1] == ["audit"] and not ctx.npm_stack:
-        if not all(re.fullmatch(r"--audit-level=[a-z]+", arg) for arg in args[1:]):
-            yield f"{where}: npm audit only reports (--audit-level=...): {shown!r}"
-        return
-    if args == ["test"]:
-        name = "test"
-    elif len(args) == 2 and args[0] in {"run", "run-script"}:
-        name = args[1]
-    elif ctx.npm_stack:
-        yield f"{where}: npm inside a package.json script only as test or run NAME: {shown!r}"
-        return
-    else:
-        yield f"{where}: npm only as ci, audit, test or run NAME: {shown!r}"
-        return
-    yield from _check_npm_script(name, ctx, where)
+def _check_npm_ci(ctx: Context, where: str) -> Iterator[str]:
+    hooks = sorted(_NPM_INSTALL_HOOKS & set(ctx.npm_scripts()))
+    if hooks:
+        yield f"{where}: npm ci would run package.json lifecycle scripts {hooks}"
+    if (ctx.root / "binding.gyp").exists():
+        yield f"{where}: npm ci would run node-gyp for binding.gyp"
 
 
 def _check_npm_script(name: str, ctx: Context, where: str) -> Iterator[str]:
-    """Lex the package.json script and its pre/post hooks with this same grammar."""
+    """Lex the package.json script and its pre/post hooks with the npm templates."""
     scripts = ctx.npm_scripts()
     if name not in scripts:
         yield f"{where}: npm script {name!r} is not in package.json"
@@ -764,82 +1131,18 @@ def _check_npm_script(name: str, ctx: Context, where: str) -> Iterator[str]:
         if not isinstance(body, str):
             yield f"{here}: not a string"
             continue
-        ctx.npm_stack = (*ctx.npm_stack, name)
+        inner = Context(
+            ctx.root,
+            ctx.package_json,
+            "npm",
+            ctx.facts,
+            ctx.step_facts,
+            (*ctx.npm_stack, name),
+        )
         try:
-            yield from violations(split_commands(body), where=here, ctx=ctx)
+            yield from violations(split_commands(body), where=here, ctx=inner)
         except GrammarError as error:
             yield f"{here}: {error}"
-        finally:
-            ctx.npm_stack = ctx.npm_stack[:-1]
-
-
-def _check_uv(
-    command: Command, previous: Command | None, ctx: Context, shown: str, where: str
-) -> Iterator[str]:
-    args = command.words[1:]
-    sub = args[:1]
-    if sub == ["lock"]:
-        if args != ["lock", "--check"]:
-            yield f"{where}: uv lock only as --check: {shown!r}"
-    elif sub == ["sync"]:
-        rest = args[1:]
-        if rest[:1] != ["--locked"]:
-            yield f"{where}: uv sync without --locked: {shown!r}"
-        elif rest[1:] not in ([], ["--extra", "dev"], ["--only-group", "build-backend"]):
-            yield f"{where}: unrecognised uv sync shape {shown!r}"
-    elif sub == ["export"]:
-        rest = args[1:]
-        groups = rest[1:3]
-        tail = rest[3:]
-        if rest[:1] != ["--locked"] or groups not in (
-            ["--no-default-groups", "--no-emit-project"],
-            ["--only-group", "build-backend"],
-        ):
-            yield f"{where}: unrecognised uv export shape {shown!r}"
-            return
-        if groups[0] == "--only-group":
-            if tail[:1] != ["--no-emit-project"]:
-                yield f"{where}: unrecognised uv export shape {shown!r}"
-                return
-            tail = tail[1:]
-        if (
-            tail[:2] != ["--format", "requirements.txt"]
-            or tail[2:3] != ["--output-file"]
-            or len(tail) != 4
-        ):
-            yield f"{where}: unrecognised uv export shape {shown!r}"
-            return
-        if "://" in tail[3]:
-            yield f"{where}: uv export to a URL: {shown!r}"
-            return
-        ctx.exported |= ctx.resolve(tail[3]) | {tail[3]}
-    elif sub == ["run"]:
-        rest = args[1:]
-        if rest[:1] != ["--locked"]:
-            yield f"{where}: uv run without --locked: {shown!r}"
-            return
-        rest = rest[1:]
-        if rest[:2] == ["--only-group", "release"]:
-            rest = rest[2:]
-        if not rest:
-            yield f"{where}: uv run with no command: {shown!r}"
-            return
-        yield from _check(Command(rest, command.assignments), None, ctx, where=where, in_uv=True)
-    elif sub == ["build"]:
-        environment = command.assignments.get("UV_PROJECT_ENVIRONMENT")
-        locked_sync = (
-            previous is not None
-            and previous.words == ["uv", "sync", "--locked", "--only-group", "build-backend"]
-            and previous.assignments.get("UV_PROJECT_ENVIRONMENT") == environment
-            and environment is not None
-        )
-        if not locked_sync or args[1:3] != ["--wheel", "--out-dir"] or len(args) != 4:
-            yield (
-                f"{where}: uv build only straight after a locked build-backend sync into "
-                f"the same UV_PROJECT_ENVIRONMENT: {shown!r}"
-            )
-    else:
-        yield f"{where}: unrecognised uv command {shown!r} (uv pip, uvx, uv tool, uv add ...)"
 
 
 # --- workflows -------------------------------------------------------------------
@@ -861,10 +1164,14 @@ ACTIONS: dict[str, dict[str, set[str] | None]] = {
 }
 
 
-def _yaml_env_violations(env: Any, where: str) -> Iterator[str]:
-    for name in env or {}:
-        if _DANGEROUS_ENV.match(str(name)) or str(name) in {"PYTHON", "GPO_STUDIO_REQUIREMENTS"}:
-            yield f"{where}: refused environment {name!r} (it redirects an installer or the shell)"
+#: Runners a job may use: the default shell is bash on one and PowerShell on the other.
+RUNNERS = ("ubuntu-latest", "windows-latest")
+
+
+def _env_violations(env: Any, where: str) -> Iterator[str]:
+    for name, value in (env or {}).items():
+        if str(value) not in ENV.get(str(name), set()):
+            yield f"{where}: env {name}={value!r} is not on the allowlist"
 
 
 def _defaults_violations(owner: Any, where: str) -> Iterator[str]:
@@ -899,8 +1206,7 @@ def workflow_violations(
 ) -> list[str]:
     document: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
     found: list[str] = []
-    ctx = Context(root=root, package_json=package_json)
-    found.extend(_yaml_env_violations(document.get("env"), path.name))
+    found.extend(_env_violations(document.get("env"), path.name))
     found.extend(_defaults_violations(document, path.name))
     for job_name, job in (document.get("jobs") or {}).items():
         if "uses" in job:
@@ -912,15 +1218,22 @@ def workflow_violations(
                     "in this repository's .github/workflows"
                 )
             continue
-        found.extend(_yaml_env_violations(job.get("env"), f"{path.name}:{job_name}"))
+        found.extend(_env_violations(job.get("env"), f"{path.name}:{job_name}"))
         found.extend(_defaults_violations(job, f"{path.name}:{job_name}"))
         if "container" in job:
             found.append(f"{path.name}:{job_name}: a job container is an unscanned environment")
+        runner = job.get("runs-on")
+        if runner not in RUNNERS:
+            # The runner decides the default shell; a label or expression would hide it.
+            found.append(f"{path.name}:{job_name}: runs-on {runner!r} is not one of {RUNNERS}")
+        windows = runner == "windows-latest"
+        # Jobs are separate machines: nothing one established holds in another.
+        ctx = Context(root=root, package_json=package_json)
         for number, step in enumerate(job.get("steps") or [], 1):
             where = f"{path.name}:{job_name}#{number}"
             if "uses" in step:
                 found.extend(_action_violations(step, where))
-            found.extend(_yaml_env_violations(step.get("env"), where))
+            found.extend(_env_violations(step.get("env"), where))
             if "working-directory" in step:
                 found.append(f"{where}: working-directory moves every relative path checked here")
             if "run" not in step:
@@ -930,13 +1243,14 @@ def workflow_violations(
                 found.append(f"{where}: an expression inside run: is a command nobody can read")
                 continue
             shell = step.get("shell")
-            if shell == "pwsh":
-                found.extend(_pwsh_violations(script, where))
+            if shell == "pwsh" or (shell is None and windows):
+                if _normalise_pwsh(script) not in _PWSH:
+                    found.append(f"{where}: no reviewed PowerShell body matches {script!r}")
                 continue
             if shell not in (None, "bash"):
                 found.append(f"{where}: shell {shell!r} is not bash or pwsh")
                 continue
-            ctx.values = {}
+            ctx.step_facts = set()
             try:
                 found.extend(violations(split_commands(script), where=where, ctx=ctx))
             except GrammarError as error:
@@ -945,21 +1259,9 @@ def workflow_violations(
 
 
 def script_violations(path: Path, *, root: Path = REPO_ROOT) -> list[str]:
-    ctx = Context(root=root, script=True)
+    ctx = Context(root=root, scope="smoke")
     try:
         commands = split_commands(path.read_text(encoding="utf-8"))
         return list(violations(commands, where=path.name, ctx=ctx))
     except GrammarError as error:
         return [f"{path.name}: {error}"]
-
-
-def _pwsh_violations(script: str, where: str) -> Iterator[str]:
-    """PowerShell steps may install one module, only at an exact version."""
-    for line in script.splitlines():
-        stripped = line.strip()
-        if re.search(r"\b(pip|uv|uvx|pipx|python|Invoke-Expression|iex)\b", stripped):
-            yield f"{where}: refused in a pwsh step: {stripped!r}"
-        if re.search(r"\b(Install-Module|Install-Package|Install-Script)\b", stripped) and not (
-            re.search(r"-RequiredVersion\s+\d+(\.\d+)+\b", stripped)
-        ):
-            yield f"{where}: a PowerShell install without -RequiredVersion: {stripped!r}"

