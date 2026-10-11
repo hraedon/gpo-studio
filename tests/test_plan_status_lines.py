@@ -14,6 +14,14 @@ commit SHA in backticks that exists, a relative Markdown link whose file and
 anchor exist, or a backticked repository path that exists. External links are
 never evidence, and a link that does not resolve fails the section outright. The
 loopholes two reviewers found are pinned as negative cases.
+
+What it cannot check, so nobody leans on it for more: whether the evidence
+supports the claim. "implemented -- the web process writes to AD; evidence:
+`src/gpo_studio/__init__.py`" passes, because the path exists. A status that
+avoids every delivery word ("active -- built and live") demands no evidence at
+all. Truth is the reviewer's job; this test only makes a status checkable. Making
+it decide truth would need each claim tied to a machine-checkable assertion,
+which no plan records today.
 """
 
 from __future__ import annotations

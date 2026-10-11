@@ -451,13 +451,24 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - name: Install PSScriptAnalyzer
+      - name: Fetch PSScriptAnalyzer
         shell: pwsh
-        # Pinned for the same reason the Python tools are: an analyzer that
-        # resolves its own version at run time turns unchanged code red.
+        # Pinned by content, as uv.lock and package-lock.json pin everything
+        # else: the 1.25.0 package from PSGallery must have this SHA-256 (the
+        # gallery's own SHA-512 for it, 5/tXMmLm...ExwWYw==, was cross-checked
+        # when the value was recorded). Nothing is installed: the verified
+        # package is unpacked under RUNNER_TEMP and the analyzer step imports it
+        # from there. An exact version alone is not a lock.
         run: |
-          Set-PSRepository PSGallery -InstallationPolicy Trusted
-          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'psscriptanalyzer'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $package = Join-Path $root 'PSScriptAnalyzer.1.25.0.zip'
+          Invoke-WebRequest -Uri 'https://www.powershellgallery.com/api/v2/package/PSScriptAnalyzer/1.25.0' -OutFile $package
+          $expected = '14E634C828EB98EFB9F40B2918BA90F139ED5ECCDF663A2A747736D996995D60'
+          $actual = (Get-FileHash -Path $package -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw "PSScriptAnalyzer package SHA-256 is $actual, not $expected" }
+          Expand-Archive -Path $package -DestinationPath (Join-Path $root 'module')
       - name: Parse every script
         shell: pwsh
         # Cheap, and catches what an analyzer run cannot: a file that does not
@@ -488,6 +499,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Import-Module (Join-Path $env:RUNNER_TEMP 'psscriptanalyzer/module/PSScriptAnalyzer.psd1') -Force
           $targets = @(
             Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 |
               Where-Object { $_.FullName -notmatch '[\\/]node_modules[\\/]' } |

@@ -144,11 +144,17 @@ Operator-facing:
   templates (literal tokens and a few tightly patterned slots, each with its
   reason), as must every `env:` entry, redirection target and PowerShell step,
   and a command that needs a lock export, `npm ci` or a built wheel needs it
-  earlier in the same job. Substring matching, and then three grammars that
-  parsed program options, were each bypassed in review; inline interpreter code
-  is refused, so the few inline Python checks moved to `scripts/`. It checks
-  workflow text, not what the code it lets run does (`tests/workflow_grammar.py`
-  lists its limits).
+  earlier in the same job, from a command whose failure would have failed it.
+  Matching is on the words as written, so a re-quoted variable is a different
+  command. No tracked file may configure the tools the templates run (`.npmrc`,
+  `pip.conf`, `uv.toml`, `sitecustomize.py`, ...). Substring matching, and then
+  three grammars that parsed program options, were each bypassed in review;
+  inline interpreter code is refused, so the few inline Python checks moved to
+  `scripts/`. It checks workflow text, not what the code it lets run does
+  (`tests/workflow_grammar.py` lists its limits).
+- CI no longer installs PSScriptAnalyzer from PSGallery by version: it fetches
+  the 1.25.0 package, checks its SHA-256 against the value in `ci.yml`, and
+  imports it from the job's temporary directory.
 - The project build itself now uses the locked backend too. An editable
   `uv sync --locked` still built gpo-studio in an isolated environment that
   resolved `[build-system].requires` (`hatchling`, unversioned) from the index;

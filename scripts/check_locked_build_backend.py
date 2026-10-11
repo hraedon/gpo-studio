@@ -14,8 +14,10 @@ The check, on a copy of the tracked tree outside the repository:
    "Proceeding without build isolation", never resolve build requirements, and
    leave the lock's hatchling installed. ``uv build --wheel`` must too.
 3. Control: the same offline sync with ``[tool.uv]`` removed from the copy's
-   pyproject.toml must fail resolving ``build-system.requires`` -- the isolated
-   build reaching for the index -- or the check above would prove nothing.
+   pyproject.toml must build in an isolated environment and fail resolving
+   ``build-system.requires`` there -- the isolated build reaching for the index,
+   told apart from uv's generic hint by uv's own log lines -- or the check above
+   would prove nothing.
 
     uv run --locked python scripts/check_locked_build_backend.py --tmp-root DIR
 
@@ -167,10 +169,20 @@ def run(tmp_root: Path) -> None:
             project=tree,
         )
         log = control.stdout + control.stderr
-        if control.returncode == 0 or "build-system.requires" not in log:
+        # Each marker belongs to the isolated path, not to uv's closing hint (which
+        # also says "build-system.requires" after an unrelated failure): the build
+        # created its own environment, resolved its requirements, and failed there.
+        isolated = (
+            "Proceeding without build isolation" not in log
+            and "Creating build environment" in log
+            and "Resolving build requirements" in log
+            and "Failed to resolve requirements from `build-system.requires`" in log
+        )
+        if control.returncode == 0 or not isolated:
             raise CheckFailed(
-                "control: without [tool.uv] the offline build should fail resolving "
-                f"build-system.requires, and it did not (exit {control.returncode})"
+                "control: without [tool.uv] the offline build should build in isolation and "
+                f"fail resolving build-system.requires, and it did not (exit "
+                f"{control.returncode}):\n{log[-4000:]}"
             )
         print("control: an isolated build resolves build-system.requires and fails offline")
 
