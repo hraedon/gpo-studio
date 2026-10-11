@@ -161,7 +161,10 @@ Operator-facing:
   the exact locked versions, and a clean `npm ci` verified them. CI runs
   Playwright from `node_modules/.bin`, never through `npx`, and every Python
   command in the workflows and the smoke script runs with `-I`, so a module in
-  the checkout cannot stand in for the locked tool it names.
+  the checkout cannot stand in for the locked tool it names. The files each
+  locked tool discovers on its own (pytest 9's `pytest.toml` among them) are
+  listed against the tool's locked version, and a version change fails a test
+  until the list is re-read.
 - The project build itself now uses the locked backend too. An editable
   `uv sync --locked` still built gpo-studio in an isolated environment that
   resolved `[build-system].requires` (`hatchling`, unversioned) from the index;

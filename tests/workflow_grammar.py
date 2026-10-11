@@ -33,11 +33,16 @@ script into simple commands with a small shell lexer, it requires:
 * every PowerShell step, and every step of a Windows job (PowerShell by
   default), to be exactly one of ``PWSH_BODIES``;
 * no tracked file to change what those tools load or run
-  (``configuration_violations``, which inventories each tool's discovery rules:
-  config files by name, pinned by path and SHA-256 where one is reviewed;
+  (``configuration_violations``, which inventories each tool's discovery rules
+  in ``TOOL_DISCOVERY``, read from the locked version's source and re-read when
+  it moves: config files by name, pinned by path and SHA-256 where one is reviewed;
   modules that would shadow a tool or the standard library; compiled ``.pyc``;
   every ``[tool.*]`` table and ``[build-system]`` exactly as reviewed; no
   tracked ``node_modules/`` or ``dist/``);
+* every ``${{ }}`` expression outside ``run:`` (where none may appear) to be one
+  of ``REVIEWED_EXPRESSIONS`` or ``matrix.KEY`` over a literal matrix, every
+  ``if:`` to be one of ``REVIEWED_CONDITIONS``, and a matrix-valued action input
+  to be checked value by value;
 * every action and input to be on ``ACTIONS`` (an input that selects what the
   action downloads, to a listed value), every job to run on one of ``RUNNERS``,
   and no ``shell:``, ``working-directory``, default, ``container`` or
@@ -1198,7 +1203,7 @@ TEMPLATES: tuple[Template, ...] = (
         scope="smoke",
     ),
     _t(
-        '"$PYTHON" -m venv "$TMPDIR/venv" --clear',
+        '"$PYTHON" -I -m venv "$TMPDIR/venv" --clear',
         "an empty venv from the caller's interpreter",
         scope="smoke",
         provides=("venv",),
@@ -1661,7 +1666,10 @@ def npm_lock_violations(package_json: Path, lock_path: Path) -> list[str]:
     packages: dict[str, Any] = lock.get("packages") or {}
     found: list[str] = []
     for path, entry in packages.items():
-        if not path or entry.get("link"):
+        if not path:
+            continue
+        if entry.get("link"):
+            found.append(f"{lock_path.name}: {path} links a directory, not a hashed package")
             continue
         resolved = str(entry.get("resolved", ""))
         if not resolved.startswith("https://registry.npmjs.org/"):
@@ -1669,6 +1677,9 @@ def npm_lock_violations(package_json: Path, lock_path: Path) -> list[str]:
         if not str(entry.get("integrity", "")).startswith("sha512-"):
             found.append(f"{lock_path.name}: {path} has no sha512 integrity, so nothing pins it")
     declared = package.get("devDependencies") or {}
+    for name, spec in sorted(declared.items()):
+        if not re.fullmatch(r"\d+\.\d+\.\d+", str(spec)):
+            found.append(f"package.json: {name} {spec!r} is not one exact registry version")
     for program, name in sorted(LOCKED_BINS.items()):
         entry = packages.get(f"node_modules/{name}") or {}
         if not re.fullmatch(r"\d+\.\d+\.\d+", str(declared.get(name, ""))):
@@ -1727,6 +1738,7 @@ def _check_npm_script(name: str, ctx: Context, where: str) -> Iterator[str]:
 
 # --- the files that configure those tools ---------------------------------------
 
+
 #: What each templated tool discovers on its own, beyond its arguments, and how
 #: that input is closed. A tracked file can change what an allowed tool loads or
 #: runs in three ways; each is neutralised in the template or pinned here:
@@ -1739,9 +1751,11 @@ def _check_npm_script(name: str, ctx: Context, where: str) -> Iterator[str]:
 #:   of its source).
 #: * configuration discovery: pip, uv, npm, git, curl, pytest, mypy, coverage,
 #:   hatchling, prettier, eslint, vitest/vite, Playwright and PSScriptAnalyzer each
-#:   look for config files by name (CONFIG_PATTERNS) or in pyproject.toml and
-#:   package.json. A tracked match must be reviewed here by path and SHA-256
-#:   (REVIEWED_CONFIG); the pyproject tables are pinned whole (REVIEWED_TOOL).
+#:   look for config files by name (TOOL_DISCOVERY, read from each locked
+#:   version's source) or in pyproject.toml and package.json. A tracked match must
+#:   be reviewed here by path and SHA-256 (REVIEWED_CONFIG); the pyproject tables
+#:   and the project's entry points are pinned whole (REVIEWED_TOOL), and no
+#:   ``pytest_plugins`` may name a module to load as a plugin.
 #: * plugins and rule paths: prettier/eslint/vitest/Playwright configs and the
 #:   PSScriptAnalyzer settings can load modules; their content is pinned, and the
 #:   analyzer settings may name no custom rule path either.
@@ -1749,20 +1763,116 @@ def _check_npm_script(name: str, ctx: Context, where: str) -> Iterator[str]:
 #: Environment variables that would do the same are closed by ENV, and the npm
 #: programs must come from package-lock.json (LOCKED_BINS). Tests, scripts/ and
 #: these pinned configs are code the tools exist to run; they are reviewed as code.
+def _variants(stem: str, extensions: str) -> list[str]:
+    return [f"{stem}.{extension}" for extension in extensions.split()]
+
+
+_JS = "js mjs cjs ts mts cts"
+#: Each tool the templates run, the version whose source this list was read from,
+#: and every file that version finds on its own (in the working directory, a
+#: parent, or beside the file it is working on). ``test_the_discovery_inventory_
+#: matches_the_locked_tools`` fails when a locked version moves, so an upgrade
+#: re-reviews the list; where the tool is installed it also reads the names back
+#: out of the tool's own source. ``None``: not in a lock (runner-provided).
+TOOL_DISCOVERY: dict[str, tuple[str | None, list[str]]] = {
+    # _pytest/config/findpaths.py locate_config(); conftest.py beside any test.
+    "pytest": (
+        "9.1.1",
+        [
+            "pytest.toml",
+            ".pytest.toml",
+            "pytest.ini",
+            ".pytest.ini",
+            "pyproject.toml",
+            "tox.ini",
+            "setup.cfg",
+            "conftest.py",
+        ],
+    ),
+    # coverage/config.py config_files_to_try(), loaded by pytest-cov.
+    "coverage": (
+        "7.15.2",
+        [".coveragerc", ".coveragerc.toml", "setup.cfg", "tox.ini", "pyproject.toml"],
+    ),
+    "pytest-cov": ("7.1.0", []),
+    # mypy/defaults.py CONFIG_NAMES + SHARED_CONFIG_NAMES.
+    "mypy": ("1.20.2", ["mypy.ini", ".mypy.ini", "pyproject.toml", "setup.cfg"]),
+    # ruff loads no code; listed so a change is still seen.
+    "ruff": ("0.16.0", ["ruff.toml", ".ruff.toml", "pyproject.toml"]),
+    # hatchling/utils/constants.py DEFAULT_CONFIG_FILE, DEFAULT_BUILD_SCRIPT.
+    "hatchling": ("1.32.4", ["pyproject.toml", "hatch.toml", "hatch_build.py"]),
+    "build": ("1.6.1", ["pyproject.toml"]),
+    "pip-audit": ("2.10.1", []),
+    "pip-licenses": ("5.5.5", []),
+    "cyclonedx-bom": ("7.5.0", ["pyproject.toml"]),
+    # uv's project and user configuration, and its interpreter requests.
+    "uv": (
+        "0.12.0",
+        ["uv.toml", "pyproject.toml", ".python-version", ".python-versions", "uv.lock"],
+    ),
+    # lib/config/config-loader.js FLAT_CONFIG_FILENAMES.
+    "eslint": ("10.7.0", _variants("eslint.config", _JS)),
+    # prettier's config searcher; .editorconfig feeds its options.
+    "prettier": (
+        "3.9.5",
+        [
+            "package.json",
+            "package.yaml",
+            ".prettierrc",
+            ".editorconfig",
+            *_variants(".prettierrc", "json json5 yaml yml toml " + _JS),
+            *_variants("prettier.config", _JS),
+        ],
+    ),
+    # vitest CONFIG_NAMES x CONFIG_EXTENSIONS.
+    "vitest": ("4.1.11", [*_variants("vitest.config", _JS), *_variants("vite.config", _JS)]),
+    # vite DEFAULT_CONFIG_FILES, its .env files, postcss-load-config's search places.
+    "vite": (
+        "8.3.1",
+        [
+            *_variants("vite.config", _JS),
+            ".env",
+            ".env.local",
+            ".env.test",
+            ".env.test.local",
+            ".postcssrc",
+            *_variants(".postcssrc", "json yaml yml " + _JS),
+            *_variants("postcss.config", _JS),
+        ],
+    ),
+    # playwright/lib/common: playwright.config + each extension it tries.
+    "@playwright/test": ("1.61.1", _variants("playwright.config", "ts js mts mjs cts cjs")),
+    # Runner-provided: npm (with Node 24), pip (ensurepip), git, curl, CPython.
+    "npm": (None, [".npmrc", "npm-shrinkwrap.json", "package-lock.json", "package.json"]),
+    "pip": (None, ["pip.conf", "pip.ini"]),
+    "git": (None, [".gitmodules", ".gitconfig"]),
+    "curl": (None, [".curlrc", "_curlrc"]),
+    "python": (None, ["sitecustomize.py", "usercustomize.py", "setup.py", ".pydistutils.cfg"]),
+    "PSScriptAnalyzer": ("1.25.0", ["PSScriptAnalyzerSettings.psd1"]),
+}
+#: Discovered by other tools a contributor might add later, refused until reviewed.
+_ALSO_REFUSED = {
+    ".wgetrc",
+    ".yarnrc",
+    ".yarnrc.yml",
+    ".pnpmfile.cjs",
+    ".node-version",
+    ".nvmrc",
+    ".tool-versions",
+    ".pypirc",
+    ".eslintrc",
+    ".babelrc",
+}
+DISCOVERED = {name for _version, names in TOOL_DISCOVERY.values() for name in names}
+#: The three files every check above already pins by content at the root; elsewhere
+#: they are refused like any other discovered file (pytest and prettier look up
+#: from the file they are working on, so a nested one would win).
+_PINNED_AT_ROOT = {"pyproject.toml", "package.json", "package-lock.json", "uv.lock"}
 CONFIG_PATTERNS = re.compile(
-    r"^("
-    r"\.curlrc|_curlrc|\.wgetrc|\.gitconfig|\.gitmodules"
-    r"|\.npmrc|\.yarnrc|\.yarnrc\.yml|\.pnpmfile\.cjs|\.node-version|\.nvmrc|\.tool-versions"
-    r"|pip\.conf|pip\.ini|uv\.toml|\.python-version|\.pypirc|\.pydistutils\.cfg"
-    r"|setup\.cfg|setup\.py|sitecustomize\.py|usercustomize\.py|hatch\.toml|hatch_build\.py"
-    r"|pytest\.ini|\.pytest\.ini|tox\.ini|mypy\.ini|\.mypy\.ini|\.coveragerc"
-    r"|\.prettierrc(\..*)?|prettier\.config\..*|\.editorconfig"
-    r"|eslint\.config\..*|\.eslintrc(\..*)?"
-    r"|vitest\.config\..*|vitest\.workspace\..*|vite\.config\..*|postcss\.config\..*"
-    r"|\.postcssrc(\..*)?|babel\.config\..*|\.babelrc(\..*)?|playwright\.config\..*"
-    r"|PSScriptAnalyzerSettings\.psd1"
-    r")$"
+    r"^(\.env\..*|\.eslintrc\..*|\.babelrc\..*|babel\.config\..*|.*\.pth)$"
 )
+
+
 #: path -> SHA-256 of each reviewed configuration file the tools discover today.
 REVIEWED_CONFIG: dict[str, str] = {
     ".prettierrc.json": "7752dba7407ce87e2bc87866f69a8f41d38b9d6ae30e7ebcf04bbbebdf9458d5",
@@ -1838,6 +1948,9 @@ REVIEWED_TOOL: dict[str, Any] = {
     "mypy": {"python_version": "3.13", "strict": True, "files": ["src"]},
 }
 REVIEWED_BUILD_SYSTEM = {"requires": ["hatchling"], "build-backend": "hatchling.build"}
+#: The project's own entry points: a ``pytest11`` entry point would load a tracked
+#: module into every pytest run as a plugin, and a script names code to run.
+REVIEWED_PROJECT_ENTRY_POINTS = {"scripts": {"gpo-studio": "gpo_studio.__main__:main"}}
 #: package.json's top-level keys: no packageManager, workspaces, overrides or config.
 PACKAGE_JSON_KEYS = {"name", "private", "type", "engines", "scripts", "devDependencies"}
 
@@ -1891,11 +2004,21 @@ def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
         module = _shadows(path)
         if module in SHADOWED:
             found.append(f"{path}: shadows the {module!r} module a template runs or imports")
-        config = (
-            CONFIG_PATTERNS.match(name)
-            or name.endswith(".pth")
-            or (name == "conftest.py" and not path.startswith("tests/"))
-        )
+        if name.endswith(".py") and (path.startswith("tests/") or "/" not in path):
+            # pytest imports a module-level `pytest_plugins` as plugins, before any test.
+            source = (root / path).read_text(encoding="utf-8", errors="replace")
+            if re.search(r"^pytest_plugins\s*[:=]", source, re.M):
+                found.append(f"{path}: pytest_plugins loads modules as pytest plugins")
+        if path.startswith(".config/") or "/.config/" in path:
+            found.append(f"{path}: a .config/ tree is where several tools look for config")
+        if name in _PINNED_AT_ROOT:
+            config = "/" in path
+        elif name == "conftest.py":
+            config = not path.startswith("tests/")
+        else:
+            config = bool(
+                name in DISCOVERED or name in _ALSO_REFUSED or CONFIG_PATTERNS.match(name)
+            )
         if config:
             content = (root / path).read_bytes()
             if REVIEWED_CONFIG.get(path) != hashlib.sha256(content).hexdigest():
@@ -1909,6 +2032,12 @@ def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
             found.append(f"pyproject.toml: [tool.{table}] differs from the reviewed table")
     if pyproject.get("build-system") != REVIEWED_BUILD_SYSTEM:
         found.append("pyproject.toml: [build-system] differs from the reviewed table")
+    project = pyproject.get("project", {})
+    points = {
+        key: project[key] for key in ("scripts", "gui-scripts", "entry-points") if key in project
+    }
+    if points != REVIEWED_PROJECT_ENTRY_POINTS:
+        found.append("pyproject.toml: the project's entry points differ from the reviewed ones")
     package = json.loads((root / "package.json").read_text(encoding="utf-8"))
     extra = sorted(set(package) - PACKAGE_JSON_KEYS)
     if extra:
@@ -1928,7 +2057,7 @@ _PINNED_ACTION = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
 #: An input that selects what the action downloads or runs has its values listed;
 #: ``None`` marks one that only names files to upload or attest. The pinned actions
 #: and what they fetch with these inputs (uv, CPython, Node, the cache) are trusted.
-_PYTHONS = {"3.13", "${{ matrix.python-version }}"}
+_PYTHONS = {"3.13", "3.14"}
 ACTIONS: dict[str, dict[str, set[str] | None]] = {
     "actions/attest": {"sbom-path": None, "subject-path": None},
     "actions/attest-build-provenance": {"subject-path": None},
@@ -1967,7 +2096,86 @@ def _defaults_violations(owner: Any, where: str) -> Iterator[str]:
         yield f"{where}: a default working-directory moves every relative path checked here"
 
 
-def _action_violations(step: Any, where: str) -> Iterator[str]:
+#: Every ``${{ }}`` expression a workflow may contain outside ``run:`` (where none
+#: may): context values that select nothing to download, each reviewed. A
+#: ``matrix.KEY`` expression is expanded instead, and each value checked where used.
+REVIEWED_EXPRESSIONS = {
+    "github.event_name == 'pull_request'",
+    "github.ref",
+    "github.sha",
+    "github.token",
+    "github.workspace",
+    "hashFiles('package-lock.json')",
+    "needs.release-identity.outputs.manifest",
+    "needs.release-identity.outputs.report",
+    "runner.os",
+    "secrets.GITHUB_TOKEN",
+    "secrets.GPO_STUDIO_FORBIDDEN_IDENTIFIERS",
+    "steps.manifest.outputs.manifest",
+    "steps.manifest.outputs.report",
+}
+#: ``if:`` conditions a step or job may carry.
+REVIEWED_CONDITIONS = {"failure()"}
+_EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
+_MATRIX_ONLY = re.compile(r"^\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}$")
+
+
+def _matrix(job: Any, where: str) -> tuple[dict[str, list[str]], list[str]]:
+    """The job's matrix as key -> literal values, and why it cannot be read statically."""
+    matrix = (job.get("strategy") or {}).get("matrix")
+    if matrix is None:
+        return {}, []
+    if not isinstance(matrix, dict):
+        return {}, [f"{where}: a matrix that is not a literal mapping cannot be checked"]
+    values: dict[str, list[str]] = {}
+    problems: list[str] = []
+    for key, entries in matrix.items():
+        if key in {"include", "exclude"} or not isinstance(entries, list):
+            problems.append(f"{where}: matrix {key!r} is not a literal list")
+            continue
+        if not all(isinstance(entry, (str, int, float)) for entry in entries) or any(
+            "${{" in str(entry) for entry in entries
+        ):
+            problems.append(f"{where}: matrix {key!r} has a value that is not a literal")
+            continue
+        values[str(key)] = [str(entry) for entry in entries]
+    return values, problems
+
+
+def _expression_violations(
+    node: Any, where: str, matrix: dict[str, list[str]], key: str = ""
+) -> Iterator[str]:
+    """Every expression outside run: is reviewed, or a matrix key whose values are literal."""
+    if isinstance(node, dict):
+        for child_key, child in node.items():
+            if child_key in {"run", "steps", "jobs"}:
+                continue
+            yield from _expression_violations(child, where, matrix, str(child_key))
+    elif isinstance(node, list):
+        for child in node:
+            yield from _expression_violations(child, where, matrix, key)
+    elif isinstance(node, str):
+        if key == "if":
+            condition = _EXPRESSION.fullmatch(node.strip())
+            text = condition[1] if condition else node.strip()
+            if text not in REVIEWED_CONDITIONS:
+                yield f"{where}: condition {node!r} is not reviewed"
+            return
+        for found in _EXPRESSION.finditer(node):
+            expression = found[1]
+            matrix_key = re.fullmatch(r"matrix\.([A-Za-z0-9_-]+)", expression)
+            if matrix_key and matrix_key[1] in matrix:
+                continue
+            if expression not in REVIEWED_EXPRESSIONS:
+                yield (
+                    f"{where}: expression ${{{{ {expression} }}}} cannot be resolved to "
+                    "reviewed values"
+                )
+
+
+def _action_violations(
+    step: Any, where: str, matrix: dict[str, list[str]] | None = None
+) -> Iterator[str]:
     uses = str(step["uses"])
     if not _PINNED_ACTION.match(uses):
         yield f"{where}: action {uses!r} is not a remote action pinned by SHA"
@@ -1982,8 +2190,25 @@ def _action_violations(step: Any, where: str) -> Iterator[str]:
             yield f"{where}: input {key!r} of {name} is not allowed"
             continue
         allowed = inputs[key]
-        if allowed is not None and str(value) not in allowed:
-            yield f"{where}: {name} {key}: {value!r} is not one of {sorted(allowed)}"
+        if allowed is None:
+            continue
+        expanded = _MATRIX_ONLY.match(str(value))
+        if str(value) in allowed:
+            continue  # listed exactly, any reviewed expression in it included
+        if expanded:
+            # Each matrix value is a separate run with that literal input.
+            candidates = (matrix or {}).get(expanded[1])
+            if candidates is None:
+                yield f"{where}: {name} {key}: {value!r} names no literal matrix key"
+                continue
+        elif "${{" in str(value):
+            yield f"{where}: {name} {key}: {value!r} is an expression, not a listed value"
+            continue
+        else:
+            candidates = [str(value)]
+        for candidate in candidates:
+            if candidate not in allowed:
+                yield f"{where}: {name} {key}: {candidate!r} is not one of {sorted(allowed)}"
 
 
 def workflow_violations(
@@ -1993,6 +2218,7 @@ def workflow_violations(
     found: list[str] = []
     found.extend(_env_violations(document.get("env"), path.name))
     found.extend(_defaults_violations(document, path.name))
+    found.extend(_expression_violations(document, path.name, {}))
     for job_name, job in (document.get("jobs") or {}).items():
         if "uses" in job:
             uses = str(job["uses"])
@@ -2002,9 +2228,15 @@ def workflow_violations(
                     f"{path.name}:{job_name}: reusable workflow {uses!r} is not a file "
                     "in this repository's .github/workflows"
                 )
+            found.extend(_expression_violations(job, f"{path.name}:{job_name}", {}))
             continue
         found.extend(_env_violations(job.get("env"), f"{path.name}:{job_name}"))
         found.extend(_defaults_violations(job, f"{path.name}:{job_name}"))
+        matrix, problems = _matrix(job, f"{path.name}:{job_name}")
+        found.extend(problems)
+        found.extend(_expression_violations(job, f"{path.name}:{job_name}", matrix))
+        for number, step in enumerate(job.get("steps") or [], 1):
+            found.extend(_expression_violations(step, f"{path.name}:{job_name}#{number}", matrix))
         for key in ("container", "services"):
             if key in job:
                 # Both start an image (mutable, outside either lock) before any step.
@@ -2021,7 +2253,7 @@ def workflow_violations(
         for number, step in enumerate(job.get("steps") or [], 1):
             where = f"{path.name}:{job_name}#{number}"
             if "uses" in step:
-                found.extend(_action_violations(step, where))
+                found.extend(_action_violations(step, where, matrix))
             found.extend(_env_violations(step.get("env"), where))
             if "working-directory" in step:
                 found.append(f"{where}: working-directory moves every relative path checked here")

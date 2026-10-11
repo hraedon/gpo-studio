@@ -957,6 +957,36 @@ TRACKED_CONFIGURATION = {
         .read_text(encoding="utf-8")
         .replace(', hash = "sha256:', ', digest = "sha256:', 1),
     },
+    # Sol r6 B1, verbatim: pytest 9 reads pytest.toml, which loads a tracked plugin.
+    "pytest_toml_plugin": {
+        "pytest.toml": '[pytest]\naddopts = ["-p", "evil"]\npythonpath = ["."]\n',
+        "evil.py": "from pathlib import Path\n\nPath('UV_PLUGIN_RAN').write_text('x')\n",
+    },
+    "dot_pytest_toml": {".pytest.toml": "[pytest]\naddopts = ['-p', 'evil']\n"},
+    "nested_pyproject": {"tests/pyproject.toml": "[tool.pytest]\naddopts = ['-p', 'evil']\n"},
+    "coveragerc_toml": {".coveragerc.toml": "[run]\nplugins = ['evil']\n"},
+    "npm_shrinkwrap": {"npm-shrinkwrap.json": "{}\n"},
+    "dotconfig_postcssrc": {".config/postcssrc.json": '{"plugins": {"./evil.js": {}}}\n'},
+    "dotenv": {".env": "VITE_X=1\n"},
+    "python_versions": {".python-versions": "3.12\n"},
+    "conftest_pytest_plugins": {"tests/conftest.py": "pytest_plugins = ['evil']\n"},
+    "pytest11_entry_point": {
+        "pyproject.toml": (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        + '\n[project.entry-points.pytest11]\nevil = "evil"\n',
+    },
+    "file_dependency": {
+        "package.json": json.dumps(
+            {
+                **json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8")),
+                "devDependencies": {
+                    **json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))[
+                        "devDependencies"
+                    ],
+                    "local-tool": "file:local-tool",
+                },
+            }
+        ),
+    },
     "package_manager": {
         "package.json": json.dumps(
             {
@@ -1060,6 +1090,193 @@ def test_an_action_input_that_selects_a_download_is_pinned(name: str, tmp_path: 
     action, inputs = ACTION_INPUTS[name]
     steps = f"      - uses: {action}\n        with:\n          {inputs}"
     assert _verdict(tmp_path, steps), name
+
+
+def _locked_versions() -> dict[str, str]:
+    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
+    versions = {str(p["name"]): str(p.get("version")) for p in lock["package"]}
+    npm = json.loads((REPO_ROOT / "package-lock.json").read_text(encoding="utf-8"))["packages"]
+    for path, entry in npm.items():
+        if path.startswith("node_modules/") and "node_modules/" not in path[len("node_modules/") :]:
+            versions[path[len("node_modules/") :]] = str(entry.get("version"))
+    versions["uv"] = workflow_grammar.ACTIONS["astral-sh/setup-uv"]["version"].copy().pop()  # type: ignore[union-attr]
+    versions["PSScriptAnalyzer"] = "1.25.0"
+    return versions
+
+
+def test_the_discovery_inventory_matches_the_locked_tools() -> None:
+    """A locked tool upgrade fails here until its discovery list is re-read (Sol r6 B1)."""
+    locked = _locked_versions()
+    stale = {
+        tool: (version, locked.get(tool))
+        for tool, (version, _names) in workflow_grammar.TOOL_DISCOVERY.items()
+        if version is not None and locked.get(tool) != version
+    }
+    assert stale == {}, f"re-review TOOL_DISCOVERY for {stale}"
+    fetch = next(body for body in PWSH_BODIES if "Invoke-WebRequest" in body)
+    assert "PSScriptAnalyzer/1.25.0" in fetch
+
+
+def _python_tool_names() -> dict[str, set[str]]:
+    import importlib.util
+
+    names: dict[str, set[str]] = {}
+    spec = importlib.util.find_spec("_pytest.config.findpaths")
+    if spec and spec.origin:
+        source = Path(spec.origin).read_text(encoding="utf-8")
+        listed = re.search(r"config_names = \[(.*?)\]", source, re.S)
+        assert listed is not None
+        names["pytest"] = set(re.findall(r'"([^"]+)"', listed[1]))
+    try:
+        from coverage.config import config_files_to_try
+
+        names["coverage"] = {name for name, _ours, _given in config_files_to_try(True)}
+    except ImportError:
+        pass
+    try:
+        import mypy.defaults
+
+        names["mypy"] = set(mypy.defaults.CONFIG_NAMES) | set(mypy.defaults.SHARED_CONFIG_NAMES)
+    except ImportError:
+        pass
+    try:
+        from hatchling.utils import constants
+
+        names["hatchling"] = {constants.DEFAULT_CONFIG_FILE, constants.DEFAULT_BUILD_SCRIPT}
+    except ImportError:
+        pass
+    return names
+
+
+def _node_tool_names() -> dict[str, set[str]]:
+    modules = REPO_ROOT / "node_modules"
+    names: dict[str, set[str]] = {}
+    loader = modules / "eslint" / "lib" / "config" / "config-loader.js"
+    if loader.is_file():
+        listed = re.search(r"FLAT_CONFIG_FILENAMES = \[(.*?)\]", loader.read_text(), re.S)
+        assert listed is not None
+        names["eslint"] = set(re.findall(r'"([^"]+)"', listed[1]))
+    vite = modules / "vite" / "dist" / "node" / "chunks" / "node.js"
+    if vite.is_file():
+        source = vite.read_text(encoding="utf-8")
+        listed = re.search(r"DEFAULT_CONFIG_FILES = \[(.*?)\]", source, re.S)
+        assert listed is not None
+        names["vite"] = set(re.findall(r'"([^"]+)"', listed[1]))
+    for constants in sorted((modules / "vitest" / "dist" / "chunks").glob("constants.*.js")):
+        source = constants.read_text(encoding="utf-8")
+        stems = re.search(r"CONFIG_NAMES = \[(.*?)\]", source, re.S)
+        extensions = re.search(r"CONFIG_EXTENSIONS = \[(.*?)\]", source, re.S)
+        if stems and extensions:
+            names["vitest"] = {
+                stem + extension
+                for stem in re.findall(r'"([^"]+)"', stems[1])
+                for extension in re.findall(r'"([^"]+)"', extensions[1])
+            }
+    prettier = sorted((modules / "prettier").glob("**/*.mjs"))
+    found = {
+        name
+        for path in prettier
+        for name in re.findall(
+            r'"(\.prettierrc[^"/]*|prettier\.config\.[a-z]+|package\.yaml)"', path.read_text()
+        )
+    }
+    if found:
+        names["prettier"] = found
+    playwright = modules / "playwright" / "lib" / "common" / "index.js"
+    if playwright.is_file():
+        source = playwright.read_text(encoding="utf-8")
+        start = source.index("resolveConfigFileFromDirectory = (directory) =>")
+        listed = re.search(r"for \(const ext of \[([^\]]*)\]\)", source[start : start + 400])
+        assert listed is not None
+        names["@playwright/test"] = {
+            "playwright.config" + ext for ext in re.findall(r'"([^"]+)"', listed[1])
+        }
+    return names
+
+
+def test_the_discovery_inventory_holds_what_the_installed_tools_search_for() -> None:
+    """Read back out of each installed tool's source: every name it looks for is listed.
+
+    Python tools come from the dev environment; npm tools only where node_modules
+    exists (the frontend job, a developer checkout). The version pin above holds
+    everywhere, so an upgrade is caught even where this cannot read the source.
+    """
+    names = {**_python_tool_names(), **_node_tool_names()}
+    assert {"pytest", "coverage", "mypy"} <= set(names)
+    missing = {tool: sorted(found - workflow_grammar.DISCOVERED) for tool, found in names.items()}
+    assert {tool: gap for tool, gap in missing.items() if gap} == {}
+
+
+def test_the_locked_pytest_really_loads_a_pytest_toml_plugin(tmp_path: Path) -> None:
+    """Sol r6 B1, executed: why pytest.toml is inventoried, and that the gate refuses it."""
+    import subprocess
+    import sys
+
+    files = TRACKED_CONFIGURATION["pytest_toml_plugin"]
+    root = _repository(tmp_path, {**files, "test_probe.py": "def test_ok():\n    pass\n"})
+    subprocess.run(
+        [sys.executable, "-I", "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_probe.py"],
+        cwd=root,
+        capture_output=True,
+        check=True,
+    )
+    assert (root / "UV_PLUGIN_RAN").exists()
+    assert any(p.startswith("pytest.toml:") for p in configuration_violations(root))
+
+
+def test_matrix_values_are_checked_where_an_action_input_uses_them(tmp_path: Path) -> None:
+    """Sol r6 B2, verbatim: a 3.12 matrix made setup-uv download an unreviewed Python."""
+    probe = (
+        "name: matrix probe\non: push\njobs:\n  probe:\n    runs-on: ubuntu-latest\n"
+        '    strategy:\n      matrix:\n        python-version: ["3.12"]\n    steps:\n'
+        "      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d\n"
+        '        with:\n          version: "0.12.0"\n'
+        "          python-version: ${{ matrix.python-version }}\n"
+    )
+    workflow = tmp_path / "matrix.yml"
+    workflow.write_text(probe, encoding="utf-8")
+    (problem,) = workflow_violations(workflow)
+    assert "'3.12' is not one of" in problem
+    workflow.write_text(probe.replace('["3.12"]', '["3.13", "3.14"]'), encoding="utf-8")
+    assert workflow_violations(workflow) == []
+    for matrix in (
+        '["3.13"]\n        include: [{python-version: "3.12"}]',
+        "${{ fromJSON('[\"3.12\"]') }}",
+        '["${{ github.event.inputs.python }}"]',
+    ):
+        workflow.write_text(probe.replace('["3.12"]', matrix), encoding="utf-8")
+        assert workflow_violations(workflow), matrix
+
+
+EXPRESSION_VARIANTS = {
+    "unreviewed_context_in_free_input": (
+        "",
+        "      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f\n"
+        "        with:\n          name: ${{ github.event.pull_request.title }}\n"
+        "          path: dist/",
+    ),
+    "expression_in_listed_input": (
+        "",
+        "      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444\n"
+        "        with:\n          node-version: ${{ vars.NODE }}",
+    ),
+    "matrix_key_that_does_not_exist": (
+        "",
+        "      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d\n"
+        "        with:\n          python-version: ${{ matrix.python }}",
+    ),
+    "unreviewed_condition": ("", "      - if: github.actor == 'someone'\n        run: echo hi"),
+    "job_level_unreviewed_expression": (
+        "timeout-minutes: ${{ fromJSON(vars.TIMEOUT) }}",
+        "      - run: echo hi",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(EXPRESSION_VARIANTS))
+def test_an_expression_that_cannot_be_resolved_is_refused(name: str, tmp_path: Path) -> None:
+    env, steps = EXPRESSION_VARIANTS[name]
+    assert _verdict(tmp_path, steps, env=env), name
 
 
 NPM_SCRIPT_VARIANTS = {

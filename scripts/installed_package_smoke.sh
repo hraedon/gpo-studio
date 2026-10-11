@@ -51,7 +51,7 @@ fi
 echo "Requirements: $REQUIREMENTS"
 
 echo "=== Creating clean venv ==="
-"$PYTHON" -m venv "$TMPDIR/venv" --clear
+"$PYTHON" -I -m venv "$TMPDIR/venv" --clear
 "$TMPDIR/venv/bin/pip" install --require-hashes -r "$REQUIREMENTS"
 "$TMPDIR/venv/bin/pip" install --no-deps --no-index "$WHEEL"
 "$TMPDIR/venv/bin/pip" check
