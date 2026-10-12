@@ -617,6 +617,36 @@ def _unquoted(raw: str) -> str:
 _GLOB = re.compile(r"[*?]|\[[^\]]+\]")
 
 
+def _unquoted_backslash(raw: str) -> bool:
+    """A backslash outside single and double quotes (DeepSeek r12 N1)."""
+    quote = ""
+    index = 0
+    while index < len(raw):
+        char = raw[index]
+        if quote == "'":
+            if char == "'":
+                quote = ""
+        elif quote == '"':
+            if char == "\\":
+                index += 1
+            elif char == '"':
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "\\":
+            return True
+        index += 1
+    return False
+
+
+def _array_elements(token: str) -> list[str]:
+    """The elements of ``NAME=(...)`` / ``NAME+=(...)``: bash globs and splits them."""
+    match = re.match(r"^[A-Za-z_][A-Za-z0-9_]*\+?=\((.*)\)$", token, re.S)
+    if match is None:
+        return []
+    return list(split_commands(match[1], closed=False)[-1].raw) if match[1].strip() else []
+
+
 def option_risk(raw: str, *, reviewed: bool = True) -> str | None:
     """Why bash could turn a tracked filename (or a value) in *raw* into an option.
 
@@ -625,6 +655,10 @@ def option_risk(raw: str, *, reviewed: bool = True) -> str | None:
     ``--config=evil.config.mjs``, Sol r11 B1). An unquoted expansion is word-split,
     so it must be one REVIEWED_UNQUOTED names.
     """
+    if _unquoted_backslash(raw):
+        # `\-*` is a glob whose expansions start with `-`; decoding escapes to tell
+        # which is which would be one more parser, and no template needs one.
+        return f"an unquoted backslash escape: {raw!r}"
     text = _unquoted(_SLOT_MARKER.sub("", raw))
     glob = _GLOB.search(text)
     if glob:
@@ -649,7 +683,14 @@ def _t(
     """A template written as the shell source it matches, quoting and all."""
     command = split_commands(spec, closed=False)[-1]
     tokens = command.raw
-    for token in tokens[command.assigned :]:
+    checked = [*tokens[command.assigned :]]
+    for assignment in tokens[: command.assigned]:
+        # A plain assignment is neither split nor globbed; an array's elements are
+        # (DeepSeek r12 N2: `FLAGS=(*)`).
+        checked.extend(_array_elements(assignment))
+        if _unquoted_backslash(assignment):
+            checked.append(assignment)
+    for token in checked:
         risk = option_risk(token)
         if risk:
             raise ValueError(f"template {spec!r}: {risk}")
@@ -1849,6 +1890,10 @@ def _check(command: Command, ctx: Context, where: str) -> Iterator[str]:
             for word in tokens[position:]:
                 if _GLOB.search(_unquoted(word)) or option_risk(word, reviewed=False):
                     yield f"{where}: echo text may hold no unquoted glob or expansion: {word!r}"
+    if command.words[:1] in (["npm"], ["npx"]):
+        # Every npm invocation reads the project's npm config, whatever the template
+        # (DeepSeek r12 N3: `npm audit` had no action, so no check).
+        yield from _check_npm_config(ctx, where)
     for target in command.writes:
         if target != "/dev/null" and target not in template.writes:
             yield f"{where}: {shown!r} may not write {target!r}"
@@ -1931,7 +1976,6 @@ def npm_lock_violations(package_json: Path, lock_path: Path) -> list[str]:
 
 
 def _check_npm_ci(ctx: Context, where: str) -> Iterator[str]:
-    yield from _check_npm_config(ctx, where)
     package_json = ctx.package_json or ctx.root / "package.json"
     for problem in npm_lock_violations(package_json, package_json.parent / "package-lock.json"):
         yield f"{where}: {problem}"
@@ -1944,7 +1988,6 @@ def _check_npm_ci(ctx: Context, where: str) -> Iterator[str]:
 
 def _check_npm_script(name: str, ctx: Context, where: str) -> Iterator[str]:
     """Lex the package.json script and its pre/post hooks with the npm templates."""
-    yield from _check_npm_config(ctx, where)
     scripts = ctx.npm_scripts()
     if name not in scripts:
         yield f"{where}: npm script {name!r} is not in package.json"

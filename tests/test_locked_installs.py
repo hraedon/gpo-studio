@@ -1279,6 +1279,36 @@ def test_no_template_holds_an_option_capable_glob_or_split() -> None:
         workflow_grammar._t("eslint *.config.mjs", "probe", scope="npm")
 
 
+def test_an_escaped_glob_is_not_a_safe_prefix() -> None:
+    """DeepSeek r12 N1: `\\-*` expands to names starting with `-`; any unquoted
+    backslash in a template is refused rather than decoded."""
+    assert workflow_grammar.option_risk("\\-*.mjs") is not None
+    assert workflow_grammar.option_risk('"a\\b"') is None
+    with pytest.raises(ValueError, match="backslash"):
+        workflow_grammar._t("eslint \\-*.mjs", "probe", scope="npm")
+
+
+def test_array_assignment_elements_are_globbed_and_split() -> None:
+    """DeepSeek r12 N2: `FLAGS=(*)` globs; the reviewed literal arrays still pass."""
+    for spec in ("FLAGS=(*)", "FLAGS+=(-*)", "FLAGS+=($GITHUB_REF_NAME)", "FLAGS=(\\-x)"):
+        with pytest.raises((ValueError, workflow_grammar.GrammarError)):
+            workflow_grammar._t(spec, "probe")
+    reviewed = {" ".join(template.tokens) for template in TEMPLATES}
+    assert {"FLAGS=()", "FLAGS+=(--prerelease)", "NOTES_ARGS=(--generate-notes)"} <= reviewed
+
+
+def test_every_npm_template_checks_the_project_npm_config(tmp_path: Path) -> None:
+    """DeepSeek r12 N3: `npm audit` carried no action, so a project .npmrc went unseen."""
+    package = _npm_project(tmp_path, {})
+    workflow = tmp_path / "probe.yml"
+    steps = "      - run: npm audit --audit-level=high\n"
+    workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
+    assert workflow_violations(workflow, root=tmp_path, package_json=package) == []
+    (tmp_path / ".npmrc").write_text("registry=https://evil.invalid\n", encoding="utf-8")
+    problems = workflow_violations(workflow, root=tmp_path, package_json=package)
+    assert any(".npmrc" in p for p in problems), problems
+
+
 def test_echo_text_holds_no_unquoted_glob(tmp_path: Path) -> None:
     for text in ("echo *", "echo -*", "echo $GITHUB_SHA", "echo a?b"):
         assert _verdict(tmp_path, f"      - run: {text}"), text
