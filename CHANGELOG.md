@@ -175,7 +175,10 @@ Operator-facing:
   CI's pip installs are wheel-only (`--only-binary :all:`; the project's own
   sdist builds without isolation against the locked backend), every `uv.lock`
   package has a wheel each CI platform accepts (judged by `packaging.tags`), and
-  `npm ci` runs with `--ignore-scripts`.
+  `npm ci` runs with `--ignore-scripts`. `npm run lint` lists its files after
+  `--` instead of the `*.config.mjs` glob, which a tracked file named
+  `--config=…` could have turned into an ESLint option; no template may hold
+  such a glob, and no tracked name may start with `-`.
 - The project build itself now uses the locked backend too. An editable
   `uv sync --locked` still built gpo-studio in an isolated environment that
   resolved `[build-system].requires` (`hatchling`, unversioned) from the index;

@@ -8,7 +8,7 @@
   "scripts": {
     "format": "prettier --write eslint.config.mjs playwright.config.mjs vitest.config.mjs tests/browser tests/frontend",
     "format:check": "prettier --check eslint.config.mjs playwright.config.mjs vitest.config.mjs tests/browser tests/frontend",
-    "lint": "eslint src/gpo_studio/static/js tests/browser tests/frontend *.config.mjs",
+    "lint": "eslint -- src/gpo_studio/static/js tests/browser tests/frontend eslint.config.mjs playwright.config.mjs vitest.config.mjs",
     "test:unit": "vitest run",
     "test:browser": "playwright test",
     "check": "npm run format:check && npm run lint && npm run test:unit",

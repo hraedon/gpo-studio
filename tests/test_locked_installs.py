@@ -1136,6 +1136,13 @@ TRACKED_CONFIGURATION = {
         .read_text(encoding="utf-8")
         .replace('requires-python = ">=3.13,<3.15"', 'requires-python = ">=3.13,<3.16"', 1),
     },
+    # Sol r11 B1, verbatim: a filename that a glob hands to ESLint as an option.
+    "option_shaped_filename": {
+        "--config=evil.config.mjs": "option-shaped tracked file\n",
+        "evil.config.mjs": "export default [];\n",
+    },
+    "option_shaped_nested": {"tests/frontend/-rf": "x\n"},
+    "option_shaped_directory": {"-x/readme.txt": "x\n"},
     "package_manager": {
         "package.json": json.dumps(
             {
@@ -1258,6 +1265,75 @@ def test_an_inherited_default_shell_is_refused_on_windows(tmp_path: Path) -> Non
         )
         problems = _verdict(tmp_path, steps)
         assert any("inherited default shell" in p for p in problems) == bool(defaults)
+
+
+def test_no_template_holds_an_option_capable_glob_or_split() -> None:
+    """Sol r11 B1's class: a template word bash globs or splits must not become an option."""
+    for template in TEMPLATES:
+        command = split_commands(" ".join(template.tokens), closed=False)[-1]
+        for token in template.tokens[command.assigned :]:
+            assert workflow_grammar.option_risk(token) is None, (template.tokens, token)
+    for risky in ("*.config.mjs", "-*", "?x", "[a-z]*", "$X", "${X}"):
+        assert workflow_grammar.option_risk(risky) is not None, risky
+    with pytest.raises(ValueError, match="glob that can expand"):
+        workflow_grammar._t("eslint *.config.mjs", "probe", scope="npm")
+
+
+def test_echo_text_holds_no_unquoted_glob(tmp_path: Path) -> None:
+    for text in ("echo *", "echo -*", "echo $GITHUB_SHA", "echo a?b"):
+        assert _verdict(tmp_path, f"      - run: {text}"), text
+    assert _verdict(tmp_path, '      - run: echo "every *.py file"') == []
+
+
+def test_an_option_shaped_filename_does_not_reach_eslint(tmp_path: Path) -> None:
+    """Sol r11 B1, executed with the locked ESLint: the old glob script ran the tracked
+    config named by a `--config=...` filename; the reviewed script (literal files after
+    `--`) does not, and the configuration gate refuses the filename outright."""
+    import subprocess
+
+    eslint = REPO_ROOT / "node_modules" / ".bin" / "eslint"
+    root = _repository(tmp_path, TRACKED_CONFIGURATION["option_shaped_filename"])
+    assert any("starts with '-'" in p for p in configuration_violations(root))
+    if not eslint.exists() or not Path("/bin/bash").exists():
+        pytest.skip("needs the locked node_modules (npm ci) and bash")
+    marker = root / "UNREVIEWED_CONFIG_RAN"
+    (root / "evil.config.mjs").write_text(
+        "import fs from 'node:fs';\n"
+        f"fs.writeFileSync({json.dumps(str(marker))}, 'executed');\nexport default [];\n",
+        encoding="utf-8",
+    )
+    for name in ("eslint.config.mjs", "playwright.config.mjs", "vitest.config.mjs"):
+        (root / name).write_text((REPO_ROOT / name).read_text(encoding="utf-8"), encoding="utf-8")
+    for directory in ("src/gpo_studio/static/js", "tests/browser", "tests/frontend"):
+        (root / directory).mkdir(parents=True, exist_ok=True)
+        (root / directory / "empty.mjs").write_text("export {};\n", encoding="utf-8")
+    reviewed = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["scripts"]
+    old = "eslint src/gpo_studio/static/js tests/browser tests/frontend *.config.mjs"
+
+    def lint(body: str) -> None:
+        subprocess.run(
+            ["/bin/bash", "-c", body],
+            cwd=root,
+            env={**os.environ, "PATH": f"{eslint.parent}:{os.environ.get('PATH', '')}"},
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+
+    lint(old)
+    assert marker.exists(), "the control: the glob form really runs the tracked config"
+    marker.unlink()
+    lint(reviewed["lint"])
+    assert not marker.exists()
+
+
+def test_windows_jobs_run_powershell_only(tmp_path: Path) -> None:
+    """Sol r11 non-blocking: `shell: bash` on Windows escaped the bash traces."""
+    steps = (
+        "      - run: uv sync --locked --extra dev\n  win:\n    runs-on: windows-latest\n"
+        "    steps:\n      - shell: bash\n        run: uv sync --locked --extra dev"
+    )
+    assert any("PowerShell only" in p for p in _verdict(tmp_path, steps))
 
 
 def test_a_reusable_workflow_call_takes_no_inputs(tmp_path: Path) -> None:
@@ -1599,7 +1675,10 @@ def test_an_npm_script_is_read_and_held_to_the_same_grammar(name: str, tmp_path:
 
 def test_the_npm_negative_template_itself_is_accepted(tmp_path: Path) -> None:
     package = tmp_path / "package.json"
-    lint = "eslint src/gpo_studio/static/js tests/browser tests/frontend *.config.mjs"
+    lint = (
+        "eslint -- src/gpo_studio/static/js tests/browser tests/frontend "
+        "eslint.config.mjs playwright.config.mjs vitest.config.mjs"
+    )
     scripts = {"check": "npm run lint && vitest run", "lint": lint, "precheck": "vitest run"}
     package = _npm_project(tmp_path, scripts)
     workflow = tmp_path / "probe.yml"

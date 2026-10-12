@@ -593,6 +593,46 @@ class Template:
     action: str = ""
 
 
+#: Unquoted expansions a template may contain outside an assignment (where bash
+#: neither splits nor globs): each is word-split, so its value must be one that
+#: cannot become an option.
+REVIEWED_UNQUOTED = {
+    "$SERVER_PID": "the shell's own $! -- a process number",
+    "$(seq 1 20)": "seq's output: the numbers 1 to 20",
+}
+_SLOT_MARKER = re.compile(r"@[A-Z_]+\*?@")
+
+
+def _unquoted(raw: str) -> str:
+    """*raw* with its quoted parts and expansions blanked, leaving what bash globs/splits."""
+    text = re.sub(r"\$\((?:[^()]|\([^()]*\))*\)", "$S", raw)
+    text = re.sub(r"'[^']*'", "Q", text)
+    text = re.sub(r'"(?:\\.|[^"\\])*"', "Q", text)
+    return re.sub(r"\$\{[^}]*\}", "$V", text)
+
+
+_GLOB = re.compile(r"[*?]|\[[^\]]+\]")
+
+
+def option_risk(raw: str, *, reviewed: bool = True) -> str | None:
+    """Why bash could turn a tracked filename (or a value) in *raw* into an option.
+
+    An unquoted glob is safe only after a literal prefix that is not ``-``
+    (``dist/*`` expands to ``dist/...``; ``*.config.mjs`` can expand to
+    ``--config=evil.config.mjs``, Sol r11 B1). An unquoted expansion is word-split,
+    so it must be one REVIEWED_UNQUOTED names.
+    """
+    text = _unquoted(_SLOT_MARKER.sub("", raw))
+    glob = _GLOB.search(text)
+    if glob:
+        prefix = text[: glob.start()]
+        if not prefix or prefix.startswith("-") or "$" in prefix or "Q" in prefix:
+            return f"an unquoted glob that can expand to an option: {raw!r}"
+    if "$" in text and not (reviewed and raw in REVIEWED_UNQUOTED):
+        return f"an unquoted expansion, word-split into who knows what: {raw!r}"
+    return None
+
+
 def _t(
     spec: str,
     why: str,
@@ -604,7 +644,12 @@ def _t(
     action: str = "",
 ) -> Template:
     """A template written as the shell source it matches, quoting and all."""
-    tokens = split_commands(spec, closed=False)[-1].raw
+    command = split_commands(spec, closed=False)[-1]
+    tokens = command.raw
+    for token in tokens[command.assigned :]:
+        risk = option_risk(token)
+        if risk:
+            raise ValueError(f"template {spec!r}: {risk}")
     return Template(
         tokens, why, frozenset(scope.split()), frozenset(writes), requires, provides, action
     )
@@ -1241,7 +1286,10 @@ TEMPLATES: tuple[Template, ...] = (
         scope="npm",
     ),
     _t(
-        "eslint src/gpo_studio/static/js tests/browser tests/frontend *.config.mjs",
+        (
+            "eslint -- src/gpo_studio/static/js tests/browser tests/frontend "
+            "eslint.config.mjs playwright.config.mjs vitest.config.mjs"
+        ),
         "a locked node tool; reads only",
         scope="npm",
     ),
@@ -1788,6 +1836,11 @@ def _check(command: Command, ctx: Context, where: str) -> Iterator[str]:
         )
         return
     template, captures = chosen
+    for position, token in enumerate(template.tokens):
+        if position < len(tokens) and "@TEXT" in token:
+            for word in tokens[position:]:
+                if _GLOB.search(_unquoted(word)) or option_risk(word, reviewed=False):
+                    yield f"{where}: echo text may hold no unquoted glob or expansion: {word!r}"
     for target in command.writes:
         if target != "/dev/null" and target not in template.writes:
             yield f"{where}: {shown!r} may not write {target!r}"
@@ -2339,6 +2392,9 @@ def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
         name = folded.rsplit("/", 1)[-1]
         if "$" in path or "`" in path:
             found.append(f"{path}: a tracked path a template's variable could spell literally")
+        if any(part.startswith("-") for part in path.split("/")):
+            # A glob or a directory walk can hand it to a tool as an option (Sol r11 B1).
+            found.append(f"{path}: a tracked name that starts with '-' reads as an option")
         trees = {_fold(tree) for tree in UNTRACKED_TREES} & set(folded.split("/"))
         if trees:
             # At any depth: Node resolves a nearer node_modules first, and npm ci
@@ -2626,6 +2682,10 @@ def workflow_violations(
                 found.append(f"{where}: an expression inside run: is a command nobody can read")
                 continue
             shell = step.get("shell")
+            if windows and shell not in (None, "pwsh"):
+                # Read as the Bash table, but outside the bash traces; PowerShell only.
+                found.append(f"{where}: shell {shell!r} on Windows (PowerShell only)")
+                continue
             if shell == "pwsh" or (shell is None and windows):
                 if script not in PWSH_BODIES:
                     found.append(f"{where}: no reviewed PowerShell body matches {script!r}")
