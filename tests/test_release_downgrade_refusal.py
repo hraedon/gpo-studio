@@ -86,7 +86,13 @@ _RELEASE_WRITTEN_FIXTURES = {1: RELEASE_FIXTURE}
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=False
+        ["git", *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        # Git prints the blob's bytes, which are UTF-8; Windows' locale codec is not.
+        encoding="utf-8",
+        check=False,
     )
 
 

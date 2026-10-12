@@ -144,3 +144,14 @@ docs/plan-033/release110-cleanup/** -text -whitespace
 # pack form; the successor manifest's SHA-256s cover those bytes.
 docs/plan-033/*-evidence/release110-rerun-20261009/** -text -whitespace
 docs/plan-033/release110-rerun-cleanup/** -text -whitespace
+
+# Tool configurations tests/workflow_grammar.py reviews by SHA-256 of the checked-out
+# bytes (REVIEWED_CONFIG). The blobs are LF; without these rules the Windows test
+# job's checkout smudges them to CRLF and every reviewed digest fails. `text
+# eol=lf` keeps the check strict: any content change, a CRLF one included, still
+# changes the digest; only the platform's checkout conversion is taken out.
+.prettierrc.json text eol=lf
+PSScriptAnalyzerSettings.psd1 text eol=lf
+eslint.config.mjs text eol=lf
+playwright.config.mjs text eol=lf
+vitest.config.mjs text eol=lf

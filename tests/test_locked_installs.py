@@ -887,6 +887,27 @@ def test_no_tracked_file_configures_the_tools_the_templates_run() -> None:
     assert configuration_violations() == []
 
 
+def test_every_reviewed_config_checks_out_with_the_bytes_it_was_reviewed_at() -> None:
+    """Windows CI on 547626b: a CRLF checkout changed every reviewed digest. Each
+    reviewed file is pinned `eol=lf` in .gitattributes, so the working tree holds the
+    blob's LF bytes on every platform and any real change still changes the digest."""
+    import subprocess
+
+    paths = sorted(workflow_grammar.REVIEWED_CONFIG)
+    attributes = subprocess.run(
+        ["git", "check-attr", "text", "eol", "--", *paths],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    ).stdout
+    for path in paths:
+        assert f"{path}: text: set" in attributes, attributes
+        assert f"{path}: eol: lf" in attributes, attributes
+        assert b"\r" not in (REPO_ROOT / path).read_bytes(), path
+
+
 def _case_insensitive(directory: Path) -> bool:
     probe = directory / "CaseProbe"
     probe.write_text("x", encoding="utf-8")
@@ -1528,6 +1549,11 @@ def test_no_action_may_restore_a_workspace_install(tmp_path: Path) -> None:
         assert _verdict(tmp_path, step), step
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX by design: the npm scripts name node_modules/.bin/<tool> and run only "
+    "in the Linux jobs (CONTRIBUTING: Git Bash on Windows); the stub is a sh script",
+)
 def test_npm_scripts_fail_closed_without_the_local_install(tmp_path: Path) -> None:
     """Sol r12's probe, executed: with node_modules gone and a same-named program on PATH,
     the reviewed script (explicit local path) fails instead of running it; the old
