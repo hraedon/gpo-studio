@@ -195,3 +195,42 @@ def test_delete_all_values_and_delete_ordering() -> None:
     val = setting("New", "REG_DWORD", 42)
     records = parse(serialize([val, dele, dav]))
     assert [r.action for r in records] == ["delete_all_values", "delete", "set"]
+
+
+def _preg(*records: tuple[str, str]) -> bytes:
+    """Raw MS-GPREG bytes built here, not by `serialize`: (key, value name) REG_SZ records."""
+
+    def text(value: str) -> bytes:
+        return value.encode("utf-16le")
+
+    body = b"PReg" + struct.pack("<I", 1)
+    for key, value_name in records:
+        data = text("x\0")
+        body += (
+            text("[") + text(key + "\0") + text(";") + text(value_name + "\0") + text(";")
+            + struct.pack("<I", 1) + text(";") + struct.pack("<I", len(data)) + text(";")
+            + data + text("]")
+        )
+    return body
+
+
+@pytest.mark.parametrize("marker", ["**del.", "**DEL.", "**Del.", "**dEl."])
+def test_a_delete_marker_is_recognised_in_any_case(marker: str) -> None:
+    """MS-GPREG markers are matched case-insensitively; a fold dropped would read a set.
+
+    The case-sensitive mutant (`value_name.startswith("**del.")`) survived every
+    test before this one: all of them spelled the marker in lower case.
+    """
+    (record,) = parse(_preg((r"Software\Policies\X", marker + "Legacy")))
+    assert (record.action, record.value_name) == ("delete", "Legacy")
+
+
+@pytest.mark.parametrize("marker", ["**delvals.", "**DELVALS.", "**DelVals."])
+def test_a_delete_all_values_marker_is_recognised_in_any_case(marker: str) -> None:
+    (record,) = parse(_preg((r"Software\Policies\X", marker)))
+    assert (record.action, record.value_name) == ("delete_all_values", "")
+
+
+def test_a_name_that_only_resembles_a_marker_stays_a_set() -> None:
+    (record,) = parse(_preg((r"Software\Policies\X", "*del.Legacy")))
+    assert (record.action, record.value_name) == ("set", "*del.Legacy")

@@ -12,8 +12,11 @@ Related: [`architecture.md`](architecture.md) for trust boundaries,
 
 ## Requirements
 
-- **Python 3.13 or later.** 3.13 is the primary development and CI target and
-  3.14 is supported. `pyproject.toml` enforces `>=3.13`.
+- **Python 3.13 or 3.14.** 3.13 is the primary development and CI target and
+  3.14 is supported. `pyproject.toml` enforces `>=3.13,<3.15`: every locked
+  dependency has a wheel for both, which is what lets the install refuse to build
+  anything. 3.15 is not supported yet (some dependencies have no 3.15 wheel at
+  the locked versions).
 - A modern browser (Chromium-based or Firefox ESR). The browser application is
   plain HTML/CSS/JS with no dependencies and no build step.
 - A local filesystem for the workspace database. Network shares and
@@ -49,17 +52,27 @@ python -m venv .venv
 
 ### From a wheel
 
+Use the wheel and `requirements-lock.txt` from the same release (verify both
+against its `SHA256SUMS`). The lock pins every runtime dependency by hash, so
+the environment is the one the release was tested with:
+
 ```bash
 python -m venv .venv
-.venv/bin/pip install gpo_studio-<version>-py3-none-any.whl
+.venv/bin/pip install --only-binary :all: --require-hashes -r requirements-lock.txt
+.venv/bin/pip install --only-binary :all: --no-deps --no-index gpo_studio-<version>-py3-none-any.whl
+.venv/bin/pip check
 .venv/bin/gpo-studio run
 ```
 
-If you have no wheel, build one from source. It lands in `dist/`:
+If you have no wheel, build one from source. It lands in `dist/`. `uv sync`
+installs the locked build backend, and `uv build` then builds with it, without
+fetching a backend of its own. Export the matching lock from `uv.lock`:
 
 ```bash
+uv sync --locked
 uv build
-# or: pip wheel . --no-deps -w dist/
+uv export --locked --no-default-groups --no-emit-project --format requirements.txt \
+  --output-file requirements-lock.txt
 ```
 
 ### From source (editable, no uv)
@@ -296,9 +309,10 @@ GPO_STUDIO_UNSAFE_BIND=1 gpo-studio run --host 0.0.0.0
 
 ### Python version too old
 
-GPO Studio needs Python 3.13 or later (`pyproject.toml` sets
-`requires-python = ">=3.13"`). Import or syntax errors at startup usually mean
-an older interpreter. Check it:
+GPO Studio needs Python 3.13 or 3.14 (`pyproject.toml` sets
+`requires-python = ">=3.13,<3.15"`). Import or syntax errors at startup usually
+mean an older interpreter, and an install that refuses to build a dependency
+usually means a newer one. Check it:
 
 ```bash
 python --version

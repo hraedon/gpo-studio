@@ -1,6 +1,6 @@
 # Plan 014 — Gap fixes, WMI filter catalogue, GPP foundation
 
-Status: implemented
+Status: implemented — `b530f1c` (2026-07-12).
 Scope: close remaining gaps from Plan 013 reflections/reviews, deliver
 WMI filter catalogue, and lay the GPP (Group Policy Preferences) XML
 foundation with two typed editors

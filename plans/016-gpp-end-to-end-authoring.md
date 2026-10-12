@@ -7,7 +7,8 @@ restore-from-revision actions are not yet available, WP-4 partially completed
 limitation not labeled in UI, WP-5 partially completed — Python API and codec
 tests done, browser automation deferred to Plan 019. Five rounds of Sol review
 resolved all P0/P1 findings. Remaining gaps are tracked as known limitations
-and deferred to Plans 018/019.
+and deferred to Plans 018/019. Landed in `5b876db` (WP-1) and `c9cf03b`
+(WP-3, WP-4), with review fixes through `030b4a4`.
 Scope: turn the Plan 014 GPP/ILT codec foundation into a complete, reviewable
 Groups and Registry authoring workflow
 Depends on: Plan 015 canonical, validation, and numeric contracts

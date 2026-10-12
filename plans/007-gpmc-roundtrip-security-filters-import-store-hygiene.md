@@ -1,6 +1,9 @@
 # Plan 007 — GPMC round-trip security filters, import parity, store/field hygiene
 
-Status: executable plan
+Status: implemented — `bc418e5` (2026-07-12). **Surfaced**. The export half of
+WP-2 (WMI filter in GPMC backup XML) was removed by `96f3aec`; the parser
+remains for legacy Studio manifests. This plan ran no Windows evidence; current
+verification is in the [capability matrix](../docs/capability-matrix.md).
 Scope: close the round-trip and data-model gaps exposed by Plan 006
 adversarial review
 Depends on: Plan 006 (export completeness, diff integration, symlink hardening)

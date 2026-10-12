@@ -1,0 +1,208 @@
+# Frozen copy of GPO Studio 1.0.0's version guards, verbatim from the v1.0.0 tag.
+#
+#   SchemaError, get_schema_version, migrate        <- v1.0.0:src/gpo_studio/schema.py
+#   BackupMetadata, _validate_checksum,
+#   _read_backup_metadata                           <- v1.0.0:src/gpo_studio/workspace_ops.py
+#
+# Every release candidate before 1.0.0 (v1.0.0-rc.1 .. rc.3) has a byte-identical
+# schema.py. tests/test_release_downgrade_refusal.py executes this file so the
+# proof that 1.0.0 refuses a newer workspace runs in shallow clones too, and
+# compares every definition here to the tag whenever the tag is present.
+# Do not edit: a change here is a change to what 1.0.0 is claimed to do.
+
+
+class SchemaError(Exception):
+    """Workspace schema is incompatible with this version of GPO Studio."""
+
+
+def get_schema_version(conn: sqlite3.Connection) -> int:
+    """Return the current schema version, or 0 if no meta table exists."""
+    try:
+        row = conn.execute(
+            "SELECT value FROM workspace_meta WHERE key = 'schema_version'"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return 0
+    if not row:
+        return 0
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        raise SchemaError(
+            f"Workspace schema_version metadata is not a valid integer: {row[0]!r}"
+        ) from None
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Run forward-only migrations to bring the workspace up to SCHEMA_VERSION."""
+    current = get_schema_version(conn)
+    if current > SCHEMA_VERSION:
+        raise SchemaError(
+            f"Workspace schema version {current} is newer than this version of "
+            f"GPO Studio supports ({SCHEMA_VERSION}). Upgrade GPO Studio."
+        )
+    if current < MIN_READ_VERSION:
+        raise SchemaError(
+            f"Workspace schema version {current} is too old. "
+            f"Minimum supported version is {MIN_READ_VERSION}."
+        )
+    if current == SCHEMA_VERSION:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO workspace_meta(key, value) VALUES ('app_version', ?)",
+                (_get_app_version(),),
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            with contextlib.suppress(sqlite3.Error):
+                conn.execute("ROLLBACK")
+            raise
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for version in range(current, SCHEMA_VERSION):
+            migration = _MIGRATIONS.get(version)
+            if migration is None:
+                raise SchemaError(f"No migration path from schema version {version}.")
+            migration(conn)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO workspace_meta(key, value) VALUES
+            ('schema_version', ?),
+            ('app_version', ?)
+            """,
+            (str(SCHEMA_VERSION), _get_app_version()),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        with contextlib.suppress(sqlite3.Error):
+            conn.execute("ROLLBACK")
+        raise
+
+
+@dataclass(frozen=True, slots=True)
+class BackupMetadata:
+    """Self-describing metadata for a workspace backup."""
+
+    backup_format: str = "gpo-studio-workspace-backup"
+    format_version: int = 1
+    schema_version: int = SCHEMA_VERSION
+    app_version: str = __version__
+    created_at: str = ""
+    source_db_sha256: str = ""
+    backup_db_sha256: str = ""
+    gpo_count: int = 0
+    revision_count: int = 0
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), separators=(",", ":"), sort_keys=True)
+
+
+def _validate_checksum(value: str) -> bool:
+    """Return True if *value* is a valid 64-char hex SHA-256."""
+    if len(value) != 64:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def _read_backup_metadata(path: Path) -> BackupMetadata:
+    """Read and strictly validate a bounded backup metadata sidecar."""
+    try:
+        fd = open_regular_file(path)
+    except SafeOpenError:
+        raise WorkspaceError(
+            "Cannot read backup metadata — the sidecar may be corrupted"
+        ) from None
+    try:
+        raw = bytearray()
+        while len(raw) <= _MAX_BACKUP_METADATA_BYTES:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            raw.extend(chunk)
+        if len(raw) > _MAX_BACKUP_METADATA_BYTES:
+            raise WorkspaceError("Backup metadata sidecar is too large")
+        raw_bytes = bytes(raw)
+    finally:
+        os.close(fd)
+
+    try:
+        parsed: object = json.loads(raw_bytes)
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        raise WorkspaceError(
+            "Cannot read backup metadata — the sidecar may be corrupted"
+        ) from None
+    if not isinstance(parsed, dict):
+        raise WorkspaceError("Backup metadata must be a JSON object")
+    if not all(isinstance(key, str) for key in parsed):
+        raise WorkspaceError("Backup metadata must use string field names")
+    data = cast(dict[str, object], parsed)
+
+    backup_format = data.get("backup_format")
+    if backup_format != "gpo-studio-workspace-backup":
+        raise WorkspaceError("Backup metadata does not identify a GPO Studio backup")
+
+    format_version = data.get("format_version")
+    if type(format_version) is not int:
+        raise WorkspaceError("Backup metadata has an invalid format version")
+    if format_version != 1:
+        raise WorkspaceError(f"Unsupported backup format version: {format_version}")
+
+    schema_version = data.get("schema_version")
+    if type(schema_version) is not int:
+        raise WorkspaceError("Backup metadata has an invalid schema version")
+    if schema_version > SCHEMA_VERSION:
+        raise WorkspaceError(
+            f"Backup schema version {schema_version} is newer than this version of "
+            f"GPO Studio supports ({SCHEMA_VERSION}). Upgrade GPO Studio."
+        )
+    if schema_version < MIN_READ_VERSION:
+        raise WorkspaceError(
+            f"Backup schema version {schema_version} is too old. "
+            f"Minimum supported version is {MIN_READ_VERSION}."
+        )
+
+    backup_sha = data.get("backup_db_sha256")
+    if not isinstance(backup_sha, str) or not _validate_checksum(backup_sha):
+        raise WorkspaceError(
+            "Backup metadata has no valid checksum — cannot verify backup integrity"
+        )
+
+    source_sha = data.get("source_db_sha256")
+    if not isinstance(source_sha, str) or not _validate_checksum(source_sha):
+        raise WorkspaceError("Backup metadata has an invalid source checksum")
+
+    app_version = data.get("app_version")
+    created_at = data.get("created_at")
+    if not isinstance(app_version, str) or not isinstance(created_at, str):
+        raise WorkspaceError("Backup metadata has invalid application metadata")
+
+    gpo_count = data.get("gpo_count")
+    revision_count = data.get("revision_count")
+    if (
+        type(gpo_count) is not int
+        or type(revision_count) is not int
+        or gpo_count < 0
+        or revision_count < 0
+    ):
+        raise WorkspaceError("Backup metadata has invalid row counts")
+
+    return BackupMetadata(
+        backup_format=backup_format,
+        format_version=format_version,
+        schema_version=schema_version,
+        app_version=app_version,
+        created_at=created_at,
+        source_db_sha256=source_sha,
+        backup_db_sha256=backup_sha,
+        gpo_count=gpo_count,
+        revision_count=revision_count,
+    )

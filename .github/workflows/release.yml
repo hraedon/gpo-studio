@@ -39,7 +39,7 @@ jobs:
       - name: Check tag, version and evidence manifest
         id: manifest
         run: >-
-          python scripts/check_release_manifest.py
+          python -I scripts/check_release_manifest.py
           --tag "${GITHUB_REF_NAME}"
           --github-output "${GITHUB_OUTPUT}"
           --remote-tag-sha "${GITHUB_SHA}"
@@ -78,9 +78,10 @@ jobs:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: "0.12.0"
           python-version: "3.13"
       - name: Set up Node
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -89,17 +90,20 @@ jobs:
           cache: npm
       - name: Install application and test dependencies
         run: |
-          pip install -e '.[dev]'
-          npm ci
-          npx playwright install --with-deps chromium firefox
+          uv sync --locked --extra dev
+          npm ci --ignore-scripts
+          node_modules/.bin/playwright install --with-deps chromium firefox
       - name: Run release gates
+        env:
+          GPO_STUDIO_TEST_PYTHON: ${{ github.workspace }}/.venv/bin/python
         run: |
-          ruff check .
-          mypy src
-          pytest -q --cov=src/gpo_studio --cov-branch --cov-report=json:coverage.json
-          python scripts/check_coverage.py coverage.json
-          python scripts/check_safety.py
-          python scripts/rehearse_upgrade_rollback.py
+          uv lock --check
+          uv run --locked ruff check .
+          uv run --locked mypy src
+          uv run --locked pytest -q --cov=src/gpo_studio --cov-branch --cov-report=json:coverage.json
+          uv run --locked python -I scripts/check_coverage.py coverage.json
+          uv run --locked python -I scripts/check_safety.py
+          uv run --locked python -I scripts/rehearse_upgrade_rollback.py
           npm run check
           npm run test:browser
 
@@ -119,18 +123,24 @@ jobs:
           EXPECTED_MANIFEST: ${{ needs.release-identity.outputs.manifest }}
           EXPECTED_REPORT: ${{ needs.release-identity.outputs.report }}
         run: |
-          python scripts/check_release_manifest.py \
+          python -I scripts/check_release_manifest.py \
             --tag "${GITHUB_REF_NAME}" --github-output "${GITHUB_OUTPUT}"
           grep -qxF "manifest=${EXPECTED_MANIFEST}" "${GITHUB_OUTPUT}"
           grep -qxF "report=${EXPECTED_REPORT}" "${GITHUB_OUTPUT}"
-      - name: Install release tools
-        run: pip install build cyclonedx-bom
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.0"
+          python-version: "3.13"
+      # Every tool below runs from uv.lock's `release` dependency group, and
+      # the build uses that group's hatchling instead of an isolated build
+      # environment that resolves the backend at run time.
       - name: Build reproducible distributions
         env:
           SOURCE_DATE_EPOCH: "315532800"
         run: |
-          python -m build --outdir dist
-          python -m build --outdir dist-repro
+          uv run --locked --only-group release python -I -m build --no-isolation --outdir dist
+          uv run --locked --only-group release python -I -m build --no-isolation --outdir dist-repro
           for artifact in dist/*; do
             cmp "$artifact" "dist-repro/$(basename "$artifact")"
           done
@@ -142,86 +152,73 @@ jobs:
           mapfile -t WHEELS < <(find dist -maxdepth 1 -name 'gpo_studio-*.whl')
           mapfile -t SDISTS < <(find dist -maxdepth 1 -name 'gpo_studio-*.tar.gz')
           test "${#WHEELS[@]}" -eq 1 && test "${#SDISTS[@]}" -eq 1
-          python scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" \
+          python -I scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" \
             --wheel "${WHEELS[0]}" --sdist "${SDISTS[0]}"
+      # requirements-lock.txt is a release asset: the runtime closure from
+      # uv.lock, hash-pinned, so an operator installs exactly what was tested
+      # (docs/windows-quickstart.md). It is written after the build so it cannot
+      # land inside the sdist, and outside dist/ so the dist/* globs below keep
+      # meaning "the distributions".
+      - name: Export locked requirements
+        run: |
+          uv export --locked --no-default-groups --no-emit-project --format requirements.txt \
+            --output-file requirements-lock.txt > /dev/null
+          mkdir -p "$RUNNER_TEMP/locked"
+          uv export --locked --only-group build-backend --no-emit-project \
+            --format requirements.txt \
+            --output-file "$RUNNER_TEMP/locked/build-backend-lock.txt" > /dev/null
       - name: Validate exact wheel
         run: |
           WHEEL=$(find dist -maxdepth 1 -name 'gpo_studio-*.whl' -print -quit)
-          PYTHON=python GPO_STUDIO_WHEEL="$WHEEL" bash scripts/installed_package_smoke.sh
-          python -m venv /tmp/wheel-venv
-          /tmp/wheel-venv/bin/pip install "$WHEEL"
+          PYTHON=python GPO_STUDIO_WHEEL="$WHEEL" \
+            GPO_STUDIO_REQUIREMENTS=requirements-lock.txt \
+            bash scripts/installed_package_smoke.sh
+          python -I -m venv /tmp/wheel-venv
+          /tmp/wheel-venv/bin/pip install --only-binary :all: --require-hashes -r requirements-lock.txt
+          /tmp/wheel-venv/bin/pip install --only-binary :all: --no-deps --no-index "$WHEEL"
+          /tmp/wheel-venv/bin/pip check
       - name: Validate exact source distribution
         run: |
-          python -m venv /tmp/sdist-venv
-          /tmp/sdist-venv/bin/pip install dist/gpo_studio-*.tar.gz
+          python -I -m venv /tmp/sdist-venv
+          /tmp/sdist-venv/bin/pip install --only-binary :all: --require-hashes \
+            -r requirements-lock.txt -r "$RUNNER_TEMP/locked/build-backend-lock.txt"
+          /tmp/sdist-venv/bin/pip install --no-deps --no-index --no-build-isolation \
+            dist/gpo_studio-*.tar.gz
+          /tmp/sdist-venv/bin/pip check
           /tmp/sdist-venv/bin/gpo-studio --help > /dev/null
       - name: Rehearse upgrade and rollback with exact wheel
-        run: /tmp/wheel-venv/bin/python scripts/rehearse_upgrade_rollback.py
+        run: /tmp/wheel-venv/bin/python -I scripts/rehearse_upgrade_rollback.py
       - name: Generate resolved evidence, SBOM, and checksums
         env:
           EVIDENCE_MANIFEST: ${{ steps.manifest.outputs.manifest }}
           EVIDENCE_REPORT: ${{ steps.manifest.outputs.report }}
         run: |
-          python -m venv /tmp/sbom-venv
-          /tmp/sbom-venv/bin/pip install dist/gpo_studio-*.whl
+          python -I -m venv /tmp/sbom-venv
+          /tmp/sbom-venv/bin/pip install --only-binary :all: --require-hashes -r requirements-lock.txt
+          /tmp/sbom-venv/bin/pip install --only-binary :all: --no-deps --no-index dist/gpo_studio-*.whl
           /tmp/sbom-venv/bin/pip uninstall --yes pip
-          cyclonedx-py environment /tmp/sbom-venv/bin/python \
+          uv run --locked --only-group release cyclonedx-py environment \
+            /tmp/sbom-venv/bin/python \
             --pyproject pyproject.toml \
             --output-reproducible \
             --output-format JSON \
             --output-file sbom.cdx.json
-          python scripts/finalize_sbom.py sbom.cdx.json \
+          python -I scripts/finalize_sbom.py sbom.cdx.json \
             --repository "$GITHUB_REPOSITORY" \
             --source-commit "$GITHUB_SHA"
           # The manifest the identity gate approved for this version, never a
           # fixed file name (which once meant 1.0.0's manifest for every tag).
           cp "${EVIDENCE_MANIFEST}" release-evidence.md
           cp "${EVIDENCE_REPORT}" release-evidence-report.json
-          python - <<'PY'
-          import hashlib
-          import json
-          import os
-          from pathlib import Path
-
-          def sha256(path: Path) -> str:
-              return hashlib.sha256(path.read_bytes()).hexdigest()
-
-          wheel = next(Path("dist").glob("gpo_studio-*.whl"))
-          sdist = next(Path("dist").glob("gpo_studio-*.tar.gz"))
-          sbom = Path("sbom.cdx.json")
-          artifacts = {
-              "wheel_sha256": sha256(wheel),
-              "sdist_sha256": sha256(sdist),
-              "sbom_sha256": sha256(sbom),
-          }
-
-          report_path = Path("release-evidence-report.json")
-          report = json.loads(report_path.read_text(encoding="utf-8"))
-          report["release_identity"] = {
-              "source_commit": os.environ["GITHUB_SHA"],
-              "tag": os.environ["GITHUB_REF_NAME"],
-          }
-          report["artifact_hashes"].update(artifacts)
-          report["artifact_hashes"].pop("evidence_report_sha256", None)
-          report_path.write_text(
-              json.dumps(report, indent=2, ensure_ascii=False) + "\n",
-              encoding="utf-8",
-          )
-
-          with Path("release-evidence.md").open("a", encoding="utf-8") as stream:
-              stream.write("\n## Resolved release identity\n\n")
-              stream.write(f"- Source commit: `{os.environ['GITHUB_SHA']}`\n")
-              stream.write(f"- Tag: `{os.environ['GITHUB_REF_NAME']}`\n")
-              stream.write(f"- Wheel `{wheel.name}` SHA-256: `{artifacts['wheel_sha256']}`\n")
-              stream.write(f"- Source distribution `{sdist.name}` SHA-256: `{artifacts['sdist_sha256']}`\n")
-              stream.write(f"- SBOM SHA-256: `{artifacts['sbom_sha256']}`\n")
-          PY
-          sha256sum dist/* sbom.cdx.json release-evidence.md release-evidence-report.json > SHA256SUMS
+          python -I scripts/record_release_identity.py
+          sha256sum dist/* requirements-lock.txt sbom.cdx.json release-evidence.md \
+            release-evidence-report.json > SHA256SUMS
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: |
             dist/*
+            requirements-lock.txt
             SHA256SUMS
             release-evidence.md
             release-evidence-report.json
@@ -237,7 +234,7 @@ jobs:
       # step and the next; tag protection rules close it.
       - name: Require the remote tag to still name the built commit
         run: >-
-          python scripts/check_release_manifest.py
+          python -I scripts/check_release_manifest.py
           --tag "${GITHUB_REF_NAME}"
           --remote-tag-sha "${GITHUB_SHA}"
       - name: Publish GitHub release
@@ -249,10 +246,11 @@ jobs:
           case "$GITHUB_REF_NAME" in
             *-rc.*)
               FLAGS+=(--prerelease)
-              NOTES_ARGS=(--notes "Immutable release candidate for hands-on validation. This prerelease is not approved for production or as the final ${GITHUB_REF_NAME%-rc.*} release. Download the wheel and SHA256SUMS from Assets and follow docs/nvda-validation-runbook.md.")
+              NOTES_ARGS=(--notes "Immutable release candidate for hands-on validation. This prerelease is not approved for production or as the final ${GITHUB_REF_NAME%-rc.*} release. Download the wheel, requirements-lock.txt and SHA256SUMS from Assets and follow docs/nvda-validation-runbook.md.")
               ;;
           esac
           gh release create "$GITHUB_REF_NAME" \
-            dist/* sbom.cdx.json SHA256SUMS release-evidence.md release-evidence-report.json \
+            dist/* requirements-lock.txt sbom.cdx.json SHA256SUMS release-evidence.md \
+            release-evidence-report.json \
             --verify-tag "${NOTES_ARGS[@]}" \
             --title "GPO Studio ${GITHUB_REF_NAME#v}" "${FLAGS[@]}"

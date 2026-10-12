@@ -14,6 +14,11 @@ npm ci
 Python 3.13 and 3.14 are supported. Node 24 is needed only for the frontend
 tests; the shipped browser application does not depend on Node.
 
+The npm scripts run each tool by its local path (`node_modules/.bin/eslint`),
+so a missing `npm ci` fails instead of reaching a same-named program on `PATH`.
+That path is POSIX: on Windows, run them from Git Bash or set npm's
+`script-shell` to it.
+
 ## Required checks
 
 ```bash

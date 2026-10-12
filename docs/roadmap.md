@@ -114,7 +114,7 @@ backup artifact before any live change.
 
 ## Support policy
 
-- **Python:** 3.13 and 3.14, matching CI. `requires-python` is `>=3.13`.
+- **Python:** 3.13 and 3.14, matching CI. `requires-python` is `>=3.13,<3.15`; 3.15 waits for every locked dependency to publish 3.15 wheels.
 - **Browsers:** The UI uses dependency-light ES modules and plain CSS and targets current evergreen browsers (Chrome, Firefox, Edge, Safari). No minimum browser version is enforced yet.
 - **Workspace schema:** The workspace is a local SQLite database (`gpo-studio.db` by default, configurable via `GPO_STUDIO_DB`). Schema versioning is implemented (Plan 018): a `workspace_meta` table tracks the schema version, migrations are forward-only and transactional, and unknown newer schemas are refused.
 

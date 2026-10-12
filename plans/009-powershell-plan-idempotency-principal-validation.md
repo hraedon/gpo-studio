@@ -1,6 +1,9 @@
 # Plan 009 — PowerShell plan idempotency, principal validation, domain validation
 
-Status: proposed
+Status: implemented — `b724710` (2026-07-12, one commit with Plans 010–012).
+**Surfaced** in the PowerShell plan. This plan ran no Windows evidence; the
+Plan 017 lab run stopped at the security-filter step on synthetic principals,
+as recorded in the [capability matrix](../docs/capability-matrix.md).
 Scope: close the remaining safety gaps in the publication plan and
 import path before shifting to Milestone 2 feature work
 Depends on: Plan 008 (validation hardening, diff correctness, dead code cleanup)

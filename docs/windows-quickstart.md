@@ -26,9 +26,14 @@ authenticated multi-user service is tracked in
 - Internet access during installation, so `pip` can download the wheel's
   Python dependencies, unless your administrator provides an internal package
   source.
-- These two files from the same GPO Studio release:
+- These files from the same GPO Studio release:
   - `gpo_studio-<version>-py3-none-any.whl`
+  - `requirements-lock.txt`: the exact, hash-pinned versions of the wheel's
+    Python dependencies that the release was tested with
   - `SHA256SUMS`
+- Optionally, the [GitHub CLI](https://cli.github.com/) (`gh`), signed in with
+  `gh auth login`, to check that the files were built by this project's
+  release workflow (step 2).
 
 The commands use Windows PowerShell 5.1, which ships with supported Windows
 versions. Run PowerShell as your normal user, not as Administrator.
@@ -57,18 +62,19 @@ explains the installer and the `py` launcher in more detail.
 ## 2. Download and verify the release
 
 On the [GitHub Releases page](https://github.com/hraedon/gpo-studio/releases),
-download the wheel and `SHA256SUMS` listed under **Assets** for one release
-into your Downloads folder. The ZIP from the green **Code** button, like any
+download the wheel, `requirements-lock.txt` and `SHA256SUMS` listed under
+**Assets** for one release into your Downloads folder. The ZIP from the green **Code** button, like any
 Git checkout, contains source code, not a built wheel.
 
 For release-candidate testing, expand the prerelease entry and download its
-wheel and `SHA256SUMS`. When recording release-gate evidence, do not substitute
+wheel, `requirements-lock.txt` and `SHA256SUMS`. When recording release-gate evidence, do not substitute
 a wheel from an Actions run or a local build.
 
 Open the Downloads folder in File Explorer, click the address bar, type
 `powershell` and press Enter. Paste this whole block into PowerShell. It stops
-with an error if it finds no wheel, more than one wheel, no matching checksum,
-or a damaged file.
+with an error if it finds no wheel, more than one wheel, a missing
+`requirements-lock.txt` that `SHA256SUMS` lists, no matching checksum, or a
+damaged file.
 
 ```powershell
 $Wheels = @(Get-ChildItem -File .\gpo_studio-*.whl)
@@ -76,20 +82,53 @@ if ($Wheels.Count -ne 1) {
     throw "Expected exactly one gpo_studio wheel in this folder; found $($Wheels.Count)."
 }
 $Wheel = $Wheels[0]
-$Pattern = [regex]::Escape($Wheel.Name) + '$'
-$ChecksumLine = Select-String -Path .\SHA256SUMS -Pattern $Pattern | Select-Object -First 1
-if (-not $ChecksumLine) {
-    throw "SHA256SUMS has no entry for $($Wheel.Name)."
+$Requirements = $null
+if (Select-String -Path .\SHA256SUMS -Pattern '[\s*/]requirements-lock\.txt$' -Quiet) {
+    if (-not (Test-Path -LiteralPath .\requirements-lock.txt -PathType Leaf)) {
+        throw "This release publishes requirements-lock.txt; download it into this folder."
+    }
+    $Requirements = Get-Item -LiteralPath .\requirements-lock.txt
 }
-$Expected = ($ChecksumLine.Line -split '\s+')[0].ToUpperInvariant()
-$Actual = (Get-FileHash -Algorithm SHA256 $Wheel.FullName).Hash
-if ($Actual -ne $Expected) {
-    throw "Checksum mismatch. Delete the downloads and obtain the release again."
+foreach ($File in @($Wheel, $Requirements) | Where-Object { $_ }) {
+    # The name may follow a path, as in `dist/<wheel>`.
+    $Pattern = '[\s*/]' + [regex]::Escape($File.Name) + '$'
+    $ChecksumLine = Select-String -Path .\SHA256SUMS -Pattern $Pattern | Select-Object -First 1
+    if (-not $ChecksumLine) {
+        throw "SHA256SUMS has no entry for $($File.Name)."
+    }
+    $Expected = ($ChecksumLine.Line -split '\s+')[0].ToUpperInvariant()
+    $Actual = (Get-FileHash -Algorithm SHA256 $File.FullName).Hash
+    if ($Actual -ne $Expected) {
+        throw "Checksum mismatch for $($File.Name). Delete the downloads and obtain the release again."
+    }
+    Write-Host "Checksum verified for $($File.Name)"
 }
-Write-Host "Checksum verified for $($Wheel.Name)"
 ```
 
-Do not continue unless the last line says `Checksum verified`.
+Do not continue unless it printed `Checksum verified` for the wheel and, when
+the release has one, for `requirements-lock.txt`. A release that does not list
+`requirements-lock.txt` in `SHA256SUMS` predates it; the next step says how to
+install one.
+
+### Verify the artifacts were built by the release workflow (optional)
+
+`SHA256SUMS` proves the files match each other, not who made them. If you
+have the GitHub CLI, check that each file was attested by this repository's
+release workflow for the tag you downloaded (replace `v<version>` with the
+release's tag, for example `v1.0.0`):
+
+```powershell
+$Tag = "v<version>"
+foreach ($File in @($Wheel, $Requirements, (Get-Item .\SHA256SUMS)) | Where-Object { $_ }) {
+    gh attestation verify $File.FullName --repo hraedon/gpo-studio `
+        --signer-workflow hraedon/gpo-studio/.github/workflows/release.yml `
+        --source-ref "refs/tags/$Tag"
+    if ($LASTEXITCODE -ne 0) { throw "Attestation verification failed for $($File.Name)." }
+}
+```
+
+Do not continue if any verification fails. A release whose `SHA256SUMS` does
+not list `requirements-lock.txt` has no attestation for it, and the loop skips it.
 
 ## 3. Install GPO Studio
 
@@ -105,9 +144,23 @@ py -3.13 -m venv $Venv
 $Python = Join-Path $Venv "Scripts\python.exe"
 $App = Join-Path $Venv "Scripts\gpo-studio.exe"
 & $Python -m pip install --upgrade pip
-& $Python -m pip install $Wheel.FullName
+if ($Requirements) {
+    & $Python -m pip install --only-binary :all: --require-hashes -r $Requirements.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the locked dependencies failed." }
+    & $Python -m pip install --only-binary :all: --no-deps --no-index $Wheel.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
+    & $Python -m pip check
+    if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
+} else {
+    & $Python -m pip install $Wheel.FullName
+}
 & $App --help
 ```
+
+With `requirements-lock.txt`, pip installs exactly the dependency versions the
+release was tested with and refuses any file whose hash differs; the wheel then
+goes in without fetching anything else. Only a release without the file
+resolves dependencies from the package index at install time.
 
 The last command should print GPO Studio's help text. The application and
 its workspace are now under `%LOCALAPPDATA%\GPO Studio`. The commands do not
@@ -194,7 +247,8 @@ in [workspace backup and recovery](workspace-recovery.md).
    you install the new wheel, with the release you are upgrading from, and
    note the backup's file name: it is your only way back (see
    [Roll back an upgrade](#roll-back-an-upgrade)).
-3. Download the new wheel and its `SHA256SUMS` into an otherwise empty folder.
+3. Download the new wheel, its `requirements-lock.txt` and its `SHA256SUMS`
+   into an otherwise empty folder.
 4. Run the checksum block from step 2.
 5. Run this block in the same PowerShell window:
 
@@ -202,7 +256,16 @@ in [workspace backup and recovery](workspace-recovery.md).
 $Root = Join-Path $env:LOCALAPPDATA "GPO Studio"
 $Python = Join-Path $Root "venv\Scripts\python.exe"
 $App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
-& $Python -m pip install --upgrade $Wheel.FullName
+if ($Requirements) {
+    & $Python -m pip install --only-binary :all: --require-hashes -r $Requirements.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the locked dependencies failed." }
+    & $Python -m pip install --only-binary :all: --upgrade --no-deps --no-index $Wheel.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
+    & $Python -m pip check
+    if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
+} else {
+    & $Python -m pip install --upgrade $Wheel.FullName
+}
 & $App --help
 ```
 
@@ -231,8 +294,9 @@ The restore keeps the upgraded file beside it as a `.bak` file, so those
 changes are not deleted.
 
 1. Stop GPO Studio with **Ctrl+C**.
-2. Put the earlier release's wheel and its `SHA256SUMS` in an otherwise empty
-   folder and run the checksum block from step 2 of the install.
+2. Put the earlier release's wheel, its `SHA256SUMS` and (if it has one) its
+   `requirements-lock.txt` in an otherwise empty folder and run the checksum
+   block from step 2 of the install.
 3. In the same PowerShell window, set `$Backup` to the pre-upgrade backup and
    run:
 
@@ -242,7 +306,16 @@ $Python = Join-Path $Root "venv\Scripts\python.exe"
 $App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
 $Database = Join-Path $Root "data\gpo-studio.db"
 $Backup = Join-Path $Root "backups\workspace-YYYYMMDD-HHMMSS.db"  # your pre-upgrade backup
-& $Python -m pip install $Wheel.FullName
+if ($Requirements) {
+    & $Python -m pip install --only-binary :all: --require-hashes -r $Requirements.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the locked dependencies failed." }
+    & $Python -m pip install --only-binary :all: --no-deps --no-index $Wheel.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
+    & $Python -m pip check
+    if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
+} else {
+    & $Python -m pip install $Wheel.FullName
+}
 & $App workspace restore $Backup $Database --replace
 & $App workspace check --database $Database --full
 ```
@@ -310,5 +383,7 @@ literal URL <http://127.0.0.1:8765>, not the computer's hostname.
 
 The GPO Studio wheel does not include its third-party dependencies. Ask your
 administrator for access to an approved Python package source, or for an
-offline wheelhouse with GPO Studio and all its locked dependencies. Do not
+offline wheelhouse with GPO Studio and every dependency pinned in the
+release's `requirements-lock.txt` (the hashes still apply: install with
+`--require-hashes` and `--no-index --find-links <wheelhouse>`). Do not
 download replacement packages from unofficial websites.

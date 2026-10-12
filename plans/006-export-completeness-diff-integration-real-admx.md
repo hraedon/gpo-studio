@@ -1,6 +1,10 @@
 # Plan 006 — Export completeness, diff integration, and real ADMX validation
 
-Status: executable plan  
+Status: implemented — `bb22df3` (2026-07-12). **Surfaced**: PowerShell plan and
+diff. WP-5's ADMX tests ran on synthetic fixtures (real ADMX fixtures came with
+`acbfff7` and `2521089`), and WP-3's security filters in GPMC backup XML were
+removed by `96f3aec`. This plan ran no Windows evidence; current verification is
+in the [capability matrix](../docs/capability-matrix.md).  
 Scope: close the export/diff gaps exposed by Plan 005 adversarial  
 review, validate against real Microsoft ADMX files, and harden  
 the inbox security boundary  

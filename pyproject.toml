@@ -7,7 +7,7 @@ name = "gpo-studio"
 dynamic = ["version"]
 description = "Offline-first web workbench for safely authoring Group Policy changes"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.15"
 license = { text = "MIT" }
 dependencies = [
   "fastapi>=0.115,<0.142",
@@ -24,10 +24,148 @@ dev = [
   "pytest-cov>=6.1,<8",
   "ruff>=0.16,<0.17",
   "jsonschema>=4.26.0",
+  "pyyaml>=6.0.2,<7",
 ]
 
 [project.scripts]
 gpo-studio = "gpo_studio.__main__:main"
+
+# Tools the CI and release workflows run, resolved from uv.lock like everything
+# else. A group, not an extra: it is never part of the wheel's metadata, and
+# `uv sync` does not install it unless asked (`--only-group release`).
+# `build-backend` is the locked copy of the [build-system] backend (plus
+# `editables`, which hatchling asks for when building an editable install). No
+# build of this project resolves its own backend from the index:
+# - `uv sync`/`uv run`/`uv build` build gpo-studio without isolation (see
+#   [tool.uv] below), from this group's hash-checked, locked packages;
+# - the workflows build distributions with `python -m build --no-isolation` and
+#   install the sdist with `--no-build-isolation` after this group.
+# `tests/test_locked_build_backend.py` holds the group to [build-system].requires.
+[dependency-groups]
+build-backend = ["editables>=0.5", "hatchling>=1.27"]
+release = [
+  { include-group = "build-backend" },
+  "build>=1.2",
+  "cyclonedx-bom>=6",
+  "pip-audit>=2.9",
+  "pip-licenses>=5",
+]
+
+# A default group, so every `uv sync` installs the locked backend before it builds
+# the project; with build isolation off for gpo-studio, an environment without it
+# fails the build instead of fetching one. Re-locking after a dependency edit needs
+# that backend in the environment: run `uv sync --locked` first.
+#
+# Isolation is off for gpo-studio only. `no-build-isolation-package` makes uv
+# install the other packages (this backend among them) first and build gpo-studio
+# last; the global `no-build-isolation` does not, and a fresh environment then
+# builds before hatchling is there (CI on 59cb548; a warm cache holding an earlier
+# build hid it locally). tests/workflow_grammar.py refuses the global setting.
+#
+# No dependency is ever built. Every locked dependency has a wheel for each CI
+# platform (tests/workflow_grammar.py checks it with packaging.tags' rules), and
+# `no-build-package` names every one of them -- exactly the locked set, also
+# checked -- so uv refuses to build any at run time instead of resolving an
+# sdist's build requirements from the index in an isolated environment.
+#
+# `required-version` refuses a uv older than the one that generated uv.lock
+# (0.12.0); CI installs exactly that uv (setup-uv `version:`, held equal across
+# every use and inside this range by tests/test_locked_installs.py).
+[tool.uv]
+required-version = ">=0.12.0"
+default-groups = ["build-backend"]
+no-build-isolation-package = ["gpo-studio"]
+no-build-package = [
+  "annotated-doc",
+  "annotated-types",
+  "anyio",
+  "arrow",
+  "attrs",
+  "boolean-py",
+  "build",
+  "cachecontrol",
+  "certifi",
+  "cffi",
+  "chardet",
+  "charset-normalizer",
+  "click",
+  "colorama",
+  "coverage",
+  "cryptography",
+  "cyclonedx-bom",
+  "cyclonedx-python-lib",
+  "defusedxml",
+  "editables",
+  "fastapi",
+  "filelock",
+  "fqdn",
+  "h11",
+  "hatchling",
+  "httpcore2",
+  "httpx2",
+  "hypothesis",
+  "idna",
+  "iniconfig",
+  "isoduration",
+  "jsonpointer",
+  "jsonschema",
+  "jsonschema-specifications",
+  "lark",
+  "librt",
+  "license-expression",
+  "lxml",
+  "markdown-it-py",
+  "mdurl",
+  "msgpack",
+  "mypy",
+  "mypy-extensions",
+  "packageurl-python",
+  "packaging",
+  "pathspec",
+  "pip",
+  "pip-api",
+  "pip-audit",
+  "pip-licenses",
+  "pip-requirements-parser",
+  "platformdirs",
+  "pluggy",
+  "prettytable",
+  "py-serializable",
+  "pycparser",
+  "pydantic",
+  "pydantic-core",
+  "pygments",
+  "pyparsing",
+  "pyproject-hooks",
+  "pytest",
+  "pytest-cov",
+  "python-dateutil",
+  "pyyaml",
+  "referencing",
+  "requests",
+  "rfc3339-validator",
+  "rfc3986-validator",
+  "rfc3987-syntax",
+  "rich",
+  "rpds-py",
+  "ruff",
+  "six",
+  "sortedcontainers",
+  "starlette",
+  "tomli",
+  "tomli-w",
+  "tomlkit",
+  "trove-classifiers",
+  "truststore",
+  "typing-extensions",
+  "typing-inspection",
+  "tzdata",
+  "uri-template",
+  "urllib3",
+  "uvicorn",
+  "wcwidth",
+  "webcolors",
+]
 
 [tool.hatch.version]
 path = "src/gpo_studio/__init__.py"

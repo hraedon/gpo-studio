@@ -349,9 +349,19 @@ def test_an_unmodelled_attribute_survives_an_edit_of_the_item() -> None:
     props = _written(edited, "Printers/Printers.xml")[0].find("Properties")
     assert props is not None
     assert props.get("comment") == "Edited"
-    # GPMC's own "set as default printer" (the model does not type it) stays.
     assert props.get("default") == "1"
+    # Every other attribute the capture wrote comes back as Windows wrote it.
+    # Checking only `default` stopped meaning anything once WI-081 typed it:
+    # a model-only export writes it too, so this test passed with the retained
+    # element ignored entirely (scripts/mutation_check_roundtrip.py,
+    # export-ignores-retained-element and merge-drops-unmodelled-attributes).
+    native = ET.fromstring(_native_preference("WI01A-Printers-GPMC", "Printers/Printers.xml"))
+    source = native[0].find("Properties")
+    assert source is not None
+    untouched = {key: value for key, value in source.attrib.items() if key != "comment"}
+    assert {key: props.get(key) for key in untouched} == untouched
     # The writer's own attributes the source never had are not added.
+    assert set(props.attrib) == set(source.attrib)
     assert "setDefault" not in props.attrib and "useLocal" not in props.attrib
 
 

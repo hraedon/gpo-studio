@@ -93,13 +93,15 @@ accepted minor accessibility observation are in
 The 1.0 contract above has not changed. Since 1.0:
 
 - **Live (reachable from the API or browser):** scope of management,
-  delegation, AD discovery and full GPP adapter coverage. Six post-1.0 layers
-  are also reachable through narrow, lane-certified endpoints: RSOP prediction
+  delegation, AD discovery and full GPP adapter coverage. Post-1.0 layers are
+  also reachable through narrow, lane-certified endpoints: RSOP prediction
   (`rsop.py`), the emission direction of `policy_families.py` and
   `object_security.py`, one measured shape of `script_policy.py` (the Scripts
   export), a review-only view of `publication.py` (the publication
-  preview), same-domain restore plans from `lifecycle.py` and the Folder
-  Redirection reader (`fdeploy.py`).
+  preview), one measured tranche of `firewall_policy.py`, same-domain restore
+  plans from `lifecycle.py` and the Folder Redirection reader (`fdeploy.py`).
+  The full list, with each layer's evidence, is the capability matrix's
+  [reconciled post-1.0 layers](docs/capability-matrix.md#reconciled-post-10-layers--certified-and-surfaced).
 - **Folder Redirection review:** a sidebar panel reads a native `fdeploy` file,
   or compares an earlier copy with a current one. It shows raw flags,
   structural issues and the reader's limits. The fdeploy lane (2026-10-08)

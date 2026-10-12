@@ -1,6 +1,8 @@
 # Plan 010 — UI module split, target_type editor, error handling
 
-Status: executable plan
+Status: implemented — `b724710` (2026-07-12). **Surfaced**: `studio.js` split into
+ES modules, the `target_type` editor and form error feedback. Browser-only; no
+Windows evidence applies.
 Scope: split studio.js into ES modules, add missing target_type field to
 security filter editor, improve API error feedback
 Depends on: Plan 009 (principal format validation, domain validation)

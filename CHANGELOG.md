@@ -124,8 +124,107 @@ Operator-facing:
   registry item of every native capture back through the API, after which the
   export must still equal the capture.
 
+### Changed
+
+- **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
+  metadata said `>=3.13`, which now admits Python 3.15, but some locked
+  dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no
+  3.15 wheel, and installs refuse to build one. `uv.lock` was regenerated for
+  the cap only: every package version is unchanged.
+- **Releases publish `requirements-lock.txt`, and the Windows quickstart
+  installs from it.** The file is the runtime closure of `uv.lock`, pinned by
+  SHA-256, and is listed in `SHA256SUMS`, attested with the distributions and
+  attached to the release. The quickstart installs it with
+  `pip install --require-hashes`, then the wheel with `--no-deps --no-index`,
+  and adds an optional `gh attestation verify` step. A release without the file
+  keeps the old install.
+- Every Python install in `ci.yml` and `release.yml` now resolves from
+  `uv.lock` (`uv sync --locked`, or the exported hash-pinned requirements for
+  the clean-environment installs of the built wheel and sdist); before, only the
+  Windows test job did. Build, SBOM and audit tools come from a locked
+  `release` dependency group, the build uses its hatchling without isolation,
+  and CI runs `uv lock --check`. `tests/test_locked_installs.py` holds the rule
+  over the parsed workflows, the smoke script and the package.json scripts they
+  run: every command must equal one entry of a closed table of reviewed
+  templates (literal tokens and a few tightly patterned slots, each with its
+  reason), as must every `env:` entry, redirection target and PowerShell step,
+  and a command that needs a lock export, `npm ci` or a built wheel needs it
+  earlier in the same job, from a command whose failure would have failed it.
+  Matching is on the words as written, so a re-quoted variable is a different
+  command. No tracked file may configure the tools the templates run (`.npmrc`,
+  `pip.conf`, `uv.toml`, `sitecustomize.py`, ...). Substring matching, and then
+  three grammars that parsed program options, were each bypassed in review;
+  inline interpreter code is refused, so the few inline Python checks moved to
+  `scripts/`. It checks workflow text, not what the code it lets run does
+  (`tests/workflow_grammar.py` lists its limits).
+- CI no longer installs PSScriptAnalyzer from PSGallery by version: it fetches
+  the 1.25.0 package, checks its SHA-256 against the value in `ci.yml`, and
+  imports it from the job's temporary directory.
+- `package-lock.json` now carries `resolved` and `integrity` for every package:
+  84 of 148 entries had neither, so `npm ci` fetched them by version with
+  nothing to check them against. The values were taken from the registry for
+  the exact locked versions, and a clean `npm ci` verified them. CI runs
+  Playwright from `node_modules/.bin`, never through `npx`, and every Python
+  command in the workflows and the smoke script runs with `-I`, so a module in
+  the checkout cannot stand in for the locked tool it names. The files each
+  locked tool discovers on its own (pytest 9's `pytest.toml` among them) are
+  listed against the tool's locked version, and a version change fails a test
+  until the list is re-read. Names are compared as the Windows job's NTFS
+  compares them, tracked symlinks are refused, and every accepted script is
+  also traced through bash to confirm it runs nothing the check did not see.
+  CI's pip installs are wheel-only (`--only-binary :all:`; the project's own
+  sdist builds without isolation against the locked backend), every `uv.lock`
+  package has a wheel each CI platform accepts (judged by `packaging.tags`), and
+  `npm ci` runs with `--ignore-scripts`. `npm run lint` lists its files after
+  `--` instead of the `*.config.mjs` glob, which a tracked file named
+  `--config=…` could have turned into an ESLint option; no template may hold
+  such a glob, and no tracked name may start with `-`. The npm scripts call
+  their tools by local path (`node_modules/.bin/…`), and a checkout after an
+  install or build voids what the check knew it had produced. Each action is
+  allowed only at its reviewed revision, with its behaviour-selecting inputs
+  (setup-uv's `version`, setup-python's and setup-node's versions) required.
+- The project build itself now uses the locked backend too. An editable
+  `uv sync --locked` still built gpo-studio in an isolated environment that
+  resolved `[build-system].requires` (`hatchling`, unversioned) from the index;
+  `[tool.uv]` now turns isolation off for gpo-studio, lists every locked dependency
+  in `no-build-package` (so none is ever built, isolated or not), and makes the locked
+  `build-backend` group (hatchling, editables) a default group.
+  `scripts/check_locked_build_backend.py`, run in CI, proves it offline against
+  a cache holding only that group, with an isolated build failing as control.
+  Requirements exports use `--no-default-groups`, so the backend stays out of
+  `requirements-lock.txt`.
+- The dependency audit covers every platform's locked packages: pip-audit
+  evaluates markers against the Linux runner, so `colorama` (Windows only) was
+  not audited; the markers are now dropped from the audited copy. CI installs
+  uv 0.12.0, the version that generated `uv.lock`, in every job.
+- `uv.lock` moves `anyio` 4.14.1 → 4.15.1 and `cryptography` 49.0.0 → 50.0.2:
+  `pip-audit --strict` against the locked runtime set reported known
+  vulnerabilities in both pinned versions (run 2026-10-09). The previous CI
+  audit installed the wheel from its version ranges, which pip resolves to the
+  newest matching release, so it audited different versions than the lock pins.
+
 ### Evidence
 
+- `scripts/mutation_check_roundtrip.py`, run by a new `mutation-check` CI
+  job, restores 20 defects in throwaway copies of the tree (parsers that read
+  nothing, serialisers that drop what they were given, comparators that always
+  agree, the WI-080 and WI-081 export defects) and requires the tests named for
+  each to fail. Its first run found three survivors, and the two tests behind
+  them are strengthened: the fdeploy serializer guard never triggered the
+  2026-09-11 "return `raw_text` when it re-parses" defect it was written
+  against, and the unmodelled-attribute preservation test checked only an
+  attribute WI-081 had since typed, so it passed with the retained element
+  ignored entirely. Review then found two more survivors, now killed by new
+  tests and kept as mutants: Registry.pol `**del.` / `**delvals.` markers read
+  case-sensitively (every test spelled them in lower case), and report parity
+  dropping the GPP item UIDs Windows reported.
+- `tests/test_release_downgrade_refusal.py` re-executes 1.0.0's own version
+  guards, vendored verbatim from the tag (and compared with it when present),
+  against what this tree writes: 1.0.0 refuses the upgraded workspace without
+  changing a byte of it, and refuses a backup of it from the sidecar this
+  tree's `backup_workspace` writes today. It also requires a release-written
+  workspace fixture for every schema a release left behind, and holds this
+  tree to refusing a newer workspace without writing to it.
 - **Banked the release 1.1.0 successor batch**
   ([batch note](docs/plan-033/release110-successors-batch.md)). The WI-080,
   WI-081 and WI-082 fix changed `gpp.py`, `gpp_adapters.py`, `canonical.py`,

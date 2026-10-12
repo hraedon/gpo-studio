@@ -1,6 +1,7 @@
 # Plan 008 — Validation hardening, diff correctness, dead code cleanup
 
-Status: executable plan
+Status: implemented — `b8b21e7` (2026-07-12). **Surfaced** through validation and
+diff. No Windows evidence applies: the work is validation and diff logic.
 Scope: close validation gaps exposed by Plan 007 adversarial review,
 fix a diff correctness bug, and remove dead code in the PowerShell plan
 generator.
