@@ -82,9 +82,8 @@ if [ "$HEALTH_VERSION" != "$VENV_VERSION" ]; then
 fi
 
 echo "=== Creating GPO ==="
-RESPONSE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/gpos" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Smoke Test GPO","domain":"test.local","actor":"smoke","reason":"installed-package smoke test"}')
+# One line: a continuation inside $(...) is refused by tests/workflow_grammar.py.
+RESPONSE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/gpos" -H "Content-Type: application/json" -d '{"name":"Smoke Test GPO","domain":"test.local","actor":"smoke","reason":"installed-package smoke test"}')
 GPO_GUID=$(echo "$RESPONSE" | "$TMPDIR/venv/bin/python" -I scripts/read_json_field.py gpo.guid)
 echo "Created GPO: $GPO_GUID"
 

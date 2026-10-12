@@ -169,12 +169,13 @@ Operator-facing:
   also traced through bash to confirm it runs nothing the check did not see.
   CI's pip installs are wheel-only (`--only-binary :all:`; the project's own
   sdist builds without isolation against the locked backend), every `uv.lock`
-  package has a wheel for each CI platform, and `npm ci` runs with
-  `--ignore-scripts`.
+  package has a wheel each CI platform accepts (judged by `packaging.tags`), and
+  `npm ci` runs with `--ignore-scripts`.
 - The project build itself now uses the locked backend too. An editable
   `uv sync --locked` still built gpo-studio in an isolated environment that
   resolved `[build-system].requires` (`hatchling`, unversioned) from the index;
-  `[tool.uv]` now turns isolation off for gpo-studio and makes the locked
+  `[tool.uv]` now turns isolation off (for every build: a dependency's sdist
+  would otherwise resolve its build requirements from the index) and makes the locked
   `build-backend` group (hatchling, editables) a default group.
   `scripts/check_locked_build_backend.py`, run in CI, proves it offline against
   a cache holding only that group, with an isolated build failing as control.

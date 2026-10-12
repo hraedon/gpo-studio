@@ -34,9 +34,12 @@ script into simple commands with a small shell lexer, it requires:
   project's own sdist alone, ``--no-build-isolation`` into a venv this job filled
   with the locked build backend: ``--require-hashes`` does not stop an sdist's
   isolated build resolving its build requirements from the index. Every uv.lock
-  package must have a wheel for each CI platform and Python, so neither pip nor
-  uv ever builds a dependency; uv builds only the project, with the locked
-  backend (``no-build-isolation-package``);
+  package must have a wheel each CI target accepts -- decided by
+  ``packaging.tags``' rules for linux x86_64 (glibc ``LINUX_GLIBC_FLOOR``) and
+  win_amd64 on CPython 3.13 and 3.14 -- so neither pip nor uv builds a
+  dependency; and at run time ``[tool.uv] no-build-isolation`` makes any build uv
+  does use the locked environment, so one whose backend is not locked fails
+  rather than resolving its build requirements from the index;
 * ``npm ci --ignore-scripts``, with every lock entry that has install scripts
   listed in ``REVIEWED_INSTALL_SCRIPTS``, and no ``node_modules`` (or ``.venv``,
   ``dist``, ``.yarn``, Plug'n'Play loader) tracked at any depth: Node resolves a
@@ -157,12 +160,9 @@ def _read_balanced(text: str, start: int) -> int:
     while index < len(text):
         char = text[index]
         if char == "\\" and quote != "'":
-            # A continuation line is removed by bash here too; any other escape is a
-            # place bash and this reader could disagree about where the `)` is (DeepSeek
-            # r8: `\)`), and no reviewed command needs one.
-            if text.startswith("\\\n", index):
-                index += 2
-                continue
+            # An escape is a place bash and this reader could disagree about where the
+            # `)` is (DeepSeek r8: `\)`), and no reviewed command needs one; a
+            # continuation never reaches here (refused by _logical).
             raise GrammarError("backslash escape inside a command substitution")
         if quote:
             if char == quote:
@@ -216,12 +216,101 @@ class _Blocks:
         return any(kind == "condition" for kind, _number in self.frames)
 
 
+def _logical(script: str) -> str:
+    """The script with its line continuations removed, as bash removes them first.
+
+    Bash deletes an unquoted backslash-newline before it recognises anything else, so
+    ``$\\<newline>(`` is a substitution. Outside quotes and substitutions that removal
+    is done here, exactly; a continuation inside double quotes, a substitution or a
+    parameter expansion is refused instead (nesting changes the rule there, and no
+    reviewed command needs one). A comment line keeps its trailing backslash: bash
+    does not continue a comment.
+    """
+    out: list[str] = []
+    index = 0
+    word_start = True
+    while index < len(script):
+        char = script[index]
+        if char == "\\":
+            if script.startswith("\\\n", index):
+                index += 2
+                continue
+            out.append(script[index : index + 2])
+            index += 2
+            word_start = False
+            continue
+        if char == "'":
+            end = script.find("'", index + 1)
+            end = len(script) - 1 if end < 0 else end
+            out.append(script[index : end + 1])
+            index = end + 1
+            word_start = False
+            continue
+        if char == "#" and word_start:
+            end = script.find("\n", index)
+            end = len(script) if end < 0 else end
+            out.append(script[index:end])
+            index = end
+            continue
+        if char == '"' or script.startswith(("$(", "<(", ">(", "${"), index):
+            end = _quoted_end(script, index)
+            if "\\\n" in script[index:end]:
+                raise GrammarError("a line continuation inside quotes or an expansion")
+            out.append(script[index:end])
+            index = end
+            word_start = False
+            continue
+        out.append(char)
+        word_start = char in " \t\n;&|()<>"
+        index += 1
+    return "".join(out)
+
+
+def _quoted_end(script: str, index: int) -> int:
+    """Index just past the double-quoted string or expansion starting at *index*."""
+    if script[index] == '"':
+        position = index + 1
+        while position < len(script) and script[position] != '"':
+            position += 2 if script[position] == "\\" else 1
+        return position + 1
+    if script.startswith("${", index):
+        end = script.find("}", index)
+        return len(script) if end < 0 else end + 1
+    depth = 0
+    position = index + 1
+    quote = ""
+    while position < len(script):
+        char = script[position]
+        if quote:
+            if char == "\\" and quote == '"':
+                position += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "\\":
+            position += 2
+            continue
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return position + 1
+        position += 1
+    return len(script)
+
+
 def split_commands(script: str, *, closed: bool = True) -> list[Command]:
     """Simple commands of a POSIX-ish shell script, substitutions included.
 
     A command substitution's commands come before the command that uses its
     output (and are conditional); the word keeps the substitution's source text.
     """
+    script = _logical(script)
+    if "$'" in script:
+        raise GrammarError("ANSI-C quoting ($'...'), which no reviewed command uses")
     commands: list[Command] = []
     words: list[str] = []
     raws: list[str] = []
@@ -1368,8 +1457,8 @@ TEMPLATES: tuple[Template, ...] = (
     ),
     _t(
         (
-            'RESPONSE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/gpos" \\\n  -H '
-            '"Content-Type: application/json" \\\n  -d \'{"name":"Smoke Test '
+            'RESPONSE=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/gpos" -H '
+            '"Content-Type: application/json" -d \'{"name":"Smoke Test '
             'GPO","domain":"test.local","actor":"smoke","reason":"installed-package '
             "smoke test\"}')"
         ),
@@ -2008,11 +2097,8 @@ _SHADOW_DIRS = ("", "scripts/", "tests/")
 #: pyproject.toml's tool tables and [build-system], exactly as reviewed. ruff's is
 #: free: ruff loads no code. Any other [tool.*] table is refused.
 REVIEWED_TOOL: dict[str, Any] = {
-    "uv": {
-        "required-version": ">=0.12.0",
-        "default-groups": ["build-backend"],
-        "no-build-isolation-package": ["gpo-studio"],
-    },
+    # "uv" is checked by _tool_uv_violations: its no-build-package must name exactly
+    # the locked dependencies, which a literal here would duplicate.
     "hatch": {
         "version": {"path": "src/gpo_studio/__init__.py"},
         "build": {
@@ -2066,32 +2152,44 @@ def _shadows(path: str) -> str | None:
 #: The (platform, CPython minor) pairs CI installs on: the Linux jobs and the
 #: Windows test job, on the matrix's 3.13 and 3.14.
 _CI_TARGETS = (("linux", 13), ("linux", 14), ("win", 13), ("win", 14))
+#: The oldest glibc a Linux CI runner is assumed to have. ubuntu-latest has been
+#: Ubuntu 24.04 (glibc 2.39) since early 2025; 22.04's 2.35 is assumed so that a
+#: move between those images cannot strand a wheel. A lower floor accepts fewer
+#: wheels, so the assumption errs strict. Revisit it if CI pins an older image.
+LINUX_GLIBC_FLOOR = (2, 35)
+
+
+def _supported_tags(platform: str, minor: int) -> frozenset[str]:
+    """The tags an installer on that runner accepts, from ``packaging.tags``' own rules."""
+    from packaging import tags
+
+    if platform == "linux":
+        # manylinux_2_N is installable on glibc >= 2.N; the legacy names are aliases.
+        legacy = {17: "manylinux2014_x86_64", 12: "manylinux2010_x86_64", 5: "manylinux1_x86_64"}
+        platforms: list[str] = []
+        for glibc_minor in range(LINUX_GLIBC_FLOOR[1], 4, -1):
+            platforms.append(f"manylinux_2_{glibc_minor}_x86_64")
+            if glibc_minor in legacy:
+                platforms.append(legacy[glibc_minor])
+    else:
+        platforms = ["win_amd64"]
+    version = (3, minor)
+    supported = [
+        *tags.cpython_tags(version, abis=[f"cp3{minor}"], platforms=platforms),
+        *tags.compatible_tags(version, f"cp3{minor}", platforms),
+    ]
+    return frozenset(str(tag) for tag in supported)
+
+
+_SUPPORTED = {target: _supported_tags(*target) for target in _CI_TARGETS}
 
 
 def _wheel_runs_on(artifact: dict[str, Any], platform: str, minor: int) -> bool:
     from packaging.utils import parse_wheel_filename
 
-    _name, _version, _build, tags = parse_wheel_filename(str(artifact["url"]).rsplit("/", 1)[1])
-    for tag in tags:
-        if tag.platform != "any" and not (
-            (
-                platform == "linux"
-                and re.fullmatch(r"manylinux(_2_\d+|1|2010|2014)_x86_64", tag.platform)
-            )
-            or (platform == "win" and tag.platform == "win_amd64")
-        ):
-            continue
-        version = re.fullmatch(r"(?:py|cp)3(\d*)", tag.interpreter)
-        if version is None:
-            continue
-        built = int(version[1]) if version[1] else 0
-        if tag.abi == "none" and (built in (0, minor) or tag.interpreter.startswith("py")):
-            return True
-        if tag.abi == f"cp3{minor}" and built == minor:
-            return True
-        if tag.abi == "abi3" and built <= minor:
-            return True
-    return False
+    name = str(artifact["url"]).rsplit("/", 1)[1]
+    _name, _version, _build, wheel_tags = parse_wheel_filename(name)
+    return any(str(tag) in _SUPPORTED[(platform, minor)] for tag in wheel_tags)
 
 
 def uv_lock_violations(lock_path: Path) -> list[str]:
@@ -2133,6 +2231,34 @@ def _fold(text: str) -> str:
 
 _DISCOVERED_FOLDED = {_fold(name) for name in DISCOVERED | _ALSO_REFUSED}
 _SHADOWED_FOLDED = {_fold(name) for name in SHADOWED}
+
+
+def _tool_uv_violations(table: Any, lock_path: Path) -> list[str]:
+    """[tool.uv]: the locked backend by default, no build isolation, and no dependency
+    built at all -- ``no-build-package`` must name exactly the locked dependencies, so
+    uv refuses an sdist build at run time, not only in this check (Sol r9 B2)."""
+    locked = sorted(
+        str(package["name"])
+        for package in tomllib.loads(lock_path.read_text(encoding="utf-8"))["package"]
+        if package.get("source") != {"editable": "."}
+    )
+    expected = {
+        "required-version": ">=0.12.0",
+        "default-groups": ["build-backend"],
+        "no-build-isolation": True,
+        "no-build-package": locked,
+    }
+    if not isinstance(table, dict) or set(table) != set(expected):
+        return ["pyproject.toml: [tool.uv] has other keys than the reviewed ones"]
+    found = [
+        f"pyproject.toml: [tool.uv] {key} differs from the reviewed value"
+        for key in ("required-version", "default-groups", "no-build-isolation")
+        if table[key] != expected[key]
+    ]
+    if sorted(table["no-build-package"]) != locked:
+        missing = sorted(set(locked) - set(table["no-build-package"]))
+        found.append(f"pyproject.toml: [tool.uv] no-build-package misses {missing or 'nothing'}")
+    return found
 
 
 def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
@@ -2195,9 +2321,10 @@ def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
                 found.append(f"{path}: names analyzer rule modules to load")
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     tools = pyproject.get("tool", {})
-    for table in sorted(set(tools) - {"ruff"}):
+    for table in sorted(set(tools) - {"ruff", "uv"}):
         if tools[table] != REVIEWED_TOOL.get(table):
             found.append(f"pyproject.toml: [tool.{table}] differs from the reviewed table")
+    found.extend(_tool_uv_violations(tools.get("uv"), root / "uv.lock"))
     if pyproject.get("build-system") != REVIEWED_BUILD_SYSTEM:
         found.append("pyproject.toml: [build-system] differs from the reviewed table")
     project = pyproject.get("project", {})

