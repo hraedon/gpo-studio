@@ -43,10 +43,11 @@ script into simple commands with a small shell lexer, it requires:
   nearer ``node_modules`` first, and ``npm ci`` rebuilds only the root one;
 * every PowerShell step, and every step of a Windows job (PowerShell by
   default), to be exactly one of ``PWSH_BODIES``;
-* no comment inside a command substitution (bash would ignore a ``)`` on that
-  line and this lexer would not); a test runs every accepted script under
-  ``bash -x`` with nothing on PATH and requires each command bash reaches to be
-  one the grammar found;
+* no comment and no backslash escape (but a continuation line) inside a command
+  substitution, and no substitution at all inside an ``echo`` slot -- places bash
+  and this lexer could disagree about where a ``$(...)`` ends; a test runs every
+  accepted script under ``bash -x`` with nothing on PATH and requires each
+  command bash reaches to equal, word for word, one the grammar found;
 * no tracked symlink or submodule, no two tracked paths that are one path on a
   case-insensitive disk, and every name below compared case- and
   Unicode-normalisation-insensitively, as the Windows job's NTFS compares it;
@@ -155,10 +156,15 @@ def _read_balanced(text: str, start: int) -> int:
     quote = ""
     while index < len(text):
         char = text[index]
-        if quote:
-            if char == "\\" and quote == '"':
+        if char == "\\" and quote != "'":
+            # A continuation line is removed by bash here too; any other escape is a
+            # place bash and this reader could disagree about where the `)` is (DeepSeek
+            # r8: `\)`), and no reviewed command needs one.
+            if text.startswith("\\\n", index):
                 index += 2
                 continue
+            raise GrammarError("backslash escape inside a command substitution")
+        if quote:
             if char == quote:
                 quote = ""
         elif char in "'\"":
@@ -449,8 +455,10 @@ def split_commands(script: str, *, closed: bool = True) -> list[Command]:
 SLOTS = {
     # The five throwaway venvs the workflows create, and nothing else under /tmp.
     "VENV": r"/tmp/(?:smoke|sdist|audit|sbom|wheel)-venv",
-    # echo's text: it cannot run anything, and an option (-e, -n) cannot start a word.
-    "TEXT": r"(?!-)[^`]*",
+    # echo's text: it cannot run anything, an option (-e, -n) cannot start a word, and
+    # no substitution may sit in it -- a reviewed one is a literal template instead, so
+    # the reader below never decides where a slot's substitution ends.
+    "TEXT": r"(?!-)(?:(?!\$\(|\$\[|<\(|>\(|`)[\s\S])*",
     # A package.json script name; the script itself is then held to this table.
     "NPM_SCRIPT": r"[a-z][a-z:]*",
 }
@@ -668,7 +676,10 @@ TEMPLATES: tuple[Template, ...] = (
             '"$RUNNER_TEMP/locked/requirements-all-platforms.txt"'
         ),
         "audits the exported lock without installing it (--disable-pip)",
-        requires=("lock:$RUNNER_TEMP/locked/requirements-lock.txt",),
+        requires=(
+            "lock:$RUNNER_TEMP/locked/requirements-lock.txt",
+            "lock:$RUNNER_TEMP/locked/requirements-all-platforms.txt",
+        ),
     ),
     _t(
         (
@@ -722,7 +733,9 @@ TEMPLATES: tuple[Template, ...] = (
             '"$RUNNER_TEMP/locked/requirements-lock.txt" '
             '"$RUNNER_TEMP/locked/requirements-all-platforms.txt"'
         ),
-        _SCRIPT,
+        "derives the audited copy from the lock exported in this job",
+        requires=("lock:$RUNNER_TEMP/locked/requirements-lock.txt",),
+        provides=("lock:$RUNNER_TEMP/locked/requirements-all-platforms.txt",),
     ),
     _t(
         (
@@ -1064,6 +1077,10 @@ TEMPLATES: tuple[Template, ...] = (
         "echo @TEXT*@",
         _ECHO,
         scope="smoke workflow",
+    ),
+    _t(
+        'echo "SBOM generated: $(stat -c%s sbom.cdx.json) bytes"',
+        _ECHO,
     ),
     _t(
         '[ "$VENV_VERSION" != "$META_VERSION" ]',
