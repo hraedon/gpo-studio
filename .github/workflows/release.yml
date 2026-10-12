@@ -91,7 +91,7 @@ jobs:
       - name: Install application and test dependencies
         run: |
           uv sync --locked --extra dev
-          npm ci
+          npm ci --ignore-scripts
           node_modules/.bin/playwright install --with-deps chromium firefox
       - name: Run release gates
         env:
@@ -174,13 +174,13 @@ jobs:
             GPO_STUDIO_REQUIREMENTS=requirements-lock.txt \
             bash scripts/installed_package_smoke.sh
           python -I -m venv /tmp/wheel-venv
-          /tmp/wheel-venv/bin/pip install --require-hashes -r requirements-lock.txt
-          /tmp/wheel-venv/bin/pip install --no-deps --no-index "$WHEEL"
+          /tmp/wheel-venv/bin/pip install --only-binary :all: --require-hashes -r requirements-lock.txt
+          /tmp/wheel-venv/bin/pip install --only-binary :all: --no-deps --no-index "$WHEEL"
           /tmp/wheel-venv/bin/pip check
       - name: Validate exact source distribution
         run: |
           python -I -m venv /tmp/sdist-venv
-          /tmp/sdist-venv/bin/pip install --require-hashes \
+          /tmp/sdist-venv/bin/pip install --only-binary :all: --require-hashes \
             -r requirements-lock.txt -r "$RUNNER_TEMP/locked/build-backend-lock.txt"
           /tmp/sdist-venv/bin/pip install --no-deps --no-index --no-build-isolation \
             dist/gpo_studio-*.tar.gz
@@ -194,8 +194,8 @@ jobs:
           EVIDENCE_REPORT: ${{ steps.manifest.outputs.report }}
         run: |
           python -I -m venv /tmp/sbom-venv
-          /tmp/sbom-venv/bin/pip install --require-hashes -r requirements-lock.txt
-          /tmp/sbom-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl
+          /tmp/sbom-venv/bin/pip install --only-binary :all: --require-hashes -r requirements-lock.txt
+          /tmp/sbom-venv/bin/pip install --only-binary :all: --no-deps --no-index dist/gpo_studio-*.whl
           /tmp/sbom-venv/bin/pip uninstall --yes pip
           uv run --locked --only-group release cyclonedx-py environment \
             /tmp/sbom-venv/bin/python \

@@ -167,6 +167,10 @@ Operator-facing:
   until the list is re-read. Names are compared as the Windows job's NTFS
   compares them, tracked symlinks are refused, and every accepted script is
   also traced through bash to confirm it runs nothing the check did not see.
+  CI's pip installs are wheel-only (`--only-binary :all:`; the project's own
+  sdist builds without isolation against the locked backend), every `uv.lock`
+  package has a wheel for each CI platform, and `npm ci` runs with
+  `--ignore-scripts`.
 - The project build itself now uses the locked backend too. An editable
   `uv sync --locked` still built gpo-studio in an isolated environment that
   resolved `[build-system].requires` (`hatchling`, unversioned) from the index;

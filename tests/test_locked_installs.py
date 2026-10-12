@@ -30,6 +30,7 @@ import workflow_grammar
 from workflow_grammar import (
     PWSH_BODIES,
     TEMPLATES,
+    _match,
     configuration_violations,
     script_violations,
     split_commands,
@@ -63,8 +64,9 @@ def test_the_grammar_sees_the_commands_that_matter() -> None:
     """The control: a lexer that found nothing would pass every file above."""
     text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
     assert "uv sync --locked --extra dev" in text
+    seen = {" ".join(command.words[:5]) for command in split_commands(SMOKE.read_text())}
+    assert "$TMPDIR/venv/bin/pip install --only-binary :all: --require-hashes" in seen
     seen = {" ".join(command.words[:3]) for command in split_commands(SMOKE.read_text())}
-    assert "$TMPDIR/venv/bin/pip install --require-hashes" in seen
     assert "uv build --wheel" in seen
 
 
@@ -515,10 +517,10 @@ UNLOCKED_VARIANTS = {
     "harmless_inline": ("", "      - run: FOO=bar python scripts/check_safety.py"),
     "npm_exec": ("", "      - run: npm exec -- pip install x"),
     "npm_publish": ("", "      - run: npm publish"),
-    "npm_test_alias": ("", "      - run: |\n          npm ci\n          npm test"),
+    "npm_test_alias": ("", "      - run: |\n          npm ci --ignore-scripts\n          npm test"),
     "npm_run_format_writes_sources": (
         "",
-        "      - run: |\n          npm ci\n          npm run format",
+        "      - run: |\n          npm ci --ignore-scripts\n          npm run format",
     ),
     "uv_lock_write": ("", "      - run: uv lock"),
     "uv_run_npx": ("", "      - run: uv run --locked npx playwright install"),
@@ -634,7 +636,7 @@ def test_locked_playwright_needs_npm_ci_in_the_same_job(tmp_path: Path) -> None:
     install = "      - run: node_modules/.bin/playwright install --with-deps chromium firefox"
     (problem,) = _verdict(tmp_path, install)
     assert "npm-ci" in problem
-    assert _verdict(tmp_path, f"      - run: npm ci\n{install}") == []
+    assert _verdict(tmp_path, f"      - run: npm ci --ignore-scripts\n{install}") == []
 
 
 def test_exported_requirements_do_not_cross_jobs(tmp_path: Path) -> None:
@@ -645,7 +647,8 @@ def test_exported_requirements_do_not_cross_jobs(tmp_path: Path) -> None:
     )
     install = (
         "python -I -m venv /tmp/wheel-venv\n"
-        "          /tmp/wheel-venv/bin/pip install --require-hashes -r requirements-lock.txt"
+        "          /tmp/wheel-venv/bin/pip install --only-binary "
+        ":all: --require-hashes -r requirements-lock.txt"
     )
     cross = (
         f"      - run: {export}\n  consumer:\n    runs-on: ubuntu-latest\n    steps:\n"
@@ -769,30 +772,38 @@ def test_single_quoted_reviewed_values_are_refused(tmp_path: Path) -> None:
     assert any("GPO_STUDIO_WHEEL='$WHEEL'" in problem for problem in _verdict(tmp_path, wheel))
     reviewed = locked.replace("LOCKED='$RUNNER_TEMP/locked'", 'LOCKED="$RUNNER_TEMP/locked"')
     reviewed = reviewed.replace("mkdir -p $RUNNER_TEMP/locked", 'mkdir -p "$RUNNER_TEMP/locked"')
+    reviewed = reviewed.replace(
+        "pip install --require-hashes", "pip install --only-binary :all: --require-hashes"
+    )
     assert _verdict(tmp_path, reviewed) == []
 
 
 # Sol r4 B2: a fact comes only from a command whose failure would fail the job.
 UNENFORCED_PROVIDERS = {
-    "npm_ci_or_true": "      - run: |\n          npm ci || true\n          {use}",
+    "npm_ci_or_true": "      - run: |\n          npm ci --ignore-scripts || true\n          {use}",
     "npm_ci_continue_on_error": (
-        "      - run: npm ci\n        continue-on-error: true\n      - run: {use}"
+        "      - run: npm ci --ignore-scripts\n        continue-on-error: true\n      - run: {use}"
     ),
     "npm_ci_skipped_shell_branch": (
-        "      - run: |\n          if [ ! -s sbom.cdx.json ]; then\n            npm ci\n"
+        "      - run: |\n          if [ ! -s sbom.cdx.json ]; then\n   "
+        "         npm ci --ignore-scripts\n"
         "          fi\n          {use}"
     ),
     "npm_ci_if_step": (
-        "      - if: github.event_name == 'push'\n        run: npm ci\n      - run: {use}"
+        "      - if: github.event_name == 'push'\n        run: npm ci "
+        "--ignore-scripts\n      - run: {use}"
     ),
-    "npm_ci_and_list": "      - run: |\n          npm ci && true\n          {use}",
-    "npm_ci_pipeline": "      - run: |\n          npm ci | cat\n          {use}",
-    "npm_ci_background": "      - run: |\n          npm ci &\n          {use}",
-    "npm_ci_negated": "      - run: |\n          ! npm ci\n          {use}",
-    "npm_ci_condition": "      - run: |\n          if npm ci; then true; fi\n          {use}",
-    "npm_ci_subshell": "      - run: |\n          ( npm ci )\n          {use}",
+    "npm_ci_and_list": "      - run: |\n          npm ci --ignore-scripts && true\n          {use}",
+    "npm_ci_pipeline": "      - run: |\n          npm ci --ignore-scripts | cat\n          {use}",
+    "npm_ci_background": "      - run: |\n          npm ci --ignore-scripts &\n          {use}",
+    "npm_ci_negated": "      - run: |\n          ! npm ci --ignore-scripts\n          {use}",
+    "npm_ci_condition": (
+        "      - run: |\n          if npm ci --ignore-scripts; then true; fi\n          {use}"
+    ),
+    "npm_ci_subshell": "      - run: |\n          ( npm ci --ignore-scripts )\n          {use}",
     "npm_ci_loop": (
-        "      - run: |\n          for attempt in $(seq 1 20); do npm ci; done\n          {use}"
+        "      - run: |\n          for attempt in $(seq 1 20); do npm "
+        "ci --ignore-scripts; done\n          {use}"
     ),
 }
 _NPX = "node_modules/.bin/playwright install --with-deps chromium firefox"
@@ -813,7 +824,8 @@ def test_tolerated_exports_and_builds_establish_nothing(tmp_path: Path) -> None:
     )
     install = (
         "python -I -m venv /tmp/wheel-venv\n"
-        "          /tmp/wheel-venv/bin/pip install --require-hashes -r requirements-lock.txt"
+        "          /tmp/wheel-venv/bin/pip install --only-binary "
+        ":all: --require-hashes -r requirements-lock.txt"
     )
     tolerated = f"      - run: |\n          {export} || true\n          {install}"
     assert any("lock:requirements-lock.txt" in p for p in _verdict(tmp_path, tolerated))
@@ -822,7 +834,8 @@ def test_tolerated_exports_and_builds_establish_nothing(tmp_path: Path) -> None:
     build = "uv run --locked --only-group release python -I -m build --no-isolation --outdir dist"
     wheel = (
         "python -I -m venv /tmp/smoke-venv\n"
-        "          /tmp/smoke-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl"
+        "          /tmp/smoke-venv/bin/pip install --only-binary "
+        ":all: --no-deps --no-index dist/gpo_studio-*.whl"
     )
     branch = (
         f"      - run: |\n          if [ ! -s sbom.cdx.json ]; then\n            {build}\n"
@@ -835,7 +848,8 @@ def test_tolerated_exports_and_builds_establish_nothing(tmp_path: Path) -> None:
 def test_a_fact_holds_inside_the_block_that_established_it(tmp_path: Path) -> None:
     """The smoke script builds inside an else branch and uses the result there."""
     inside = (
-        "      - run: |\n          if [ ! -s sbom.cdx.json ]; then\n            npm ci\n"
+        "      - run: |\n          if [ ! -s sbom.cdx.json ]; then\n   "
+        "         npm ci --ignore-scripts\n"
         f"            {_NPX}\n          fi"
     )
     assert _verdict(tmp_path, inside) == []
@@ -861,7 +875,7 @@ def test_a_project_npmrc_is_refused(tmp_path: Path) -> None:
     package = _npm_project(tmp_path, {"test:unit": "vitest run"})
     (tmp_path / ".npmrc").write_text("script-shell=./attacker.sh\n", encoding="utf-8")
     workflow = tmp_path / "probe.yml"
-    steps = "      - run: npm ci\n      - run: npm run test:unit"
+    steps = "      - run: npm ci --ignore-scripts\n      - run: npm run test:unit"
     workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
     problems = workflow_violations(workflow, root=tmp_path, package_json=package)
     assert any(".npmrc" in problem for problem in problems)
@@ -1036,6 +1050,63 @@ TRACKED_CONFIGURATION = {
         .read_text(encoding="utf-8")
         .replace("https://files.pythonhosted.org/", "https://example.invalid/", 1),
     },
+    # Sol r8 B1, verbatim: a nested node_modules package without package.json.
+    "nested_node_modules": {
+        "tests/frontend/node_modules/vitest/index.js": (
+            "throw new Error('tracked nested package ran');\n"
+        ),
+    },
+    "nested_node_modules_src": {"src/node_modules/@axe-core/playwright/index.js": "x\n"},
+    "nested_node_modules_case": {"tests/browser/Node_Modules/x/index.js": "x\n"},
+    "nested_venv": {"tests/.venv/bin/python": "#!/bin/sh\n"},
+    "yarn_tree": {".yarn/releases/yarn.cjs": "x\n"},
+    "pnp_loader": {".pnp.cjs": "x\n"},
+    "workspaces_key": {
+        "package.json": json.dumps(
+            {
+                **json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8")),
+                "workspaces": ["tests/frontend"],
+            }
+        ),
+    },
+    # Sol r8 B2: an sdist-only lock entry; pip and uv would build it, resolving its
+    # build requirements from the index outside the lock.
+    "sdist_only_lock_entry": {
+        "uv.lock": re.sub(
+            r'(name = "annotated-types"\n(?:.*\n)*?)wheels = \[\n(?:.*\n)*?\]\n',
+            r"\1",
+            (REPO_ROOT / "uv.lock").read_text(encoding="utf-8"),
+            count=1,
+        ),
+    },
+    "unreviewed_install_script": {
+        "package-lock.json": json.dumps(
+            {
+                **json.loads(LOCK_TEXT),
+                "packages": {
+                    **json.loads(LOCK_TEXT)["packages"],
+                    "node_modules/vitest": {
+                        **json.loads(LOCK_TEXT)["packages"]["node_modules/vitest"],
+                        "hasInstallScript": True,
+                    },
+                },
+            }
+        ),
+    },
+    "lock_bin_outside_package": {
+        "package-lock.json": json.dumps(
+            {
+                **json.loads(LOCK_TEXT),
+                "packages": {
+                    **json.loads(LOCK_TEXT)["packages"],
+                    "node_modules/vitest": {
+                        **json.loads(LOCK_TEXT)["packages"]["node_modules/vitest"],
+                        "bin": {"vitest": "../../evil.mjs"},
+                    },
+                },
+            }
+        ),
+    },
     "package_manager": {
         "package.json": json.dumps(
             {
@@ -1056,6 +1127,45 @@ def test_a_tracked_tool_configuration_is_refused(name: str, tmp_path: Path) -> N
         pytest.skip("the two spellings are one file on this disk, so git sees one path")
     root = _repository(tmp_path, files)
     assert configuration_violations(root), name
+
+
+def test_every_pip_install_template_builds_nothing_from_the_index() -> None:
+    """Sol r8 B2: --require-hashes does not stop an sdist's isolated build resolving freely.
+
+    Every pip install is wheel-only, or (our own sdist alone) builds without isolation
+    against the build backend this job installed from the lock into the same venv.
+    """
+    installs = [t for t in TEMPLATES if "install" in t.tokens and "pip" in t.tokens[0]]
+    assert len(installs) == 10
+    for template in installs:
+        tokens = template.tokens
+        binary_only = (
+            "--only-binary" in tokens and tokens[tokens.index("--only-binary") + 1] == ":all:"
+        )
+        locked_backend = "--no-build-isolation" in tokens and "backend:@VENV@" in template.requires
+        assert binary_only != locked_backend, tokens
+    for unlocked in (
+        "/tmp/smoke-venv/bin/pip install --require-hashes -r requirements-lock.txt",
+        "/tmp/smoke-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl",
+    ):
+        assert any(_match(t, tuple(unlocked.split())) is None for t in installs)
+
+
+def test_every_locked_package_has_a_wheel_for_every_ci_platform() -> None:
+    """So neither pip (wheel-only) nor uv ever builds a dependency's sdist in CI."""
+    assert workflow_grammar.uv_lock_violations(REPO_ROOT / "uv.lock") == []
+
+
+def test_every_npm_install_script_is_reviewed_and_none_runs() -> None:
+    """Sol r8: a locked package's own install scripts; CI runs npm ci --ignore-scripts."""
+    lock = json.loads(LOCK_TEXT)["packages"]
+    scripted = {path for path, entry in lock.items() if entry.get("hasInstallScript")}
+    assert scripted <= workflow_grammar.REVIEWED_INSTALL_SCRIPTS
+    templates = {" ".join(t.tokens) for t in TEMPLATES}
+    assert "npm ci --ignore-scripts" in templates and "npm ci" not in templates
+    for path in WORKFLOW_FILES:
+        text = path.read_text(encoding="utf-8")
+        assert not re.search(r"npm ci(?! --ignore-scripts)", text), path.name
 
 
 def test_a_reusable_workflow_call_takes_no_inputs(tmp_path: Path) -> None:
@@ -1085,7 +1195,7 @@ def test_the_npm_programs_must_come_from_the_lock(tmp_path: Path) -> None:
     (tmp_path / "package-lock.json").write_text(json.dumps(lock), encoding="utf-8")
     workflow = tmp_path / "probe.yml"
     for install in (_NPX, "npx playwright install --with-deps chromium firefox"):
-        steps = f"      - run: npm ci\n      - run: {install}"
+        steps = f"      - run: npm ci --ignore-scripts\n      - run: {install}"
         workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
         problems = workflow_violations(workflow, root=tmp_path, package_json=package)
         assert any("no locked package provides playwright" in p for p in problems), problems
@@ -1094,7 +1204,7 @@ def test_the_npm_programs_must_come_from_the_lock(tmp_path: Path) -> None:
     declared = json.loads(loose.read_text(encoding="utf-8"))
     declared["devDependencies"]["@playwright/test"] = "^1.61.1"
     loose.write_text(json.dumps(declared), encoding="utf-8")
-    steps = f"      - run: npm ci\n      - run: {_NPX}"
+    steps = f"      - run: npm ci --ignore-scripts\n      - run: {_NPX}"
     workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
     problems = workflow_violations(workflow, root=tmp_path, package_json=loose)
     assert any("not pinned to one version" in p for p in problems), problems
@@ -1380,8 +1490,8 @@ NPM_SCRIPT_VARIANTS = {
         },
         "npm run x",
     ),
-    "postinstall_on_ci": ({"postinstall": "vitest run"}, "npm ci"),
-    "prepare_on_ci": ({"prepare": "vitest run"}, "npm ci"),
+    "postinstall_on_ci": ({"postinstall": "vitest run"}, "npm ci --ignore-scripts"),
+    "prepare_on_ci": ({"prepare": "vitest run"}, "npm ci --ignore-scripts"),
 }
 
 
@@ -1390,7 +1500,7 @@ def test_an_npm_script_is_read_and_held_to_the_same_grammar(name: str, tmp_path:
     scripts, command = NPM_SCRIPT_VARIANTS[name]
     package = _npm_project(tmp_path, scripts)
     workflow = tmp_path / "probe.yml"
-    steps = f"      - run: npm ci\n      - run: {command}"
+    steps = f"      - run: npm ci --ignore-scripts\n      - run: {command}"
     workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
     assert workflow_violations(workflow, package_json=package), f"{name} was accepted"
 
@@ -1401,7 +1511,7 @@ def test_the_npm_negative_template_itself_is_accepted(tmp_path: Path) -> None:
     scripts = {"check": "npm run lint && vitest run", "lint": lint, "precheck": "vitest run"}
     package = _npm_project(tmp_path, scripts)
     workflow = tmp_path / "probe.yml"
-    steps = "      - run: npm ci\n      - run: npm run check"
+    steps = "      - run: npm ci --ignore-scripts\n      - run: npm run check"
     workflow.write_text(_STEP.format(env="", steps=steps), encoding="utf-8")
     assert workflow_violations(workflow, package_json=package) == []
 
@@ -1411,8 +1521,8 @@ def test_every_real_npm_script_but_format_is_in_the_grammar(tmp_path: Path) -> N
     scripts = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["scripts"]
     runnable = sorted(set(scripts) - {"format"})
     steps = "".join(f"      - run: npm run {name}\n" for name in runnable)
-    assert _verdict(tmp_path, f"      - run: npm ci\n{steps}") == []
-    assert _verdict(tmp_path, "      - run: npm ci\n      - run: npm run format")
+    assert _verdict(tmp_path, f"      - run: npm ci --ignore-scripts\n{steps}") == []
+    assert _verdict(tmp_path, "      - run: npm ci --ignore-scripts\n      - run: npm run format")
 
 
 def test_ci_checks_the_lockfile_matches_pyproject() -> None:

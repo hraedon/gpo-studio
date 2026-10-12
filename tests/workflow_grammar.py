@@ -30,6 +30,17 @@ script into simple commands with a small shell lexer, it requires:
   alike, to carry a hash;
 * every Python template to run with ``-I``, so neither the script's directory
   nor the working directory comes first on ``sys.path``;
+* every pip install to be wheel-only (``--only-binary :all:``) or, for this
+  project's own sdist alone, ``--no-build-isolation`` into a venv this job filled
+  with the locked build backend: ``--require-hashes`` does not stop an sdist's
+  isolated build resolving its build requirements from the index. Every uv.lock
+  package must have a wheel for each CI platform and Python, so neither pip nor
+  uv ever builds a dependency; uv builds only the project, with the locked
+  backend (``no-build-isolation-package``);
+* ``npm ci --ignore-scripts``, with every lock entry that has install scripts
+  listed in ``REVIEWED_INSTALL_SCRIPTS``, and no ``node_modules`` (or ``.venv``,
+  ``dist``, ``.yarn``, Plug'n'Play loader) tracked at any depth: Node resolves a
+  nearer ``node_modules`` first, and ``npm ci`` rebuilds only the root one;
 * every PowerShell step, and every step of a Windows job (PowerShell by
   default), to be exactly one of ``PWSH_BODIES``;
 * no comment inside a command substitution (bash would ignore a ``)`` on that
@@ -534,14 +545,17 @@ TEMPLATES: tuple[Template, ...] = (
         provides=("venv:@VENV@",),
     ),
     _t(
-        '@VENV@/bin/pip install --require-hashes -r "$LOCKED/requirements-lock.txt"',
+        (
+            "@VENV@/bin/pip install --only-binary :all: --require-hashes -r "
+            '"$LOCKED/requirements-lock.txt"'
+        ),
         "installs the lock exported in this job, hash-checked",
         requires=("venv:@VENV@", "var:LOCKED", "lock:$RUNNER_TEMP/locked/requirements-lock.txt"),
     ),
     _t(
         (
-            '@VENV@/bin/pip install --require-hashes -r "$LOCKED/requirements-lock.txt" '
-            '-r "$LOCKED/build-backend-lock.txt"'
+            "@VENV@/bin/pip install --only-binary :all: --require-hashes -r "
+            '"$LOCKED/requirements-lock.txt" -r "$LOCKED/build-backend-lock.txt"'
         ),
         "installs the locks exported in this job, hash-checked",
         requires=(
@@ -550,21 +564,25 @@ TEMPLATES: tuple[Template, ...] = (
             "lock:$RUNNER_TEMP/locked/requirements-lock.txt",
             "lock:$RUNNER_TEMP/locked/build-backend-lock.txt",
         ),
+        provides=("backend:@VENV@",),
     ),
     _t(
-        ('@VENV@/bin/pip install --require-hashes -r "$RUNNER_TEMP/locked/requirements-lock.txt"'),
+        (
+            "@VENV@/bin/pip install --only-binary :all: --require-hashes -r "
+            '"$RUNNER_TEMP/locked/requirements-lock.txt"'
+        ),
         "installs the lock exported in this job, hash-checked",
         requires=("venv:@VENV@", "lock:$RUNNER_TEMP/locked/requirements-lock.txt"),
     ),
     _t(
-        "@VENV@/bin/pip install --require-hashes -r requirements-lock.txt",
+        "@VENV@/bin/pip install --only-binary :all: --require-hashes -r requirements-lock.txt",
         "installs the lock exported in this job, hash-checked",
         requires=("venv:@VENV@", "lock:requirements-lock.txt"),
     ),
     _t(
         (
-            "@VENV@/bin/pip install --require-hashes -r requirements-lock.txt -r "
-            '"$RUNNER_TEMP/locked/build-backend-lock.txt"'
+            "@VENV@/bin/pip install --only-binary :all: --require-hashes -r "
+            'requirements-lock.txt -r "$RUNNER_TEMP/locked/build-backend-lock.txt"'
         ),
         "installs the locks exported in this job, hash-checked",
         requires=(
@@ -572,14 +590,15 @@ TEMPLATES: tuple[Template, ...] = (
             "lock:requirements-lock.txt",
             "lock:$RUNNER_TEMP/locked/build-backend-lock.txt",
         ),
+        provides=("backend:@VENV@",),
     ),
     _t(
-        "@VENV@/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl",
+        "@VENV@/bin/pip install --only-binary :all: --no-deps --no-index dist/gpo_studio-*.whl",
         "installs this job's built wheel alone, no index",
         requires=("venv:@VENV@", "dist"),
     ),
     _t(
-        '@VENV@/bin/pip install --no-deps --no-index "$WHEEL"',
+        '@VENV@/bin/pip install --only-binary :all: --no-deps --no-index "$WHEEL"',
         "installs this job's built wheel alone, no index",
         requires=("venv:@VENV@", "dist", "var:WHEEL"),
     ),
@@ -589,7 +608,7 @@ TEMPLATES: tuple[Template, ...] = (
             "dist/gpo_studio-*.tar.gz"
         ),
         "builds this job's sdist with the locked backend already installed, no index",
-        requires=("venv:@VENV@", "dist"),
+        requires=("venv:@VENV@", "dist", "backend:@VENV@"),
     ),
     _t(
         "@VENV@/bin/pip check",
@@ -1056,8 +1075,8 @@ TEMPLATES: tuple[Template, ...] = (
         _SHELL,
     ),
     _t(
-        "npm ci",
-        "installs exactly package-lock.json",
+        "npm ci --ignore-scripts",
+        "installs exactly package-lock.json, running no package's install scripts",
         provides=("npm-ci",),
         action="npm-ci",
     ),
@@ -1222,13 +1241,13 @@ TEMPLATES: tuple[Template, ...] = (
         provides=("venv",),
     ),
     _t(
-        '"$TMPDIR/venv/bin/pip" install --require-hashes -r "$REQUIREMENTS"',
+        '"$TMPDIR/venv/bin/pip" install --only-binary :all: --require-hashes -r "$REQUIREMENTS"',
         "installs the exported (or handed-off) lock, hash-checked",
         scope="smoke",
         requires=("venv",),
     ),
     _t(
-        '"$TMPDIR/venv/bin/pip" install --no-deps --no-index "$WHEEL"',
+        '"$TMPDIR/venv/bin/pip" install --only-binary :all: --no-deps --no-index "$WHEEL"',
         "installs the wheel alone, no index",
         scope="smoke",
         requires=("venv",),
@@ -1670,6 +1689,15 @@ LOCKED_BINS = {
 }
 
 
+#: Lock entries whose packages carry install scripts (``hasInstallScript``). CI runs
+#: ``npm ci --ignore-scripts``, so none runs; each is listed so a new one is seen.
+REVIEWED_INSTALL_SCRIPTS = {
+    # fsevents: macOS-only and optional, so not even installed on the Linux runners.
+    "node_modules/fsevents",
+    "node_modules/vite/node_modules/fsevents",
+}
+
+
 def npm_lock_violations(package_json: Path, lock_path: Path) -> list[str]:
     """package-lock.json hashes every package and locks every program a template runs."""
     if not lock_path.is_file():
@@ -1689,6 +1717,12 @@ def npm_lock_violations(package_json: Path, lock_path: Path) -> list[str]:
             found.append(f"{lock_path.name}: {path} is not resolved from the npm registry")
         if not str(entry.get("integrity", "")).startswith("sha512-"):
             found.append(f"{lock_path.name}: {path} has no sha512 integrity, so nothing pins it")
+    for path, entry in packages.items():
+        if entry.get("hasInstallScript") and path not in REVIEWED_INSTALL_SCRIPTS:
+            found.append(f"{lock_path.name}: {path} has install scripts nobody reviewed")
+        for program, target in (entry.get("bin") or {}).items():
+            if ".." in str(target).split("/") or str(target).startswith("/"):
+                found.append(f"{lock_path.name}: {path} links {program} outside its package")
     declared = package.get("devDependencies") or {}
     for name, spec in sorted(declared.items()):
         if not re.fullmatch(r"\d+\.\d+\.\d+", str(spec)):
@@ -1887,6 +1921,9 @@ _ALSO_REFUSED = {
     ".browserslistrc",
     "browserslist",
     ".swcrc",
+    ".pnp.cjs",
+    ".pnp.js",
+    ".pnp.loader.mjs",
 }
 DISCOVERED = {name for _version, names in TOOL_DISCOVERY.values() for name in names}
 #: The three files every check above already pins by content at the root; elsewhere
@@ -1914,7 +1951,7 @@ REVIEWED_CONFIG: dict[str, str] = {
 _ANALYZER_CODE_KEYS = re.compile(r"CustomRulePath|RecurseCustomRulePath|IncludeDefaultRules", re.I)
 #: Trees a checkout must not carry: their contents would stand in for what a
 #: template builds or installs (a node_modules/.bin shim, a prebuilt dist/).
-UNTRACKED_TREES = ("node_modules", ".venv", "dist", "dist-repro", ".git")
+UNTRACKED_TREES = ("node_modules", ".venv", "dist", "dist-repro", ".git", ".yarn")
 #: Files a template writes at the root: a tracked one would be read where the job
 #: expects its own output (an export, a checksum list, an SBOM).
 WRITTEN_AT_ROOT = {
@@ -2009,6 +2046,37 @@ def _shadows(path: str) -> str | None:
     return None
 
 
+#: The (platform, CPython minor) pairs CI installs on: the Linux jobs and the
+#: Windows test job, on the matrix's 3.13 and 3.14.
+_CI_TARGETS = (("linux", 13), ("linux", 14), ("win", 13), ("win", 14))
+
+
+def _wheel_runs_on(artifact: dict[str, Any], platform: str, minor: int) -> bool:
+    from packaging.utils import parse_wheel_filename
+
+    _name, _version, _build, tags = parse_wheel_filename(str(artifact["url"]).rsplit("/", 1)[1])
+    for tag in tags:
+        if tag.platform != "any" and not (
+            (
+                platform == "linux"
+                and re.fullmatch(r"manylinux(_2_\d+|1|2010|2014)_x86_64", tag.platform)
+            )
+            or (platform == "win" and tag.platform == "win_amd64")
+        ):
+            continue
+        version = re.fullmatch(r"(?:py|cp)3(\d*)", tag.interpreter)
+        if version is None:
+            continue
+        built = int(version[1]) if version[1] else 0
+        if tag.abi == "none" and (built in (0, minor) or tag.interpreter.startswith("py")):
+            return True
+        if tag.abi == f"cp3{minor}" and built == minor:
+            return True
+        if tag.abi == "abi3" and built <= minor:
+            return True
+    return False
+
+
 def uv_lock_violations(lock_path: Path) -> list[str]:
     """Every package uv.lock names comes from PyPI with a SHA-256 for every artifact."""
     lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
@@ -2024,6 +2092,11 @@ def uv_lock_violations(lock_path: Path) -> list[str]:
             str(artifact.get("hash", "")).startswith("sha256:") for artifact in artifacts
         ):
             found.append(f"uv.lock: {package['name']} has an artifact without a SHA-256")
+        for target in _CI_TARGETS:
+            if not any(_wheel_runs_on(artifact, *target) for artifact in package.get("wheels", [])):
+                # uv and pip would build the sdist, resolving its build requirements
+                # from the index, unhashed and outside this lock (Sol r8 B2).
+                found.append(f"uv.lock: {package['name']} has no wheel for {target}")
         # uv re-derives these URLs from the index today; checked anyway, like npm's.
         if not all(
             str(artifact.get("url", "")).startswith("https://files.pythonhosted.org/")
@@ -2070,11 +2143,13 @@ def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
         elif mode == "160000":
             found.append(f"{path}: a submodule, whose content is fetched from elsewhere")
         name = folded.rsplit("/", 1)[-1]
-        first = folded.split("/", 1)[0]
         if "$" in path or "`" in path:
             found.append(f"{path}: a tracked path a template's variable could spell literally")
-        if first in {_fold(tree) for tree in UNTRACKED_TREES}:
-            found.append(f"{path}: tracked as or inside {first}")
+        trees = {_fold(tree) for tree in UNTRACKED_TREES} & set(folded.split("/"))
+        if trees:
+            # At any depth: Node resolves a nearer node_modules first, and npm ci
+            # rebuilds only the root one (Sol r8 B1).
+            found.append(f"{path}: tracked as or inside {sorted(trees)[0]}")
         if folded in {_fold(written) for written in WRITTEN_AT_ROOT}:
             found.append(f"{path}: a file a template writes, tracked")
         if name.endswith(".pyc") or "__pycache__" in folded.split("/"):

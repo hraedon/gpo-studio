@@ -143,7 +143,7 @@ jobs:
       - name: Install application
         run: uv sync --locked --extra dev
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Audit frontend tooling dependencies
         run: npm audit --audit-level=high
       - name: Cache Playwright browsers
@@ -218,11 +218,11 @@ jobs:
         run: |
           LOCKED="$RUNNER_TEMP/locked"
           python -I -m venv /tmp/smoke-venv
-          /tmp/smoke-venv/bin/pip install --require-hashes -r "$LOCKED/requirements-lock.txt"
-          /tmp/smoke-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl
+          /tmp/smoke-venv/bin/pip install --only-binary :all: --require-hashes -r "$LOCKED/requirements-lock.txt"
+          /tmp/smoke-venv/bin/pip install --only-binary :all: --no-deps --no-index dist/gpo_studio-*.whl
           /tmp/smoke-venv/bin/pip check
           python -I -m venv /tmp/sdist-venv
-          /tmp/sdist-venv/bin/pip install --require-hashes \
+          /tmp/sdist-venv/bin/pip install --only-binary :all: --require-hashes \
             -r "$LOCKED/requirements-lock.txt" -r "$LOCKED/build-backend-lock.txt"
           /tmp/sdist-venv/bin/pip install --no-deps --no-index --no-build-isolation \
             dist/gpo_studio-*.tar.gz
@@ -323,9 +323,9 @@ jobs:
         run: |
           uv run --locked --only-group release python -I -m build --no-isolation --wheel
           python -I -m venv /tmp/audit-venv
-          /tmp/audit-venv/bin/pip install --require-hashes \
+          /tmp/audit-venv/bin/pip install --only-binary :all: --require-hashes \
             -r "$RUNNER_TEMP/locked/requirements-lock.txt"
-          /tmp/audit-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl
+          /tmp/audit-venv/bin/pip install --only-binary :all: --no-deps --no-index dist/gpo_studio-*.whl
           /tmp/audit-venv/bin/pip check
           /tmp/audit-venv/bin/pip uninstall --yes pip
       # The audit reads the locked file itself, not one environment's
@@ -377,9 +377,9 @@ jobs:
         run: |
           uv run --locked --only-group release python -I -m build --no-isolation --wheel
           python -I -m venv /tmp/sbom-venv
-          /tmp/sbom-venv/bin/pip install --require-hashes \
+          /tmp/sbom-venv/bin/pip install --only-binary :all: --require-hashes \
             -r "$RUNNER_TEMP/locked/requirements-lock.txt"
-          /tmp/sbom-venv/bin/pip install --no-deps --no-index dist/gpo_studio-*.whl
+          /tmp/sbom-venv/bin/pip install --only-binary :all: --no-deps --no-index dist/gpo_studio-*.whl
           /tmp/sbom-venv/bin/pip check
           /tmp/sbom-venv/bin/pip uninstall --yes pip
       - name: Generate SBOM
