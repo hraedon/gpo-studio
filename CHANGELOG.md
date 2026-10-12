@@ -180,7 +180,9 @@ Operator-facing:
   `--config=…` could have turned into an ESLint option; no template may hold
   such a glob, and no tracked name may start with `-`. The npm scripts call
   their tools by local path (`node_modules/.bin/…`), and a checkout after an
-  install or build voids what the check knew it had produced.
+  install or build voids what the check knew it had produced. Each action is
+  allowed only at its reviewed revision, with its behaviour-selecting inputs
+  (setup-uv's `version`, setup-python's and setup-node's versions) required.
 - The project build itself now uses the locked backend too. An editable
   `uv sync --locked` still built gpo-studio in an isolated environment that
   resolved `[build-system].requires` (`hatchling`, unversioned) from the index;

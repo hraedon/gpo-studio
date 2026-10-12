@@ -1220,7 +1220,7 @@ def test_the_modelled_pythons_are_what_the_metadata_and_ci_admit() -> None:
 
     minors = workflow_grammar.MODELED_PYTHON_MINORS
     assert workflow_grammar.admitted_python_minors(REPO_ROOT / "pyproject.toml") == minors
-    allowed = workflow_grammar.ACTIONS["astral-sh/setup-uv"]["python-version"]
+    allowed = workflow_grammar.action_spec("astral-sh/setup-uv")[1].required["python-version"]
     assert allowed == {f"3.{minor}" for minor in minors}
     matrices = [
         job["strategy"]["matrix"]["python-version"]
@@ -1389,8 +1389,95 @@ def test_the_smoke_hand_off_needs_its_build_since_the_last_checkout(tmp_path: Pa
 def test_every_allowed_action_is_classified_for_the_workspace() -> None:
     """A new action invalidates every fact unless reviewed as leaving the workspace alone."""
     mutating = set(workflow_grammar.ACTIONS) - set(workflow_grammar.WORKSPACE_PRESERVING_ACTIONS)
-    assert mutating == {"actions/checkout"}
+    assert {uses.split("@")[0] for uses in mutating} == {"actions/checkout"}
     assert set(workflow_grammar.WORKSPACE_PRESERVING_ACTIONS) <= set(workflow_grammar.ACTIONS)
+
+
+def _workflow_uses() -> set[str]:
+    import yaml
+
+    return {
+        str(step["uses"])
+        for path in WORKFLOW_FILES
+        for job in yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"].values()
+        for step in job.get("steps") or []
+        if "uses" in step
+    }
+
+
+def test_the_action_table_is_exactly_what_the_workflows_pin() -> None:
+    """Sol r13 B1: one reviewed revision per action, the one the workflows use; there is
+    no separate pins file or verify-action-pins script in the repository to drift from."""
+    assert _workflow_uses() == set(workflow_grammar.ACTIONS)
+    names = [uses.split("@")[0] for uses in workflow_grammar.ACTIONS]
+    assert len(names) == len(set(names))
+    for path in WORKFLOW_FILES:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            pinned = re.search(r"uses: ([^@\s]+/[^@\s]+@[0-9a-f]{40})", line)
+            if pinned:
+                assert pinned[1] in workflow_grammar.ACTIONS, line
+
+
+def _reviewed_inputs(uses: str) -> dict[str, str]:
+    """A literal value for every input the spec requires, as the workflows give it."""
+    spec = workflow_grammar.ACTIONS[uses]
+    return {
+        key: (sorted(allowed)[0] if allowed else "dist/*") for key, allowed in spec.required.items()
+    }
+
+
+def _action_step(uses: str, inputs: dict[str, str]) -> str:
+    step = f"      - uses: {uses}\n"
+    if inputs:
+        step += "        with:\n" + "".join(
+            f"          {key}: {json.dumps(value)}\n" for key, value in inputs.items()
+        )
+    return step
+
+
+@pytest.mark.parametrize("uses", sorted(workflow_grammar.ACTIONS))
+def test_an_action_is_only_its_reviewed_revision(uses: str, tmp_path: Path) -> None:
+    """Sol r13 B1: a different 40-hex SHA (or checkout v4.2.2's real one) is refused."""
+    inputs = _reviewed_inputs(uses)
+    assert _verdict(tmp_path, _action_step(uses, inputs)) == []
+    name = uses.split("@")[0]
+    for sha in ("0" * 40, "11bd71901bbe5b1630ceea73d27597364c9af683"):
+        problems = _verdict(tmp_path, _action_step(f"{name}@{sha}", inputs))
+        assert any("not the reviewed revision" in p for p in problems), (name, sha)
+
+
+_REQUIRED_INPUTS = sorted(
+    (uses, key) for uses, spec in workflow_grammar.ACTIONS.items() for key in spec.required
+)
+
+
+@pytest.mark.parametrize("uses,key", _REQUIRED_INPUTS, ids=lambda value: str(value)[-28:])
+def test_a_required_action_input_must_be_given_its_reviewed_value(
+    uses: str, key: str, tmp_path: Path
+) -> None:
+    """Sol r13 B1: setup-uv without `version` chose its own uv; omission and any other
+    value of a selecting input are refused."""
+    inputs = _reviewed_inputs(uses)
+    del inputs[key]
+    problems = _verdict(tmp_path, _action_step(uses, inputs))
+    assert any(f"needs input {key!r}" in p for p in problems), problems
+    if workflow_grammar.ACTIONS[uses].required[key] is not None:
+        changed = {**_reviewed_inputs(uses), key: "9.99"}
+        assert _verdict(tmp_path, _action_step(uses, changed)), (uses, key)
+
+
+def test_an_unreviewed_revision_does_not_preserve_facts(tmp_path: Path) -> None:
+    """Sol r13's last probe: an arbitrary setup-uv SHA between npm ci and its consumer."""
+    uses, _spec = workflow_grammar.action_spec("astral-sh/setup-uv")
+    other = uses.split("@")[0] + "@" + "1" * 40
+    steps = (
+        "      - run: npm ci --ignore-scripts\n"
+        + _action_step(other, _reviewed_inputs(uses))
+        + "      - run: npm run lint\n"
+    )
+    problems = _verdict(tmp_path, steps)
+    assert any("not the reviewed revision" in p for p in problems)
+    assert any("npm-ci" in p for p in problems)
 
 
 def test_no_action_may_restore_a_workspace_install(tmp_path: Path) -> None:
@@ -1542,7 +1629,7 @@ def _locked_versions() -> dict[str, str]:
     for path, entry in npm.items():
         if path.startswith("node_modules/") and "node_modules/" not in path[len("node_modules/") :]:
             versions[path[len("node_modules/") :]] = str(entry.get("version"))
-    versions["uv"] = workflow_grammar.ACTIONS["astral-sh/setup-uv"]["version"].copy().pop()  # type: ignore[union-attr]
+    (versions["uv"],) = workflow_grammar.action_spec("astral-sh/setup-uv")[1].required["version"]  # type: ignore[misc]
     versions["PSScriptAnalyzer"] = "1.25.0"
     return versions
 

@@ -65,8 +65,11 @@ script into simple commands with a small shell lexer, it requires:
   of ``REVIEWED_EXPRESSIONS`` or ``matrix.KEY`` over a literal matrix, every
   ``if:`` to be one of ``REVIEWED_CONDITIONS``, and a matrix-valued action input
   to be checked value by value;
-* every action and input to be on ``ACTIONS`` (an input that selects what the
-  action downloads, to a listed value), every job to run on one of ``RUNNERS``,
+* every action to be exactly one ``ACTIONS`` entry -- its reviewed ``uses:``
+  revision, every required input present with a listed value (an input that
+  only names files excepted), no other input -- and facts to survive only an
+  entry reviewed as leaving the workspace alone; every job to run on one of
+  ``RUNNERS``,
   and no ``shell:``, ``working-directory``, default, ``container`` or
   ``services`` image that would change how the text above runs.
 
@@ -2459,55 +2462,109 @@ def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
 # --- workflows -------------------------------------------------------------------
 
 _PINNED_ACTION = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
-#: Remote actions a workflow may use, and the inputs each may be given. An action
-#: that installs packages (setup-python's ``pip-install``, say) is an install this
-#: grammar cannot see, so a new action or input is a deliberate edit here.
-#: An input that selects what the action downloads or runs has its values listed;
-#: ``None`` marks one that only names files to upload or attest. The pinned actions
-#: and what they fetch with these inputs (uv, CPython, Node, the cache) are trusted.
-_PYTHONS = {"3.13", "3.14"}
-ACTIONS: dict[str, dict[str, set[str] | None]] = {
-    "actions/attest": {"sbom-path": None, "subject-path": None},
-    "actions/attest-build-provenance": {"subject-path": None},
-    "actions/cache": {
-        "key": {"${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}"},
-        "path": {"~/.cache/ms-playwright"},
-    },
-    "actions/checkout": {"fetch-depth": {"0"}},
-    "actions/setup-node": {"cache": {"npm"}, "node-version": {"24"}},
-    "actions/setup-python": {"python-version": {"3.13"}},
-    "actions/upload-artifact": {"if-no-files-found": None, "name": None, "path": None},
-    "astral-sh/setup-uv": {
-        "enable-cache": {"True"},
-        "python-version": _PYTHONS,
-        "version": {"0.12.0"},
-    },
-    "gitleaks/gitleaks-action": {},
+
+
+@dataclass(frozen=True)
+class ActionSpec:
+    """One reviewed action: the exact revision, and the inputs it is run with.
+
+    ``required`` inputs must be present, with one of the listed values (``None``:
+    any value -- an input that only names files to upload or attest); ``optional``
+    inputs may be. Any other input is refused. ``preserves`` is why the action
+    leaves every fact's files alone (``""``: it does not; facts are voided).
+    """
+
+    required: dict[str, frozenset[str] | None]
+    optional: dict[str, frozenset[str] | None]
+    preserves: str
+
+
+def _values(*values: str) -> frozenset[str]:
+    return frozenset(values)
+
+
+#: Every action a workflow may use, keyed by its exact ``uses:`` value: one reviewed
+#: revision each (Sol r13: a key of owner/repo admitted any SHA, and a missing
+#: ``version:`` let setup-uv choose its own uv). An action that installs packages
+#: (setup-python's ``pip-install``, say) is an install this grammar cannot see, so
+#: a new action, revision or input is a deliberate edit here. Each SHA was checked
+#: against its repository (``gh api repos/OWNER/REPO/commits/SHA``) when recorded;
+#: the tag in each comment is the one the workflows name beside it. The pinned
+#: actions, and what they fetch with these inputs (uv, CPython, Node, the cache),
+#: are trusted.
+_PYTHONS = _values("3.13", "3.14")
+ACTIONS: dict[str, ActionSpec] = {
+    # v5. The one allowed action that changes the workspace: `git clean -ffdx`.
+    "actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd": ActionSpec(
+        required={}, optional={"fetch-depth": _values("0")}, preserves=""
+    ),
+    # v6
+    "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1": ActionSpec(
+        required={"python-version": _values("3.13")},
+        optional={},
+        preserves="CPython into the tool cache",
+    ),
+    # v5
+    "actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444": ActionSpec(
+        required={"node-version": _values("24"), "cache": _values("npm")},
+        optional={},
+        preserves="Node into the tool cache; cache: npm restores ~/.npm only",
+    ),
+    # v10.0.1
+    "astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d": ActionSpec(
+        required={"version": _values("0.12.0"), "python-version": _PYTHONS},
+        optional={"enable-cache": _values("True")},
+        preserves="uv into the tool cache; its cache is uv's download cache",
+    ),
+    # v5. The path is the Playwright browser cache, outside the workspace.
+    "actions/cache@caa296126883cff596d87d8935842f9db880ef25": ActionSpec(
+        required={
+            "path": _values("~/.cache/ms-playwright"),
+            "key": _values("${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}"),
+        },
+        optional={},
+        preserves="restores ~/.cache/ms-playwright only",
+    ),
+    # v6
+    "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f": ActionSpec(
+        required={"name": None, "path": None},
+        optional={"if-no-files-found": _values("error", "ignore")},
+        preserves="reads the named paths",
+    ),
+    # v4.1.1
+    "actions/attest@a1948c3f048ba23858d222213b7c278aabede763": ActionSpec(
+        required={"subject-path": None, "sbom-path": None},
+        optional={},
+        preserves="reads the subjects, writes an attestation outside the workspace",
+    ),
+    # v3
+    "actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a": ActionSpec(
+        required={"subject-path": None},
+        optional={},
+        preserves="reads the subjects, writes an attestation",
+    ),
+    # v3
+    "gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e": ActionSpec(
+        required={}, optional={}, preserves="reads the git history"
+    ),
 }
+#: The reviewed actions that leave the checkout's untracked files (node_modules,
+#: dist/, exported locks), the /tmp venvs and $RUNNER_TEMP alone, by exact
+#: ``uses:``. Every other step -- actions/checkout first of all -- voids every fact
+#: established before it in the job.
+WORKSPACE_PRESERVING_ACTIONS = {
+    uses: spec.preserves for uses, spec in ACTIONS.items() if spec.preserves
+}
+
+
+def action_spec(name: str) -> tuple[str, ActionSpec]:
+    """The one reviewed ``uses:`` value and spec for an ``owner/repo``."""
+    (found,) = [(uses, spec) for uses, spec in ACTIONS.items() if uses.split("@")[0] == name]
+    return found
 
 
 #: Runners a job may use: the default shell is bash on one and PowerShell on the other.
 RUNNERS = ("ubuntu-latest", "windows-latest")
-
-
-#: Allowed actions reviewed as leaving every fact's files alone: the checkout's
-#: untracked files (node_modules, dist/, exported locks), the /tmp venvs and
-#: $RUNNER_TEMP. Every other action -- actions/checkout first of all, which runs
-#: `git clean -ffdx` -- invalidates every fact established before it in the job.
-WORKSPACE_PRESERVING_ACTIONS = {
-    # Install an interpreter or tool into the runner's tool cache; their caches are
-    # the uv and npm download caches, which hash-checked installs verify.
-    "actions/setup-python": "CPython into the tool cache",
-    "actions/setup-node": "Node into the tool cache; cache: npm restores ~/.npm only",
-    "astral-sh/setup-uv": "uv into the tool cache; its cache is uv's download cache",
-    # path is pinned to the Playwright browser cache (ACTIONS), outside the workspace.
-    "actions/cache": "restores ~/.cache/ms-playwright only",
-    # Read the workspace; write nothing a fact rests on.
-    "actions/upload-artifact": "reads the named paths",
-    "actions/attest": "reads the subjects, writes an attestation outside the workspace",
-    "actions/attest-build-provenance": "reads the subjects, writes an attestation",
-    "gitleaks/gitleaks-action": "reads the git history",
-}
 
 
 def _env_violations(env: Any, where: str) -> Iterator[str]:
@@ -2610,16 +2667,25 @@ def _action_violations(
     if not _PINNED_ACTION.match(uses):
         yield f"{where}: action {uses!r} is not a remote action pinned by SHA"
         return
-    name = uses.split("@", 1)[0]
-    inputs = ACTIONS.get(name)
-    if inputs is None:
-        yield f"{where}: action {name!r} is not on the allowlist (it could install anything)"
+    spec = ACTIONS.get(uses)
+    if spec is None:
+        name = uses.split("@", 1)[0]
+        known = [reviewed for reviewed in ACTIONS if reviewed.split("@")[0] == name]
+        reason = f"is not the reviewed revision {known[0]}" if known else "is not on the allowlist"
+        yield f"{where}: action {uses!r} {reason} (it could install anything)"
         return
-    for key, value in (step.get("with") or {}).items():
-        if key not in inputs:
-            yield f"{where}: input {key!r} of {name} is not allowed"
+    inputs = step.get("with") or {}
+    for key in sorted(set(spec.required) - set(inputs)):
+        # The action would choose for itself (setup-uv: any uv; setup-python: any CPython).
+        yield f"{where}: {uses} needs input {key!r}"
+    for key, value in inputs.items():
+        if key in spec.required:
+            allowed = spec.required[key]
+        elif key in spec.optional:
+            allowed = spec.optional[key]
+        else:
+            yield f"{where}: input {key!r} of {uses} is not allowed"
             continue
-        allowed = inputs[key]
         if allowed is None:
             continue
         expanded = _MATRIX_ONLY.match(str(value))
@@ -2629,16 +2695,16 @@ def _action_violations(
             # Each matrix value is a separate run with that literal input.
             candidates = (matrix or {}).get(expanded[1])
             if candidates is None:
-                yield f"{where}: {name} {key}: {value!r} names no literal matrix key"
+                yield f"{where}: {uses} {key}: {value!r} names no literal matrix key"
                 continue
         elif "${{" in str(value):
-            yield f"{where}: {name} {key}: {value!r} is an expression, not a listed value"
+            yield f"{where}: {uses} {key}: {value!r} is an expression, not a listed value"
             continue
         else:
             candidates = [str(value)]
         for candidate in candidates:
             if candidate not in allowed:
-                yield f"{where}: {name} {key}: {candidate!r} is not one of {sorted(allowed)}"
+                yield f"{where}: {uses} {key}: {candidate!r} is not one of {sorted(allowed)}"
 
 
 def workflow_violations(
@@ -2695,8 +2761,7 @@ def workflow_violations(
             where = f"{path.name}:{job_name}#{number}"
             if "uses" in step:
                 found.extend(_action_violations(step, where, matrix))
-                name = str(step["uses"]).split("@", 1)[0]
-                if name not in WORKSPACE_PRESERVING_ACTIONS:
+                if str(step["uses"]) not in WORKSPACE_PRESERVING_ACTIONS:
                     # checkout's `git clean -ffdx` removes node_modules, dist/, exports
                     # (Sol r12 B1); anything not reviewed as leaving them is assumed to.
                     ctx.invalidate()
