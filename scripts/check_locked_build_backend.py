@@ -7,6 +7,11 @@ build was made non-isolated against the lock's `build-backend` group.
 
 The check, on a copy of the tracked tree outside the repository:
 
+0. ``uv sync --locked`` into a new environment with an empty cache (this step
+   uses the network) must succeed: the order uv builds and installs in differs
+   with a cold cache, and a global ``no-build-isolation`` built gpo-studio before
+   hatchling was installed there -- while every warm-cache run passed (CI on
+   59cb548).
 1. A fresh uv cache is seeded with the locked `build-backend` closure only
    (`uv sync --locked --only-group build-backend`; this step uses the network).
 2. With ``UV_OFFLINE=1``, ``uv sync --locked --extra dev`` installs that closure
@@ -117,6 +122,22 @@ def run(tmp_root: Path) -> None:
         base["UV_PYTHON_DOWNLOADS"] = "never"
         # The interpreter running this check, so no uv setting chooses another.
         base["UV_PYTHON"] = sys.executable
+
+        cold = _uv(
+            ["sync", "--locked"],
+            env={
+                **base,
+                "UV_CACHE_DIR": str(work / "cold-cache"),
+                "UV_PROJECT_ENVIRONMENT": str(work / "cold-env"),
+            },
+            project=tree,
+        )
+        if cold.returncode != 0:
+            raise CheckFailed(
+                "a new environment with an empty cache could not install the project "
+                f"from the lock:\n{(cold.stdout + cold.stderr)[-4000:]}"
+            )
+        print("cold sync: a new environment and an empty cache install the project")
 
         seed = _uv(
             ["sync", "--locked", "--only-group", "build-backend"],

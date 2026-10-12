@@ -1120,10 +1120,15 @@ TRACKED_CONFIGURATION = {
         .read_text(encoding="utf-8")
         .replace('  "annotated-types",\n', "", 1),
     },
-    "build_isolation_back_on": {
+    "global_no_build_isolation": {
         "pyproject.toml": (REPO_ROOT / "pyproject.toml")
         .read_text(encoding="utf-8")
-        .replace("no-build-isolation = true", "no-build-isolation = false", 1),
+        .replace('no-build-isolation-package = ["gpo-studio"]', "no-build-isolation = true", 1),
+    },
+    "isolation_on_for_the_project": {
+        "pyproject.toml": (REPO_ROOT / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .replace('no-build-isolation-package = ["gpo-studio"]\n', "", 1),
     },
     # Sol r10 B2: metadata admitting an interpreter the lock and CI do not model.
     "requires_python_uncapped": {

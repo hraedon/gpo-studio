@@ -29,11 +29,11 @@ def _name(requirement: str) -> str:
 
 def test_the_project_is_built_without_isolation_from_a_default_locked_group() -> None:
     tool = PYPROJECT["tool"]["uv"]
-    # Off for every build: a dependency's sdist would resolve its build requirements
-    # from the index in an isolated environment (Sol r9 B2).
-    assert tool["no-build-isolation"] is True
-    assert "no-build-isolation-package" not in tool
-    # And no dependency is built at all: every locked dependency is listed.
+    # Off for gpo-studio only: the global setting builds it before hatchling is
+    # installed in a fresh environment (CI on 59cb548).
+    assert tool["no-build-isolation-package"] == ["gpo-studio"]
+    assert "no-build-isolation" not in tool
+    # And no dependency is built at all, isolated or not: every locked one is listed.
     assert "hatchling" in tool["no-build-package"]
     assert "build-backend" in tool["default-groups"]
 

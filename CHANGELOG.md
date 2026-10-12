@@ -186,8 +186,8 @@ Operator-facing:
 - The project build itself now uses the locked backend too. An editable
   `uv sync --locked` still built gpo-studio in an isolated environment that
   resolved `[build-system].requires` (`hatchling`, unversioned) from the index;
-  `[tool.uv]` now turns isolation off (for every build: a dependency's sdist
-  would otherwise resolve its build requirements from the index) and makes the locked
+  `[tool.uv]` now turns isolation off for gpo-studio, lists every locked dependency
+  in `no-build-package` (so none is ever built, isolated or not), and makes the locked
   `build-backend` group (hatchling, editables) a default group.
   `scripts/check_locked_build_backend.py`, run in CI, proves it offline against
   a cache holding only that group, with an isolated build failing as control.

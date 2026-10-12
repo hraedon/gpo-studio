@@ -37,9 +37,11 @@ script into simple commands with a small shell lexer, it requires:
   package must have a wheel each CI target accepts -- decided by
   ``packaging.tags``' rules for linux x86_64 (glibc ``LINUX_GLIBC_FLOOR``) and
   win_amd64 on CPython 3.13 and 3.14 -- so neither pip nor uv builds a
-  dependency; and at run time ``[tool.uv] no-build-isolation`` makes any build uv
-  does use the locked environment, so one whose backend is not locked fails
-  rather than resolving its build requirements from the index;
+  dependency; and at run time ``[tool.uv] no-build-package`` names every locked
+  dependency, so uv refuses to build one at all, while the one build it does,
+  gpo-studio's, is non-isolated against the locked backend
+  (``no-build-isolation-package``; the global setting is refused, since a fresh
+  environment then builds before the backend is installed);
 * ``npm ci --ignore-scripts``, with every lock entry that has install scripts
   listed in ``REVIEWED_INSTALL_SCRIPTS``, and no ``node_modules`` (or ``.venv``,
   ``dist``, ``.yarn``, Plug'n'Play loader) tracked at any depth: Node resolves a
@@ -2400,14 +2402,16 @@ def _tool_uv_violations(table: Any, lock_path: Path) -> list[str]:
     expected = {
         "required-version": ">=0.12.0",
         "default-groups": ["build-backend"],
-        "no-build-isolation": True,
+        # Not the global no-build-isolation: it builds gpo-studio before its backend
+        # is installed in a fresh environment (CI on 59cb548).
+        "no-build-isolation-package": ["gpo-studio"],
         "no-build-package": locked,
     }
     if not isinstance(table, dict) or set(table) != set(expected):
         return ["pyproject.toml: [tool.uv] has other keys than the reviewed ones"]
     found = [
         f"pyproject.toml: [tool.uv] {key} differs from the reviewed value"
-        for key in ("required-version", "default-groups", "no-build-isolation")
+        for key in ("required-version", "default-groups", "no-build-isolation-package")
         if table[key] != expected[key]
     ]
     if sorted(table["no-build-package"]) != locked:
