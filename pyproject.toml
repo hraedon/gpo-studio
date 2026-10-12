@@ -7,7 +7,7 @@ name = "gpo-studio"
 dynamic = ["version"]
 description = "Offline-first web workbench for safely authoring Group Policy changes"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.15"
 license = { text = "MIT" }
 dependencies = [
   "fastapi>=0.115,<0.142",

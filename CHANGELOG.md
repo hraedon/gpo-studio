@@ -126,6 +126,11 @@ Operator-facing:
 
 ### Changed
 
+- **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
+  metadata said `>=3.13`, which now admits Python 3.15, but some locked
+  dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no
+  3.15 wheel, and installs refuse to build one. `uv.lock` was regenerated for
+  the cap only: every package version is unchanged.
 - **Releases publish `requirements-lock.txt`, and the Windows quickstart
   installs from it.** The file is the runtime closure of `uv.lock`, pinned by
   SHA-256, and is listed in `SHA256SUMS`, attested with the distributions and

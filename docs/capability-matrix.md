@@ -1240,7 +1240,8 @@ CSE-specific details still apply.
 
 - **3.13**: primary development and CI target.
 - **3.14**: supported.
-- Minimum: `>=3.13` (enforced in `pyproject.toml`).
+- Range: `>=3.13,<3.15` (enforced in `pyproject.toml`); 3.15 is not supported
+  yet, because some locked dependencies have no 3.15 wheel.
 
 ### Browsers
 

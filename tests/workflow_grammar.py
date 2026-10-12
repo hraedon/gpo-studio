@@ -149,7 +149,16 @@ _OPERATORS = ("&&", "||", ";;", ";", "|", "&", "\n", "(", ")", "{", "}")
 _JOINING = {"&&", "||", "|", "&"}
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
 #: ``${NAME}``, ``${#NAME[@]}``, ``${NAME[0]}``, ``${NAME:-literal}``: nothing that runs.
-_PARAMETER = re.compile(r"^\$\{#?[A-Za-z_][A-Za-z0-9_]*(\[[^\]$`(){}]*\])?(:?[-=+?][^$`(){}]*)?\}$")
+#: The ``${...}`` forms a script may use, quoted or not: a name, an optional ``#``
+#: length, a literal subscript (``@``, ``*`` or digits -- a subscript is evaluated
+#: arithmetically, and arithmetic runs ``a[$(cmd)]``), and a default or pattern
+#: operator with a literal word. Never ``@P``/``@E``/``@A``/``@Q`` (prompt expansion
+#: runs a substitution taken from the value, Sol r10 B1), ``!`` indirection, a nested
+#: expansion, or a substring offset (arithmetic again).
+_PARAMETER = re.compile(
+    r"^\$\{#?[A-Za-z_][A-Za-z0-9_]*(\[(?:@|\*|\d+)\])?"
+    r"((?::?[-=+?]|##?|%%?)[^$`(){}\\@!]*)?\}$"
+)
 
 
 def _read_balanced(text: str, start: int) -> int:
@@ -420,11 +429,23 @@ def split_commands(script: str, *, closed: bool = True) -> list[Command]:
                     word += script[index + 1 : index + 2]
                     index += 2
                     continue
+                if script.startswith(("$((", "$["), index):
+                    raise GrammarError("arithmetic expansion, which evaluates a[$(cmd)]")
                 if script.startswith("$(", index):
                     end = _read_balanced(script, index + 2)
                     nested(script[index + 2 : end - 1])
                     word += script[index:end]
                     index = end
+                    continue
+                if script.startswith("${", index):
+                    end = script.find("}", index)
+                    if end < 0 or not _PARAMETER.match(script[index : end + 1]):
+                        shown = script[index : index + 40]
+                        raise GrammarError(
+                            f"parameter expansion this grammar cannot read: {shown!r}"
+                        )
+                    word += script[index : end + 1]
+                    index = end + 1
                     continue
                 if script[index] == "`":
                     raise GrammarError("backtick command substitution")
@@ -434,6 +455,8 @@ def split_commands(script: str, *, closed: bool = True) -> list[Command]:
             continue
         if char == "`":
             raise GrammarError("backtick command substitution")
+        if script.startswith(("$((", "$["), index):
+            raise GrammarError("arithmetic expansion, which evaluates a[$(cmd)]")
         if script.startswith("$(", index) or script.startswith("<(", index):
             end = _read_balanced(script, index + 2)
             nested(script[index + 2 : end - 1])
@@ -547,7 +570,9 @@ SLOTS = {
     # echo's text: it cannot run anything, an option (-e, -n) cannot start a word, and
     # no substitution may sit in it -- a reviewed one is a literal template instead, so
     # the reader below never decides where a slot's substitution ends.
-    "TEXT": r"(?!-)(?:(?!\$\(|\$\[|<\(|>\(|`)[\s\S])*",
+    # Every `$` in it is a bare `$NAME` or `${NAME}` -- the forms the workflows print,
+    # and none that evaluates a value a second time (Sol r10 B1: `${X@P}`).
+    "TEXT": (r"(?!-)(?:(?![<>]\()[^$`\\]|\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\})*"),
     # A package.json script name; the script itself is then held to this table.
     "NPM_SCRIPT": r"[a-z][a-z:]*",
 }
@@ -2151,7 +2176,13 @@ def _shadows(path: str) -> str | None:
 
 #: The (platform, CPython minor) pairs CI installs on: the Linux jobs and the
 #: Windows test job, on the matrix's 3.13 and 3.14.
-_CI_TARGETS = (("linux", 13), ("linux", 14), ("win", 13), ("win", 14))
+#: The CPython minors CI runs and this check models. requires-python must admit
+#: exactly these (Sol r10 B2: `>=3.13` admitted 3.15, which the lock cannot install
+#: without building), so a metadata change cannot outrun the model.
+MODELED_PYTHON_MINORS = (13, 14)
+_CI_TARGETS = tuple(
+    (platform, minor) for platform in ("linux", "win") for minor in MODELED_PYTHON_MINORS
+)
 #: The oldest glibc a Linux CI runner is assumed to have. ubuntu-latest has been
 #: Ubuntu 24.04 (glibc 2.39) since early 2025; 22.04's 2.35 is assumed so that a
 #: move between those images cannot strand a wheel. A lower floor accepts fewer
@@ -2190,6 +2221,26 @@ def _wheel_runs_on(artifact: dict[str, Any], platform: str, minor: int) -> bool:
     name = str(artifact["url"]).rsplit("/", 1)[1]
     _name, _version, _build, wheel_tags = parse_wheel_filename(name)
     return any(str(tag) in _SUPPORTED[(platform, minor)] for tag in wheel_tags)
+
+
+def admitted_python_minors(pyproject_path: Path) -> tuple[int, ...]:
+    """The CPython 3.x minors ``requires-python`` admits (99 stands for "unbounded")."""
+    from packaging.specifiers import SpecifierSet
+
+    pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    specifier = SpecifierSet(pyproject["project"]["requires-python"])
+    return tuple(minor for minor in range(100) if specifier.contains(f"3.{minor}"))
+
+
+def python_range_violations(pyproject_path: Path) -> list[str]:
+    admitted = admitted_python_minors(pyproject_path)
+    if admitted != MODELED_PYTHON_MINORS:
+        shown = "unbounded" if 99 in admitted else [f"3.{minor}" for minor in admitted]
+        return [
+            f"pyproject.toml: requires-python admits {shown}, but CI and this check model "
+            f"{[f'3.{minor}' for minor in MODELED_PYTHON_MINORS]}"
+        ]
+    return []
 
 
 def uv_lock_violations(lock_path: Path) -> list[str]:
@@ -2338,6 +2389,7 @@ def configuration_violations(root: Path = REPO_ROOT) -> list[str]:
     if extra:
         found.append(f"package.json: unreviewed top-level keys {extra}")
     found.extend(npm_lock_violations(root / "package.json", root / "package-lock.json"))
+    found.extend(python_range_violations(root / "pyproject.toml"))
     if (root / "uv.lock").is_file():
         found.extend(uv_lock_violations(root / "uv.lock"))
     return found
@@ -2549,6 +2601,13 @@ def workflow_violations(
             # The runner decides the default shell; a label or expression would hide it.
             found.append(f"{path.name}:{job_name}: runs-on {runner!r} is not one of {RUNNERS}")
         windows = runner == "windows-latest"
+        inherited = ((document.get("defaults") or {}).get("run") or {}).get("shell") or (
+            (job.get("defaults") or {}).get("run") or {}
+        ).get("shell")
+        if windows and inherited:
+            # A Windows step without its own shell: runs under the inherited default,
+            # but would be checked here as PowerShell. Refused rather than modelled.
+            found.append(f"{path.name}:{job_name}: an inherited default shell on Windows")
         # Jobs are separate machines: nothing one established holds in another.
         ctx = Context(root=root, package_json=package_json)
         for number, step in enumerate(job.get("steps") or [], 1):

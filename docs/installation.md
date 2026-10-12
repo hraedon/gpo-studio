@@ -12,8 +12,11 @@ Related: [`architecture.md`](architecture.md) for trust boundaries,
 
 ## Requirements
 
-- **Python 3.13 or later.** 3.13 is the primary development and CI target and
-  3.14 is supported. `pyproject.toml` enforces `>=3.13`.
+- **Python 3.13 or 3.14.** 3.13 is the primary development and CI target and
+  3.14 is supported. `pyproject.toml` enforces `>=3.13,<3.15`: every locked
+  dependency has a wheel for both, which is what lets the install refuse to build
+  anything. 3.15 is not supported yet (some dependencies have no 3.15 wheel at
+  the locked versions).
 - A modern browser (Chromium-based or Firefox ESR). The browser application is
   plain HTML/CSS/JS with no dependencies and no build step.
 - A local filesystem for the workspace database. Network shares and
@@ -306,9 +309,10 @@ GPO_STUDIO_UNSAFE_BIND=1 gpo-studio run --host 0.0.0.0
 
 ### Python version too old
 
-GPO Studio needs Python 3.13 or later (`pyproject.toml` sets
-`requires-python = ">=3.13"`). Import or syntax errors at startup usually mean
-an older interpreter. Check it:
+GPO Studio needs Python 3.13 or 3.14 (`pyproject.toml` sets
+`requires-python = ">=3.13,<3.15"`). Import or syntax errors at startup usually
+mean an older interpreter, and an install that refuses to build a dependency
+usually means a newer one. Check it:
 
 ```bash
 python --version

@@ -1125,6 +1125,17 @@ TRACKED_CONFIGURATION = {
         .read_text(encoding="utf-8")
         .replace("no-build-isolation = true", "no-build-isolation = false", 1),
     },
+    # Sol r10 B2: metadata admitting an interpreter the lock and CI do not model.
+    "requires_python_uncapped": {
+        "pyproject.toml": (REPO_ROOT / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .replace('requires-python = ">=3.13,<3.15"', 'requires-python = ">=3.13"', 1),
+    },
+    "requires_python_admits_3_15": {
+        "pyproject.toml": (REPO_ROOT / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .replace('requires-python = ">=3.13,<3.15"', 'requires-python = ">=3.13,<3.16"', 1),
+    },
     "package_manager": {
         "package.json": json.dumps(
             {
@@ -1196,6 +1207,23 @@ def test_a_wheel_counts_only_where_the_runner_would_install_it(tag: str) -> None
     assert runs_on == WHEEL_TAGS[tag]
 
 
+def test_the_modelled_pythons_are_what_the_metadata_and_ci_admit() -> None:
+    """Sol r10 B2: requires-python, the CI matrix and setup-uv's values agree exactly."""
+    import yaml
+
+    minors = workflow_grammar.MODELED_PYTHON_MINORS
+    assert workflow_grammar.admitted_python_minors(REPO_ROOT / "pyproject.toml") == minors
+    allowed = workflow_grammar.ACTIONS["astral-sh/setup-uv"]["python-version"]
+    assert allowed == {f"3.{minor}" for minor in minors}
+    matrices = [
+        job["strategy"]["matrix"]["python-version"]
+        for path in WORKFLOW_FILES
+        for job in yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"].values()
+        if "strategy" in job
+    ]
+    assert matrices and all(matrix == [f"3.{minor}" for minor in minors] for matrix in matrices)
+
+
 def test_every_locked_package_has_a_wheel_for_every_ci_platform() -> None:
     """So neither pip (wheel-only) nor uv ever builds a dependency's sdist in CI."""
     assert workflow_grammar.uv_lock_violations(REPO_ROOT / "uv.lock") == []
@@ -1219,6 +1247,17 @@ def test_every_npm_install_script_is_reviewed_and_none_runs() -> None:
     for path in WORKFLOW_FILES:
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"npm ci(?! --ignore-scripts)", text), path.name
+
+
+def test_an_inherited_default_shell_is_refused_on_windows(tmp_path: Path) -> None:
+    """Sol r10 non-blocking: the step would run under the default, but be read as pwsh."""
+    for defaults in ("defaults: {run: {shell: bash}}", ""):
+        steps = (
+            "      - run: uv sync --locked --extra dev\n  win:\n    runs-on: windows-latest\n"
+            f"    {defaults}\n    steps:\n      - run: uv sync --locked --extra dev"
+        )
+        problems = _verdict(tmp_path, steps)
+        assert any("inherited default shell" in p for p in problems) == bool(defaults)
 
 
 def test_a_reusable_workflow_call_takes_no_inputs(tmp_path: Path) -> None:
@@ -1940,3 +1979,51 @@ def test_no_substitution_hides_in_an_echo_slot(tmp_path: Path) -> None:
     for text in ('echo "$(uv sync --locked --extra dev)"', "echo <(true)", 'echo "$[1+1]"'):
         assert _verdict(tmp_path, f"      - run: {text}"), text
     assert _verdict(tmp_path, '      - run: echo "plain text, $GITHUB_SHA"') == []
+
+
+_HOSTILE = {
+    "substitution": "$(echo pwned > MARKER)",
+    "backticks": "`echo pwned > MARKER`",
+    "arithmetic": "a[$(echo pwned > MARKER)]",
+    "prompt": "\\$(echo pwned > MARKER)",
+}
+
+
+@_POSIX_BASH
+@pytest.mark.parametrize("where,script", _real_scripts(), ids=lambda value: str(value)[:40])
+def test_no_accepted_script_evaluates_a_hostile_environment_value(
+    where: str, script: str, tmp_path: Path
+) -> None:
+    """Sol r10 B1's class: a value expanded a second time (``${X@P}``, arithmetic on
+    ``a[$(cmd)]``) runs code from the environment, which a template lexer never sees.
+
+    Every variable an accepted script names is set to each hostile payload; bash runs
+    the script (nothing on PATH, set/exit disabled) and must never create the marker.
+    GITHUB_REF_NAME and friends come from refs an attacker can name.
+    """
+    names = set(_VARIABLE_NAME.findall(script)) - {"PATH", "BASH_XTRACEFD"}
+    for kind, payload in _HOSTILE.items():
+        directory = tmp_path / kind
+        directory.mkdir()
+        _bash_commands(script, directory, {name: payload for name in names})
+        assert not (directory / "MARKER").exists(), (where, kind)
+
+
+@_POSIX_BASH
+def test_the_hostile_environment_harness_catches_a_second_evaluation(tmp_path: Path) -> None:
+    """The control, on Sol r10's exact script: bash runs the payload, the grammar refuses."""
+    script = 'echo "${GITHUB_REF_NAME@P}"\n'
+    _bash_commands(script, tmp_path, {"GITHUB_REF_NAME": _HOSTILE["substitution"]})
+    assert (tmp_path / "MARKER").exists()
+    with pytest.raises(workflow_grammar.GrammarError, match="parameter expansion"):
+        split_commands(script)
+    for refused in (
+        'echo "${!GITHUB_REF_NAME}"',
+        'echo "${GITHUB_REF_NAME@E}"',
+        'echo "${GITHUB_REF_NAME:0:1}"',
+        'echo "${WHEELS[$GITHUB_REF_NAME]}"',
+        'echo "${GITHUB_REF_NAME:-$(id)}"',
+        'echo "$((GITHUB_REF_NAME))"',
+    ):
+        with pytest.raises(workflow_grammar.GrammarError):
+            split_commands(refused)
