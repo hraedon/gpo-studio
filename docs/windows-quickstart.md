@@ -145,9 +145,9 @@ $Python = Join-Path $Venv "Scripts\python.exe"
 $App = Join-Path $Venv "Scripts\gpo-studio.exe"
 & $Python -m pip install --upgrade pip
 if ($Requirements) {
-    & $Python -m pip install --require-hashes -r $Requirements.FullName
+    & $Python -m pip install --only-binary :all: --require-hashes -r $Requirements.FullName
     if ($LASTEXITCODE -ne 0) { throw "Installing the locked dependencies failed." }
-    & $Python -m pip install --no-deps --no-index $Wheel.FullName
+    & $Python -m pip install --only-binary :all: --no-deps --no-index $Wheel.FullName
     if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
     & $Python -m pip check
     if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
@@ -257,9 +257,9 @@ $Root = Join-Path $env:LOCALAPPDATA "GPO Studio"
 $Python = Join-Path $Root "venv\Scripts\python.exe"
 $App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
 if ($Requirements) {
-    & $Python -m pip install --require-hashes -r $Requirements.FullName
+    & $Python -m pip install --only-binary :all: --require-hashes -r $Requirements.FullName
     if ($LASTEXITCODE -ne 0) { throw "Installing the locked dependencies failed." }
-    & $Python -m pip install --upgrade --no-deps --no-index $Wheel.FullName
+    & $Python -m pip install --only-binary :all: --upgrade --no-deps --no-index $Wheel.FullName
     if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
     & $Python -m pip check
     if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
@@ -307,9 +307,9 @@ $App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
 $Database = Join-Path $Root "data\gpo-studio.db"
 $Backup = Join-Path $Root "backups\workspace-YYYYMMDD-HHMMSS.db"  # your pre-upgrade backup
 if ($Requirements) {
-    & $Python -m pip install --require-hashes -r $Requirements.FullName
+    & $Python -m pip install --only-binary :all: --require-hashes -r $Requirements.FullName
     if ($LASTEXITCODE -ne 0) { throw "Installing the locked dependencies failed." }
-    & $Python -m pip install --no-deps --no-index $Wheel.FullName
+    & $Python -m pip install --only-binary :all: --no-deps --no-index $Wheel.FullName
     if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
     & $Python -m pip check
     if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }

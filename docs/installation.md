@@ -55,8 +55,8 @@ the environment is the one the release was tested with:
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install --require-hashes -r requirements-lock.txt
-.venv/bin/pip install --no-deps --no-index gpo_studio-<version>-py3-none-any.whl
+.venv/bin/pip install --only-binary :all: --require-hashes -r requirements-lock.txt
+.venv/bin/pip install --only-binary :all: --no-deps --no-index gpo_studio-<version>-py3-none-any.whl
 .venv/bin/pip check
 .venv/bin/gpo-studio run
 ```
