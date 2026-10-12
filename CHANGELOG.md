@@ -178,7 +178,9 @@ Operator-facing:
   `npm ci` runs with `--ignore-scripts`. `npm run lint` lists its files after
   `--` instead of the `*.config.mjs` glob, which a tracked file named
   `--config=…` could have turned into an ESLint option; no template may hold
-  such a glob, and no tracked name may start with `-`.
+  such a glob, and no tracked name may start with `-`. The npm scripts call
+  their tools by local path (`node_modules/.bin/…`), and a checkout after an
+  install or build voids what the check knew it had produced.
 - The project build itself now uses the locked backend too. An editable
   `uv sync --locked` still built gpo-studio in an isolated environment that
   resolved `[build-system].requires` (`hatchling`, unversioned) from the index;

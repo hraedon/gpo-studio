@@ -1279,28 +1279,28 @@ TEMPLATES: tuple[Template, ...] = (
     ),
     _t(
         (
-            "prettier --check eslint.config.mjs playwright.config.mjs vitest.config.mjs "
-            "tests/browser tests/frontend"
+            "node_modules/.bin/prettier --check eslint.config.mjs playwright.config.mjs "
+            "vitest.config.mjs tests/browser tests/frontend"
         ),
-        "a locked node tool; reads only",
+        "the locked tool by its own path: no PATH fallback if node_modules is gone",
         scope="npm",
     ),
     _t(
         (
-            "eslint -- src/gpo_studio/static/js tests/browser tests/frontend "
+            "node_modules/.bin/eslint -- src/gpo_studio/static/js tests/browser tests/frontend "
             "eslint.config.mjs playwright.config.mjs vitest.config.mjs"
         ),
-        "a locked node tool; reads only",
+        "the locked tool by its own path: no PATH fallback if node_modules is gone",
         scope="npm",
     ),
     _t(
-        "vitest run",
-        "the locked unit-test runner",
+        "node_modules/.bin/vitest run",
+        "the locked unit-test runner, by its own path",
         scope="npm",
     ),
     _t(
-        "playwright test",
-        "the locked browser-test runner",
+        "node_modules/.bin/playwright test",
+        "the locked browser-test runner, by its own path",
         scope="npm",
     ),
     _t(
@@ -1786,6 +1786,11 @@ class Context:
             return
         local = fact.startswith("var:") or command.block
         (self.step_facts if local else self.facts).append((fact, command.block))
+
+    def invalidate(self) -> None:
+        """An action changed the workspace or /tmp: nothing established so far holds."""
+        self.facts = []
+        self.step_facts = []
 
     def end_step(self) -> None:
         self.step_facts = []
@@ -2485,6 +2490,26 @@ ACTIONS: dict[str, dict[str, set[str] | None]] = {
 RUNNERS = ("ubuntu-latest", "windows-latest")
 
 
+#: Allowed actions reviewed as leaving every fact's files alone: the checkout's
+#: untracked files (node_modules, dist/, exported locks), the /tmp venvs and
+#: $RUNNER_TEMP. Every other action -- actions/checkout first of all, which runs
+#: `git clean -ffdx` -- invalidates every fact established before it in the job.
+WORKSPACE_PRESERVING_ACTIONS = {
+    # Install an interpreter or tool into the runner's tool cache; their caches are
+    # the uv and npm download caches, which hash-checked installs verify.
+    "actions/setup-python": "CPython into the tool cache",
+    "actions/setup-node": "Node into the tool cache; cache: npm restores ~/.npm only",
+    "astral-sh/setup-uv": "uv into the tool cache; its cache is uv's download cache",
+    # path is pinned to the Playwright browser cache (ACTIONS), outside the workspace.
+    "actions/cache": "restores ~/.cache/ms-playwright only",
+    # Read the workspace; write nothing a fact rests on.
+    "actions/upload-artifact": "reads the named paths",
+    "actions/attest": "reads the subjects, writes an attestation outside the workspace",
+    "actions/attest-build-provenance": "reads the subjects, writes an attestation",
+    "gitleaks/gitleaks-action": "reads the git history",
+}
+
+
 def _env_violations(env: Any, where: str) -> Iterator[str]:
     for name, value in (env or {}).items():
         if str(value) not in ENV.get(str(name), set()):
@@ -2670,6 +2695,11 @@ def workflow_violations(
             where = f"{path.name}:{job_name}#{number}"
             if "uses" in step:
                 found.extend(_action_violations(step, where, matrix))
+                name = str(step["uses"]).split("@", 1)[0]
+                if name not in WORKSPACE_PRESERVING_ACTIONS:
+                    # checkout's `git clean -ffdx` removes node_modules, dist/, exports
+                    # (Sol r12 B1); anything not reviewed as leaving them is assumed to.
+                    ctx.invalidate()
             found.extend(_env_violations(step.get("env"), where))
             if "working-directory" in step:
                 found.append(f"{where}: working-directory moves every relative path checked here")

