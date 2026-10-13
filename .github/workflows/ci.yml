@@ -29,7 +29,8 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 11 min observed at 1.1.0rc1; the limit leaves room for a slow runner.
+    timeout-minutes: 25
     strategy:
       matrix:
         python-version: ["3.13", "3.14"]
@@ -92,7 +93,9 @@ jobs:
     # The install goes through uv and the committed lockfile, as every Python
     # install in this file and release.yml does.
     runs-on: windows-latest
-    timeout-minutes: 20
+    # 12-20 min observed at 1.1.0rc1, and the v1.1.0-rc.1 release run's 3.13
+    # job was cancelled at 20m13s.
+    timeout-minutes: 40
     strategy:
       matrix:
         python-version: ["3.13", "3.14"]
