@@ -1,9 +1,9 @@
 # Plan 036: Reducing what a change costs
 
-Status: **proposed** (2026-10-13, revision 6). A design pass: none of it is
+Status: **proposed** (2026-10-13, revision 7). A design pass: none of it is
 built yet. It was written for a two-lineage design review. Rounds 1 to 5 (Sol
 and DeepSeek; approve-with-changes in rounds 1 to 4, and in round 5 one
-blocker from Sol and none from DeepSeek) are folded in; the disposition
+blocker from Sol and none from DeepSeek; round 6 none) are folded in; the disposition
 of each finding is under [Review disposition](#review-disposition-round-1). One
 part, WP-0, is proposed as a **1.1.0 final blocker** (registered as WI-083,
 awaiting the owner's ruling), because the
@@ -526,8 +526,12 @@ and are covered by the closure gate below.
    check refuses `B` if it changes any file in any lane's dependency set.
    Because the freshness gate hashes the working tree, `B`'s tree carries
    exactly `F`'s bytes for every bound file, and the gate is green at `B`.
-9. **Tag.** The release tag points at `B`, or at a descendant of `B` that is
-   itself evidence- and records-only. Every verdict and the successor record
+9. **Tag.** The final release tag points at the records-only **approval
+   commit**, the descendant of `B` described in step 2, never at `B` itself:
+   `check_release_manifest.py` requires `status: approved` and the exact
+   version for a final tag, and those records land only in the approval
+   commit, after the owner's NVDA acceptance. Every commit between `F` and the
+   tag is evidence- or records-only. Every verdict and the successor record
    name `F`; the closure gate proves the tag's tree equals `F` on every
    dependency.
 
@@ -980,11 +984,24 @@ matches its shape.
      descriptor in a path position (a path argument must have the static
      type `str` or `os.PathLike[str]`, never `int`); and no `**kwargs` or
      `*args` expansion into any of these targets, which could carry such an
-     argument unseen. With those forms refused, every descriptor a script
+     argument unseen. Two further routes are closed the same way: a
+     `functools.partial` (or any other wrapper) that binds a `dir_fd` or an
+     `opener`, whether the partial is held in a name or called inline, is
+     refused because a reference to `os.open` or `open` with such a bound
+     argument is classified exactly like the call; and the descriptor-only
+     functions `os.fchmod`, `os.fchown`, `os.ftruncate`, `os.fchdir`, and
+     `os.chdir` or `os.chmod` given an integer, are refused because they are
+     absent from every phase's positive call list, and a descriptor in a path
+     position is refused by the integer-path rule anyway. With those forms
+     refused, every descriptor a script
      holds comes from an `open` the hook checked, so writes through it are
      covered. A trusted wrapper doing a descriptor-relative containment
      check was the alternative; it is not needed while no script uses the
-     forms. An audit hook cannot be removed
+     forms. The per-event argument table (which arguments affect the path,
+     and which the event carries) and the static refusal rule are
+     **generated from one source of truth**, a single reviewed data file, and
+     a test fails if the guard's table and the grammar's refused forms ever
+     disagree (DeepSeek round-6 NB-3). An audit hook cannot be removed
      once installed. It is a second line behind the static allowlist, not a
      sandbox against hostile code; the threat model is a careless or
      unreviewed change, and the SHA pins plus tier-2 review cover the
@@ -1012,7 +1029,10 @@ matches its shape.
    `dir_fd` probe (a working-directory path inside the root, with a `dir_fd`
    on a directory outside it); `open` with an `opener`; `os.mkdir`,
    `os.rename` and `os.chmod` with a `dir_fd`; `os.chmod` on a file
-   descriptor; a `dir_fd` passed through `**kwargs`; a relative
+   descriptor; a `dir_fd` passed through `**kwargs`;
+   `functools.partial(os.open, dir_fd=d)` both bound to a name and called
+   inline; `os.fchmod`, `os.fchown`, `os.ftruncate`, `os.fchdir` and
+   `os.chdir(fd)`; a relative
    symlink target such as `../../outside` created from a working directory
    deep inside the root, so that it looks inside when resolved against the
    working directory but points outside from the link's own directory; an
@@ -2314,3 +2334,14 @@ one blocker. Every earlier item is closed in both reports.
 | Sol N2: lease-record lock wording | Every record change holds the record lock; acquisition, takeover and token changes also hold the operation lock, taken first; renewal holds only the record lock |
 | Sol N3: "every leaf outside `source`" vs the transforms | Now "every other leaf outside `source`" |
 | Sol N4: implicit protocol execution | The scan resolves the implied method of every property or descriptor access, iteration, `with`, operator, comparison, conversion and finaliser on the operand's static type and classifies it like a call; unknown types fail unless declared; writes to `sys.meta_path`, `sys.path_hooks` and `builtins` are refused, and a change to `sys.path` is a declared edge (the RSoP builder has one) |
+
+## Review disposition (round 6)
+
+Both reviewers found no blocker on revision 6 (`dd4f295`) and confirmed Sol's
+round-5 blocker closed. The non-blocking items are folded in.
+
+| Finding | Disposition |
+|---|---|
+| Sol NB1: step 9 still allowed the tag on `B` | The final tag points at the records-only approval commit after `B`, never at `B`, because the release gate requires `status: approved` and the exact version for a final tag |
+| Sol NB2 / DeepSeek NB-1, NB-2: `functools.partial` binding `dir_fd`, and descriptor-only targets | A reference that binds `dir_fd` or `opener` through `partial` is classified like the call and refused; `os.fchmod`, `os.fchown`, `os.ftruncate`, `os.fchdir` and an integer `os.chdir`/`os.chmod` are refused (absent from the positive call lists, and by the integer-path rule); planted probes added for bound and inline `partial` and each descriptor-only target |
+| DeepSeek NB-3: table and grammar could drift | Both are generated from one reviewed data file, and a test fails if they disagree |
