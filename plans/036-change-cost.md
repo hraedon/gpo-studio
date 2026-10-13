@@ -1,8 +1,8 @@
 # Plan 036: Reducing what a change costs
 
-Status: **proposed** (2026-10-13, revision 3). A design pass: none of it is
-built yet. It was written for a two-lineage design review. Rounds 1 and 2 (Sol
-and DeepSeek, approve-with-changes both times) are folded in; the disposition
+Status: **proposed** (2026-10-13, revision 4). A design pass: none of it is
+built yet. It was written for a two-lineage design review. Rounds 1 to 3 (Sol
+and DeepSeek, approve-with-changes each time) are folded in; the disposition
 of each finding is under [Review disposition](#review-disposition-round-1). One
 part, WP-0, is proposed as a **1.1.0 final blocker** (registered as WI-083,
 awaiting the owner's ruling), because the
@@ -460,40 +460,56 @@ owner's ruling.
 
 ### What WP-0 edits
 
-WP-0 is not edit-free. It adds new tooling, a generated record and a test, none
-of which is in any lane's dependency set. It also **edits the bound finalizer
-of every lane D-9 selects**, adding that lane's derived dependencies to its
+WP-0 is not edit-free. It adds new tooling, two generated records (the
+successor record and the closure gate's pin) and a test, none of which is in
+any lane's dependency set. It also **edits the bound finalizer of every lane
+D-9 selects**, adding that lane's derived dependencies to its
 `DEPLOYED_FILES`/`LOCAL_FILES` tables so that the lane's new verdict binds them
 by the existing byte rule. Each such edit expires exactly that one lane, which
 is being re-run anyway, so the edits cost nothing beyond the selected lanes. On
 the current data that is five finalizers (see D-9): `finalize_endpoint_run.py`,
 `finalize_wp2_import_run.py`, `finalize_lifecycle_run.py`,
 `finalize_report_parity_run.py` and `finalize_wp1b_run.py`, each bound by one
-lane (`bound-source-cost.md`). No other bound file changes. Lanes not selected
-keep their hand-written tables and are covered by the closure gate below.
+lane (`bound-source-cost.md`), and none imported by any other lane's code. No
+other bound file changes. Lanes not selected keep their hand-written tables
+and are covered by the closure gate below.
 
 ### Order, and which commit binds what
 
 1. **WP-0's tooling lands first**, through an ordinary reviewed PR (tier 2:
-   it adds a release gate). It touches no lane's dependency set.
+   it adds a release gate). It touches no lane's dependency set. The gate test
+   lands with it and skips, naming the reason, while no pin record exists; see
+   [the gate](#the-release-only-closure-gate) for when the skip stops being
+   allowed.
 2. **Candidate freeze, `F0`.** The commit intended for release, with every
    product change done.
-3. **Select.** Part 1's trace runs at `F0` and D-9's rule picks the lane set
-   `S` mechanically.
-4. **Freeze, `F`.** `F0` plus the table edits for the lanes in `S`, and nothing
-   else. `F` is the commit every new verdict and the successor record bind.
-5. **Parts 1 and 2 run again at `F`**, for all 26 lanes (the table edits changed
-   the selected lanes' finalizers, so the earlier trace no longer describes
-   them).
+3. **Provisional selection.** Part 1's trace runs at `F0`, with D-9's rule
+   evaluated against `F0` as its target, giving a provisional set `S0`.
+4. **Freeze, `F`.** `F0` plus the table edits for the lanes in `S0`, and nothing
+   else.
+5. **Definitive selection at `F`.** Parts 1 and 2 run again at `F` for all 26
+   lanes, and D-9's rule is evaluated with `F` as its target, which is the rule
+   as defined. If the set equals `S0`, it is `S`. If not, the table edits are
+   brought into line with the new set, `F` is re-made, and step 5 repeats.
+   **At most two passes**: if the set has not stabilised by the end of the
+   second pass at `F`, every lane that appeared in any pass is selected, plus
+   every lane D-9's option 3 would select, the tables are edited for all of
+   them, `F` is re-made once more, and the result is final (this set cannot
+   grow, because it already contains every lane with a changed unbound import
+   and every lane any pass found). Convergence is expected in one pass:
+   between `F0` and `F` only the selected lanes' finalizers change, and their
+   changed lines can be executed only by their own lanes (already selected),
+   since no other lane's code imports them.
 6. **Part 4.** Every lane in `S` runs on the estate from a clean clone at `F`.
-7. **Bank, `B`.** One commit whose parent is `F` and which touches only
+7. **Pin.** Parts 1 and 2 run once more at `F`, now with the new verdicts of
+   `S` as those lanes' live verdicts, and the pin is generated from that run.
+8. **Bank, `B`.** One commit whose parent is `F` and which touches only
    evidence and records: the packs for `S`, the batch manifest and registry
-   entries, the successor record, the closure gate's pin record, and the prose
-   corrections below. A check refuses `B` if it changes any file in any lane's
-   dependency set. Because the freshness gate hashes the working tree, `B`'s
-   tree carries exactly `F`'s bytes for every bound file, and the gate is
-   green at `B`.
-8. **Tag.** The release tag points at `B`, or at a descendant of `B` that is
+   entries, the successor record, the pin, and the prose corrections below. A
+   check refuses `B` if it changes any file in any lane's dependency set.
+   Because the freshness gate hashes the working tree, `B`'s tree carries
+   exactly `F`'s bytes for every bound file, and the gate is green at `B`.
+9. **Tag.** The release tag points at `B`, or at a descendant of `B` that is
    itself evidence- and records-only. Every verdict and the successor record
    name `F`; the closure gate proves the tag's tree equals `F` on every
    dependency.
@@ -505,20 +521,38 @@ goes red and WP-0 restarts from step 3.
 
 1. **Closure.** For every live lane, the static import closure of builder and
    finalizer (re-derived, not traced), plus every dynamic, resource and process
-   edge, found by scanning that closure for the constructs that can add an
-   input without an import: `glob`, `rglob`, `iterdir`, `listdir`, `walk`,
-   `importlib`, `runpy`, `pkgutil`, entry points, `open` of a computed path,
-   and process launches. Each call site found must be declared with what it
-   reaches: the directory and pattern it enumerates, the module it loads, or
-   the executable it runs. Known today: `template_store.py:262-280` (ADMX
-   discovery by `glob`/`iterdir`), `build-fdeploy-candidate.py:500` (`rglob`),
+   edge. The scan for those edges **fails closed**: it does not look for a list
+   of known-dangerous constructs. Instead, every call in the closure that
+   resolves to a module able to reach files, imports or processes (`os`,
+   `os.path`, `pathlib`, `io`, the `open` builtin, `glob`, `fnmatch`, `shutil`,
+   `tempfile`, `importlib` and its submodules, `runpy`, `pkgutil`, `zipfile`,
+   `tarfile`, `sqlite3`, `configparser`, `fileinput`, `subprocess`, and any
+   third-party distribution in the closure), and every attribute call whose
+   method name is one of the filesystem methods of `pathlib.Path`,
+   `os.DirEntry`, `zipfile.ZipFile` or `tarfile.TarFile` whatever the receiver,
+   must be either on a reviewed list of inert targets (such as `os.path.join`)
+   or declared as an edge with what it reaches: the directory and pattern it
+   enumerates, the file it reads, the module it loads, or the executable it
+   runs. An unrecognised dynamic construct (`getattr` with a computed name,
+   `__import__`, `exec`, a call through an unresolvable alias) fails the scan
+   until it is declared. Edges read from the environment (`os.environ`) are
+   edges too. The **inventory is generated by the scan**, not written by hand;
+   the sites below are illustrative of what it finds, from both reviewers'
+   evidence: `template_store.py:262-280` (ADMX discovery by `glob` and
+   `iterdir`), `build-fdeploy-candidate.py:500` (`rglob`),
    `build-report-parity-candidate.py:183` (`glob` over the GPP fixtures),
-   `finalize_lifecycle_run.py:46` (`runpy`) and `finalize_fdeploy_run.py:40`
-   (`importlib.util`). A line-level trace of the builder and of the finalizer
-   over its banked pack, at the current code, corroborates the declarations and
-   produces D-9's executed-changed-line result. It cannot prove that an
-   unexecuted branch reaches nothing, which is why the static scan and the
-   declarations are the authority and the trace is not.
+   `finalize_lifecycle_run.py:895` (`runpy.run_path` of the builder),
+   `finalize_fdeploy_run.py:406` and `finalize_report_parity_run.py:317`
+   (`importlib.util.spec_from_file_location` of the builder), and the `git`
+   launch in every finalizer (for example `finalize_endpoint_run.py:632`,
+   `finalize_lifecycle_run.py:930`). The derivation is only as complete as the
+   scanner's recognised surface: a third-party C extension that opens a file
+   it was handed as a string is caught only because every call into a
+   third-party distribution needs classification. A line-level trace of the
+   builder and of the finalizer over its banked pack corroborates the
+   declarations and produces D-9's executed-changed-line result. It cannot
+   prove that an unexecuted branch reaches nothing, which is why the scan and
+   the declarations are the authority and the trace is not.
 2. **Replay and re-grade**, for all 26 lanes at `F` (what it meets of R5 is
    stated [below](#what-part-2-meets-and-what-it-does-not)).
 3. **Successor record.** `docs/plan-033/release110-dependency-audit.json` and a
@@ -530,6 +564,39 @@ goes red and WP-0 restarts from step 3.
    at `F`.
 4. **Requalify `S` on the estate**, from a clean clone at `F`.
 
+### How the trace runs, including child processes
+
+Round 3 showed that a `sitecustomize` on the child's path cannot start a tracer
+in a child launched with `python -I`, which ignores the environment and the
+script directory (DeepSeek's probe). So the trace does not rely on site
+customisation at all:
+
+- **The harness launches every traced program through the tracer
+  explicitly**: `python <flags> tracer.py <out-dir> -- <script> <args>`, where
+  `<flags>` are exactly the flags the lane's runner uses for that program
+  (today the runners use `uv run python <script>`, without `-I`). The tracer
+  sets `sys.argv`, and `sys.path[0]` exactly as the interpreter would for
+  `python <flags> <script>` (the script's directory without `-I`, nothing with
+  `-I`), starts `sys.monitoring` LINE events, and runs the script with
+  `runpy.run_path`.
+- **Children are wrapped the same way.** In trace mode the tracer replaces
+  `subprocess.Popen`'s launch so that any child whose executable is the
+  interpreter is started as `python <its own flags> tracer.py <out-dir> --
+  <its script> <its args>`, flags preserved, `-I` included. A child started by
+  any other route (`os.posix_spawn`, `os.exec*`, `os.system`, a shell) is seen
+  by an audit hook on those events; if it is a Python interpreter not started
+  through the tracer, the trace is **incomplete** and the lane is selected
+  (strict default). A non-Python child that runs a repository file (`pwsh` on
+  a `.ps1`, `bash` on a `.sh`) counts as executing every changed line in it.
+- **Proof that tracing changes nothing that matters.** For every builder and
+  finalizer, a traced and an untraced run are compared: `sys.flags`, the final
+  `sys.path`, and the map from each imported repository module to the file it
+  was loaded from must be identical, and so must the outputs. A test plants a
+  builder that launches `python -I child.py`, where `child.py` executes a line
+  marked as changed, and requires the trace to report it; a second plants a
+  child launched by `os.posix_spawn` and requires the trace to fail as
+  incomplete.
+
 ### The release-only closure gate
 
 A test, in CI from WP-0 until R4b replaces it, that fails on **any added or
@@ -537,31 +604,43 @@ removed edge**, not only on changed bytes:
 
 - it **re-derives** every live lane's static import closure from the tree and
   compares it, as a set, with the pinned closure;
-- it re-scans that closure for dynamic, resource and process call sites and
-  fails on any call site not in the pinned declarations, or any declared one
-  that has gone;
+- it re-runs part 1's fail-closed scan over that closure and fails on any
+  call site that is neither inert nor in the pinned declarations, or any
+  declared one that has gone;
 - it re-enumerates every declared directory with its declared pattern and
   compares the **membership** (each path and its digest) with the pin, so a
   file added to, removed from or renamed in an enumerated directory fails;
 - it pins the identity of the toolchain the lanes resolve: the `uv.lock`
   digest, `requires-python`, and, for each declared process edge, the
   executable's name. The controller's actual interpreter version and the
-  resolved executables' paths and versions are recorded at step 5 on mvmcc02,
-  and checked by the selected lanes' preflight there, because CI runs on a
-  different machine and cannot see them;
+  resolved executables' paths and versions are recorded on mvmcc02 when the
+  selected lanes run (step 6), and checked by their preflight there, because CI
+  runs on a different machine and cannot see them;
 - it keeps the hand-written tables as a floor: every file a live verdict binds
   today must be in its pinned closure;
 - it checks every pinned file's digest against the tree.
 
-**The pin cannot be refreshed by regenerating it** (DeepSeek N2-9). The pin
-record carries the digest of the successor record from which it was derived,
-and the successor record carries the replay and re-grade results. The generator
-writes a new pin only as the last step of a full re-run of parts 1 and 2, and
-refuses if any lane's replay or re-grade differs; the test refuses a pin whose
-successor-record digest does not match the committed successor record. So a red
-gate is cleared only by re-deriving, re-grading and, where the rule says so,
-re-earning on the estate. A change to the pin or the declarations is a tier-2
-change.
+"Any edge" means any edge the scan can see. Its residual is stated in part 1:
+behaviour inside a third-party distribution that the scan classified as inert
+when it was not. That is a review risk on the classification list, not a gap
+in the comparison.
+
+**Before the pin exists.** The test lands with WP-0's tooling, before `B`
+commits the pin. While the pin record is absent it skips, and the skip message
+names WI-083. The skip is refused, and the test fails, once the project
+version in `pyproject.toml` is a final release (no pre-release or development
+suffix): so the release cannot be tagged final without the pin, and no PR is
+blocked in the meantime.
+
+**The pin cannot be refreshed by regenerating it** (DeepSeek round-2 N2-9). The
+pin record carries the digest of the successor record from which it was
+derived, and the successor record carries the replay and re-grade results. The
+generator writes a new pin only as the last step of a full re-run of parts 1
+and 2, and refuses if any lane's replay or re-grade differs; the test refuses a
+pin whose successor-record digest does not match the committed successor
+record. So a red gate is cleared only by re-deriving, re-grading and, where the
+rule says so, re-earning on the estate. A change to the pin, the declarations
+or the inert list is a tier-2 change.
 
 The gate is a stop-gap: it pins one closure instead of deriving bindings
 generally, and the window it covers is short, from `F` to the tag. R4b's
@@ -576,39 +655,55 @@ obligations:
 
 | R5 obligation | WP-0 part 2 |
 |---|---|
-| Same-commit determinism of the builder | **Met**: two builds from two fresh clones at `F`, compared with each other and with the banked hashes |
+| Same-commit determinism of the builder | **Met for every lane with a candidate**: two builds from two fresh clones at `F`, compared with each other and with the banked hashes. **Not applicable to WP-0**, which has no candidate (its fixture is authored on the guest) and receives the canonical re-grade only |
 | Re-grade fidelity at the verdict's own commit | **Met**: re-grade at the verdict's commit, then at `F` |
 | Every recorded run input supplied, refusing gaps | **Met by hand**: a per-finalizer table in the tool maps each command-line input (`--guest-status`, scenario, lane options) to the banked verdict field it is read from (DeepSeek found `guest_status` recorded in the banked verdicts); a missing field refuses |
-| Full canonical comparison | **Met** for the three verdict shapes below, with the excluded leaves listed |
-| Negative meta-tests | **Met in part**: omitted input, flipped check, dropped check, changed finding and tampered pack member are run against the tool |
+| Full canonical comparison | **Met** for the four verdict shapes below, with the relational provenance projection |
+| Negative meta-tests | **Met in part**: omitted input, flipped check, dropped check, changed finding, tampered pack member, and an unexpected `source.paths` entry are run against the tool |
 | Schema-3 run-input record in each verdict | **Not met** (needs every finalizer changed; WP-4) |
 | gather/grade split | **Not needed** for WP-0 (it uses the live path); WP-4 |
-| Mutation test of every compared field | **Not met** in full; WP-0 mutates one leaf per top-level key per shape, and every excluded leaf's invariant |
+| Mutation test of every compared field | **Not met** in full; WP-0 mutates one leaf per top-level key per shape, and every provenance invariant |
 
 **The canonical verdict, per shape.** The 25 live lane verdicts come in three
 shapes (24 at `schema_version` 2, one at 1), and WP-0's manifest is a fourth:
 
 | Shape | Lanes | Compared |
 |---|---|---|
-| `checks` | wp2, wp3-dc, wp3-member, object-security, scripts-metadata, publication, lifecycle, report-parity, firewall, fdeploy | the whole JSON tree |
-| `rows`/`state` | endpoint and the 13 RSoP lanes | the whole JSON tree |
-| `candidates` | wp1b | the whole JSON tree |
-| WP-0 manifest | wp0 | the whole JSON tree |
+| `checks` | wp2, wp3-dc, wp3-member, object-security, scripts-metadata, publication, lifecycle, report-parity, firewall, fdeploy | provenance relationally, payload exactly |
+| `rows`/`state` | endpoint and the 13 RSoP lanes | provenance relationally, payload exactly |
+| `candidates` | wp1b | provenance relationally, payload exactly |
+| WP-0 manifest | wp0 | provenance relationally, payload exactly |
 
-In every shape, only these leaves are treated specially, and each has an
-invariant that is checked instead of equality:
+**Why provenance is compared relationally** (Sol round-3 B1). A selected lane's
+finalizer at `F` has wider tables than at its verdict's commit, and the
+shipping finalizers build `source.paths` and `source.files` from those tables.
+So the selected lanes' re-grade at `F` necessarily differs from their banked
+verdicts in `source`, and an equality rule would refuse the very edit WP-0
+makes. Moving the comparison after the estate run, to the new packs, was the
+alternative; it is rejected because the comparison of the *old* packs at `F` is
+what shows, before any estate time is spent, that the code shipping at `F`
+grades what Windows did the same way, and for the 21 unselected lanes there are
+no new packs at all. So each side's provenance is checked against what that
+side's own commit says it should be:
 
-- `source.commit`: equals the verdict's commit in the banked copy and `F` in
-  the re-grade.
-- `source.files.<name>`: each digest equals git's blob digest of that path at
-  the commit the same record names.
-- any leaf that holds an absolute path under the run directory: rewritten to
-  the pack-relative member and its digest, then compared.
+- `source.commit` (or the WP-0 manifest's commit): equals the verdict's commit
+  on the banked side and `F` on the re-grade side.
+- `source.paths`: on each side, equals exactly the binding map that side's
+  finalizer tables produce at that side's commit (`{**DEPLOYED_FILES,
+  **LOCAL_FILES}`, or the WP-0 table). No entry more, none fewer.
+- `source.files`: has exactly the keys of that side's `source.paths`, and each
+  digest equals git's blob digest of that path at that side's commit.
+- `source.dirty` is false on both sides; `source.banked_copies` equals that
+  side's deployed-file names.
+- WP-0's `source.bound`: each entry's path and digest checked the same way
+  against WP-0's table at that side's commit.
 
-Everything else is compared for equality, including `run_id`, `passed`,
-`state`, every check and every finding, `source.dirty` and `source.paths`.
-`source_tree_clean` is a check like any other and must be true, which the clean
-clone guarantees. Nothing is allowlisted to differ.
+Everything **outside** `source` is the claim-bearing payload and is compared
+for exact equality, after one transformation: a leaf holding an absolute path
+under the run directory is rewritten to the pack-relative member and its
+digest. That includes `run_id`, `passed`, `state`, every check, every finding,
+every comparison and projection. `source_tree_clean` is a check like any other
+and must be true, which the clean clone guarantees. Nothing else may differ.
 
 ### The prose corrections, in `B`
 
@@ -725,19 +820,46 @@ matches its shape.
      `__subclasses__`, `__builtins__`, `type()` with three arguments, `exec`,
      `eval`, `compile`, `importlib`, `runpy`, `__import__`, `pickle`,
      `marshal`, `shelve`, `copyreg` and `ctypes` are never allowlisted;
-   - **writes, enforced at run time.** Every Python entrypoint runs under
-     `scripts/ci/_guard.py` (shape S3/S4 becomes `python -I scripts/ci/_guard.py
-     <entrypoint> <args>`), which installs a `sys.addaudithook` hook before the
-     entrypoint is imported. The hook refuses `open` for writing, `os.remove`,
-     `os.rename`, `shutil` copies and archive extraction whose **resolved** path
-     falls outside the phase's declared write roots; any `socket.connect` not
-     made by `_fetch`; any `subprocess.Popen`, `os.system`, `os.exec`,
-     `os.posix_spawn` or `os.startfile` not made by `_exec`; `pickle.find_class`,
-     `marshal.loads`, `compile`, `exec` and `ctypes.dlopen`; and any import
-     outside the allowlist. An audit hook cannot be removed once installed. It
-     is a second line behind the static allowlist, not a sandbox against hostile
-     code; the threat model is a careless or unreviewed change, and the SHA pins
-     plus tier-2 review cover the deliberate one;
+   - **every effect, enforced at run time, failing closed on the event, not
+     the API.** Every Python entrypoint runs under `scripts/ci/_guard.py`
+     (shape S3/S4 becomes `python -I scripts/ci/_guard.py <entrypoint>
+     <args>`), which installs a `sys.addaudithook` hook before the entrypoint
+     is imported. Round 3 showed that listing a few write APIs leaves others
+     open: `Path.mkdir`, `Path.chmod`, `Path.rmdir` and `Path.symlink_to` raise
+     their own events (`os.mkdir`, `os.chmod`, `os.rmdir`, `os.symlink`), and
+     an allowlisted method with an out-of-root path would pass the static
+     check, which validates the call target, not the path. So the hook works
+     from a reviewed table covering **every audit event the pinned interpreter
+     version documents**, each classed as:
+     - *permitted*: events that read, such as `os.listdir` and `open` for
+       reading (still root-checked against the phase's declared read roots);
+     - *mutation, root-checked*: `open` for writing or creating (including
+       `os.open` with write flags), `os.mkdir`, `os.rmdir`, `os.remove`,
+       `os.rename` (which `os.replace` also raises), `os.link`, `os.symlink`,
+       `os.chmod`, `os.chown`, `os.chflags`, `os.utime`, `os.truncate`,
+       `os.setxattr`, `os.removexattr`, `shutil.copyfile`, `shutil.copymode`,
+       `shutil.copystat`, `shutil.copytree`, `shutil.rmtree`, `shutil.move`,
+       `shutil.make_archive`, `shutil.unpack_archive`, `tempfile.mkstemp`,
+       `tempfile.mkdtemp` and `sqlite3.connect`. **Every path argument is
+       resolved** (`os.path.realpath`, so through existing symlinks) and must
+       fall under a declared write root; for two-path events (`os.rename`,
+       `os.link`, `os.symlink`, the `shutil` copies and moves) **both
+       endpoints** are checked, and a symlink's target must also resolve under
+       a write root, so a link cannot point out of one;
+     - *choke-point only*: `socket.*` (only from `_fetch`), `subprocess.Popen`,
+       `os.system`, `os.exec`, `os.spawn`, `os.posix_spawn`, `os.fork`,
+       `os.startfile` (only from `_exec`, and `os.fork` never);
+     - *refused*: `pickle.find_class`, `marshal.loads`, `compile`, `exec`,
+       `ctypes.*`, and an import outside the allowlist.
+
+     **Any event not in the table is refused.** A new interpreter version
+     that adds events fails until the table is reviewed for it. Writes through
+     an already open file descriptor raise no event, but every descriptor
+     comes from an `open` that was checked. An audit hook cannot be removed
+     once installed. It is a second line behind the static allowlist, not a
+     sandbox against hostile code; the threat model is a careless or
+     unreviewed change, and the SHA pins plus tier-2 review cover the
+     deliberate one;
    - **PowerShell, the same way**: the S6 checker is parsed with pwsh's AST and
      may use only the commands, type literals and .NET members its manifest
      entry lists (the parser API, `Import-Module` of the pinned
@@ -751,9 +873,14 @@ matches its shape.
    `pickle.loads` with a `GLOBAL` payload; `marshal.loads`; `os.posix_spawn`;
    `os.startfile`; `telnetlib`; `asyncio.open_connection`; `socket` imported
    under an alias; `getattr(os, "sys" + "tem")`; `__import__("subprocess")`;
-   `pathlib.Path.write_text`, `shutil.copy`, a `logging.FileHandler`,
-   `sqlite3.connect` and `tempfile` outside the write roots; a
-   `zipfile`/`tarfile` extraction that traverses out of its root; and in
+   outside the write roots: `pathlib.Path.write_text`, `Path.mkdir` and
+   `os.makedirs`, `Path.symlink_to` and a symlink inside the root whose target
+   is outside it, `os.link` (a hard link out of the root), `Path.chmod`,
+   `os.utime`, `os.truncate`, `Path.rmdir`, `os.rename` and `os.replace` with
+   either endpoint outside, `shutil.copy`, `shutil.move`, `shutil.rmtree`, a
+   `logging.FileHandler`, `sqlite3.connect` and `tempfile`; a
+   `zipfile`/`tarfile` extraction that traverses out of its root; a planted
+   audit event missing from the table; and in
    PowerShell, `Invoke-RestMethod`, `Invoke-WebRequest`,
    `New-Object Net.WebClient`, `[System.Net.WebClient]::new()`, `Add-Type`,
    `Invoke-Expression`, `Start-Process` and `[Diagnostics.Process]::Start`.
@@ -976,20 +1103,32 @@ after expiry while another run owns the estate.
      same containment check the driver uses for a lane), and otherwise refuses
      and leaves the estate for a person. A new holder never starts while an old
      leg may still be running.
-   - **Renewal** is by heartbeat from a thread separate from the leg (so a
-     blocked leg does not stop it), every 60 s with a TTL of several
-     heartbeats, each renewal checking holder and token under the operation
-     lock. Expiry during a run fails the run at its next leg. Clock skew between
+   - **Renewal does not need the operation lock** (DeepSeek round-3 NB-1:
+     otherwise a leg longer than the TTL would block its own heartbeat and
+     expire its own lease). The lease record has its own short-held record
+     lock. The heartbeat, on a thread separate from the leg, every 60 s with a
+     TTL of several heartbeats, takes only the record lock and renews if holder
+     and token still match. A mutating leg takes the operation lock and then,
+     briefly, the record lock to validate. A takeover takes the operation lock
+     first (so it waits for any leg in flight) and then the record lock. The
+     fixed order, operation lock before record lock, rules out deadlock, and a
+     holder in a long leg keeps renewing, so its lease cannot lapse under it.
+     A takeover is possible only after a lease has lapsed, which a live holder's
+     heartbeat prevents. Expiry during a run (the heartbeat thread died, or the
+     host was unreachable) fails the run at its next leg. Clock skew between
      hosts does not matter: the token, not the time, decides who may mutate,
      and expiry is judged by the host's own clock.
    - **Legs stay bounded.** psdirect's per-leg timeouts (WI-078) bound every
      leg; that bounds how long a takeover can wait, not whether it is safe.
+     The TTL need not exceed the longest leg, because renewal does not wait for
+     legs.
    - The lease is taken **before** any canary that touches the estate.
    - **Tests.** A fault-injected pause (`-TestFault`) between validation and
      mutation, with a takeover attempted during the pause: the takeover must
      block until the paused leg finishes, and the next leg under the old token
      must be refused. Also: a holder killed mid-leg, a host reboot (the token
-     survives and increases), and a concurrent windows-evidence-lab acquisition.
+     survives and increases), a concurrent windows-evidence-lab acquisition,
+     and a leg longer than the TTL whose holder keeps its lease throughout.
    Vault KV with check-and-set could hold the lease record, but not the
    operation lock, which has to be where the mutation happens; so the host is
    the place. windows-evidence-lab must route every estate mutation through the
@@ -1154,7 +1293,11 @@ some bindings while widening others: the drift it exists to end.
 **The audit is mandatory, not optional.** Every lane run, and every replay and
 re-grade, runs the builder and finalizer under a tracer: Python's audit hooks
 (`sys.addaudithook`: `open`, `import`, `exec`, `subprocess.Popen`,
-`os.system`) plus a line tracer for the changed-line question. If execution
+`os.system`) plus a line tracer for the changed-line question, launched and
+propagated to child processes the way
+[WP-0's trace](#how-the-trace-runs-including-child-processes) is (explicit
+tracer launch, flags preserved, an untraced Python child failing the run). The
+static edge scan is WP-0's fail-closed scan, run on every lane. If execution
 opens a file, imports a module or starts a process outside the union, the lane
 **fails**. So the declaration cannot silently fall behind the code. For the
 first derived batch (WP-4) the trace is also compared against the static
@@ -1482,17 +1625,29 @@ never ran. A self-attestation is not evidence.
   invocation's action, parameters and size and path classes, and refuses an
   invocation outside the inventory, so a lane cannot rely on an uncovered
   behaviour even through a computed argument. R4b's trace corroborates.
-- **Product lanes stop binding `psdirect.ps1` by bytes.** Each product verdict
-  instead records `transport: {digest, conformance_run_id, battery_version,
-  inventory_version}`. The freshness gate resolves `conformance_run_id` in the
-  live registry and requires that the conformance verdict is live (not retired
-  or pending), passed, was earned on the same digest as the current
-  `psdirect.ps1`, and used the current battery and inventory versions. If any of
-  those fails, every product verdict that references it is expired, and the
-  gate says why. When `psdirect.ps1` changes, the conformance lane runs once (a
-  few minutes) and a new conformance verdict goes live; product verdicts whose
-  other bindings hold are re-pointed to it by the banking step, which records
-  the old and new conformance run ids.
+- **Product lanes stop binding `psdirect.ps1` by bytes.** What a product
+  verdict records, and what it means (DeepSeek round-3 NB-5):
+  - `transport.digest` is the digest of the `psdirect.ps1` that **actually
+    ran** in that estate run, and `transport.conformance_run_id` the
+    conformance verdict that covered that digest at the time, with its battery
+    and inventory versions. These are provenance and never change: a banked
+    verdict is not edited.
+  - When `psdirect.ps1` changes, the conformance lane runs once (a few
+    minutes). The banking step then writes, **in the registry, not in the
+    verdicts**, a re-pointing entry for each product verdict whose other
+    bindings still hold: product verdict, old digest, old conformance run id,
+    new digest, new conformance run id. Successive re-pointings form a chain
+    from the digest the lane ran under to the current one, which is the audit
+    trail.
+  - The freshness gate follows that chain for each live product verdict and
+    requires that its last conformance verdict is live (not retired or
+    pending), passed, was earned on the current `psdirect.ps1` digest, and used
+    the current battery and inventory versions, and that every link in the
+    chain is a passing conformance verdict. If any of that fails, the product
+    verdict is expired, and the gate says which link failed.
+  - So the claim "the lane passed on the estate under transport T1" stays in
+    the verdict, and "T2 conforms" is in the conformance record the chain
+    reaches.
 - **Threat model, stated.** The battery catches a transport that is *wrong*,
   not one written to deceive it. The transport is project code reviewed at
   tier 2; a deliberately deceptive change is out of scope, as it is for every
@@ -1584,16 +1739,22 @@ has already said something, which is recorded as such.
     every file in the lane's dependency set. The diff base is each lane's own
     verdict commit (`de9736e` or `9940561`); the target is the freeze commit
     `F`. A moved or replaced statement is a changed line.
-  - *Executed*: reported by a line tracer (`sys.settrace`, or `sys.monitoring`
-    LINE events) during the builder run and during the finalizer's re-grade of
-    the banked pack, at `F`. That includes module-level statements, `import`,
-    `class` and `def` lines, decorators and default-argument expressions run at
-    import. Child processes count: Python children start under the same tracer
-    (a `sitecustomize` on their path), and a non-Python child that runs a
-    changed repository file counts as executing it.
+  - *Executed*: reported by a line tracer (`sys.monitoring` LINE events)
+    during the builder run and during the finalizer's re-grade of the banked
+    pack, at `F`. That includes module-level statements, `import`, `class`
+    and `def` lines, decorators and default-argument expressions run at
+    import. Child processes count: Python children are started through the
+    tracer by the harness, with their own flags (including `-I`) preserved;
+    a Python child started any other way makes the trace incomplete and
+    selects the lane; a non-Python child that runs a changed repository file
+    counts as executing it ([how the trace runs](#how-the-trace-runs-including-child-processes)).
   - *Rule*: a lane is selected if and only if some changed line in its
-    dependency set was executed in either half. It is a Boolean over the trace
-    with no human classification, so WP-0 part 1 decides the set mechanically.
+    dependency set was executed in either half, or its trace is incomplete. It
+    is a Boolean over the trace with no human classification, so WP-0 part 1
+    decides the set mechanically. The rule's target is `F`; because `F` is
+    `F0` plus the selected lanes' table edits, the selection is made
+    provisionally at `F0` and then definitively at `F`, at most twice, as
+    [WP-0's order](#order-and-which-commit-binds-what) sets out.
 
   WP-0 schedules option 2: every selected lane is re-run at `F`, its finalizer
   tables first extended with its derived dependencies (see
@@ -1613,22 +1774,37 @@ Each package says whether it edits a bound file and whether it may land before
 
 ### WP-0 — The 1.1.0 final blocker (WI-083, awaiting the owner's ruling)
 
-Before the final tag. Adds tooling, two generated records and a test, and
-edits the bound finalizer of each lane D-9 selects (five on the current data).
-Specified, with its ordering, in [its own section](#the-110-final-blocker-wp-0).
+Before the final tag. Adds tooling, two generated records (the successor
+record and the pin) and a test, and edits the bound finalizer of each lane
+D-9 selects (five on the current data). Specified, with its ordering, in
+[its own section](#the-110-final-blocker-wp-0).
 
-- **Exit:** at the freeze commit `F`, every live lane has a re-derived closure
-  with declared edges and digests, a two-clone replay and a canonical re-grade,
-  banked in the successor record with its caveat; the lane set `S` was chosen
-  mechanically by D-9's rule (option 2 as defined, unless the owner chose
-  otherwise before `F0`); every lane in `S`, and every lane whose replay or
-  re-grade differs, has passed on the estate from a clean clone at `F`, with
-  its finalizer tables extended first; the banking commit `B` is a child of `F`
-  that changes no dependency file; the closure gate is in CI, green at `B`, and
-  refuses a pin not derived from the committed successor record; Plan 034,
-  Plan 035 and `release-evidence-1.1.0.md` state the limitation and its
-  disposition; `bound-source-cost.md` no longer says unbound files are unread;
-  WI-083 is closed.
+- **Exit:** at the final freeze commit `F`, every live lane has a re-derived
+  closure with its fail-closed edge scan and digests and a canonical re-grade
+  with relational provenance, and every lane with a candidate also has a
+  two-clone replay (WP-0 has none: not applicable), all banked in the
+  successor record with its caveat; the lane set `S` named in the exit is the
+  one D-9's rule selected at that final `F` (option 2 as defined, unless the
+  owner chose otherwise before `F0`), reached within two passes or by the
+  stated fallback; every lane in `S`, and every lane whose replay or re-grade
+  differs, has passed on the estate from a clean clone at `F`, with its
+  finalizer tables extended first; the child-process tracing test passes; the
+  banking commit `B` is a child of `F` that changes no dependency file; the
+  closure gate is in CI, strict (not skipping) and green at `B`, and refuses a
+  pin not derived from the committed successor record; Plan 034, Plan 035 and
+  `release-evidence-1.1.0.md` state the limitation and its disposition;
+  `bound-source-cost.md` no longer says unbound files are unread; WI-083 is
+  closed.
+- **Cost (estimate).** Tooling: the closure deriver with the fail-closed scan,
+  one to two sessions; the traced replay and re-grade harness with child
+  tracing and the relational projection, two sessions; the successor record,
+  pin generator and gate test, one session; the prose corrections, half a
+  session. Review at tier 2: two reviewers, one executing probes, likely two
+  or three rounds. Estate: the five expected lanes took about 6.9 minutes in
+  the 1.1.0 batch (2.8 + 0.7 + 0.5 + 2.0 + 0.9), plus about 20 minutes of
+  banking and the post-batch collector; up to about 11 minutes if all nine are
+  selected. About five to seven sessions in all, which fits before 2026-10-31
+  if it starts this week. These are estimates.
 
 ### WP-1 — Local CI checks
 
@@ -1889,3 +2065,25 @@ and named.
 | Sol NB2: PowerShell parse errors ignored | A file that does not parse now normalises to `null`, never a digest; regenerated, no historical file was affected (the record's figures are unchanged) |
 | Sol NB3: trailing blank line in `docs/work-items.md` | Removed |
 | DeepSeek round-1 N1 still unfixed in the tree | Unchanged: scheduled in WP-0's prose corrections, as before |
+
+## Review disposition (round 3)
+
+Sol and DeepSeek, both approve-with-changes on revision 3 (`2e5de04`). Both
+reproduced the audit record byte for byte again. Where a finding needed a
+decision, the coordinator's instruction of 2026-10-13 is applied and named.
+
+| Finding | Disposition |
+|---|---|
+| DeepSeek B-1(a): selection traced at `F0`, rule targets `F` | [Order](#order-and-which-commit-binds-what): provisional selection at `F0`, definitive at `F`, repeated if the set changes, at most two passes, then a fallback to every lane any pass found plus option 3's lanes (the coordinator's bound); the exit names the set selected at the final `F`. Convergence argued: only the selected lanes' finalizers change, and no other lane imports them |
+| DeepSeek B-1(b): `sitecustomize` is a no-op under `python -I` | [How the trace runs](#how-the-trace-runs-including-child-processes): the harness launches every traced program as `python <its flags> tracer.py -- <script>`, with `sys.path[0]` set as the interpreter would; Python children are re-launched through the tracer with flags (including `-I`) preserved; any other child launch is seen by an audit hook and makes the trace incomplete, which selects the lane; traced and untraced runs are compared on `sys.flags`, `sys.path` and module origins; a test plants a `-I` child and a `posix_spawn` child |
+| Sol B1: selected lanes' table edits make their own re-grade differ | Chose a **relational provenance projection**: each side's `source.paths` must equal that side's own finalizer binding map, `source.files` must have exactly its keys with correct digests, and everything outside `source` is compared exactly. Moving the comparison after the estate run was rejected, because the old-pack comparison is what shows equivalence before estate time is spent and the 21 unselected lanes have no new packs. The pin is generated after the estate run, with the new verdicts of `S` live |
+| Sol B2: exit required a WP-0 replay | The obligation table and the exit now say two-clone replay for every lane with a candidate, not applicable to WP-0, which gets the canonical re-grade only |
+| Sol N1: call-site inventory incomplete | The inventory is generated by the scan; the list in the plan is marked illustrative and now includes `finalize_report_parity_run.py:317`, `finalize_lifecycle_run.py:895` and the `git` launches in the finalizers |
+| DeepSeek NB-3: the dynamic-edge scan is an enumerated list | The scan fails closed: every call resolving to an I/O-, import- or process-capable module, or any third-party distribution, or a filesystem method name on any receiver, must be classified inert or declared; unresolvable dynamic constructs fail until declared. The gate's "any edge" is scoped to what the scan can see, with the residual (a wrongly classified third-party call) stated |
+| Sol B3 / P7, DeepSeek NB-2: R1 write guard incomplete | The guard classifies every audit event the pinned interpreter documents (permitted, root-checked mutation, choke-point only, refused) and refuses any event not in the table; every path argument resolved, both endpoints of two-path events, symlink targets too; probes added for mkdir, makedirs, symlink (and an inward link pointing out), hard link, chmod, utime, truncate, rmdir, rename and replace, rmtree, move, and an unlisted event |
+| DeepSeek NB-1: heartbeat vs operation lock | Renewal takes only a separate record lock, in a fixed lock order, so a long leg cannot expire its own lease; a test of a leg longer than the TTL added |
+| DeepSeek NB-4: gate test lands before its pin | It skips, naming WI-083, while the pin is absent, and fails if the pin is absent once the project version is a final release |
+| DeepSeek NB-5: which digest a re-pointed verdict records | The verdict keeps the digest that actually ran; re-pointing is a registry chain of conformance verdicts, never an edit to a banked verdict, and the gate checks every link |
+| DeepSeek NB-6: no WP-0 estimate | Added to the WP-0 package: about five to seven sessions plus tier-2 review, and 6.9 estate minutes for the expected five lanes (11 for nine), plus banking |
+| DeepSeek NB-7: wording | WI-083's status reworded; "two generated records" stated consistently; the audit tool's docstring says "no explicit `passed: false`" |
+| Sol N2: DeepSeek round-1 N1 still unfixed in the tree | Unchanged: scheduled in WP-0's prose corrections in `B`, which its exit requires |

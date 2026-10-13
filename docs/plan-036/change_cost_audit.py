@@ -8,7 +8,7 @@ would have made the estate run unnecessary.
 
 A banked qualifying record is a JSON object with a ``source.commit`` (not all
 zeros), ``source.dirty`` false, a bound file record (``source.files``, or
-``source.bound`` for WP-0), a ``run_id``, and no ``passed: false``. Three WP-0
+``source.bound`` for WP-0), a ``run_id``, and no explicit ``passed: false``. Three WP-0
 ``manifest.json`` records carry no ``passed`` member at all (their schema
 records ``capability.evidence_state`` instead); they are included, and the
 record lists them under ``schema_exceptions``. Requiring ``passed is True``

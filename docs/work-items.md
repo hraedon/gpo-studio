@@ -3825,8 +3825,8 @@ these fail except the add.
 ## WI-083 — live verdicts are fresh only for a hand-written subset of what they execute
 
 **Opened:** 2026-10-13 (measuring change cost for [Plan 036](../plans/036-change-cost.md)).
-**Status:** open. Proposed by Plan 036 as a blocker for the 1.1.0 final tag;
-proposed — awaiting the owner's ruling.
+**Status:** open. Plan 036 proposes it as a blocker for the 1.1.0 final tag,
+awaiting the owner's ruling.
 
 **What is wrong.** Every lane verdict binds the files its finalizer's
 `DEPLOYED_FILES` and `LOCAL_FILES` tables name, and
