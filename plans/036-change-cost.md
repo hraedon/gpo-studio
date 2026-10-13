@@ -1,8 +1,9 @@
 # Plan 036: Reducing what a change costs
 
-Status: **proposed** (2026-10-13, revision 5). A design pass: none of it is
-built yet. It was written for a two-lineage design review. Rounds 1 to 4 (Sol
-and DeepSeek, approve-with-changes each time) are folded in; the disposition
+Status: **proposed** (2026-10-13, revision 6). A design pass: none of it is
+built yet. It was written for a two-lineage design review. Rounds 1 to 5 (Sol
+and DeepSeek; approve-with-changes in rounds 1 to 4, and in round 5 one
+blocker from Sol and none from DeepSeek) are folded in; the disposition
 of each finding is under [Review disposition](#review-disposition-round-1). One
 part, WP-0, is proposed as a **1.1.0 final blocker** (registered as WI-083,
 awaiting the owner's ruling), because the
@@ -485,9 +486,20 @@ and are covered by the closure gate below.
 2. **Candidate freeze, `F0`.** The commit intended for release, with every
    product change done and the release's version bump (`__version__ =
    "1.1.0"`) already in it, so that `B` and the tag stay evidence- and
-   records-only. The bump is handled by D-9's release-metadata exemption.
-3. **Provisional selection.** Part 1's trace runs at `F0`, with D-9's rule
-   evaluated against `F0` as its target, giving a provisional set `S0`.
+   records-only. The bump is handled by D-9's release-metadata exemption. The
+   other approval edits that `release-evidence-1.1.0.md` describes (the JSON
+   report's `status` and `version`, and line 5 of the evidence document) are
+   records, not code: they land in an approval commit that is a records-only
+   descendant of `B`, made after the owner's NVDA acceptance, and the tag
+   points at that commit. So the tree never claims approval before the
+   acceptance. `release-evidence-1.1.0.md`'s procedure text, which today puts
+   the version and the approval records in one commit, is corrected in `B` to
+   match.
+3. **Provisional selection.** Parts 1 **and 2** run at `F0` (D-9's exemption
+   needs part 2's replay and re-grade), with D-9's rule evaluated against `F0`
+   as its target, giving a provisional set `S0`. Running part 2 here is what
+   lets the exemption apply provisionally, so `S0` is the expected five rather
+   than all 26, and the one-pass expectation below holds.
 4. **Freeze, `F`.** `F0` plus the table edits for the lanes in `S0`, and nothing
    else.
 5. **Definitive selection at `F`.** Parts 1 and 2 run again at `F` for all 26
@@ -539,6 +551,30 @@ goes red and WP-0 restarts from step 3.
      using mypy's semantic analysis and inferred types, which `src/` already
      passes under `--strict`. Calls to functions defined in the repository are
      not edges in themselves: their bodies are in the closure and are scanned.
+   - **Completeness.** The scan asserts that mypy analysed every module of the
+     re-derived closure, with a symbol table and its references resolved for
+     each, and fails if any module is missing, skipped
+     (`follow_imports=skip`, a parse error) or has a body hidden by a blanket
+     `# type: ignore`. A module that contributes no targets because it was
+     never analysed is a failure, not a pass (DeepSeek round-5 NB-3).
+   - **Implicit calls** (Sol round-5 N4). Python also runs code without an
+     explicit call: attribute access through a property or descriptor,
+     iteration, `with`, operators and comparisons, conversions (`str`, `bool`,
+     `int`, `len`, `hash`, formatting), and finalisers. For every such
+     operation the scan resolves the implied method (`__get__`, `__iter__` and
+     `__next__`, `__enter__` and `__exit__`, `__eq__`, `__str__`, `__del__`
+     and so on) on the operand's static type and classifies it like an
+     explicit call; on a repository class its body is already scanned. Where
+     the operand's type is unknown the operation is unresolvable and fails
+     unless declared. Import machinery: any write to `sys.meta_path`,
+     `sys.path_hooks` or `builtins` is refused outright; a change to
+     `sys.path` is an edge that must be declared with the path it adds (the
+     RSoP builder's insertion of `src/`, `build-rsop-candidate.py:70`, is one).
+   - **Attribute reads.** A closed list of module attributes whose *reading*
+     would make a traced run behave differently from an untraced one is
+     refused wherever mypy resolves a read of it; today that list is
+     `sys.orig_argv` (DeepSeek round-5 NB-4: a read is neither a call nor a
+     callable reference, so it needs its own rule).
    - **Classification.** Every other resolved target, in the standard library,
      a built-in or a third-party distribution, must be on exactly one reviewed
      list: **inert** (keyed by fully qualified target, or by type for a closed
@@ -635,7 +671,7 @@ customisation at all:
   repository module to the file it was loaded from must be identical, and so
   must the outputs. `sys.orig_argv` cannot be identical (it names the tracer),
   so the closure scan refuses any read of `sys.orig_argv` in a lane's code
-  (there is none today). Tests plant a builder that launches `python -I
+  through its attribute-read list (there is none today). Tests plant a builder that launches `python -I
   child.py`, where `child.py` executes a line marked as changed, and require
   the trace to report it; and plant children launched by `os.posix_spawn`, by
   `python -c`, by `python -m` and through `sh -c "python child.py"`, each of
@@ -774,7 +810,9 @@ Plan 034's and Plan 035's statements that all 26 lanes were re-earned "at one
 commit", and `release-evidence-1.1.0.md`, each get the limitation and its
 disposition (the successor record and the requalified lanes).
 `report-bound-source-cost.py` stops writing "No lane reads these" for unbound
-files (DeepSeek round-1 N1). WI-083 closes.
+files (DeepSeek round-1 N1). `release-evidence-1.1.0.md`'s approval procedure
+is corrected to say that the version bump is in `F0` and the approval records
+follow `B` (DeepSeek round-5 NB-5). WI-083 closes.
 
 ### What the reruns add, and what they do not
 
@@ -920,9 +958,33 @@ matches its shape.
        `ctypes.*`, and an import outside the allowlist.
 
      **Any event not in the table is refused.** A new interpreter version
-     that adds events fails until the table is reviewed for it. Writes through
-     an already open file descriptor raise no event, but every descriptor
-     comes from an `open` that was checked. An audit hook cannot be removed
+     that adds events fails until the table is reviewed for it.
+
+     **Arguments an event does not carry** (Sol round-5 B1). The root check is
+     only as good as the path arguments the hook can see, and some events omit
+     one: CPython's `open` event carries `(path, mode, flags)` but not
+     `dir_fd`, so `os.open("victim.txt", ..., dir_fd=d)` shows the hook a
+     path relative to the working directory while the kernel resolves it
+     against `d` (Sol's probe overwrote a file outside the root this way);
+     and a built-in `open(..., opener=f)` hands the path to arbitrary code.
+     So the table records, for every event the guard relies on, which call
+     arguments affect the path and whether the event carries each of them,
+     and **every call form whose path-affecting argument the event omits is
+     refused by the static grammar**. The scripts need none of them, so the
+     rule is simply: no `dir_fd`, `src_dir_fd` or `dst_dir_fd` argument other
+     than the literal default, on any call (`os.open`, `os.rename`,
+     `os.replace`, `os.link`, `os.symlink`, `os.unlink`, `os.remove`,
+     `os.rmdir`, `os.mkdir`, `os.chmod`, `os.chown`, `os.utime`, `os.stat`,
+     `os.scandir`, `os.listdir` and any other function that accepts one); no
+     `opener` argument to `open`, `io.open` or `Path.open`; no file
+     descriptor in a path position (a path argument must have the static
+     type `str` or `os.PathLike[str]`, never `int`); and no `**kwargs` or
+     `*args` expansion into any of these targets, which could carry such an
+     argument unseen. With those forms refused, every descriptor a script
+     holds comes from an `open` the hook checked, so writes through it are
+     covered. A trusted wrapper doing a descriptor-relative containment
+     check was the alternative; it is not needed while no script uses the
+     forms. An audit hook cannot be removed
      once installed. It is a second line behind the static allowlist, not a
      sandbox against hostile code; the threat model is a careless or
      unreviewed change, and the SHA pins plus tier-2 review cover the
@@ -946,7 +1008,11 @@ matches its shape.
    `os.utime`, `os.truncate`, `Path.rmdir`, `os.rename` and `os.replace` with
    either endpoint outside, `shutil.copy`, `shutil.move`, `shutil.rmtree`, a
    `logging.FileHandler`, `sqlite3.connect` and `tempfile`; a
-   `zipfile`/`tarfile` extraction that traverses out of its root; a relative
+   `zipfile`/`tarfile` extraction that traverses out of its root; Sol's
+   `dir_fd` probe (a working-directory path inside the root, with a `dir_fd`
+   on a directory outside it); `open` with an `opener`; `os.mkdir`,
+   `os.rename` and `os.chmod` with a `dir_fd`; `os.chmod` on a file
+   descriptor; a `dir_fd` passed through `**kwargs`; a relative
    symlink target such as `../../outside` created from a working directory
    deep inside the root, so that it looks inside when resolved against the
    working directory but points outside from the link's own directory; an
@@ -1160,8 +1226,10 @@ after expiry while another run owns the estate.
      by a takeover. The operation lock has no expiry; an OS lock held by a dead
      process is released by the OS.
    - **The lease record**, holder, repository, run id, expiry and **fencing
-     token**, lives in a host-side file and is changed only while holding the
-     operation lock, by write-to-temporary, flush and atomic rename. The token
+     token**, lives in a host-side file. Every change to it holds the record
+     lock and is written by write-to-temporary, flush and atomic rename.
+     Acquisition, takeover and any change of the token also hold the
+     operation lock, taken first; renewal holds only the record lock (below). The token
      is a counter that only increases: every acquisition or takeover writes
      the previous value plus one, and it is never reset, across release,
      expiry and host reboot.
@@ -1482,8 +1550,11 @@ also agree with itself while the live grading path diverged.
     binding that side's commit derives for the lane (its derived union under
     R4b, or its finalizer tables before that), no entry more or fewer;
     `source.files` has exactly those keys, each digest equal to git's blob
-    digest of that path at that side's commit; `source.dirty` is false on
-    both sides.
+    digest of that path at that side's commit; `source.banked_copies` equals
+    that side's guest-deployed file names; WP-0's `source.bound` entries are
+    checked path by path and digest by digest against WP-0's binding at that
+    side's commit; `source.dirty` is false on both sides. Nothing in `source`
+    is compared raw.
   - a leaf holding an absolute path under the run directory: rewritten to the
     pack-relative member and its digest, then compared.
   - a timestamp the finalizer itself generates (not one read from the pack):
@@ -1495,7 +1566,7 @@ also agree with itself while the live grading path diverged.
   - the run id is compared; the carried verdict's own id is derived from
     `rests_on` (`<rests_on run id>+carry-<commit>`) and checked to be so.
 
-  Every leaf outside `source` is compared for equality, including every check
+  Every other leaf outside `source` is compared for equality, including every check
   result, every finding, `state` and `passed`. **No
   check or finding is ever transformed or excluded.** Re-grades run from a clean
   clone, so `source_tree_clean` is compared and must be true. Every transformed
@@ -1862,8 +1933,10 @@ has already said something, which is recorded as such.
   - *Rule*: a lane is selected if and only if some changed line in its
     dependency set, not exempted, was executed in either half, or its trace is
     incomplete. It is a Boolean over the trace, the AST and the replay and
-    re-grade results, with no human classification, so WP-0 part 1 decides the
-    set mechanically. The rule's target is `F`; because `F` is `F0` plus the
+    re-grade results, with no per-run human classification: the only human
+    input is the reviewed exemption table, which is tier-2 data like the
+    scan's inert list. WP-0's parts 1 and 2 together decide the set
+    mechanically (the exemption's conditions need part 2). The rule's target is `F`; because `F` is `F0` plus the
     selected lanes' table edits, the selection is made provisionally at `F0`
     and then definitively at `F`, at most twice, as
     [WP-0's order](#order-and-which-commit-binds-what) sets out.
@@ -2223,3 +2296,21 @@ coordinator's instruction of 2026-10-13 is applied and named.
 | DeepSeek NB-1: `sys.path[0]` under `-I` | Reworded: with `-I` or `-P` nothing is prepended, so the default path's first entry (the standard-library zip) comes first; the tracer reproduces that |
 | DeepSeek NB-4: R5 compared `source.paths` for equality | R5's projection now uses the same relational provenance as WP-0; only the payload outside `source` is compared for equality |
 | DeepSeek NB-5: the unlisted-event probe was not realisable | It raises `sys.audit("plan036.unlisted")`, which Python permits, to exercise the refuse-unknown rule |
+
+## Review disposition (round 5)
+
+DeepSeek found no blocker on revision 5 (`150cc34`); Sol approved with changes,
+one blocker. Every earlier item is closed in both reports.
+
+| Finding | Disposition |
+|---|---|
+| Sol B1: `os.open(..., dir_fd=...)` writes outside the root, because the `open` audit event omits `dir_fd` | R1's guard table records, for each event it relies on, which arguments affect the path and whether the event carries them; every form whose path-affecting argument the event omits is refused statically: any non-default `dir_fd`, `src_dir_fd` or `dst_dir_fd` (on `os.open`, `os.rename`, `os.replace`, `os.link`, `os.symlink`, `os.unlink`, `os.remove`, `os.rmdir`, `os.mkdir`, `os.chmod` and the rest), `opener` on `open`, a file descriptor in a path position, and `*args`/`**kwargs` expansion into those targets. Sol's probe and the other forms are added as planted probes. A descriptor-relative wrapper was the alternative, not needed while no script uses these forms |
+| Sol N1 / DeepSeek NB-1: the exemption needs part 2, but selection at `F0` ran part 1 only | Parts 1 and 2 both run at `F0`, so `S0` applies the exemption (the expected five) and the one-pass expectation stands; D-9 says parts 1 and 2 together decide the set |
+| DeepSeek NB-2: "no human classification" | Now "no per-run human classification"; the exemption table is named as the only human input, tier-2 data like the inert list |
+| DeepSeek NB-3: an unanalysed module passes the scan | The scan asserts mypy analysed every closure module and fails on a missing, skipped or blanket-ignored one |
+| DeepSeek NB-4: no mechanism for refusing `sys.orig_argv` | The scan gains a closed list of refused attribute reads, starting with `sys.orig_argv` |
+| DeepSeek NB-5: approval procedure vs the bump in `F0` | The code bump is in `F0`; the JSON `status`/`version` and line 5 land in a records-only approval commit after `B` and after NVDA acceptance, and the tag points there; the procedure text is corrected in `B` |
+| DeepSeek NB-6: R5's relational provenance omitted `banked_copies` and `bound` | Both are now enumerated; nothing in `source` is compared raw |
+| Sol N2: lease-record lock wording | Every record change holds the record lock; acquisition, takeover and token changes also hold the operation lock, taken first; renewal holds only the record lock |
+| Sol N3: "every leaf outside `source`" vs the transforms | Now "every other leaf outside `source`" |
+| Sol N4: implicit protocol execution | The scan resolves the implied method of every property or descriptor access, iteration, `with`, operator, comparison, conversion and finaliser on the operand's static type and classifies it like a call; unknown types fail unless declared; writes to `sys.meta_path`, `sys.path_hooks` and `builtins` are refused, and a change to `sys.path` is a declared edge (the RSoP builder has one) |
