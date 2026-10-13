@@ -1,15 +1,31 @@
 #!/usr/bin/env python3
 """Plan 036's change-cost audit: every lane re-qualification, classified.
 
-Reads the banked verdicts under ``docs/plan-033/*-evidence/`` and git history,
-pairs each passing verdict with the previous passing verdict of the same lane,
-and records what changed between them and which proposed policy would have
-made the estate run unnecessary. The output is
+Reads the banked evidence records under ``docs/plan-033/*-evidence/`` and git
+history, pairs each *banked qualifying record* with the previous one of the
+same lane, and records what changed between them and which proposed policy
+would have made the estate run unnecessary.
+
+A banked qualifying record is a JSON object with a ``source.commit`` (not all
+zeros), ``source.dirty`` false, a bound file record (``source.files``, or
+``source.bound`` for WP-0), a ``run_id``, and no ``passed: false``. Three WP-0
+``manifest.json`` records carry no ``passed`` member at all (their schema
+records ``capability.evidence_state`` instead); they are included, and the
+record lists them under ``schema_exceptions``. Requiring ``passed is True``
+would give 225 records, 25 lanes and 200 pairs. The output is
 ``docs/plan-036/change-cost-audit.json``; Plan 036 quotes its summary.
 
 This is a record, not a gate. No test or workflow runs it, and it changes
 nothing it reads. Re-running it on the same tree must reproduce the committed
-record byte for byte; that is the check a reviewer applies.
+record byte for byte; that is the check a reviewer applies. The PowerShell
+normalisation needs ``pwsh``; without it every PowerShell comparison would be
+``null`` and the record would differ, so ``--write`` refuses to run without
+``pwsh``. A PowerShell file that does not parse normalises to ``null``, never
+to a digest.
+
+Candidate identity is conservative: a pair whose either side records no
+candidate hashes counts as *not* identical (one RSoP pair is excluded this
+way), so the replay counts are lower bounds of what the rule would admit.
 
     python -I docs/plan-036/change_cost_audit.py            # summary to stdout
     python -I docs/plan-036/change_cost_audit.py --write    # rewrite the record
@@ -155,6 +171,7 @@ def collect() -> list[dict[str, Any]]:
                 "paths": source.get("paths") or {},
                 "lane": _lane(set(files), verdict, relative),
                 "candidate": _candidate(verdict),
+                "no_passed_member": "passed" not in verdict,
             }
         )
     for item in out:
@@ -237,12 +254,13 @@ foreach ($p in Get-Content -LiteralPath $ListFile) {
   }
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($sb.ToString())
   $h = -join ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') })
+  if ($errors.Count -gt 0) { $h = 'PARSE-ERROR' }
   "$h $p"
 }
 """
 
 
-def _ps_norms(blobs: dict[str, bytes]) -> dict[str, str] | None:
+def _ps_norms(blobs: dict[str, bytes]) -> dict[str, str | None] | None:
     if not blobs or shutil.which("pwsh") is None:
         return None
     with tempfile.TemporaryDirectory() as tmp:
@@ -261,10 +279,10 @@ def _ps_norms(blobs: dict[str, bytes]) -> dict[str, str] | None:
             capture_output=True,
             text=True,
         ).stdout
-    result = {}
+    result: dict[str, str | None] = {}
     for line in output.splitlines():
         digest, path = line.split(" ", 1)
-        result[names[path]] = digest
+        result[names[path]] = None if digest == "PARSE-ERROR" else digest
     return result
 
 
@@ -328,7 +346,10 @@ def pairs(verdicts: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for entry in row["changed"]:
             keys = entry.pop("_ps", None)
             if keys is not None:
-                entry["normalised_equal"] = None if ps is None else ps[keys[0]] == ps[keys[1]]
+                old_digest = None if ps is None else ps[keys[0]]
+                new_digest = None if ps is None else ps[keys[1]]
+                both = old_digest is not None and new_digest is not None
+                entry["normalised_equal"] = old_digest == new_digest if both else None
         roles = {e["role"] for e in row["changed"]}
         estate_side = roles & {"guest", "runner"}
         python_only = bool(roles) and roles <= {"controller-python"}
@@ -384,10 +405,11 @@ def build() -> dict[str, Any]:
     rows = pairs(verdicts)
     tool = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "tool_sha256": tool,
         "evidence_tree": _git("rev-parse", "HEAD:docs/plan-033").strip(),
         "pwsh_normalisation": shutil.which("pwsh") is not None,
+        "schema_exceptions": sorted(v["file"] for v in verdicts if v["no_passed_member"]),
         "verdicts": len(verdicts),
         "lanes": len({v["lane"] for v in verdicts}),
         "summary": summary(rows),
@@ -399,6 +421,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--write", action="store_true", help="rewrite the committed record")
     args = parser.parse_args(argv)
+    if args.write and shutil.which("pwsh") is None:
+        print("refusing --write: pwsh is needed for the PowerShell comparisons", file=sys.stderr)
+        return 2
     record = build()
     text = json.dumps(record, indent=1, sort_keys=True) + "\n"
     if args.write:

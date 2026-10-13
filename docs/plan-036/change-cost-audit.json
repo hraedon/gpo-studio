@@ -7592,7 +7592,12 @@
   }
  ],
  "pwsh_normalisation": true,
- "schema_version": 1,
+ "schema_exceptions": [
+  "wp0-evidence/plan034-20261008/wp0/manifest.json",
+  "wp0-evidence/release110-20261009/wp0/manifest.json",
+  "wp0-evidence/wi062-20260910/wp0/manifest.json"
+ ],
+ "schema_version": 2,
  "summary": {
   "all": {
    "eligible": {
@@ -7636,6 +7641,6 @@
    "pairs": 55
   }
  },
- "tool_sha256": "8b5c1cb0a5fd449dd282f99c3134dcbccf86cb4c25b9cb4386130cc2e36331d6",
+ "tool_sha256": "5ee02926947d01ce63d099ae5ce56dd6586bd91a137707e26627e07cb8b46505",
  "verdicts": 228
 }

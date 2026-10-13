@@ -34,7 +34,7 @@ Update this list in the same change as any status line;
 
 **5 open.**
 
-- [WI-083](#wi-083--live-verdicts-are-fresh-only-for-a-hand-written-subset-of-what-they-execute) - proposed to block 1.1.0 final: derive every live lane's dependency closure, replay and re-grade, bank the result, requalify per D-9 (Plan 036 WP-0).
+- [WI-083](#wi-083--live-verdicts-are-fresh-only-for-a-hand-written-subset-of-what-they-execute) - proposed (awaiting owner) to block 1.1.0 final: derive every live lane's dependency closure, replay and re-grade, bank the result, requalify per D-9 (Plan 036 WP-0).
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036: make bound-file and workflow changes cheap and honest after 1.1.0.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
@@ -3826,7 +3826,7 @@ these fail except the add.
 
 **Opened:** 2026-10-13 (measuring change cost for [Plan 036](../plans/036-change-cost.md)).
 **Status:** open. Proposed by Plan 036 as a blocker for the 1.1.0 final tag;
-the owner confirms that ruling.
+proposed — awaiting the owner's ruling.
 
 **What is wrong.** Every lane verdict binds the files its finalizer's
 `DEPLOYED_FILES` and `LOCAL_FILES` tables name, and
@@ -3843,15 +3843,18 @@ verdict binds the tree that ships, made by Plan 034, Plan 035 and
 
 **What is known.** The Plan 036 round-1 reviewers rebuilt all nine candidates
 byte-identical to the banked hashes and re-graded the banked packs with the
-current code, reproducing the verdicts on the fields compared. Only endpoint's
-builder executes changed behaviour. Nothing measured says 1.1.0 behaves wrongly;
-the defect is in what the freshness claim covers.
+current code, reproducing the verdicts on the fields compared. A line trace of
+the builders found changed code executed by endpoint (function bodies) and by
+wp2, lifecycle, report-parity and wp1b (definition lines run at import); the
+grading half has not yet been traced at line level. Nothing measured says 1.1.0
+behaves wrongly; the defect is in what the freshness claim covers.
 
 **Closes when:** Plan 036's WP-0 lands: at the final freeze commit every live
 lane's derived closure, replay and full re-grade are banked as a successor
 record; the lanes D-9 selects (and any whose replay or re-grade differs) have
-passed on the estate at that commit; a release-only test pins every live
-lane's closure by digest; and Plan 034, Plan 035 and
+passed on the estate at that commit; a release-only test re-derives every
+live lane's dependency closure and fails on any added, removed or changed edge;
+and Plan 034, Plan 035 and
 `release-evidence-1.1.0.md` state the limitation and its disposition.
 
 ## WI-084 — a bound-file change costs more than it needs to
@@ -3869,4 +3872,3 @@ placed where binding is cheap; 17 review rounds for the grammar's creation.
 
 **Closes when:** Plan 036 exits: every risk in its exit table has a tested
 control or a recorded owner acceptance naming the residual risk.
-

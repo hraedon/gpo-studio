@@ -1,10 +1,11 @@
 # Plan 036: Reducing what a change costs
 
-Status: **proposed** (2026-10-13, revision 2). A design pass: none of it is
-built yet. It was written for a two-lineage design review. Round 1 (Sol and
-DeepSeek, both approve-with-changes) is folded in; the disposition of each
-finding is in [Review disposition](#review-disposition-round-1). One part, WP-0,
-is proposed as a **1.1.0 final blocker** (registered as WI-083), because the
+Status: **proposed** (2026-10-13, revision 3). A design pass: none of it is
+built yet. It was written for a two-lineage design review. Rounds 1 and 2 (Sol
+and DeepSeek, approve-with-changes both times) are folded in; the disposition
+of each finding is under [Review disposition](#review-disposition-round-1). One
+part, WP-0, is proposed as a **1.1.0 final blocker** (registered as WI-083,
+awaiting the owner's ruling), because the
 measurement found that the live evidence's freshness check does not cover what
 the lanes execute. Every change to what "qualified" means is an owner decision,
 not a work package that can start on its own.
@@ -136,7 +137,7 @@ historically.
 The counts come from a checked-in tool and its generated record, not from
 prose: [`change_cost_audit.py`](../docs/plan-036/change_cost_audit.py) writes
 [`change-cost-audit.json`](../docs/plan-036/change-cost-audit.json), which lists
-every one of the 228 verdicts' 202 pairs with its changed files, the role and
+every one of the 202 pairs formed from 228 banked qualifying records, with its changed files, the role and
 normalisation result of each, candidate identity, the pair's kind and its
 eligibility under each policy, plus the tool's own digest and the evidence
 tree it read. Re-running it on the same tree reproduces the record byte for
@@ -263,17 +264,17 @@ what R5's proof obligations now require.
 | Method | Who | What it measures | Result |
 |---|---|---|---|
 | Static import closure | both | changed module is imported | 9 lanes |
-| Line trace of each **builder** at `f880dc5`, counting changed lines executed (`sol-probes/trace_changed.py`) | Sol | changed code ran while building the candidate | **endpoint only** executes changed behaviour (78 changed lines of `gpp.py`, 120 of `gpp_adapters.py`, 37 of `gpp_native.py`). wp2 and lifecycle execute only changed module and class-definition lines at import; report-parity and wp1b one changed `store.py` class-definition line. No lane executed the changed branch of `ilt._serialize_predicate` |
+| Line trace of each **builder** at `f880dc5`, counting changed lines executed (`sol-probes/trace_changed.py`) | Sol | changed code ran while building the candidate | changed lines executed in **five** lanes: endpoint in function bodies (78 changed lines of `gpp.py`, 120 of `gpp_adapters.py`, 37 of `gpp_native.py`); wp2 and lifecycle in module, class and definition lines run at import (42 of `gpp.py`, 22 of `gpp_native.py`); report-parity and wp1b one `store.py` class-definition line each. No lane executed the changed branch of `ilt._serialize_predicate` |
 | Coverage of each **finalizer** over its banked pack at `de9736e`, counting functions that contain a changed line and ran (`ds/probes/exec_changed.py`) | DeepSeek | the grading half calls a function the change touched | wp2's finalizer calls 20 such functions in `gpp.py`, 45 in `gpp_adapters.py`, 1 in `ilt.py`, 5 in `store.py` (parsing Windows' backup back through Studio). Reported for the three `de9736e` lanes; detailed for wp2 |
 
 The two are measuring different halves at different granularity, and do not
 conflict. Sol's line-level result covers only the builders. DeepSeek's covers
 the grading half, but at function granularity and on the old code, so it shows
 that touched functions are called, not that changed lines execute. **Nobody has
-yet traced the finalizers at line level on the current code.** WP-0 does, and
-its result decides how many lanes D-9's option 2 covers: one (endpoint) if
-grading executes no changed line, up to three (adding wp2 and lifecycle) if it
-does.
+yet traced the finalizers at line level on the current code.** WP-0 does. Under
+D-9 option 2 as now defined (any changed line executed, definition lines
+included), the builder trace alone already selects five lanes; the finalizer
+trace can add more, up to all nine.
 
 So: no executed evidence that 1.1.0's behaviour is wrong; replay and re-grade
 reproduce; but the freshness claim ("every live verdict binds the tree that
@@ -454,69 +455,188 @@ binds the tree that ships. The gate proves that only for the hand-written
 sets, and nine lanes depend on changed code outside them. Nothing measured says
 the release behaves wrongly. But the claim the release makes about its evidence
 is not true as stated, and that has to be settled before the final tag, not
-after. WP-0 does it in four parts, all at the **final freeze commit**:
+after. WI-083 proposes WP-0 as a final-tag blocker; that is awaiting the
+owner's ruling.
 
-1. **Closure.** Compute every live lane's real dependency set: the static
-   import closure of builder and finalizer, plus runtime resources (files
-   opened, templates, fixtures, subprocesses into `scripts/`), discovered by a
-   traced run of the builder and of the finalizer over its banked pack
-   ([R4b](#r4b--derived-binding-audited-by-tracing)'s method, used here as a
-   one-off). The trace is line-level on the current code, for both halves,
-   which settles the open question in the reconciliation above.
-2. **Replay and re-grade.** Rebuild every live lane's candidate and re-grade
-   every banked pack at the freeze commit, with every recorded run input
-   supplied from the verdict, comparing the full canonical verdict (R5's proof
-   obligations, run once by committed tooling). All 26 lanes, not only the
-   nine: it is cheap, and the closure may find more.
-3. **Bank a successor record.** A dated record in `docs/plan-033/` (for
-   example `release110-dependency-audit.json` and a short note) that lists,
-   per lane, the derived closure with digests, the replay and re-grade
-   results, the trace's executed-changed-code result, and the caveat: these
-   verdicts were earned on the estate at `de9736e` or `9940561`; at the freeze
-   commit their candidates and grading reproduce offline; the estate did not
-   re-run them (except as in part 4).
-4. **Requalify on the estate** the lanes the owner's D-9 rule selects. The
-   owner currently leans to option 2 (requalify any lane whose changed code
-   actually executed), which on the data so far is **endpoint**, and up to
-   three lanes if part 1 finds changed lines executing in the grading half of
-   wp2 or lifecycle. Any lane whose replay or re-grade *differs* is requalified
-   under every option.
+### What WP-0 edits
 
-**And a release-only gate** (Sol N4.1), so the blind spot cannot reopen
-between WP-0 and the final tag: part 1's closure, with a digest per file, is
-committed as a generated record, and a test fails if any file in any live
-lane's recorded closure differs from that digest. It is a stop-gap: narrower
-than R4b, it pins the closure WP-0 found rather than re-deriving one, and
-R4b's derived binding replaces it after the release. It also covers DeepSeek's
-N2 (a pin that cannot get silently worse).
+WP-0 is not edit-free. It adds new tooling, a generated record and a test, none
+of which is in any lane's dependency set. It also **edits the bound finalizer
+of every lane D-9 selects**, adding that lane's derived dependencies to its
+`DEPLOYED_FILES`/`LOCAL_FILES` tables so that the lane's new verdict binds them
+by the existing byte rule. Each such edit expires exactly that one lane, which
+is being re-run anyway, so the edits cost nothing beyond the selected lanes. On
+the current data that is five finalizers (see D-9): `finalize_endpoint_run.py`,
+`finalize_wp2_import_run.py`, `finalize_lifecycle_run.py`,
+`finalize_report_parity_run.py` and `finalize_wp1b_run.py`, each bound by one
+lane (`bound-source-cost.md`). No other bound file changes. Lanes not selected
+keep their hand-written tables and are covered by the closure gate below.
 
-**In the same change**, the records that make the qualification claim are
-corrected: Plan 034's and Plan 035's statements that all 26 lanes were
-re-earned "at one commit", and `release-evidence-1.1.0.md`, each get the
-limitation and its disposition (the successor record and any requalified
-run). `report-bound-source-cost.py` stops writing "No lane reads these" for
-unbound files (DeepSeek N1). WI-083 closes.
+### Order, and which commit binds what
 
-**What the endpoint rerun adds, and what it does not.** Endpoint's candidate
-bytes were identical at `f880dc5` (replay above), and part 2 checks them again
-at the freeze commit. If they still are, the rerun tests no new candidate
-content: Windows is given exactly what it was given at `de9736e`. Before the
-rerun, part 1's closure is added to endpoint's finalizer tables (an edit only
-endpoint binds, and endpoint is re-running anyway), so the new verdict binds
-the release commit and its real dependencies by the existing byte rule. What
-the rerun adds is that clean binding record, earned under the current
+1. **WP-0's tooling lands first**, through an ordinary reviewed PR (tier 2:
+   it adds a release gate). It touches no lane's dependency set.
+2. **Candidate freeze, `F0`.** The commit intended for release, with every
+   product change done.
+3. **Select.** Part 1's trace runs at `F0` and D-9's rule picks the lane set
+   `S` mechanically.
+4. **Freeze, `F`.** `F0` plus the table edits for the lanes in `S`, and nothing
+   else. `F` is the commit every new verdict and the successor record bind.
+5. **Parts 1 and 2 run again at `F`**, for all 26 lanes (the table edits changed
+   the selected lanes' finalizers, so the earlier trace no longer describes
+   them).
+6. **Part 4.** Every lane in `S` runs on the estate from a clean clone at `F`.
+7. **Bank, `B`.** One commit whose parent is `F` and which touches only
+   evidence and records: the packs for `S`, the batch manifest and registry
+   entries, the successor record, the closure gate's pin record, and the prose
+   corrections below. A check refuses `B` if it changes any file in any lane's
+   dependency set. Because the freshness gate hashes the working tree, `B`'s
+   tree carries exactly `F`'s bytes for every bound file, and the gate is
+   green at `B`.
+8. **Tag.** The release tag points at `B`, or at a descendant of `B` that is
+   itself evidence- and records-only. Every verdict and the successor record
+   name `F`; the closure gate proves the tag's tree equals `F` on every
+   dependency.
+
+If anything in any lane's dependency set changes after `F`, the closure gate
+goes red and WP-0 restarts from step 3.
+
+### The four parts
+
+1. **Closure.** For every live lane, the static import closure of builder and
+   finalizer (re-derived, not traced), plus every dynamic, resource and process
+   edge, found by scanning that closure for the constructs that can add an
+   input without an import: `glob`, `rglob`, `iterdir`, `listdir`, `walk`,
+   `importlib`, `runpy`, `pkgutil`, entry points, `open` of a computed path,
+   and process launches. Each call site found must be declared with what it
+   reaches: the directory and pattern it enumerates, the module it loads, or
+   the executable it runs. Known today: `template_store.py:262-280` (ADMX
+   discovery by `glob`/`iterdir`), `build-fdeploy-candidate.py:500` (`rglob`),
+   `build-report-parity-candidate.py:183` (`glob` over the GPP fixtures),
+   `finalize_lifecycle_run.py:46` (`runpy`) and `finalize_fdeploy_run.py:40`
+   (`importlib.util`). A line-level trace of the builder and of the finalizer
+   over its banked pack, at the current code, corroborates the declarations and
+   produces D-9's executed-changed-line result. It cannot prove that an
+   unexecuted branch reaches nothing, which is why the static scan and the
+   declarations are the authority and the trace is not.
+2. **Replay and re-grade**, for all 26 lanes at `F` (what it meets of R5 is
+   stated [below](#what-part-2-meets-and-what-it-does-not)).
+3. **Successor record.** `docs/plan-033/release110-dependency-audit.json` and a
+   short note: per lane, the closure with digests, the declared edges, the
+   replay and re-grade results, the executed-changed-line result, and the
+   caveat. The caveat says: these verdicts were earned on the estate at
+   `de9736e` or `9940561`; at `F` their candidates and grading reproduce
+   offline; the estate did not re-run them, except the lanes in `S`, which ran
+   at `F`.
+4. **Requalify `S` on the estate**, from a clean clone at `F`.
+
+### The release-only closure gate
+
+A test, in CI from WP-0 until R4b replaces it, that fails on **any added or
+removed edge**, not only on changed bytes:
+
+- it **re-derives** every live lane's static import closure from the tree and
+  compares it, as a set, with the pinned closure;
+- it re-scans that closure for dynamic, resource and process call sites and
+  fails on any call site not in the pinned declarations, or any declared one
+  that has gone;
+- it re-enumerates every declared directory with its declared pattern and
+  compares the **membership** (each path and its digest) with the pin, so a
+  file added to, removed from or renamed in an enumerated directory fails;
+- it pins the identity of the toolchain the lanes resolve: the `uv.lock`
+  digest, `requires-python`, and, for each declared process edge, the
+  executable's name. The controller's actual interpreter version and the
+  resolved executables' paths and versions are recorded at step 5 on mvmcc02,
+  and checked by the selected lanes' preflight there, because CI runs on a
+  different machine and cannot see them;
+- it keeps the hand-written tables as a floor: every file a live verdict binds
+  today must be in its pinned closure;
+- it checks every pinned file's digest against the tree.
+
+**The pin cannot be refreshed by regenerating it** (DeepSeek N2-9). The pin
+record carries the digest of the successor record from which it was derived,
+and the successor record carries the replay and re-grade results. The generator
+writes a new pin only as the last step of a full re-run of parts 1 and 2, and
+refuses if any lane's replay or re-grade differs; the test refuses a pin whose
+successor-record digest does not match the committed successor record. So a red
+gate is cleared only by re-deriving, re-grading and, where the rule says so,
+re-earning on the estate. A change to the pin or the declarations is a tier-2
+change.
+
+The gate is a stop-gap: it pins one closure instead of deriving bindings
+generally, and the window it covers is short, from `F` to the tag. R4b's
+derived binding replaces it in WP-4.
+
+### What part 2 meets, and what it does not
+
+Part 2 runs each **shipping** finalizer through its normal entry point with
+`--no-tag`, from a clean clone at `F`, over a copy of the banked pack, so there
+is one grading implementation by construction. Measured against R5's proof
+obligations:
+
+| R5 obligation | WP-0 part 2 |
+|---|---|
+| Same-commit determinism of the builder | **Met**: two builds from two fresh clones at `F`, compared with each other and with the banked hashes |
+| Re-grade fidelity at the verdict's own commit | **Met**: re-grade at the verdict's commit, then at `F` |
+| Every recorded run input supplied, refusing gaps | **Met by hand**: a per-finalizer table in the tool maps each command-line input (`--guest-status`, scenario, lane options) to the banked verdict field it is read from (DeepSeek found `guest_status` recorded in the banked verdicts); a missing field refuses |
+| Full canonical comparison | **Met** for the three verdict shapes below, with the excluded leaves listed |
+| Negative meta-tests | **Met in part**: omitted input, flipped check, dropped check, changed finding and tampered pack member are run against the tool |
+| Schema-3 run-input record in each verdict | **Not met** (needs every finalizer changed; WP-4) |
+| gather/grade split | **Not needed** for WP-0 (it uses the live path); WP-4 |
+| Mutation test of every compared field | **Not met** in full; WP-0 mutates one leaf per top-level key per shape, and every excluded leaf's invariant |
+
+**The canonical verdict, per shape.** The 25 live lane verdicts come in three
+shapes (24 at `schema_version` 2, one at 1), and WP-0's manifest is a fourth:
+
+| Shape | Lanes | Compared |
+|---|---|---|
+| `checks` | wp2, wp3-dc, wp3-member, object-security, scripts-metadata, publication, lifecycle, report-parity, firewall, fdeploy | the whole JSON tree |
+| `rows`/`state` | endpoint and the 13 RSoP lanes | the whole JSON tree |
+| `candidates` | wp1b | the whole JSON tree |
+| WP-0 manifest | wp0 | the whole JSON tree |
+
+In every shape, only these leaves are treated specially, and each has an
+invariant that is checked instead of equality:
+
+- `source.commit`: equals the verdict's commit in the banked copy and `F` in
+  the re-grade.
+- `source.files.<name>`: each digest equals git's blob digest of that path at
+  the commit the same record names.
+- any leaf that holds an absolute path under the run directory: rewritten to
+  the pack-relative member and its digest, then compared.
+
+Everything else is compared for equality, including `run_id`, `passed`,
+`state`, every check and every finding, `source.dirty` and `source.paths`.
+`source_tree_clean` is a check like any other and must be true, which the clean
+clone guarantees. Nothing is allowlisted to differ.
+
+### The prose corrections, in `B`
+
+Plan 034's and Plan 035's statements that all 26 lanes were re-earned "at one
+commit", and `release-evidence-1.1.0.md`, each get the limitation and its
+disposition (the successor record and the requalified lanes).
+`report-bound-source-cost.py` stops writing "No lane reads these" for unbound
+files (DeepSeek round-1 N1). WI-083 closes.
+
+### What the reruns add, and what they do not
+
+The selected lanes' candidate bytes were identical at `f880dc5` (replay above),
+and part 2 checks them again at `F`. If they still are, the reruns test no new
+candidate content: Windows is given exactly what it was given at `de9736e` or
+`9940561`. What a rerun adds is a verdict that binds `F` and the lane's real
+dependencies by the existing byte rule, earned under the current
 no-carry-forward policy without needing D-2, and a fresh estate observation,
 which would catch estate drift since 2026-10-09 rather than a product change.
-The other lanes keep their verdicts and are covered by the successor record
-and the release-only gate. Cost: endpoint took 2.8 minutes in the 1.1.0 batch,
-plus banking.
+The other lanes keep their verdicts, covered by the successor record and the
+closure gate.
 
-**Why this is pre-final and what it touches.** Parts 1 to 3 add read-only
-tooling under `scripts/plan-033/`, a generated record and a test. These ship in
-the sdist like every other file under `scripts/` and `tests/`, and the test
-runs in release CI. That is the point (it is a release gate), so it is
-reviewed at tier 2 like any gate change and lands before the freeze, not on
-it. Part 4 is an ordinary successor batch, the kind the release already took on
+### Why this is pre-final
+
+Parts 1 to 3 add tooling under `scripts/plan-033/`, a generated record and a
+test. They ship in the sdist like every other file under `scripts/` and
+`tests/`, and the test runs in release CI. That is the point: it is a release
+gate, reviewed at tier 2 like any gate change, and it lands before `F0`. Part 4
+is an ordinary successor batch, the kind the release already took on
 2026-10-09.
 
 ## The remedies
@@ -569,31 +689,79 @@ matches its shape.
    rendering: no step the manifest lacks, none missing, none out of order. This
    comes first, and one job is converted end to end before any other shell
    moves.
-2. **Pinned entrypoints.** Every file under `scripts/ci/` (Python and the
+2. **Pinned entrypoints.** Every entrypoint the manifest names, in any
+   directory, and every file in its `scripts/` import closure (Python and the
    PowerShell checker) is pinned by SHA-256 in a reviewed table in the grammar
    tests, as `ACTIONS` pins action revisions. Editing a script without
    updating its pin fails; updating the pin is a tier-2 change.
-3. **Capabilities, checked over each entrypoint's import closure inside
-   `scripts/ci/`** by an AST test that fails closed:
-   - processes only through `scripts/ci/_exec.py`, which takes an argument
-     list (`shell=False`) and refuses any list that does not match an `ARGV`
-     template (literals and named slots, element by element). Refused
-     everywhere else: `subprocess`, `os.system`, `os.popen`, `os.exec*`,
-     `os.spawn*`, `os.fork`, `pty`, `asyncio` subprocess functions,
-     `multiprocessing`, `concurrent.futures.ProcessPoolExecutor`;
-   - network only through `scripts/ci/_fetch.py`, which takes an exact URL from
-     a reviewed table and refuses bytes whose SHA-256 differs from the table's.
-     Refused everywhere else: `urllib`, `http`, `socket`, `ssl`, `ftplib`,
-     `smtplib`, `xmlrpc`, `ensurepip`, `venv` with pip, and any `pip` import;
-   - no dynamic code: `importlib`, `runpy`, `__import__`, `exec`, `eval`,
-     `compile`, `ctypes`, `cffi`, and imports from outside the standard library
-     (S4) or the lock (S3) are refused;
-   - per-phase write roots: a phase may write only under the paths its
-     manifest entry names (checked on the literal arguments to file-writing
-     calls; anything not literal is refused);
-   - the PowerShell checker is parsed with pwsh's AST and refused if it calls
-     anything beyond the parser and PSScriptAnalyzer (no `Invoke-WebRequest`,
-     `Start-Process`, `&` of an external command).
+3. **Capabilities, as an allowlist, for every entrypoint the manifest names**,
+   wherever it lives (`scripts/ci/`, `scripts/check_safety.py`,
+   `scripts/check_coverage.py`, the rehearsal script, and so on). Round 2
+   showed why a list of refusals cannot do this: anything not named fails
+   open. Sol ran a process through `pickle.loads` of a literal payload whose
+   `GLOBAL` opcode names `posix.system`, with none of the refused names in the
+   source; DeepSeek listed `os.posix_spawn`, `os.startfile`, `marshal`,
+   `telnetlib`, `asyncio.open_connection`, `Invoke-RestMethod`, `Add-Type` and
+   `New-Object Net.WebClient`. So each phase's manifest entry declares, and the
+   test enforces, a **positive** grammar:
+   - **imports**: the exact modules the entrypoint and its `scripts/` closure
+     may import. Anything else fails, including any standard-library module
+     not listed;
+   - **call targets**: the exact fully qualified functions, constructors and
+     methods it may call (`json.loads`, `hashlib.sha256`, `pathlib.Path`,
+     `pathlib.Path.read_bytes`, `zipfile.ZipFile.extractall`, ...). The check
+     resolves import aliases (`import json as j`), refuses binding a module or
+     callable to any other name, and resolves a method call only on a value
+     produced by a declared constructor or by a declared function with a
+     declared return type. A call it cannot resolve fails;
+   - **the only network API is `scripts.ci._fetch.fetch`** (an exact URL from a
+     reviewed table; bytes whose SHA-256 differs are refused) and **the only
+     process API is `scripts.ci._exec.run`** (an argument list, `shell=False`,
+     matched element by element against an `ARGV` template). No other module
+     may import `socket`, `urllib`, `http`, `subprocess` or `os` process
+     functions, because no other module's allowlist contains them;
+   - **reflection and deserialisers fail closed**: `getattr`/`setattr` with a
+     non-literal name, `vars`, `globals`, `__dict__`, `__class__`,
+     `__subclasses__`, `__builtins__`, `type()` with three arguments, `exec`,
+     `eval`, `compile`, `importlib`, `runpy`, `__import__`, `pickle`,
+     `marshal`, `shelve`, `copyreg` and `ctypes` are never allowlisted;
+   - **writes, enforced at run time.** Every Python entrypoint runs under
+     `scripts/ci/_guard.py` (shape S3/S4 becomes `python -I scripts/ci/_guard.py
+     <entrypoint> <args>`), which installs a `sys.addaudithook` hook before the
+     entrypoint is imported. The hook refuses `open` for writing, `os.remove`,
+     `os.rename`, `shutil` copies and archive extraction whose **resolved** path
+     falls outside the phase's declared write roots; any `socket.connect` not
+     made by `_fetch`; any `subprocess.Popen`, `os.system`, `os.exec`,
+     `os.posix_spawn` or `os.startfile` not made by `_exec`; `pickle.find_class`,
+     `marshal.loads`, `compile`, `exec` and `ctypes.dlopen`; and any import
+     outside the allowlist. An audit hook cannot be removed once installed. It
+     is a second line behind the static allowlist, not a sandbox against hostile
+     code; the threat model is a careless or unreviewed change, and the SHA pins
+     plus tier-2 review cover the deliberate one;
+   - **PowerShell, the same way**: the S6 checker is parsed with pwsh's AST and
+     may use only the commands, type literals and .NET members its manifest
+     entry lists (the parser API, `Import-Module` of the pinned
+     PSScriptAnalyzer path, `Invoke-ScriptAnalyzer`, and output cmdlets).
+     `Invoke-WebRequest`, `Invoke-RestMethod`, `Invoke-Expression`, `Add-Type`,
+     `Start-Process`, `New-Object` of any type not listed (so not
+     `Net.WebClient`), `[Diagnostics.Process]::Start`, `&` of an external
+     command and dynamic member names all fail because none is listed.
+
+   **Planted probes**, one per bypass, each of which the test must refuse:
+   `pickle.loads` with a `GLOBAL` payload; `marshal.loads`; `os.posix_spawn`;
+   `os.startfile`; `telnetlib`; `asyncio.open_connection`; `socket` imported
+   under an alias; `getattr(os, "sys" + "tem")`; `__import__("subprocess")`;
+   `pathlib.Path.write_text`, `shutil.copy`, a `logging.FileHandler`,
+   `sqlite3.connect` and `tempfile` outside the write roots; a
+   `zipfile`/`tarfile` extraction that traverses out of its root; and in
+   PowerShell, `Invoke-RestMethod`, `Invoke-WebRequest`,
+   `New-Object Net.WebClient`, `[System.Net.WebClient]::new()`, `Add-Type`,
+   `Invoke-Expression`, `Start-Process` and `[Diagnostics.Process]::Start`.
+
+   **Out of scope, stated**: `pytest` (S3) runs the test suite, whose code is
+   reviewed as code and is not held to the allowlist, as today; `ruff` and
+   `mypy` are locked third-party tools. The grammar's existing docstring says
+   the same of the code it lets run.
 
 A workflow step then takes one of six shapes, and nothing else:
 
@@ -601,8 +769,8 @@ A workflow step then takes one of six shapes, and nothing else:
 |---|---|---|
 | S1 | `uses:` an `ACTIONS` entry (SHA and inputs, as today) | checkout, setup, cache, upload, attest, gitleaks |
 | S2 | `uv lock --check`, or `uv sync --locked` with a literal extra | lock integrity, install |
-| S3 | `uv run --locked <tool> <args>`, tool one of `ruff`, `mypy`, `pytest`, or `python -I` a pinned `scripts/` entrypoint | lint, types, tests, repository scripts needing locked dependencies |
-| S4 | `python -I scripts/ci/<name>.py <args>`, a pinned standard-library-only entrypoint | steps before or outside the locked environment (release identity, fetching PSScriptAnalyzer by hash) |
+| S3 | `uv run --locked <tool> <args>`, tool one of `ruff`, `mypy`, `pytest`, or `python -I scripts/ci/_guard.py <pinned entrypoint>` | lint, types, tests, repository scripts needing locked dependencies |
+| S4 | `python -I scripts/ci/_guard.py scripts/ci/<name>.py <args>`, a pinned standard-library-only entrypoint | steps before or outside the locked environment (release identity, fetching PSScriptAnalyzer by hash) |
 | S5 | `npm ci --ignore-scripts`, `npm audit --audit-level=high`, `npm run <script>`, `node_modules/.bin/playwright install --with-deps chromium firefox` | the frontend job |
 | S6 | `pwsh -NoProfile -File scripts/ci/<name>.ps1` | the two steps that must use the PowerShell parser |
 
@@ -628,7 +796,7 @@ files at `f880dc5`):
 | Installed package: reproducible build, export locks, clean venvs, version consistency, CLI, server smoke, sdist excludes, sdist contents, upgrade rehearsal (ci 199-288) | 9 | S3/S4: `build_distributions.py`, `export_locked_requirements.py`, `install_clean_venvs.py`, `check_installed_package.py`, `smoke_server.py`, `check_sdist_contents.py` (tarfile), and the existing rehearsal script |
 | Dependency audit: export, install, audit and licences (ci 319-348) | 3 | `export_locked_requirements.py`, `install_clean_venvs.py`, `audit_dependencies.py` (the licence allowlist moves into the script) |
 | SBOM: export, install, generate, finalize (ci 373-406) | 4 | the same two, plus `make_sbom.py` |
-| PowerShell: fetch PSScriptAnalyzer (ci 465) | 1 | S4 `fetch_psscriptanalyzer.py` (urllib and hashlib) |
+| PowerShell: fetch PSScriptAnalyzer (ci 465) | 1 | S4 `fetch_psscriptanalyzer.py`, which calls `_fetch.fetch` with the pinned URL and digest (its table entry) and extracts with `zipfile` into its declared write root; it imports no network module itself |
 | PowerShell: parse and analyse (ci 480-521) | 2 | S6 `check_ps1.ps1` |
 | Release identity, ancestry (release 41-52) | 2 | S4 `release_identity.py` |
 | Verify: install, then nine gates that duplicate CI jobs (release 92-108) | 2 | split into S2, S3 and S5 steps |
@@ -647,8 +815,9 @@ lock checks with no lexer:
 
 - every workflow is the manifest's rendering, and every step one of S1 to S6
   with literal arguments;
-- every `scripts/ci/` entrypoint matches its pinned digest, and its import
-  closure stays inside its declared capabilities;
+- every manifest entrypoint, and every file in its `scripts/` import closure,
+  matches its pinned digest, and stays inside its declared import and
+  call-target allowlist; every Python entrypoint runs under `_guard.py`;
 - actions pinned to their reviewed SHA, with every required input at a listed
   value (`ACTIONS`);
 - the `env:` allowlist, reviewed `${{ }}` expressions and `if:` conditions,
@@ -773,28 +942,58 @@ after expiry while another run owns the estate.
 3. **Freeze.** A clean clone at the labelled SHA under a private directory, as
    the operator does by hand today. The run ids are immutable and recorded
    before the first lane starts.
-4. **Estate lease, with fencing.** The serial-access rule between gpo-studio
-   and windows-evidence-lab
+4. **Estate lease, with real fencing.** The serial-access rule between
+   gpo-studio and windows-evidence-lab
    ([direction 2026-08-06](../docs/direction-2026-08-06-reconciliation-and-lab-handover.md))
    is enforced today by people. windows-evidence-lab has an operation journal
-   with a reconciliation gate, but no lock another repository can see. The
-   lease lives on the Hyper-V host, the one place both repositories' runs pass:
-   - acquisition is an atomic compare-and-set (a lock file created exclusively
-     under a host-side directory both repositories' host sessions use) that
-     records holder, repository, run id, expiry and a **fencing token**, an
-     integer that only ever increases;
-   - the holder renews by heartbeat (every 60 s, say, with a TTL of several
-     heartbeats), each renewal checking holder and token;
-   - **every estate-mutating leg checks the token first**: psdirect's host
-     session refuses to run a leg whose token is not the current one. A paused
-     or partitioned holder that resumes after expiry is fenced off at its next
-     leg, its lane fails, and the batch stops;
-   - release verifies holder and token; expiry during a run fails the run;
-     host clock skew is irrelevant because the token, not the time, decides;
-   - the lease is taken **before** any canary that touches the estate.
-   Vault KV with check-and-set is the alternative store if the host is the
-   wrong place. Either way windows-evidence-lab needs the matching change
-   (D-6).
+   with a reconciliation gate, but no lock another repository can see. Round 2
+   showed that checking a token *before* a leg is not fencing: a holder can
+   pass the check, pause, lose the lease, and then mutate after a new holder has
+   taken over (Sol's race probe produced exactly that stale mutation). So the
+   check and the mutation have to be one atomic unit at the resource. Design:
+   - **One authoritative host-side operation lock.** On the Hyper-V host, a
+     lock file opened with an exclusive OS-level lock (Windows `FileShare.None`)
+     by the host-side code of every estate-mutating operation, from both
+     repositories. A mutating leg acquires the operation lock, reads the lease
+     record, compares the lease's holder and token with its own, performs the
+     mutation (the PowerShell Direct call and its wait), and only then releases
+     the operation lock. Validation and mutation therefore cannot be separated
+     by a takeover. The operation lock has no expiry; an OS lock held by a dead
+     process is released by the OS.
+   - **The lease record**, holder, repository, run id, expiry and **fencing
+     token**, lives in a host-side file and is changed only while holding the
+     operation lock, by write-to-temporary, flush and atomic rename. The token
+     is a counter that only increases: every acquisition or takeover writes
+     the previous value plus one, and it is never reset, across release,
+     expiry and host reboot.
+   - **Takeover is atomic and waits for in-flight work.** A new holder whose
+     predecessor's lease has expired acquires the operation lock (so it waits
+     for any leg in flight), increments the token and writes itself as holder.
+     Every leg that starts afterwards under the old token is refused. A leg that
+     never finishes holds the operation lock and blocks takeover; the new holder
+     may then terminate it, but only by killing the old holder's host process
+     **and** confirming that the guest-side session processes are gone (the
+     same containment check the driver uses for a lane), and otherwise refuses
+     and leaves the estate for a person. A new holder never starts while an old
+     leg may still be running.
+   - **Renewal** is by heartbeat from a thread separate from the leg (so a
+     blocked leg does not stop it), every 60 s with a TTL of several
+     heartbeats, each renewal checking holder and token under the operation
+     lock. Expiry during a run fails the run at its next leg. Clock skew between
+     hosts does not matter: the token, not the time, decides who may mutate,
+     and expiry is judged by the host's own clock.
+   - **Legs stay bounded.** psdirect's per-leg timeouts (WI-078) bound every
+     leg; that bounds how long a takeover can wait, not whether it is safe.
+   - The lease is taken **before** any canary that touches the estate.
+   - **Tests.** A fault-injected pause (`-TestFault`) between validation and
+     mutation, with a takeover attempted during the pause: the takeover must
+     block until the paused leg finishes, and the next leg under the old token
+     must be refused. Also: a holder killed mid-leg, a host reboot (the token
+     survives and increases), and a concurrent windows-evidence-lab acquisition.
+   Vault KV with check-and-set could hold the lease record, but not the
+   operation lock, which has to be where the mutation happens; so the host is
+   the place. windows-evidence-lab must route every estate mutation through the
+   same operation lock (D-6).
 5. **Release-window guard, mechanical.** Before taking the lease, the routine
    refuses if any `v*-rc.*` tag exists without its final tag, unless the
    operator passes an override that the batch manifest records. No timer runs
@@ -838,9 +1037,9 @@ lane table, budgets or bound sets.
 
 **Cost (estimate).** Detection, the registry step and the generic batch test:
 two sessions. Label trigger, preflight, banking-to-PR and failure path: two to
-three sessions. Lease with fencing: two sessions in gpo-studio (including
-psdirect's token check, a bound edit that rides WP-4) and one to two in
-windows-evidence-lab. Generated prose tables: one session.
+three sessions. The fenced lease: three sessions in gpo-studio (the host-side
+operation lock in psdirect's host code is a bound edit that rides WP-4, plus
+the takeover and fault tests) and two in windows-evidence-lab. Generated prose tables: one session.
 
 **Saving.** Removes the freeze-and-supersede failure mode: a late edit causes
 another labelled run rather than invalidating one, and the PR, not `main`,
@@ -962,6 +1161,23 @@ first derived batch (WP-4) the trace is also compared against the static
 closure and the old hand-written tables, and every difference is resolved in
 review before the batch banks.
 
+**What the audit exempts** (DeepSeek round-2 N2-7). The interpreter opens and
+imports its own standard library and the environment's installed
+distributions on every run; those are not repository files and are not in the
+union. The rule: a path under the interpreter's standard-library directories
+or the environment's `site-packages` is exempt from the union check and is
+recorded by identity instead (interpreter version, and distribution name and
+version, which the `uv.lock` digest pins). A path inside the repository must be
+in the union. Any other path fails unless it is under the lane's own run
+directory or a temporary root the lane declares. An import of a module that
+resolves inside the repository is a repository path, wherever the import
+statement is.
+
+**The trace corroborates; it does not prove absence.** One run cannot show that
+an unexecuted branch reaches nothing. The static closure and the declared
+edges are the authority, as in WP-0's closure gate; the trace catches a
+declaration that has fallen behind on the paths that ran.
+
 **Environment.** The verdict records the controller's Python version, platform
 and the `uv.lock` digest. A change to any of them does not expire the verdict
 by bytes; it triggers an offline replay and re-grade (R5), a named proof
@@ -1034,12 +1250,33 @@ also agree with itself while the live grading path diverged.
   verdict banked before schema 3 has no record, so it cannot be re-graded
   automatically; WP-0 supplies those inputs by hand from the verdict, once,
   and says so.
-- **Full canonical comparison.** The re-graded verdict is compared with the
-  banked one in full: state, `passed`, every check and its result, findings,
-  errors, comparisons and projections, environment interpretation, the inputs
-  consumed and the artifacts recorded. Only fields on an explicit volatile
-  allowlist (timestamps, local paths, the tag) may differ, and each allowlisted
-  field has a meta-test showing it carries no claim.
+- **A canonical claim projection, not a volatile allowlist.** Round 2 showed
+  that "timestamps, local paths, the tag" are categories, not safe fields: a
+  run id is provenance, a path can select which pack member was read, a
+  timestamp can carry ordering, and in round 1 the one field that actually
+  differed was a check result (`source_tree_clean`). So each verdict schema
+  version and shape (WP-0's table lists the four in use today) gets a
+  versioned **projection**: the whole JSON tree, with a closed list of exact
+  leaf paths that are transformed rather than compared raw, each with the
+  invariant checked instead:
+  - `source.commit`: the banked copy's equals its `rests_on` commit; the
+    re-grade's equals the commit under test.
+  - `source.files.<name>`: each digest equals git's blob digest of that path at
+    the commit the same record names.
+  - a leaf holding an absolute path under the run directory: rewritten to the
+    pack-relative member and its digest, then compared.
+  - a timestamp the finalizer itself generates (not one read from the pack):
+    must not precede the run's recorded completion and must keep its order
+    relative to every other timestamp in the verdict; not compared for equality.
+  - the run id is compared; the carried verdict's own id is derived from
+    `rests_on` (`<rests_on run id>+carry-<commit>`) and checked to be so.
+
+  Every other leaf is compared for equality, including every check result,
+  every finding, `state`, `passed`, `source.dirty` and `source.paths`. **No
+  check or finding is ever transformed or excluded.** Re-grades run from a clean
+  clone, so `source_tree_clean` is compared and must be true. Every transformed
+  leaf has a mutation test that breaks its invariant and must fail, alongside
+  the mutation of every compared leaf.
 - **Replay, exactly specified.** `replay-lane.py <verdict>` builds the
   candidate in a fresh clone at the commit under test, with the builder argv
   and cwd from the verdict, an environment reduced to an allowlist, the
@@ -1096,8 +1333,8 @@ guest), so it qualifies only for re-grade.
   check; a tampered pack member; a mismatched interpreter.
 - The re-grade cannot reach the estate: no transport is importable on its path,
   and the tracer (R4b) proves it.
-- Every compared field is mutation-tested: changing it in the banked verdict
-  makes the comparison fail.
+- Every compared leaf and every transformed leaf's invariant is mutation-tested:
+  changing it in the banked verdict makes the comparison fail.
 
 **Measured so far.** The round-1 reviewers ran a manual version of this on the
 nine lanes ([above](#the-nine-lanes-measured-2026-10-13)): replay reproduced
@@ -1229,21 +1466,45 @@ never ran. A self-attestation is not evidence.
   Every check compares against a value the controller generated (a nonce, a
   file it made) or one the host reports independently, never only against
   what the transport reported about itself.
-- **Product lanes stop binding `psdirect.ps1` by bytes** and instead bind "the
-  transport digest in use has a passing conformance verdict". When
-  `psdirect.ps1` changes, the conformance lane runs once (a few minutes), and
-  every product lane verdict whose other bindings still hold stays live.
+- **The transport contract is reviewed data** (Sol round-2 NB4). A versioned
+  inventory, `docs/plan-033/transport-contract.json`, lists what the runners
+  rely on the transport for: each action, each parameter and its value class,
+  the size classes and path classes of pushed and pulled files, retry
+  semantics per leg kind, and the session and principal expectations. The
+  battery is versioned too, and declares which inventory items each of its
+  checks covers; a test fails if any inventory item is uncovered. Changing the
+  inventory or the battery is a tier-2 change and requires a new conformance
+  run.
+- **The inventory is audited two ways.** Statically, a test extracts every
+  `psdirect.ps1` invocation from the runners (they call it through one shell
+  function per runner, with literal `-Action` values) and fails on any action
+  or parameter not in the inventory. At run time, psdirect itself records each
+  invocation's action, parameters and size and path classes, and refuses an
+  invocation outside the inventory, so a lane cannot rely on an uncovered
+  behaviour even through a computed argument. R4b's trace corroborates.
+- **Product lanes stop binding `psdirect.ps1` by bytes.** Each product verdict
+  instead records `transport: {digest, conformance_run_id, battery_version,
+  inventory_version}`. The freshness gate resolves `conformance_run_id` in the
+  live registry and requires that the conformance verdict is live (not retired
+  or pending), passed, was earned on the same digest as the current
+  `psdirect.ps1`, and used the current battery and inventory versions. If any of
+  those fails, every product verdict that references it is expired, and the
+  gate says why. When `psdirect.ps1` changes, the conformance lane runs once (a
+  few minutes) and a new conformance verdict goes live; product verdicts whose
+  other bindings hold are re-pointed to it by the banking step, which records
+  the old and new conformance run ids.
 - **Threat model, stated.** The battery catches a transport that is *wrong*,
   not one written to deceive it. The transport is project code reviewed at
   tier 2; a deliberately deceptive change is out of scope, as it is for every
   other bound file.
 - **Composition.** The claim a product verdict makes after a transport change
   is: the lane passed on the estate under transport T1; the current transport
-  T2 conforms to the battery; the battery covers everything the lanes rely on the
-  transport for. The last clause is the risk. The battery is derived from the
-  runners' actual calls (every action, parameter and size class they use, from
-  R4b's trace), and a runner that starts using something the battery does not
-  cover fails a static check.
+  T2 passed the battery; and the battery covers every inventory item, which
+  covers everything the runners invoke. The residual risk is a transport
+  behaviour the lanes depend on that the inventory does not name; the static
+  and run-time audits above make an *invocation* outside the inventory
+  impossible, but not a dependence on an unlisted property of a listed one. That
+  residual is accepted or not under D-3.
 
 **Until it exists, the transport stays byte-bound.** Nothing about R7 applies
 before the conformance lane has passed review (two reviewers, one executing
@@ -1302,24 +1563,44 @@ has already said something, which is recorded as such.
 - **D-8. When R1 switches the workflows.** *Recommend: after 1.1.0 final*, with
   Python 3.15 landing on the new shape rather than as one more grammar
   extension.
-- **D-9. Which of the nine lanes are requalified on the estate before 1.1.0
-  final.** WP-0's behavioural replay and re-grade runs on all live lanes under
-  every option, and any lane whose replay or re-grade differs is requalified
-  under every option. Beyond that:
+- **D-9. Which lanes are requalified on the estate before 1.1.0 final.**
+  WP-0's replay and re-grade runs on all live lanes under every option, and
+  any lane whose replay or re-grade differs is requalified under every option.
+  Beyond that:
 
   | Option | Rule | Lanes on the current data | Estate time (1.1.0 batch durations) |
   |---|---|---:|---:|
   | 1 | Behavioural only: requalify only what differs | 0 | none |
-  | **2** | **Also requalify any lane whose changed code actually executed (line-level trace, builder and grading half)** | **1 (endpoint)**; up to 3 if WP-0 finds changed lines executing in wp2's or lifecycle's grading | 2.8 min; up to 4.0 min |
+  | **2** | **Also requalify any lane in which a changed line executed** (defined below) | **5 expected** (endpoint, wp2, lifecycle, report-parity, wp1b), from the builder trace; up to 9 once the grading half is traced | **about 6.9 min** (2.8 + 0.7 + 0.5 + 2.0 + 0.9); up to about 11 min |
   | 3 | Requalify every lane with a changed unbound import | 9 | about 11 min |
 
   **Owner, 2026-10-13: leaning to option 2, tentatively** ("I default to #2,
-  but it isn't a strong position"). The plan schedules option 2: the endpoint
-  rerun (and any lane WP-0's trace adds) at the 1.1.0 final freeze commit, so
-  its verdict binds the release commit and its newly derived dependencies.
-  Options 1 and 3 stay open until the freeze. Under option 2, what the rerun
-  adds is stated in [WP-0](#the-110-final-blocker-wp-0): a clean binding record
-  and a fresh estate observation, not a test of new candidate content.
+  but it isn't a strong position"). Because that position is weak and the
+  repository prefers strict defaults, the coordinator set option 2's
+  definition on 2026-10-13 to the strict, mechanical reading:
+
+  - *Changed line*: a line on the new side of
+    `git diff -U0 --diff-algorithm=histogram <verdict commit> <F> -- <file>`, for
+    every file in the lane's dependency set. The diff base is each lane's own
+    verdict commit (`de9736e` or `9940561`); the target is the freeze commit
+    `F`. A moved or replaced statement is a changed line.
+  - *Executed*: reported by a line tracer (`sys.settrace`, or `sys.monitoring`
+    LINE events) during the builder run and during the finalizer's re-grade of
+    the banked pack, at `F`. That includes module-level statements, `import`,
+    `class` and `def` lines, decorators and default-argument expressions run at
+    import. Child processes count: Python children start under the same tracer
+    (a `sitecustomize` on their path), and a non-Python child that runs a
+    changed repository file counts as executing it.
+  - *Rule*: a lane is selected if and only if some changed line in its
+    dependency set was executed in either half. It is a Boolean over the trace
+    with no human classification, so WP-0 part 1 decides the set mechanically.
+
+  WP-0 schedules option 2: every selected lane is re-run at `F`, its finalizer
+  tables first extended with its derived dependencies (see
+  [What WP-0 edits](#what-wp-0-edits)). Options 1 and 3 stay documented with
+  their costs so the owner can change course until `F0`. What the reruns add is
+  stated in [WP-0](#what-the-reruns-add-and-what-they-do-not): a clean binding
+  record and a fresh estate observation, not a test of new candidate content.
 - **D-10. Where a requalification banks (R2).** (a) Into the bound-file PR
   itself, before merge, so `main` is never stale. (b) After merge, with a
   short-lived "debt" state on `main` that release gates refuse.
@@ -1330,20 +1611,24 @@ has already said something, which is recorded as such.
 Each package says whether it edits a bound file and whether it may land before
 1.1.0 final. Only WP-0 may.
 
-### WP-0 — The 1.1.0 final blocker (WI-083)
+### WP-0 — The 1.1.0 final blocker (WI-083, awaiting the owner's ruling)
 
-Before the final tag. Adds read-only tooling, a generated record and a test;
-edits no bound file. Specified in [its own section](#the-110-final-blocker-wp-0).
+Before the final tag. Adds tooling, two generated records and a test, and
+edits the bound finalizer of each lane D-9 selects (five on the current data).
+Specified, with its ordering, in [its own section](#the-110-final-blocker-wp-0).
 
-- **Exit:** at the final freeze commit, every live lane has a derived closure
-  with digests, a replay result and a full re-grade result, banked as a
-  successor record with its caveat; every lane whose replay or re-grade
-  differs, and every lane D-9's chosen option selects (endpoint, under the
-  owner's current leaning), has passed on the estate at that commit; the
-  release-only closure gate is in CI and green; Plan 034, Plan 035 and
-  `release-evidence-1.1.0.md` state the limitation and its disposition;
-  `bound-source-cost.md` no longer says unbound files are unread; WI-083 is
-  closed.
+- **Exit:** at the freeze commit `F`, every live lane has a re-derived closure
+  with declared edges and digests, a two-clone replay and a canonical re-grade,
+  banked in the successor record with its caveat; the lane set `S` was chosen
+  mechanically by D-9's rule (option 2 as defined, unless the owner chose
+  otherwise before `F0`); every lane in `S`, and every lane whose replay or
+  re-grade differs, has passed on the estate from a clean clone at `F`, with
+  its finalizer tables extended first; the banking commit `B` is a child of `F`
+  that changes no dependency file; the closure gate is in CI, green at `B`, and
+  refuses a pin not derived from the committed successor record; Plan 034,
+  Plan 035 and `release-evidence-1.1.0.md` state the limitation and its
+  disposition; `bound-source-cost.md` no longer says unbound files are unread;
+  WI-083 is closed.
 
 ### WP-1 — Local CI checks
 
@@ -1444,10 +1729,11 @@ itself because the release ships it and reviewers read it as policy.
 1.1.0 final is due 2026-10-31. `v1.1.0-rc.1` is published and the owner's NVDA
 acceptance is pending.
 
-**Before 1.1.0 final: WP-0 only.** It is the blocker, so it must land; it adds
-a release gate on purpose, so it is reviewed as gate code and lands before the
-freeze. Its estate part is a successor batch at the freeze commit, the kind of
-change the release already took on 2026-10-09.
+**Before 1.1.0 final: WP-0 only.** It is the proposed blocker, so it must land;
+it adds a release gate on purpose, so it is reviewed as gate code and lands
+before `F0`. Its bound edits are confined to the finalizers of the lanes it
+re-runs, and its estate part is a successor batch at `F`, the kind of change
+the release already took on 2026-10-09.
 
 **Also already in the repository before final: this plan's audit record**
 ([`docs/plan-036/`](../docs/plan-036/)). It is safe because nothing runs it: no
@@ -1462,16 +1748,19 @@ workflow the release runs. So none of WP-1 to WP-7 lands in the repository
 before the final tag, though any of them may be drafted outside it.
 
 ```text
-WP-0 (blocker) ── freeze ── endpoint rerun (D-9 option 2) ── 1.1.0 final
-                                                                  |
-          WP-1 local checks          WP-2 manifest + one job      WP-7 tiers
-                                            |
-                                      WP-3 workflows ── Python 3.15
-          owner decisions D-1, D-2, D-3, D-10
-                                            |
-                         WP-4 the Plan 036 batch (with Plan 035's export.py if ready)
-                                            |
-                              WP-5 replay carry-forward ── WP-6 routine
+WP-0 (blocker): F0 -> select -> F -> selected lanes rerun (D-9) -> B -> 1.1.0 final
+                                                                         |
+          +--------------------------------+-----------------------------+
+          |                                |                             |
+   WP-1 local checks            WP-2 manifest + one job            WP-7 tiers
+                                           |
+                                 WP-3 workflows -> Python 3.15
+
+   owner decisions D-1, D-2, D-3, D-10
+          |
+   WP-4 the Plan 036 batch (with Plan 035's export.py if ready)
+          |
+   WP-5 replay carry-forward -> WP-6 routine
 ```
 
 WP-3 and WP-4 are independent and can run in parallel. WP-4 waits for D-1,
@@ -1510,7 +1799,12 @@ tree it read. Its rules:
 - **Verdicts.** Every JSON file under `docs/plan-033/*-evidence/` with a
   `source.commit` and a bound file record (`source.files`, or `source.bound`
   for WP-0). Records from a dirty tree, a zero commit or a failed run are
-  dropped, and a run id banked twice is counted once. 228 verdicts, 26 lanes.
+  dropped, and a run id banked twice is counted once. These are *banked
+  qualifying records*, not only verdicts with `passed: true`: three WP-0
+  `manifest.json` records have no `passed` member (their schema records
+  `capability.evidence_state`), and the record lists them under
+  `schema_exceptions`. 228 records, 26 lanes. Requiring `passed is True` gives
+  225 records, 25 lanes, 200 pairs and 44/24 (Sol, round 2).
 - **Lanes.** By finalizer (or runner, for records that predate the finalizer
   binding), plus `scenario_id` for RSoP and the domain role for WP-3. A lane's
   verdicts are ordered by the commit date of the verdict's commit (run ids are
@@ -1549,7 +1843,7 @@ Sol and DeepSeek, both approve-with-changes on revision 1 (`6fe499f`).
 | Sol F4 / DeepSeek claim 4: the 1,520 figure is approximate; "WP-0 only" overstated | Stated as an estimate with the reviewers' 1,404 to 1,661 range; "no live lane reaches", with the other importers named |
 | DeepSeek claim 2 caveats (lane key, overlap argument) | Stated under the counterfactual table |
 | Sol B2 / DeepSeek B1: R1 escape hatch | R1 now: closed job manifest first (Sol N4.3), pinned entrypoints, fail-closed capability test over each entrypoint's import closure, network only by URL and digest |
-| Sol B3 / DeepSeek B2: R5 comparison too narrow, inputs unspecified | One grading implementation; run-input record; reconstruction refuses gaps; full canonical comparison with a volatile allowlist; replay environment specified; negative meta-tests including omitted inputs and dropped checks; carried-claim scope stated |
+| Sol B3 / DeepSeek B2: R5 comparison too narrow, inputs unspecified | One grading implementation; run-input record; reconstruction refuses gaps; full canonical comparison (revised in round 2 to a claim projection); replay environment specified; negative meta-tests including omitted inputs and dropped checks; carried-claim scope stated |
 | Sol B4 / DeepSeek B3: R7 self-attestation | Replaced by a transport-conformance lane (Sol N4.2); controller-side-only verification considered and rejected as insufficient, with reasons; byte binding kept until the lane exists |
 | Sol B5 / DeepSeek B4: R4b misses runtime resources | Union of static imports and a declared resource/process manifest (Sol N4.4); mandatory trace audit that fails the lane; mutation tests; report before gate |
 | Sol B6 / DeepSeek B5: freshness conflict, no fencing, no release guard | Bank into the reviewed PR (D-10); fenced lease with renewal; token checked before every mutating leg; lease before canary; mechanical RC-window guard; atomic, resumable banking; credential questions listed |
@@ -1566,3 +1860,32 @@ Sol and DeepSeek, both approve-with-changes on revision 1 (`6fe499f`).
 | DeepSeek N6 | Tier 2 now includes prose a test or gate reads |
 | DeepSeek N7 | CI per-cause counts marked as estimates; the 18 reconciled with the table (infrastructure counted separately) |
 | DeepSeek "missing remedy (d)": interpreter and lock | R4b records them and R5's replay is the named proof obligation |
+
+## Review disposition (round 2)
+
+Sol and DeepSeek, both approve-with-changes on revision 2 (`8a3bdda`). Both
+reproduced the audit record byte for byte and confirmed 228/202/45/25. Where a
+finding needed a decision, the coordinator's ruling of 2026-10-13 is applied
+and named.
+
+| Finding | Disposition |
+|---|---|
+| Sol N1: the closure gate is a digest pin, not a closed dependency assertion | [The release-only closure gate](#the-release-only-closure-gate) now re-derives the static closure, pins declared dynamic, resource and process edges (the five known call sites named), pins directory membership of enumerated inputs, pins `uv.lock` and the toolchain identity (controller interpreter checked by the lanes' preflight), keeps the hand-written set as a floor, and fails on any added or removed edge. The trace is corroboration only |
+| Sol N2: D-9 option 2 not mechanical | D-9 records the coordinator's ruling: any new-side changed line executed (definition lines, decorators, defaults included) in either half, child processes included; diff base the verdict's commit, target `F`; moved or replaced statements count; a pure Boolean. Expected 5 lanes, about 6.9 estate minutes; options 1 and 3 kept with costs |
+| Sol N5 / DeepSeek N2-2: "edits no bound file" contradicts the rerun | [What WP-0 edits](#what-wp-0-edits): each selected lane's finalizer tables, five on current data, each costing only its own lane; edits made at `F` before the final closure, replay and re-grade; every selected lane runs from `F` |
+| DeepSeek N2-3: freeze and record ordering unstated | [Order, and which commit binds what](#order-and-which-commit-binds-what): `F0`, select, `F`, re-run parts 1 and 2, estate, evidence-only `B` as `F`'s child, tag on `B` |
+| DeepSeek N2-1: part 2 cannot meet all of R5; canonical verdict undefined per schema | [What part 2 meets](#what-part-2-meets-and-what-it-does-not): a table of met, met by hand, met in part and not met; the canonical verdict defined for the four shapes in use, with the three transformed leaves and their invariants |
+| DeepSeek N2-9: pin refreshable without re-deriving | The pin carries the successor record's digest, is written only by a full re-run of parts 1 and 2 that refuses on any differing re-grade, and the test refuses a pin that does not match the committed successor record |
+| DeepSeek N2-10: owner confirmation not evidenced | WI-083 and the plan now say "proposed, awaiting the owner's ruling" |
+| Sol P3 / DeepSeek NB-1: R1 capability check is a denylist | Replaced by a per-phase positive import and call-target grammar with alias resolution and constructor and method targets; `_fetch.fetch` and `_exec.run` the only network and process APIs; reflection and deserialisers never allowlisted; writes enforced at run time on resolved paths by an audit-hook guard; applied to every manifest entrypoint in any directory; PowerShell held to a positive command and type list; a planted probe for every bypass either reviewer named |
+| DeepSeek NB-1: PSScriptAnalyzer fetch contradicts the choke point | The mapping row now calls `_fetch.fetch` with the pinned URL and digest; the script imports no network module |
+| Sol N3 / DeepSeek N2-5: token pre-check is not fencing | One host-side operation lock held across validation and mutation; atomic takeover that waits for in-flight legs; a persisted counter that never resets; a heartbeat on its own thread; termination only with guest-side containment confirmed; a pause-between-validation-and-mutation test |
+| Sol N4 / DeepSeek N2-4: volatile allowlist can hide a claim | A versioned canonical claim projection with exact transformed leaves and invariants; no check or finding ever excluded; `source_tree_clean` compared and true; every transformed leaf's invariant mutation-tested |
+| DeepSeek N2-6: R7 invalidation and coverage not mechanised | Verdicts record conformance run id, digest, battery and inventory versions; the freshness gate expires product verdicts when the referenced conformance verdict is not live or does not match; static and run-time audits of runner invocations against the inventory |
+| Sol NB4: declare R7's contract inventory | `transport-contract.json`, versioned, with battery coverage checked |
+| DeepSeek N2-7: tracer would fail every lane on the stdlib | R4b's exemption rule: standard library and `site-packages` recorded by identity, repository paths must be in the union, anything else fails |
+| DeepSeek N2-8: audit robustness | The tool's docstring states the `pwsh` requirement and the conservative candidate rule; `--write` refuses without `pwsh` |
+| Sol NB1: name the population | "Banked qualifying records" in the tool and the plan; the three WP-0 manifests listed in the record as `schema_exceptions`; the strict-pass figures (225/25/200/44/24) stated |
+| Sol NB2: PowerShell parse errors ignored | A file that does not parse now normalises to `null`, never a digest; regenerated, no historical file was affected (the record's figures are unchanged) |
+| Sol NB3: trailing blank line in `docs/work-items.md` | Removed |
+| DeepSeek round-1 N1 still unfixed in the tree | Unchanged: scheduled in WP-0's prose corrections, as before |
