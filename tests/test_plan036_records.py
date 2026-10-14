@@ -412,3 +412,56 @@ def test_the_banking_commit_may_not_touch_a_dependency(tmp_path: Path) -> None:
     git("commit", "-qam", "B': touches a dependency")
     problems = record.bank_problems(root, freeze, "HEAD", pin)
     assert any("dep.py" in p for p in problems) and any("not a child" in p for p in problems)
+
+
+def test_the_gate_holds_the_pin_to_the_gated_history(tmp_path: Path) -> None:
+    """DeepSeek round 2, N6 and N2: the pin's target commit must be the gated commit
+    or its ancestor, no dependency may change after it, and step 8 (the banking
+    commit is F's child and changes no dependency) runs in the gate."""
+    import subprocess
+
+    root = tmp_path / "repo"
+    root.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+                              check=True).stdout.decode("utf-8").strip()
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.invalid")
+    git("config", "user.name", "t")
+    (root / "dep.py").write_text("x = 1\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "F")
+    freeze = git("rev-parse", "HEAD")
+    pin = {"target_commit": freeze,
+           "lanes": {"lane": {"closure": {"dep.py": "x"}, "resources": {}, "floor": {}}}}
+    assert any("step 8: no commit adds" in p for p in record.history_problems(root, pin))
+    pin_path = root / record.PIN_RECORD
+    pin_path.parent.mkdir(parents=True)
+    pin_path.write_text("{}\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "B: the pin")
+    assert record.history_problems(root, pin) == []
+    (root / "dep.py").write_text("x = 2\n", encoding="utf-8")
+    assert any("dep.py differs" in p for p in record.history_problems(root, pin))
+    git("checkout", "-q", "--", "dep.py")
+    git("checkout", "-q", "-b", "side", freeze)
+    (root / "other.txt").write_text("side\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "side")
+    side = git("rev-parse", "HEAD")
+    git("checkout", "-q", "main")
+    stale = {**pin, "target_commit": side}
+    assert any("not the gated commit or an ancestor" in p
+               for p in record.history_problems(root, stale))
+    assert any("not in this repository" in p
+               for p in record.history_problems(root, {**pin, "target_commit": "e" * 40}))
+    git("reset", "-q", "--hard", freeze)
+    (root / "dep.py").write_text("x = 3\n", encoding="utf-8")
+    pin_path.parent.mkdir(parents=True, exist_ok=True)
+    pin_path.write_text("{}\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "B': the pin and a dependency")
+    problems = record.history_problems(root, pin)
+    assert any(p.startswith("step 8:") and "dep.py" in p for p in problems), problems

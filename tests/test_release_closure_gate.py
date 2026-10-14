@@ -11,7 +11,8 @@ changed byte in a pinned file, on a changed toolchain identity, and on a pin
 that was not derived from the committed successor record
 (`plans/036-change-cost.md`, "The release-only closure gate"). Since review
 round 2 it also re-executes the record's target-side claims offline (every
-builder replay, every canonical re-grade, D-9's selection) and runs only under
+builder replay, every canonical re-grade, D-9's selection), checks the pin's
+target commit against the gated history and runs the plan's step 8, and runs only under
 the pinned interpreter (Python 3.14 on Linux), skipping with a reason elsewhere.
 
 **Before the pin exists** the gate skips, and the skip names WI-083. The pin

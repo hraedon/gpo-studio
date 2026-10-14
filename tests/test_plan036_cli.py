@@ -249,3 +249,10 @@ def test_a_uv_clone_carries_its_environment_record(stub_uv: Path, tmp_path: Path
         assert made.environment["method"] == replay.UV_METHOD
         assert made.environment["commit"] == commit
         assert made.env["VIRTUAL_ENV"] == str(made.path / ".venv")
+
+
+def test_the_analysis_defaults_to_the_lanes_interpreter() -> None:
+    """DeepSeek round 2, N3: `derive` without --python-version analysed for the running
+    interpreter and was red on Python 3.13; it now analyses for the lanes' one."""
+    assert cli._python_version(None) == record.LANE_PYTHON == "3.14"
+    assert cli._python_version("3.13") == "3.13"

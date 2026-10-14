@@ -47,6 +47,10 @@ claims fall in two halves:
   the committed verdicts and packs, and every replay and re-grade entry names
   its commit.
 
+The gate also holds the pin to the gated history (`history_problems`): the
+target commit is the gated commit or an ancestor, no dependency changed after
+it, and the plan's step 8 holds for the commit that added the pin.
+
 A committer who fabricates the historical attestations from the repository's
 own evidence is outside the gate's threat model: the review at banking covers
 that. The gate's job is that the release commit's claims are re-verified.
@@ -887,8 +891,9 @@ def gate_interpreter_problems(pin: dict[str, Any]) -> list[str]:
 def verify_pin(root: Path, pin: dict[str, Any], workdir: Path | None = None) -> list[str]:
     """Every way the tree at *root* departs from *pin* (empty: the gate is green).
 
-    The static half (`compare_pin`) holds the tree, the pin and the successor
-    record to each other, to git and to the committed packs; the dynamic half
+    The static half (`compare_pin`, `history_problems`) holds the tree, the pin
+    and the successor record to each other, to git history and to the committed
+    packs; the dynamic half
     (`reexecute_target`) re-runs the record's target-side claims offline in
     this interpreter. Refused outright under any interpreter but the pinned
     one (`gate_interpreter_problems`).
@@ -899,6 +904,7 @@ def verify_pin(root: Path, pin: dict[str, Any], workdir: Path | None = None) -> 
     lists = scan.Lists.load()
     part1 = derive_part1(root, pin["analysis"]["python_version"], lists)
     problems = compare_pin(root, pin, part1, lists)
+    problems.extend(history_problems(root, pin))
     successor = json.loads((root / pin["successor_record"]).read_bytes())
     if problems or successor_problems(successor):
         return problems
@@ -1135,6 +1141,55 @@ def _successor_against(
         external = sorted({m for proc in lane1["processes"].values() for m in proc["external"]})
         if lane["external_modules"] != external:
             problems.append(f"successor record: {name}: external modules differ")
+    return problems
+
+
+def history_problems(root: Path, pin: dict[str, Any]) -> list[str]:
+    """The pin's target commit against the gated tree's history (review round 2).
+
+    DeepSeek N6: the record's `target_commit` (the freeze commit F) must be the
+    gated commit or one of its ancestors, and nothing a lane depends on (any
+    pinned closure, resource or floor path, `uv.lock`, the reviewed lists) may
+    differ between F and the gated working tree. The per-file digests already
+    catch a changed byte; this also refuses a pin naming a commit the tree did
+    not descend from.
+
+    DeepSeek N2: the plan's step 8 (`bank_problems`: the banking commit B is
+    F's child and changes no dependency) runs here too, with B found in git as
+    the commit that added the pin record, so the CI gate runs it, not only
+    the `check-bank` command.
+    """
+    problems: list[str] = []
+    target = str(pin.get("target_commit"))
+    exists = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "-e", f"{target}^{{commit}}"],
+        capture_output=True, check=False,
+    )
+    if not _commit_id(target) or exists.returncode != 0:
+        return [f"the pin's target commit {target[:12]} is not in this repository"]
+    ancestor = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", target, "HEAD"],
+        capture_output=True, check=False,
+    )
+    if ancestor.returncode != 0:
+        problems.append(f"the pin's target commit {target[:12]} is not the gated commit or an "
+                        "ancestor of it")
+    pinned = {p for lane in pin["lanes"].values()
+              for label in ("closure", "resources", "floor") for p in lane[label]}
+    lists_prefix = LISTS_DIR.relative_to(REPO_ROOT).as_posix() + "/"
+    changed = [p for p in git(root, "diff", "--name-only", "-z", "--no-renames", target, "--")
+               .split("\0") if p]
+    for path in sorted(changed):
+        if path in pinned or path == "uv.lock" or path.startswith(lists_prefix):
+            problems.append(f"{path} differs between the pin's target commit and the gated "
+                            "tree: a dependency of a live lane changed after the freeze")
+    # The commit that last added the pin record is the banking commit B.
+    added = git(root, "log", "--format=%H", "--diff-filter=A", "--", PIN_RECORD).split()
+    if added:
+        problems.extend(f"step 8: {p}" for p in bank_problems(root, target, added[0], pin))
+    else:
+        problems.append(f"step 8: no commit adds {PIN_RECORD}; the pin must be committed in "
+                        "the banking commit, F's child")
     return problems
 
 

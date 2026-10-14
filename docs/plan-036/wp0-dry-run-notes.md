@@ -74,6 +74,14 @@ the repository's own evidence is outside the gate's threat model; the review at
 banking covers that. The gate's job is to re-verify the release commit's claims
 mechanically.
 
+**History and step 8 in the gate** (DeepSeek round 2, N6 and N2). The gate also
+holds the pin to the gated tree's history. The record's target commit must be
+the gated commit or one of its ancestors. No pinned path, `uv.lock` or
+reviewed list may differ between it and the gated working tree. Step 8 runs
+in CI too: the commit that added the pin record must be the target's child
+and change no dependency. Before this, step 8 ran only as the `check-bank`
+command.
+
 **Interpreter.** The gate runs only under the pinned interpreter (Python 3.14 on
 Linux). Anywhere else, `check-pin` refuses with a message and the pytest gate
 skips with one. CI's `test` job runs 3.13 and 3.14 on ubuntu, so the 3.14 job
@@ -102,6 +110,17 @@ fetches hash-pinned artefacts from PyPI (about 44 MB here): the commit's locked
 wheels, and for the two verdict commits the backend pinned by the tool tree's
 lock. The versions and hashes are fixed by the locks, but the step needs
 network access. The gate path does not: it uses the CI environment as synced.
+
+**Backend substitution, measured** (DeepSeek round 2, N5). At `9940561` and
+`de9736e` the backend comes from the tool tree's lock, not the commit's own.
+The full run shows no effect: all 25 replays are identical and all 26
+re-grades are equal at their own commits. That is a measurement, not a proof.
+The backend only builds the editable install that makes the clone's `src/`
+importable. A builder or finalizer that read installed distribution metadata
+(`importlib.metadata`) could see a difference. No module in any lane's
+closure imports `importlib.metadata`, `importlib_metadata` or
+`pkg_resources` (checked with grep across `src/`, the windows-oracle scripts
+and the plan-033 builders).
 
 ## WP-0 is always selected
 
@@ -175,3 +194,11 @@ the five lanes the plan expected.
     artifact, where uv reports the hatchling requirement unsatisfiable). The
     environment is now built the same way at every commit and recorded in
     the successor record (`environments`), as described above.
+11. **A shell child always makes the trace incomplete.** The plan exempts a
+    shell child whose exact argument list is a declared process edge that
+    runs no interpreter. The tooling does not implement that exemption:
+    `changed.trace_incompleteness` counts every shell child (DeepSeek
+    round 2, N4). This is stricter than the plan. It can only select more
+    lanes, never pass a stale verdict. No live lane starts a shell on the
+    controller today. The exemption should be added only together with a
+    declaration that names the exact argument list.
