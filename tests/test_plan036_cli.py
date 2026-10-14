@@ -154,10 +154,14 @@ def stub_uv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return log
 
 
-def _tree(tmp_path: Path, name: str, lock: str) -> Path:
+def _tree(tmp_path: Path, name: str, lock: str, *, commit: bool = False) -> Path:
     path = tmp_path / name
     path.mkdir()
     (path / "uv.lock").write_text(lock, encoding="utf-8")
+    if commit:  # the tool tree: its lock must be committed for the record to name it
+        for args in (("init", "-q"), ("config", "user.email", "t@example.invalid"),
+                     ("config", "user.name", "t"), ("add", "-A"), ("commit", "-q", "-m", "t")):
+            subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True)
     return path
 
 
@@ -171,7 +175,7 @@ def test_an_old_lock_gets_the_tool_trees_pinned_backend(stub_uv: Path, tmp_path:
     building anything, installs the backend from the tool tree's lock by hash, then
     builds the project offline with no isolation; all of it is recorded."""
     clone = _tree(tmp_path, "clone", 'version = 1\n[[package]]\nname = "fastapi"\n')
-    tool = _tree(tmp_path, "tool", '[[package]]\nname = "hatchling"\n')
+    tool = _tree(tmp_path, "tool", '[[package]]\nname = "hatchling"\n', commit=True)
     python, built = replay.uv_environment(clone, "a" * 40, tool)
     calls = _calls(stub_uv)
     assert calls[0] == ["sync", "--locked", "--no-install-project", "--no-build", "--quiet"]
@@ -183,6 +187,7 @@ def test_an_old_lock_gets_the_tool_trees_pinned_backend(stub_uv: Path, tmp_path:
     assert built["method"] == replay.UV_METHOD and built["commit"] == "a" * 40
     assert "tool tree" in built["backend_source"]
     assert built["backend_lock_sha256"] == repo_mod.sha256_file(tool / "uv.lock")
+    assert built["backend_lock_commit"] == repo_mod.git(tool, "rev-parse", "HEAD").strip()
     assert built["backend"] == ["hatchling==1.32.4"]
     assert "-e <clone>" in built["installed"]
     assert not any(str(tmp_path) in " ".join(step) for step in built["steps"])
@@ -190,9 +195,19 @@ def test_an_old_lock_gets_the_tool_trees_pinned_backend(stub_uv: Path, tmp_path:
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the stub is a POSIX script")
+def test_an_uncommitted_tool_lock_is_refused(stub_uv: Path, tmp_path: Path) -> None:
+    """The backend pins must come from a committed lock the record can name."""
+    clone = _tree(tmp_path, "clone", "version = 1\n")
+    tool = _tree(tmp_path, "tool", '[[package]]\nname = "hatchling"\n', commit=True)
+    (tool / "uv.lock").write_text('[[package]]\nname = "hatchling"\n# edited\n', "utf-8")
+    with pytest.raises(repo_mod.Wp0Error, match="differs from its HEAD"):
+        replay.uv_environment(clone, "d" * 40, tool)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the stub is a POSIX script")
 def test_a_lock_with_its_own_backend_uses_it(stub_uv: Path, tmp_path: Path) -> None:
     clone = _tree(tmp_path, "clone", '[[package]]\nname = "hatchling"\n')
-    tool = _tree(tmp_path, "tool", '[[package]]\nname = "hatchling"\n')
+    tool = _tree(tmp_path, "tool", '[[package]]\nname = "hatchling"\n', commit=True)
     _python, built = replay.uv_environment(clone, "b" * 40, tool)
     assert not any(call[:1] == ["export"] for call in _calls(stub_uv))
     assert "own uv.lock" in built["backend_source"]
@@ -206,7 +221,7 @@ def test_a_failed_uv_step_refuses_and_never_falls_back(
 ) -> None:
     monkeypatch.setenv("STUB_UV_FAIL", failing)
     clone = _tree(tmp_path, "clone", "version = 1\n")
-    tool = _tree(tmp_path, "tool", '[[package]]\nname = "hatchling"\n')
+    tool = _tree(tmp_path, "tool", '[[package]]\nname = "hatchling"\n', commit=True)
     with pytest.raises(repo_mod.Wp0Error, match="stub failure"):
         replay.uv_environment(clone, "c" * 40, tool)
 
@@ -228,7 +243,7 @@ def test_a_uv_clone_carries_its_environment_record(stub_uv: Path, tmp_path: Path
     git("add", "-A")
     git("commit", "-q", "-m", "c")
     commit = git("rev-parse", "HEAD")
-    tool = _tree(tmp_path, "tool", '[[package]]\nname = "hatchling"\n')
+    tool = _tree(tmp_path, "tool", '[[package]]\nname = "hatchling"\n', commit=True)
     with replay.clone(root, commit, tmp_path / "clones", "x", launcher="uv",
                       tool_root=tool) as made:
         assert made.environment["method"] == replay.UV_METHOD

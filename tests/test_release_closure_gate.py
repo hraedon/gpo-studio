@@ -9,7 +9,10 @@ re-runs the fail-closed scan of every resolved call target, re-enumerates
 every declared directory, and fails on any added or removed edge, on any
 changed byte in a pinned file, on a changed toolchain identity, and on a pin
 that was not derived from the committed successor record
-(`plans/036-change-cost.md`, "The release-only closure gate").
+(`plans/036-change-cost.md`, "The release-only closure gate"). Since review
+round 2 it also re-executes the record's target-side claims offline (every
+builder replay, every canonical re-grade, D-9's selection) and runs only under
+the pinned interpreter (Python 3.14 on Linux), skipping with a reason elsewhere.
 
 **Before the pin exists** the gate skips, and the skip names WI-083. The pin
 is written at the freeze (the plan's step 7), so on `main` today it is absent.
@@ -35,8 +38,23 @@ def test_the_release_only_closure_gate_holds() -> None:
         pytest.skip(reason)
     assert decision == "run", reason
     pin = json.loads((REPO_ROOT / record.PIN_RECORD).read_text(encoding="utf-8"))
+    refused = record.gate_interpreter_problems(pin)
+    if refused:
+        # The pinned interpreter's job runs it (see the CI test below); this one
+        # would derive under other stubs and differ without anything being wrong.
+        pytest.skip("WI-083: " + "; ".join(refused))
     problems = record.verify_pin(REPO_ROOT, pin)
     assert not problems, "the release-only closure gate is red:\n" + "\n".join(problems)
+
+
+def test_ci_runs_the_gate_under_the_lanes_interpreter() -> None:
+    """The gate skips under any interpreter but the pinned one (3.14 on Linux), so a
+    Linux CI test job must run 3.14, or the gate would run nowhere."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    job = workflow.split("\n  test:\n", 1)[1].split("\n  test-windows:", 1)[0]
+    assert "runs-on: ubuntu-latest" in job
+    assert '"3.14"' in job.split("python-version:", 1)[1].split("\n", 1)[0]
+    assert "uv run --locked pytest" in job
 
 
 def _tree(tmp_path: Path, version: str, *, pin: bool = False) -> Path:

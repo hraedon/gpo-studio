@@ -66,6 +66,7 @@ from .repo import (
     is_clean,
     sha256_bytes,
     sha256_file,
+    show,
 )
 
 TRACER = PACKAGE_DIR / "tracer.py"
@@ -140,8 +141,15 @@ def uv_environment(path: Path, commit: str, tool_root: Path) -> tuple[list[str],
     if _BACKEND.search(lock):
         backend_source = "the commit's own uv.lock (default group build-backend)"
         backend_lock_sha256 = sha256_bytes(lock)
+        backend_lock_commit = commit
     else:
         tool_lock = (tool_root / "uv.lock").read_bytes()
+        backend_lock_commit = git(tool_root, "rev-parse", "HEAD").strip()
+        if show(tool_root, backend_lock_commit, "uv.lock") != tool_lock:
+            raise Wp0Error(
+                "the tool tree's uv.lock differs from its HEAD commit: the backend pins "
+                "must come from a committed lock, so the record can name it"
+            )
         backend_source = "the tool tree's uv.lock (this commit's lock locks no backend)"
         backend_lock_sha256 = sha256_bytes(tool_lock)
         requirements = _uv(
@@ -181,6 +189,7 @@ def uv_environment(path: Path, commit: str, tool_root: Path) -> tuple[list[str],
         "uv_lock_sha256": sha256_bytes(lock),
         "backend_source": backend_source,
         "backend_lock_sha256": backend_lock_sha256,
+        "backend_lock_commit": backend_lock_commit,
         "backend": backend,
         "steps": [[placeholders.get(a, a) for a in argv] for argv in steps],
         "installed": installed,

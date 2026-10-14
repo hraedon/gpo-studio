@@ -36,6 +36,7 @@ added. No check, finding, `state` or `passed` is ever transformed or excluded.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from collections.abc import Callable
@@ -275,4 +276,15 @@ def compare(banked: Side, regraded: Side, repo: Path, shape: str) -> dict[str, A
         "payload": payload_differences(banked, regraded, shape),
     }
     result["equal"] = not any(result[key] for key in list(result))
+    # Digests of both canonical payloads: a record of this comparison is bound
+    # to the banked pack, whose payload digest anyone can recompute from the
+    # committed evidence (review round 2).
+    result["banked_payload_sha256"] = payload_digest(banked, shape)
+    result["regraded_payload_sha256"] = payload_digest(regraded, shape)
     return result
+
+
+def payload_digest(side: Side, shape: str) -> str:
+    """SHA-256 of the canonical payload (sorted-key JSON)."""
+    data = json.dumps(canonical_payload(side, shape), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()

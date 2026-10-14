@@ -433,21 +433,10 @@ def test_json_is_not_assumed_where_it_is_not_proved(
     assert _fails(scanned[1], probe, "<Any>") == [], f"{probe}: an unproved Any site passed"
 
 
-#: The reviewed closed list of types inert as a whole (review round 1, Sol B3 /
-#: DeepSeek N1). Every method of each is in-memory: no method opens, reads,
-#: writes, stats, scans or deletes anything, reads the clock or the environment,
-#: or starts anything. Adding a type here is a review decision; any other type
-#: is listed method by method in inert.json, or its methods are declared edges.
-PURE_TYPES = frozenset({
-    "<json>", "builtins.str", "builtins.bytes", "builtins.bytearray", "builtins.int",
-    "builtins.float", "builtins.bool", "builtins.list", "builtins.dict", "builtins.set",
-    "builtins.frozenset", "builtins.tuple", "builtins.range", "builtins.enumerate",
-    "builtins.zip", "builtins.map", "builtins.reversed", "builtins.BaseException",
-    "re.Pattern", "re.Match", "_hashlib.HASH", "xml.etree.ElementTree.Element",
-    "xml.etree.ElementTree.TreeBuilder", "pathlib.PurePath", "collections.Counter",
-    "uuid.UUID", "ipaddress._BaseAddress", "ipaddress._BaseNetwork", "enum.IntFlag",
-    "os.stat_result", "_io.BytesIO",
-})
+#: The types inert as a whole. Round 1 reviewed a list of 31; round 2 (Sol B2)
+#: found that `list.remove` and `Pattern.sub` run other objects' code, so every
+#: type but `<json>` is now listed method by method (tests/test_plan036_protocols.py).
+PURE_TYPES = frozenset({"<json>"})
 
 
 def test_type_level_inert_entries_are_only_the_reviewed_pure_types() -> None:

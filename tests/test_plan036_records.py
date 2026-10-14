@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -28,25 +29,55 @@ def derived() -> tuple[dict[str, Any], Any]:
     return record.derive_part1(REPO_ROOT, "3.14", lists), lists
 
 
-TARGET = "f" * 40
+TARGET = record.head(REPO_ROOT)
+LANES = {lane.name: lane for lane in record.live_lanes(REPO_ROOT)}
+
+
+def _lock(commit: str) -> str:
+    data = record.show(REPO_ROOT, commit, "uv.lock")
+    assert data is not None
+    return str(record.sha256_bytes(data))
 
 
 def _environment(label: str, commit: str) -> dict[str, Any]:
     return {"method": "uv-locked", "commit": commit, "uv": "uv 0.12.0", "python": "3.14.6",
-            "uv_lock_sha256": "1" * 64, "backend_source": "test", "backend_lock_sha256": "1" * 64,
+            "uv_lock_sha256": _lock(commit), "backend_source": "test",
+            "backend_lock_sha256": _lock(TARGET), "backend_lock_commit": TARGET,
             "backend": ["hatchling==1.32.4"], "steps": [["uv", "sync"]],
             "installed": ["-e <clone>", "hatchling==1.32.4"], "label": label}
 
 
+def _banked(name: str) -> tuple[dict[str, str], str]:
+    """The banked candidate hashes and canonical payload digest of a lane, read from
+    the committed verdict and pack (what an honest run's record carries)."""
+    lane = LANES[name]
+    verdict = json.loads((REPO_ROOT / lane.verdict).read_text(encoding="utf-8"))
+    hashes = record.replay.banked_candidate_hashes(verdict, lane.spec.flat_delivery_file)
+    side = record.projection.Side(
+        verdict=verdict, commit=lane.commit, tables={},
+        run_root=record._banked_root(REPO_ROOT, lane, "LOCAL_RUN_DIR"),
+        candidate_root=record._banked_root(REPO_ROOT, lane, "CANDIDATE_DIR"),
+        member_digest=lane.pack_files.get,
+    )
+    return hashes, str(record.projection.payload_digest(side, lane.shape))
+
+
 def _complete_result(part1: dict[str, Any]) -> dict[str, Any]:
-    """A run of parts 1 and 2 in which every replay and re-grade agreed."""
+    """A run of parts 1 and 2 in which every replay and re-grade agreed, built from
+    the repository's own evidence. The static half of the gate accepts it: it
+    cannot tell it from a real run (the trust boundary); `reexecute_target` is
+    what re-runs its target claims."""
     lanes, selection = {}, {}
     for name, lane1 in part1["lanes"].items():
+        hashes, digest = _banked(name)
+        payload = {"equal": True, "banked_payload_sha256": digest,
+                   "regraded_payload_sha256": digest}
         lanes[name] = {
-            "replay": ({"applicable": True, "identical": True, "problems": []}
+            "replay": ({"applicable": True, "identical": True, "problems": [],
+                        "commit": TARGET, "recorded_hashes": hashes}
                        if lane1["has_candidate"] else {"applicable": False}),
-            "regrade_target": {"equal": True},
-            "regrade_verdict_commit": {"commit": lane1["commit"], "equal": True},
+            "regrade_target": {"commit": TARGET, **payload},
+            "regrade_verdict_commit": {"commit": lane1["commit"], **payload},
             "regrade_problems": [],
             "regrade_equal": True,
             "fidelity_equal": True,
@@ -59,6 +90,23 @@ def _complete_result(part1: dict[str, Any]) -> dict[str, Any]:
         environments[f"verdict-{commit}"] = _environment("verdict", commit)
     return {"target": TARGET, "part1": part1, "environments": environments, "lanes": lanes,
             "selection": selection, "option2": [], "option3": []}
+
+
+def _round1_forgery(part1: dict[str, Any]) -> dict[str, Any]:
+    """Round 1's fixture (Sol round 2, B1): every lane said equal, with no commit on
+    any replay or re-grade, no candidate hash, no payload digest and invented lock
+    digests. It passed the gate at a8aa6f1; it must not now."""
+    result = _complete_result(part1)
+    for outcome in result["lanes"].values():
+        outcome["replay"] = ({"applicable": True, "identical": True, "problems": []}
+                             if outcome["replay"]["applicable"] else {"applicable": False})
+        outcome["regrade_target"] = {"equal": True}
+        outcome["regrade_verdict_commit"] = {
+            "commit": outcome["regrade_verdict_commit"]["commit"], "equal": True}
+    for built in result["environments"].values():
+        built["uv_lock_sha256"] = built["backend_lock_sha256"] = "1" * 64
+        del built["backend_lock_commit"]
+    return result
 
 
 def _write(successor: dict[str, Any], tmp_path: Path) -> tuple[bytes, Path]:
@@ -99,6 +147,71 @@ def _compare(pin: dict[str, Any], derived: tuple[dict[str, Any], Any]) -> list[s
 
 def test_an_untouched_pin_matches_the_tree(pinned: dict[str, Any], derived: Any) -> None:
     assert _compare(pinned, derived) == []
+
+
+def test_round_1s_complete_forgery_now_fails(
+    derived: tuple[dict[str, Any], Any], tmp_path: Path
+) -> None:
+    part1, _lists = derived
+    forged = record.successor_record(_round1_forgery(part1), {})
+    data, path = _write(forged, tmp_path)
+    with pytest.raises(record.Wp0Error):
+        record.pin_from(forged, data)
+    pin = record._pin_of(forged, data)
+    pin["successor_record"] = str(path)
+    problems = _compare(pin, derived)
+    assert any("does not name the target commit" in p for p in problems), problems
+    assert any("payload digests" in p for p in problems), problems
+    assert any("does not record its build" in p for p in problems), problems
+
+
+def test_a_record_that_disagrees_with_git_or_the_packs_is_refused(
+    complete: dict[str, Any], derived: Any, tmp_path: Path
+) -> None:
+    """The historical attestations are bound to git (lock digests) and to the
+    committed evidence (candidate hashes, banked payload digests)."""
+    for mutate, expected in (
+        (lambda s: s["environments"]["target-a"].__setitem__("uv_lock_sha256", "2" * 64),
+         "uv_lock_sha256 is not the uv.lock"),
+        (lambda s: s["lanes"]["wp2"]["replay"]["recorded_hashes"].__setitem__("x", "0" * 64),
+         "candidate hashes are not the banked"),
+        (lambda s: [s["lanes"]["wp2"]["regrade"][k].__setitem__(f, "3" * 64)
+                    for k in ("at_target", "at_verdict_commit")
+                    for f in ("banked_payload_sha256", "regraded_payload_sha256")],
+         "not bound to the banked pack"),
+    ):
+        successor = copy.deepcopy(complete)
+        mutate(successor)
+        data, path = _write(successor, tmp_path)
+        pin = record._pin_of(successor, data)
+        pin["successor_record"] = str(path)
+        problems = _compare(pin, derived)
+        assert any(expected in p for p in problems), (expected, problems)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the lanes' finalizers run on the controller")
+def test_the_gate_re_executes_target_claims_and_refuses_a_false_one(
+    complete: dict[str, Any], derived: tuple[dict[str, Any], Any], tmp_path: Path
+) -> None:
+    """A record that passes every static check (built from the repository's own
+    evidence) still claims WP-0 re-grades equal at the target; WP-0's finalizer
+    refuses to finalize at any commit but the one its harness inputs name, so
+    the gate's offline re-execution must find the claim false."""
+    part1, _lists = derived
+    problems = record.reexecute_target(REPO_ROOT, complete, part1, tmp_path / "gate",
+                                       lanes_wanted={"wp0"})
+    assert any(p.startswith("wp0: the re-grade at the target differs") for p in problems), \
+        problems
+    assert any("D-9's selected" in p for p in problems), problems
+
+
+def test_the_gate_refuses_to_run_under_another_interpreter() -> None:
+    """Sol N2: a derivation under another Python differs without anything being wrong."""
+    pin = {"analysis": {"python_version": "2.7", "platform": "linux"}}
+    problems = record.gate_interpreter_problems(pin)
+    assert problems and "Python 2.7" in problems[0]
+    with pytest.raises(record.Wp0Error, match="Python 2.7"):
+        record.verify_pin(REPO_ROOT, pin)
 
 
 def test_a_fabricated_pin_with_no_part_2_evidence_is_refused(

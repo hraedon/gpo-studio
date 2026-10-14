@@ -16,7 +16,9 @@ from .tracer import ENV_ALLOWLIST
 
 
 def _python_version(value: str | None) -> str:
-    return value or f"{sys.version_info.major}.{sys.version_info.minor}"
+    """The analysis target: the lanes' interpreter unless named (review round 2, Sol N2:
+    defaulting to this interpreter made `derive` on Python 3.13 differ silently)."""
+    return value or record.LANE_PYTHON
 
 
 def _environment() -> dict[str, Any]:

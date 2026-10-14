@@ -48,6 +48,61 @@ left as it is and the correction is recorded here.
   `gpp_adapters.py` for endpoint and wp2, which are selected already, and no
   lane reads a changed data file.
 
+## Part 3 refinement: what the release gate re-executes (review round 2)
+
+Coordinator ruling, 2026-10-14, on Sol's round-2 B1. Round 1 bound the pin to a
+complete, all-equal successor record. That still proved only that two files a
+committer writes agree with each other: a hand-written "complete" record and
+its pin passed. The gate now splits the record's claims in two:
+
+- **Target-side claims are re-executed by the gate**, offline, in the CI job's
+  own synced environment, at the record's target commit. That covers every
+  builder replay (against the record's and the banked candidate hashes),
+  every canonical re-grade over the banked packs, and D-9's selection. Any
+  difference fails. The static half already holds the gated tree's dependency
+  files byte-identical to that commit.
+- **Historical claims** (the re-grades at each verdict's own commit, and the
+  environments they ran in) are recorded attestations, because re-running them
+  needs each commit's own environment. They are bound to content in the
+  repository: each environment's lock digests to `git show <commit>:uv.lock`,
+  each replay's candidate hashes and each comparison's banked payload digest
+  to the committed verdict and pack, and every replay and re-grade entry names
+  its commit.
+
+**Trust boundary.** A committer who fabricates the historical attestations from
+the repository's own evidence is outside the gate's threat model; the review at
+banking covers that. The gate's job is to re-verify the release commit's claims
+mechanically.
+
+**Interpreter.** The gate runs only under the pinned interpreter (Python 3.14 on
+Linux). Anywhere else, `check-pin` refuses with a message and the pytest gate
+skips with one. CI's `test` job runs 3.13 and 3.14 on ubuntu, so the 3.14 job
+runs the gate; a test asserts the matrix keeps a 3.14 Linux job. `derive` and
+`run` now default to 3.14 rather than the running interpreter.
+
+**Cost, measured** with the `run` draft above as the record (WP-0's expected
+difference aside), on this host, inside a network namespace with no
+interfaces (`unshare -rn`):
+
+| Step | Time |
+|---|---|
+| Part 1 derivation | 30 s |
+| Static checks against git and the packs | 0.1 s |
+| Re-execution: 25 replays, 26 re-grades, selection | 56 s |
+| **Total wall time** | **88 s** (71 s CPU) |
+
+No network was needed and nothing was installed. The work is mostly single
+threaded, so a CI runner should take roughly the same order of time. The
+`test` job's limit is 25 minutes, against about 11 minutes observed at
+1.1.0rc1. These timings are from this host; no CI runner has measured them yet.
+
+**Network for historical environments.** `run` and `write-records` build each
+clone's environment with `replay.uv_environment`. With an empty uv cache, that
+fetches hash-pinned artefacts from PyPI (about 44 MB here): the commit's locked
+wheels, and for the two verdict commits the backend pinned by the tool tree's
+lock. The versions and hashes are fixed by the locks, but the step needs
+network access. The gate path does not: it uses the CI environment as synced.
+
 ## WP-0 is always selected
 
 WP-0's shipping finalizer binds the harness-input record to the commit it was

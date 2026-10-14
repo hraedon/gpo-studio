@@ -1,129 +1,9 @@
 {
- "comment": "Plan 036 WP-0's reviewed inert list (tier-2 data; plan036_wp0/scan.py). A target here touches nothing outside the process's memory. Keyed by fully qualified target, or (types) by class for a closed set of in-memory types whose every method is inert (the reviewed list PURE_TYPES in tests/test_plan036_scan.py; any other type is listed method by method). A wrong entry hides an edge: that is the residual the plan names.",
+ "comment": "Plan 036 WP-0's reviewed inert list (tier-2 data; plan036_wp0/scan.py). A target here touches nothing outside the process's memory. Keyed by fully qualified target, or (types) by class for a closed set of in-memory types whose every method is inert (only `<json>` since review round 2: a whole-type entry would also cover methods that run other objects' code; every other type is listed method by method, a method that runs code of its arguments or elements only with a protocol rule in scan.py). A wrong entry hides an edge: that is the residual the plan names.",
  "types": [
   {
    "type": "<json>",
    "reason": "a value json.loads/json.load produced (dict, list, str, int, float, bool or None), proved by plan036_wp0/json_origin.py: every method of those types is in-memory"
-  },
-  {
-   "type": "builtins.str",
-   "reason": "immutable text: every method computes in memory"
-  },
-  {
-   "type": "builtins.bytes",
-   "reason": "immutable bytes: every method computes in memory"
-  },
-  {
-   "type": "builtins.bytearray",
-   "reason": "a mutable byte buffer in memory; no method reaches outside the process"
-  },
-  {
-   "type": "builtins.int",
-   "reason": "integers: arithmetic and formatting only"
-  },
-  {
-   "type": "builtins.float",
-   "reason": "floats: arithmetic and formatting only"
-  },
-  {
-   "type": "builtins.bool",
-   "reason": "booleans: arithmetic and formatting only"
-  },
-  {
-   "type": "builtins.list",
-   "reason": "an in-memory container; element protocol calls are classified at their own sites"
-  },
-  {
-   "type": "builtins.dict",
-   "reason": "an in-memory container; key hashing of repository types is scanned in the repository"
-  },
-  {
-   "type": "builtins.set",
-   "reason": "an in-memory container"
-  },
-  {
-   "type": "builtins.frozenset",
-   "reason": "an immutable in-memory container"
-  },
-  {
-   "type": "builtins.tuple",
-   "reason": "an immutable in-memory container"
-  },
-  {
-   "type": "builtins.range",
-   "reason": "an arithmetic sequence"
-  },
-  {
-   "type": "builtins.enumerate",
-   "reason": "an iterator adaptor over an iterable classified where it was produced"
-  },
-  {
-   "type": "builtins.zip",
-   "reason": "an iterator adaptor over iterables classified where they were produced"
-  },
-  {
-   "type": "builtins.map",
-   "reason": "an iterator adaptor; the mapped callable is classified where it is referenced"
-  },
-  {
-   "type": "builtins.reversed",
-   "reason": "an iterator adaptor over an in-memory sequence"
-  },
-  {
-   "type": "builtins.BaseException",
-   "reason": "exception objects: construction, str() and repr() are in-memory (subclasses inherit these methods)"
-  },
-  {
-   "type": "re.Pattern",
-   "reason": "a compiled regular expression: matching is in-memory"
-  },
-  {
-   "type": "re.Match",
-   "reason": "a regular-expression match result"
-  },
-  {
-   "type": "_hashlib.HASH",
-   "reason": "a hash object: update() and hexdigest() compute in memory"
-  },
-  {
-   "type": "xml.etree.ElementTree.Element",
-   "reason": "an in-memory XML element tree; no method parses a file or resolves an entity"
-  },
-  {
-   "type": "xml.etree.ElementTree.TreeBuilder",
-   "reason": "builds an element tree in memory from events it is fed"
-  },
-  {
-   "type": "pathlib.PurePath",
-   "reason": "pure path arithmetic: no PurePath method touches the filesystem (Path methods that do are declared edges)"
-  },
-  {
-   "type": "collections.Counter",
-   "reason": "an in-memory multiset"
-  },
-  {
-   "type": "uuid.UUID",
-   "reason": "an immutable UUID value"
-  },
-  {
-   "type": "ipaddress._BaseAddress",
-   "reason": "an immutable IP address value"
-  },
-  {
-   "type": "ipaddress._BaseNetwork",
-   "reason": "an immutable IP network value"
-  },
-  {
-   "type": "enum.IntFlag",
-   "reason": "enum flag arithmetic"
-  },
-  {
-   "type": "os.stat_result",
-   "reason": "the fields of a stat result already obtained by a declared call"
-  },
-  {
-   "type": "_io.BytesIO",
-   "reason": "an in-memory byte stream"
   }
  ],
  "targets": [
@@ -361,6 +241,475 @@
     "contextlib.suppress.__exit__",
     "datetime.date.fromisoformat",
     "datetime.date.strftime"
+   ]
+  },
+  {
+   "reason": "_hashlib.HASH, methods that run no code of other objects: returns the digest of what update() was given",
+   "names": [
+    "_hashlib.HASH.hexdigest"
+   ]
+  },
+  {
+   "reason": "_hashlib.HASH, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "_hashlib.HASH.update"
+   ]
+  },
+  {
+   "reason": "_io.BytesIO, methods that run no code of other objects: an in-memory buffer read back or released",
+   "names": [
+    "_io.BytesIO.__del__",
+    "_io.BytesIO.getvalue"
+   ]
+  },
+  {
+   "reason": "builtins.BaseException, methods that run no code of other objects: str()/repr() of the arguments kept at construction; those arguments' __str__/__repr__ are resolved where the exception is constructed (a BaseException subclass's constructor call is a protocol rule)",
+   "names": [
+    "builtins.BaseException.__repr__",
+    "builtins.BaseException.__str__"
+   ]
+  },
+  {
+   "reason": "builtins.BaseException, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.BaseException.__init__"
+   ]
+  },
+  {
+   "reason": "builtins.bool, methods that run no code of other objects: integer arithmetic on ints only; any other operand returns NotImplemented, and the reflected method is resolved at the operator",
+   "names": [
+    "builtins.bool.__and__"
+   ]
+  },
+  {
+   "reason": "builtins.bytearray, methods that run no code of other objects: length and buffer of the array itself",
+   "names": [
+    "builtins.bytearray.__buffer__",
+    "builtins.bytearray.__len__"
+   ]
+  },
+  {
+   "reason": "builtins.bytearray, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.bytearray.extend"
+   ]
+  },
+  {
+   "reason": "builtins.bytes, methods that run no code of other objects: operations on the bytes themselves; == with a non-bytes operand returns NotImplemented (the reflected method is resolved at the operator); decode and fromhex take str",
+   "names": [
+    "builtins.bytes.__buffer__",
+    "builtins.bytes.__eq__",
+    "builtins.bytes.__iter__",
+    "builtins.bytes.__len__",
+    "builtins.bytes.__ne__",
+    "builtins.bytes.decode",
+    "builtins.bytes.fromhex",
+    "builtins.bytes.hex",
+    "builtins.bytes.lower"
+   ]
+  },
+  {
+   "reason": "builtins.bytes, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.bytes.__add__",
+    "builtins.bytes.__contains__",
+    "builtins.bytes.__getitem__",
+    "builtins.bytes.count",
+    "builtins.bytes.find",
+    "builtins.bytes.replace",
+    "builtins.bytes.startswith"
+   ]
+  },
+  {
+   "reason": "builtins.dict, methods that run no code of other objects: iteration, length and views of the dict itself; clear drops references (finalizers are resolved where their objects are constructed)",
+   "names": [
+    "builtins.dict.__iter__",
+    "builtins.dict.__len__",
+    "builtins.dict.clear",
+    "builtins.dict.items",
+    "builtins.dict.keys",
+    "builtins.dict.values"
+   ]
+  },
+  {
+   "reason": "builtins.dict, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.dict.__delitem__",
+    "builtins.dict.__eq__",
+    "builtins.dict.__getitem__",
+    "builtins.dict.__ior__",
+    "builtins.dict.__or__",
+    "builtins.dict.__ror__",
+    "builtins.dict.__setitem__",
+    "builtins.dict.fromkeys",
+    "builtins.dict.get",
+    "builtins.dict.pop",
+    "builtins.dict.setdefault",
+    "builtins.dict.update"
+   ]
+  },
+  {
+   "reason": "builtins.enumerate, methods that run no code of other objects: iteration of an iterator whose source was iterated and resolved where enumerate() was called",
+   "names": [
+    "builtins.enumerate.__iter__",
+    "builtins.enumerate.__next__"
+   ]
+  },
+  {
+   "reason": "builtins.float, methods that run no code of other objects: float arithmetic and conversions; a non-float operand returns NotImplemented (resolved at the operator)",
+   "names": [
+    "builtins.float.__eq__",
+    "builtins.float.__int__",
+    "builtins.float.__ne__",
+    "builtins.float.__trunc__",
+    "builtins.float.is_integer"
+   ]
+  },
+  {
+   "reason": "builtins.frozenset, methods that run no code of other objects: iteration and length of the set itself",
+   "names": [
+    "builtins.frozenset.__iter__",
+    "builtins.frozenset.__len__"
+   ]
+  },
+  {
+   "reason": "builtins.frozenset, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.frozenset.__contains__",
+    "builtins.frozenset.__eq__",
+    "builtins.frozenset.__ge__",
+    "builtins.frozenset.__le__",
+    "builtins.frozenset.__or__",
+    "builtins.frozenset.__sub__"
+   ]
+  },
+  {
+   "reason": "builtins.int, methods that run no code of other objects: integer arithmetic, comparison and conversions on ints only; any other operand returns NotImplemented, and the reflected method is resolved at the operator",
+   "names": [
+    "builtins.int.__add__",
+    "builtins.int.__and__",
+    "builtins.int.__bool__",
+    "builtins.int.__eq__",
+    "builtins.int.__float__",
+    "builtins.int.__floordiv__",
+    "builtins.int.__format__",
+    "builtins.int.__ge__",
+    "builtins.int.__gt__",
+    "builtins.int.__hash__",
+    "builtins.int.__index__",
+    "builtins.int.__int__",
+    "builtins.int.__invert__",
+    "builtins.int.__le__",
+    "builtins.int.__lshift__",
+    "builtins.int.__lt__",
+    "builtins.int.__mod__",
+    "builtins.int.__mul__",
+    "builtins.int.__ne__",
+    "builtins.int.__neg__",
+    "builtins.int.__or__",
+    "builtins.int.__radd__",
+    "builtins.int.__rand__",
+    "builtins.int.__rfloordiv__",
+    "builtins.int.__rlshift__",
+    "builtins.int.__rmod__",
+    "builtins.int.__rmul__",
+    "builtins.int.__ror__",
+    "builtins.int.__rrshift__",
+    "builtins.int.__rshift__",
+    "builtins.int.__rsub__",
+    "builtins.int.__sub__",
+    "builtins.int.__trunc__"
+   ]
+  },
+  {
+   "reason": "builtins.list, methods that run no code of other objects: iteration, length, reversal and append of the list itself (append stores without calling); list + list and hash(list) take no other type",
+   "names": [
+    "builtins.list.__add__",
+    "builtins.list.__hash__",
+    "builtins.list.__iter__",
+    "builtins.list.__len__",
+    "builtins.list.__reversed__",
+    "builtins.list.append"
+   ]
+  },
+  {
+   "reason": "builtins.list, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.list.__contains__",
+    "builtins.list.__eq__",
+    "builtins.list.__getitem__",
+    "builtins.list.__iadd__",
+    "builtins.list.__mul__",
+    "builtins.list.__setitem__",
+    "builtins.list.count",
+    "builtins.list.extend",
+    "builtins.list.index",
+    "builtins.list.insert",
+    "builtins.list.pop",
+    "builtins.list.remove",
+    "builtins.list.sort"
+   ]
+  },
+  {
+   "reason": "builtins.map, methods that run no code of other objects: iteration whose callable and source were resolved where map() was called",
+   "names": [
+    "builtins.map.__iter__",
+    "builtins.map.__next__"
+   ]
+  },
+  {
+   "reason": "builtins.range, methods that run no code of other objects: iteration of integers",
+   "names": [
+    "builtins.range.__iter__"
+   ]
+  },
+  {
+   "reason": "builtins.reversed, methods that run no code of other objects: iteration of a source resolved where reversed() was called",
+   "names": [
+    "builtins.reversed.__iter__",
+    "builtins.reversed.__next__"
+   ]
+  },
+  {
+   "reason": "builtins.set, methods that run no code of other objects: iteration, length and pop of the set itself",
+   "names": [
+    "builtins.set.__iter__",
+    "builtins.set.__len__",
+    "builtins.set.pop"
+   ]
+  },
+  {
+   "reason": "builtins.set, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.set.__contains__",
+    "builtins.set.__eq__",
+    "builtins.set.__ge__",
+    "builtins.set.__ior__",
+    "builtins.set.__le__",
+    "builtins.set.__or__",
+    "builtins.set.__sub__",
+    "builtins.set.__xor__",
+    "builtins.set.add",
+    "builtins.set.issubset",
+    "builtins.set.update"
+   ]
+  },
+  {
+   "reason": "builtins.str, methods that run no code of other objects: text operations on str arguments only (CPython reads their data, never their methods); comparison with a non-str returns NotImplemented (resolved at the operator); startswith/endswith walk a tuple directly",
+   "names": [
+    "builtins.str.__add__",
+    "builtins.str.__contains__",
+    "builtins.str.__eq__",
+    "builtins.str.__format__",
+    "builtins.str.__gt__",
+    "builtins.str.__hash__",
+    "builtins.str.__iter__",
+    "builtins.str.__len__",
+    "builtins.str.__lt__",
+    "builtins.str.__ne__",
+    "builtins.str.capitalize",
+    "builtins.str.casefold",
+    "builtins.str.count",
+    "builtins.str.encode",
+    "builtins.str.endswith",
+    "builtins.str.index",
+    "builtins.str.isalpha",
+    "builtins.str.isdecimal",
+    "builtins.str.isdigit",
+    "builtins.str.lower",
+    "builtins.str.lstrip",
+    "builtins.str.partition",
+    "builtins.str.removeprefix",
+    "builtins.str.replace",
+    "builtins.str.rpartition",
+    "builtins.str.rsplit",
+    "builtins.str.rstrip",
+    "builtins.str.split",
+    "builtins.str.splitlines",
+    "builtins.str.startswith",
+    "builtins.str.strip",
+    "builtins.str.title",
+    "builtins.str.upper"
+   ]
+  },
+  {
+   "reason": "builtins.str, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.str.__getitem__",
+    "builtins.str.__mul__",
+    "builtins.str.format",
+    "builtins.str.join"
+   ]
+  },
+  {
+   "reason": "builtins.tuple, methods that run no code of other objects: iteration and length of the tuple itself; tuple + tuple takes no other type",
+   "names": [
+    "builtins.tuple.__add__",
+    "builtins.tuple.__iter__",
+    "builtins.tuple.__len__"
+   ]
+  },
+  {
+   "reason": "builtins.tuple, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.tuple.__contains__",
+    "builtins.tuple.__eq__",
+    "builtins.tuple.__getitem__",
+    "builtins.tuple.__hash__",
+    "builtins.tuple.__lt__",
+    "builtins.tuple.index"
+   ]
+  },
+  {
+   "reason": "builtins.zip, methods that run no code of other objects: iteration of sources resolved where zip() was called",
+   "names": [
+    "builtins.zip.__iter__",
+    "builtins.zip.__next__"
+   ]
+  },
+  {
+   "reason": "collections.Counter, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "collections.Counter.__sub__"
+   ]
+  },
+  {
+   "reason": "enum.IntFlag, methods that run no code of other objects: flag arithmetic guarded by isinstance; any other operand returns NotImplemented",
+   "names": [
+    "enum.IntFlag.__or__",
+    "enum.IntFlag.__ror__"
+   ]
+  },
+  {
+   "reason": "ipaddress._BaseAddress, methods that run no code of other objects: formatting of the address with a str spec",
+   "names": [
+    "ipaddress._BaseAddress.__format__"
+   ]
+  },
+  {
+   "reason": "ipaddress._BaseNetwork, methods that run no code of other objects: properties computed from the network value",
+   "names": [
+    "ipaddress._BaseNetwork.broadcast_address",
+    "ipaddress._BaseNetwork.prefixlen"
+   ]
+  },
+  {
+   "reason": "os.stat_result, methods that run no code of other objects: fields of a stat result already obtained by a declared call",
+   "names": [
+    "os.stat_result.st_dev",
+    "os.stat_result.st_ino",
+    "os.stat_result.st_mode",
+    "os.stat_result.st_size"
+   ]
+  },
+  {
+   "reason": "pathlib.PurePath, methods that run no code of other objects: pure path properties, hashing and ordering of paths (ordering is isinstance-guarded)",
+   "names": [
+    "pathlib.PurePath.__fspath__",
+    "pathlib.PurePath.__hash__",
+    "pathlib.PurePath.__lt__",
+    "pathlib.PurePath.anchor",
+    "pathlib.PurePath.as_posix",
+    "pathlib.PurePath.drive",
+    "pathlib.PurePath.is_absolute",
+    "pathlib.PurePath.name",
+    "pathlib.PurePath.parent",
+    "pathlib.PurePath.parents",
+    "pathlib.PurePath.parts"
+   ]
+  },
+  {
+   "reason": "pathlib.PurePath, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "pathlib.PurePath.__rtruediv__",
+    "pathlib.PurePath.__truediv__",
+    "pathlib.PurePath.joinpath",
+    "pathlib.PurePath.relative_to",
+    "pathlib.PurePath.with_name"
+   ]
+  },
+  {
+   "reason": "re.Match, methods that run no code of other objects: the groups of a match already made",
+   "names": [
+    "re.Match.groups"
+   ]
+  },
+  {
+   "reason": "re.Match, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "re.Match.end",
+    "re.Match.group",
+    "re.Match.start"
+   ]
+  },
+  {
+   "reason": "re.Pattern, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "re.Pattern.finditer",
+    "re.Pattern.fullmatch",
+    "re.Pattern.match",
+    "re.Pattern.search",
+    "re.Pattern.sub"
+   ]
+  },
+  {
+   "reason": "uuid.UUID, methods that run no code of other objects: the UUID's value; == is isinstance-guarded",
+   "names": [
+    "uuid.UUID.__eq__",
+    "uuid.UUID.hex"
+   ]
+  },
+  {
+   "reason": "xml.etree.ElementTree.Element, methods that run no code of other objects: iteration, length and append of the element itself (append and C Element accept only Elements); __deepcopy__ copies attribute values whose types Element.set's rule resolved",
+   "names": [
+    "xml.etree.ElementTree.Element.__deepcopy__",
+    "xml.etree.ElementTree.Element.__iter__",
+    "xml.etree.ElementTree.Element.__len__",
+    "xml.etree.ElementTree.Element.append"
+   ]
+  },
+  {
+   "reason": "xml.etree.ElementTree.Element, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "xml.etree.ElementTree.Element.__getitem__",
+    "xml.etree.ElementTree.Element.extend",
+    "xml.etree.ElementTree.Element.find",
+    "xml.etree.ElementTree.Element.findall",
+    "xml.etree.ElementTree.Element.findtext",
+    "xml.etree.ElementTree.Element.get",
+    "xml.etree.ElementTree.Element.insert",
+    "xml.etree.ElementTree.Element.iter",
+    "xml.etree.ElementTree.Element.set"
+   ]
+  },
+  {
+   "reason": "xml.etree.ElementTree.TreeBuilder, methods that run no code of other objects: events fed to a builder whose element factory was resolved where the builder was constructed",
+   "names": [
+    "xml.etree.ElementTree.TreeBuilder.data",
+    "xml.etree.ElementTree.TreeBuilder.end",
+    "xml.etree.ElementTree.TreeBuilder.start"
+   ]
+  },
+  {
+   "reason": "xml.etree.ElementTree.TreeBuilder, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "xml.etree.ElementTree.TreeBuilder.__init__"
    ]
   }
  ]

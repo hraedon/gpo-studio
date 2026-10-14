@@ -27,6 +27,29 @@ environment built by the recorded uv method), rebuilds the pin from it and
 refuses any pin that differs (a pin is never edited by hand), and holds the
 record's lane set, verdict commits, closures, resources, floor, memberships,
 external modules and declared edges to the re-derivation at the gated tree.
+
+**What the gate re-executes, and the trust boundary** (review round 2, Sol B1:
+a hand-written "complete" record and its pin still passed, because mutual
+consistency of two files a committer writes is not evidence). The record's
+claims fall in two halves:
+
+- *Target-side claims* are re-executed by the gate itself (`reexecute_target`),
+  offline, in the CI job's own synced environment, at the record's target
+  commit: every builder replay (against the record's and the banked candidate
+  hashes), every canonical re-grade over the banked packs, and D-9's selection.
+  Any difference fails. This is the claim-bearing half: whether the evidence
+  is still true at the release commit is checked mechanically, not trusted.
+- *Historical claims* (the re-grade at each verdict's own commit, and the
+  environments those ran in) are recorded attestations; re-running them would
+  need each commit's own environment, which CI does not build. They are bound
+  to content the repository holds (`_bindings`): lock digests to
+  `git show <commit>:uv.lock`, candidate hashes and banked payload digests to
+  the committed verdicts and packs, and every replay and re-grade entry names
+  its commit.
+
+A committer who fabricates the historical attestations from the repository's
+own evidence is outside the gate's threat model: the review at banking covers
+that. The gate's job is that the release commit's claims are re-verified.
 """
 
 from __future__ import annotations
@@ -48,9 +71,21 @@ from . import closure as closure_mod
 from . import projection, replay, scan
 from .lanes import Lane, live_lanes
 from .lanes import controller_log as controller_log_value
-from .repo import LISTS_DIR, REPO_ROOT, Wp0Error, git, rev_parse, sha256_bytes, sha256_file
+from .repo import (
+    LISTS_DIR,
+    REPO_ROOT,
+    Wp0Error,
+    git,
+    rev_parse,
+    sha256_bytes,
+    sha256_file,
+    show,
+)
 from .repo import tracked_files as repo_tracked
 
+#: The lanes' interpreter (uv picks it for every lane environment); the
+#: analysis default, and the only interpreter the gate runs under.
+LANE_PYTHON = "3.14"
 SUCCESSOR_RECORD = "docs/plan-033/release110-dependency-audit.json"
 PIN_RECORD = "docs/plan-033/release110-closure-pin.json"
 #: Design notes carried in every successor record: the readings of the plan
@@ -78,6 +113,13 @@ DESIGN_NOTES = (
     "The JSON proof holds only inside a JSON-clean function, one in which no "
     "value that may alias decoded JSON is stored into, mutated, or handed to "
     "code the proof does not follow (review round 1).",
+    "Part 3 refinement (coordinator ruling, 2026-10-14, review round 2): the "
+    "release gate re-executes the record's target-side claims offline in the CI "
+    "environment (builder replays, canonical re-grades over the banked packs, "
+    "D-9's selection) and fails on any difference; the historical claims (re-grades "
+    "at each verdict commit, and their environments) stay recorded attestations, "
+    "bound to git and the committed packs. Fabricated historical attestations are "
+    "outside the gate's threat model; the review at banking covers them.",
     "Every clone environment is built by replay.uv_environment: the commit's own "
     "lock synced without building anything, the build backend from that lock or, "
     "for a lock that locks none (before 547626b), from the tool tree's lock by "
@@ -318,52 +360,7 @@ def run(
                     repo, clone_a.path, lane, clone_a, clone_b, fidelity_clones[lane.commit],
                     workdir, tables,
                 )
-        selections = {}
-        tracked: dict[str, set[str]] = {target: set(repo_tracked(repo, target))}
-        for lane in lanes:
-            lane1 = part1["lanes"][lane.name]
-            outcome = results[lane.name]
-            dependency = sorted(set(lane1["closure"]) | set(lane1["resources"]) |
-                                set(lane1["floor"]))
-            traces = [outcome["replay"].get("trace"), *outcome["replay"].get("trace_children", []),
-                      outcome["regrade_traced"].get("trace"),
-                      *outcome["regrade_traced"].get("trace_children", [])]
-            # Repository files the trace saw opened (tracked at either commit:
-            # bytecode caches and run outputs are not repository files).
-            if lane.commit not in tracked:
-                tracked[lane.commit] = set(repo_tracked(repo, lane.commit))
-            opened = {
-                path for path in changed_mod.opened_files(traces, clone_b.path)
-                if path in tracked[target] or path in tracked[lane.commit]
-            }
-            changes = {path: changed_mod.diff_file(repo, lane.commit, target, path)
-                       for path in sorted(set(dependency) | opened)}
-            executed = changed_mod.executed_lines(traces, clone_b.path)
-            incomplete = changed_mod.trace_incompleteness(
-                traces, part1["toolchain"]["process_executables"]
-            )
-            selection = changed_mod.select_lane(
-                lane.name,
-                dependency,
-                set(lane1["closure"]),
-                set(lane1["floor"]),
-                changes,
-                executed,
-                opened,
-                changed_mod.child_repository_files(traces, clone_b.path),
-                incomplete,
-                outcome["replay"]["identical"] if outcome["replay"]["applicable"] else None,
-                outcome["regrade_equal"],
-                exemptions,
-                resources=lane1["resources"],
-            )
-            selections[lane.name] = selection
-            outcome["opened_repository_files"] = sorted(opened)
-            outcome["changes"] = {
-                path: {"status": c.status, "new_lines": len(c.new_lines()),
-                       "hunks": len(c.hunks)}
-                for path, c in changes.items() if c.status != "unchanged"
-            }
+        selections = _select_all(repo, target, lanes, part1, results, clone_b, exemptions)
     return {
         "target": target,
         "part1": part1,
@@ -375,6 +372,65 @@ def run(
     }
 
 
+def _select_all(
+    repo: Path,
+    target: str,
+    lanes: list[Lane],
+    part1: dict[str, Any],
+    results: dict[str, Any],
+    clone_b: replay.Clone,
+    exemptions: Any,
+) -> dict[str, changed_mod.LaneSelection]:
+    """D-9's selection for every lane, from the traces part 2 recorded at *target*."""
+    selections: dict[str, changed_mod.LaneSelection] = {}
+    tracked: dict[str, set[str]] = {target: set(repo_tracked(repo, target))}
+    for lane in lanes:
+        lane1 = part1["lanes"][lane.name]
+        outcome = results[lane.name]
+        dependency = sorted(set(lane1["closure"]) | set(lane1["resources"]) |
+                            set(lane1["floor"]))
+        traces = [outcome["replay"].get("trace"), *outcome["replay"].get("trace_children", []),
+                  outcome["regrade_traced"].get("trace"),
+                  *outcome["regrade_traced"].get("trace_children", [])]
+        # Repository files the trace saw opened (tracked at either commit:
+        # bytecode caches and run outputs are not repository files).
+        if lane.commit not in tracked:
+            tracked[lane.commit] = set(repo_tracked(repo, lane.commit))
+        opened = {
+            path for path in changed_mod.opened_files(traces, clone_b.path)
+            if path in tracked[target] or path in tracked[lane.commit]
+        }
+        changes = {path: changed_mod.diff_file(repo, lane.commit, target, path)
+                   for path in sorted(set(dependency) | opened)}
+        executed = changed_mod.executed_lines(traces, clone_b.path)
+        incomplete = changed_mod.trace_incompleteness(
+            traces, part1["toolchain"]["process_executables"]
+        )
+        selection = changed_mod.select_lane(
+            lane.name,
+            dependency,
+            set(lane1["closure"]),
+            set(lane1["floor"]),
+            changes,
+            executed,
+            opened,
+            changed_mod.child_repository_files(traces, clone_b.path),
+            incomplete,
+            outcome["replay"]["identical"] if outcome["replay"]["applicable"] else None,
+            outcome["regrade_equal"],
+            exemptions,
+            resources=lane1["resources"],
+        )
+        selections[lane.name] = selection
+        outcome["opened_repository_files"] = sorted(opened)
+        outcome["changes"] = {
+            path: {"status": c.status, "new_lines": len(c.new_lines()),
+                   "hunks": len(c.hunks)}
+            for path, c in changes.items() if c.status != "unchanged"
+        }
+    return selections
+
+
 def _part2_lane(
     repo: Path,
     root: Path,
@@ -384,7 +440,12 @@ def _part2_lane(
     fidelity: replay.Clone,
     workdir: Path,
     tables: Any,
+    *,
+    own_commit: bool = True,
 ) -> dict[str, Any]:
+    """Part 2 for one lane: the replay and the re-grades at the target, and (with
+    *own_commit*) the re-grade at the verdict's own commit in *fidelity*; without
+    it, *fidelity* only supplies the finalizer's tables at the verdict commit."""
     if lane.has_candidate:
         replayed = replay.replay_builder(lane, root, clone_a, clone_b, workdir)
     else:
@@ -394,7 +455,8 @@ def _part2_lane(
     plain = replay.regrade(lane, root, clone_a, workdir, "plain", "target")
     traced = replay.regrade(lane, root, clone_b, workdir, "traced", "target")
     observed = replay.regrade(lane, root, clone_a, workdir, "observe", "target")
-    own = replay.regrade(lane, root, fidelity, workdir, "plain", "verdict")
+    own = replay.regrade(lane, root, fidelity, workdir, "plain", "verdict") if own_commit else None
+    runs = [r for r in (plain, traced, observed, own) if r is not None]
 
     def side(result: dict[str, Any], at: replay.Clone) -> projection.Side:
         run_root = str(result.get("run_root", ""))
@@ -422,17 +484,21 @@ def _part2_lane(
         member_digest=lane.pack_files.get,
     )
     problems: list[str] = []
-    for result in (plain, traced, observed, own):
+    for result in runs:
         if result["verdict"] is None:
             problems.extend(result["problems"])
-    at_target = projection.compare(banked_side, side(plain, clone_a), repo, lane.shape) \
-        if plain["verdict"] is not None else {"equal": False}
-    at_commit = projection.compare(banked_side, side(own, fidelity), repo, lane.shape) \
-        if own["verdict"] is not None else {"equal": False}
+    at_target: dict[str, Any] = {"commit": clone_a.commit, **(
+        projection.compare(banked_side, side(plain, clone_a), repo, lane.shape)
+        if plain["verdict"] is not None else {"equal": False})}
+    at_commit: dict[str, Any] | None = None
+    if own is not None:
+        at_commit = {"commit": fidelity.commit, **(
+            projection.compare(banked_side, side(own, fidelity), repo, lane.shape)
+            if own["verdict"] is not None else {"equal": False})}
     modes_agree = plain["verdict"] == traced["verdict"] == observed["verdict"]
     if not modes_agree:
         problems.append("plain, traced and observe re-grades wrote different verdicts")
-    for result in (plain, traced, observed, own):
+    for result in runs:
         problems.extend(result["problems"])
     equivalence = []
     if traced.get("trace") and observed.get("trace"):
@@ -449,10 +515,10 @@ def _part2_lane(
     return {
         "replay": replayed,
         "regrade_target": at_target,
-        "regrade_verdict_commit": {"commit": fidelity.commit, **at_commit},
+        "regrade_verdict_commit": at_commit,
         "regrade_problems": problems,
         "regrade_equal": regrade_equal,
-        "fidelity_equal": bool(at_commit.get("equal")),
+        "fidelity_equal": None if at_commit is None else bool(at_commit.get("equal")),
         "regrade_traced": {"trace": traced.get("trace"),
                            "trace_children": traced.get("trace_children", [])},
         "finalizer_equivalence_fields_differing": equivalence,
@@ -566,6 +632,10 @@ _REDERIVED = {
 _LANE_FIELDS = (*_REDERIVED, "external_modules", "replay", "regrade", "scan_counts", "selected")
 
 
+def _commit_id(value: Any) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value) is not None
+
+
 def _sha(value: Any) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
@@ -610,7 +680,8 @@ def successor_problems(successor: Any) -> list[str]:
         if not isinstance(built, dict) or built.get("method") != replay.UV_METHOD:
             problems.append(f"environment {label} was not built by {replay.UV_METHOD}")
         elif not (built.get("installed") and built.get("backend") and built.get("steps")
-                  and _sha(built.get("uv_lock_sha256"))):
+                  and _sha(built.get("uv_lock_sha256")) and _sha(built.get("backend_lock_sha256"))
+                  and _commit_id(built.get("backend_lock_commit"))):
             problems.append(f"environment {label} does not record its build")
     built_commits = {built.get("commit") for built in environments.values()
                      if isinstance(built, dict)}
@@ -635,12 +706,25 @@ def successor_problems(successor: Any) -> list[str]:
             replayed.get("identical") is True and not replayed.get("problems")
         ):
             problems.append(f"{name}: the replay is not identical")
+        if replayed.get("applicable") and replayed.get("commit") != target:
+            problems.append(f"{name}: the replay record does not name the target commit")
+        if replayed.get("applicable") and not replayed.get("recorded_hashes"):
+            problems.append(f"{name}: the replay record carries no banked candidate hash")
         regrade = lane["regrade"]
         at_commit = regrade.get("at_verdict_commit") or {}
         if not (regrade.get("equal") is True and not regrade.get("problems")
                 and (regrade.get("at_target") or {}).get("equal") is True
                 and at_commit.get("equal") is True):
             problems.append(f"{name}: the re-grade is not equal")
+        at_target = regrade.get("at_target") or {}
+        if at_target.get("commit") != target:
+            problems.append(f"{name}: the target re-grade record does not name the target commit")
+        for label, comparison in (("target", at_target), ("own-commit", at_commit)):
+            digests = {comparison.get("banked_payload_sha256"),
+                       comparison.get("regraded_payload_sha256")}
+            if len(digests) != 1 or not _sha(digests.pop()):
+                problems.append(f"{name}: the {label} re-grade record carries no equal payload "
+                                "digests")
         if at_commit.get("commit") != lane["verdict_commit"]:
             problems.append(f"{name}: the own-commit re-grade ran at another commit")
         failing = {k: v for k, v in (lane["scan_counts"] or {}).items() if k in scan.FAILING}
@@ -780,11 +864,130 @@ def gate_decision(root: Path) -> tuple[str, str]:
     )
 
 
-def verify_pin(root: Path, pin: dict[str, Any]) -> list[str]:
-    """Every way the tree at *root* departs from *pin* (empty: the gate is green)."""
+def gate_interpreter_problems(pin: dict[str, Any]) -> list[str]:
+    """Why this interpreter may not run the gate (review round 2, Sol N2).
+
+    The lanes, the record and the pin are for one Python and the controller's
+    platform; a derivation or a re-execution under another interpreter differs
+    (typeshed's stubs differ by version) without anything being wrong, so the
+    gate refuses to run rather than report a difference.
+    """
+    want = str(pin.get("analysis", {}).get("python_version"))
+    have = f"{sys.version_info.major}.{sys.version_info.minor}"
+    problems = []
+    if have != want:
+        problems.append(f"the closure gate runs only under Python {want}, the pinned lanes' "
+                        f"interpreter; this is Python {have}")
+    if not sys.platform.startswith(scan.CONTROLLER_PLATFORM):
+        problems.append(f"the closure gate runs only on {scan.CONTROLLER_PLATFORM}, the lanes' "
+                        f"controller platform; this is {sys.platform}")
+    return problems
+
+
+def verify_pin(root: Path, pin: dict[str, Any], workdir: Path | None = None) -> list[str]:
+    """Every way the tree at *root* departs from *pin* (empty: the gate is green).
+
+    The static half (`compare_pin`) holds the tree, the pin and the successor
+    record to each other, to git and to the committed packs; the dynamic half
+    (`reexecute_target`) re-runs the record's target-side claims offline in
+    this interpreter. Refused outright under any interpreter but the pinned
+    one (`gate_interpreter_problems`).
+    """
+    refused = gate_interpreter_problems(pin)
+    if refused:
+        raise Wp0Error("; ".join(refused))
     lists = scan.Lists.load()
     part1 = derive_part1(root, pin["analysis"]["python_version"], lists)
-    return compare_pin(root, pin, part1, lists)
+    problems = compare_pin(root, pin, part1, lists)
+    successor = json.loads((root / pin["successor_record"]).read_bytes())
+    if problems or successor_problems(successor):
+        return problems
+    if workdir is None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="wp0-gate-") as scratch:
+            return reexecute_target(root, successor, part1, Path(scratch))
+    return reexecute_target(root, successor, part1, workdir)
+
+
+def reexecute_target(
+    repo: Path,
+    successor: dict[str, Any],
+    part1: dict[str, Any],
+    workdir: Path,
+    *,
+    lanes_wanted: set[str] | None = None,
+) -> list[str]:
+    """Re-run the successor record's target-side claims and compare (review round 2).
+
+    At the record's target commit (whose dependency files the static half holds
+    byte-identical to the gated tree), in a fresh worktree run by this
+    interpreter (the CI job's synced environment; nothing is installed or
+    downloaded): every applicable builder replay, against the record's and the
+    banked candidate hashes; every canonical re-grade over the banked packs;
+    and D-9's selection, against the record's. The historical half (re-grades
+    at each verdict commit and the environments they ran in) is not re-run: it
+    is bound to git and the packs by `compare_pin`.
+    """
+    target = successor["target_commit"]
+    lanes = [lane for lane in live_lanes(repo)
+             if lanes_wanted is None or lane.name in lanes_wanted]
+    exemptions = changed_mod.load_exemptions()
+    problems: list[str] = []
+    clones = workdir / "clones"
+    with replay.clone(repo, target, clones, "gate", launcher="current") as clone:
+        tables_cache: dict[tuple[str, str], dict[str, Any]] = {}
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            verdict_trees = {
+                commit: stack.enter_context(
+                    replay.clone(repo, commit, clones, f"tables-{commit[:12]}",
+                                 launcher="current"))
+                for commit in sorted({lane.commit for lane in lanes})
+            }
+
+            def tables(at: replay.Clone, lane: Lane) -> dict[str, Any]:
+                key = (at.commit, lane.spec.finalizer)
+                if key not in tables_cache:
+                    tables_cache[key] = projection.finalizer_tables(
+                        at.python, at.path, lane.spec.finalizer, "psdirect"
+                    )
+                return tables_cache[key]
+
+            results = {
+                lane.name: _part2_lane(repo, clone.path, lane, clone, clone,
+                                       verdict_trees[lane.commit], workdir, tables,
+                                       own_commit=False)
+                for lane in lanes
+            }
+        selections = _select_all(repo, target, lanes, part1, results, clone, exemptions)
+    for lane in lanes:
+        recorded = successor["lanes"][lane.name]
+        outcome = results[lane.name]
+        replayed = outcome["replay"]
+        if replayed.get("applicable"):
+            if not replayed.get("identical"):
+                problems.append(f"{lane.name}: the replay at the target does not reproduce: "
+                                f"{replayed.get('problems')}")
+            if replayed.get("recorded_hashes") != recorded["replay"].get("recorded_hashes"):
+                problems.append(f"{lane.name}: the replayed candidate hashes are not the "
+                                "record's")
+        if not outcome["regrade_equal"]:
+            problems.append(f"{lane.name}: the re-grade at the target differs: "
+                            f"{outcome['regrade_problems'][:3]}")
+        digest = outcome["regrade_target"].get("regraded_payload_sha256")
+        if digest != recorded["regrade"]["at_target"].get("regraded_payload_sha256"):
+            problems.append(f"{lane.name}: the re-graded payload is not the record's")
+        selection = asdict(selections[lane.name])
+        for mine, theirs in (("selected", "selected"), ("executed_changed",
+                             "executed_changed_lines"), ("exempted", "exempted_lines"),
+                             ("incomplete", "trace_incomplete"),
+                             ("reasons", "selection_reasons")):
+            if json.loads(json.dumps(selection[mine])) != recorded[theirs]:
+                problems.append(f"{lane.name}: D-9's {theirs} re-derived here differs from the "
+                                "record's")
+    return problems
 
 
 def compare_pin(
@@ -814,6 +1017,7 @@ def compare_pin(
             problems.append("the pin is not the one its successor record determines "
                             "(a pin is never edited by hand)")
         problems.extend(_successor_against(successor, part1, lists))
+        problems.extend(_bindings(root, successor))
     if lists.digest != pin["lists_sha256"]:
         problems.append("the classification lists changed since the pin (a tier-2 change)")
     if sha256_file(LISTS_DIR / "exemptions.json") != pin["exemptions_sha256"]:
@@ -858,6 +1062,51 @@ def compare_pin(
     if unpinned:
         problems.append(f"pinned files a Windows checkout could rewrite (no eol=lf/-text): "
                         f"{unpinned}")
+    return problems
+
+
+def _bindings(root: Path, successor: dict[str, Any]) -> list[str]:
+    """The record's historical attestations against git and the committed packs.
+
+    Re-grades at each verdict commit, and the environments they ran in, are not
+    re-run by the gate (`reexecute_target` re-runs the target side). They are
+    bound instead to content the repository holds: each environment's lock
+    digests to `git show <commit>:uv.lock`, and every comparison's banked
+    payload digest, and each replay's banked candidate hashes, to the banked
+    verdict and pack as committed. This does not stop a committer who writes
+    the record by hand from the same repository: that is the trust boundary
+    (see the module docstring); it stops a record that disagrees with git or
+    the evidence.
+    """
+    problems: list[str] = []
+    for label, built in sorted(successor["environments"].items()):
+        for commit_key, digest_key in (("commit", "uv_lock_sha256"),
+                                       ("backend_lock_commit", "backend_lock_sha256")):
+            lock = show(root, str(built.get(commit_key)), "uv.lock")
+            if lock is None or sha256_bytes(lock) != built.get(digest_key):
+                problems.append(f"environment {label}: {digest_key} is not the uv.lock at "
+                                f"{str(built.get(commit_key))[:12]}")
+    for lane in live_lanes(root):
+        recorded = successor["lanes"].get(lane.name)
+        if recorded is None:
+            continue
+        verdict = json.loads((root / lane.verdict).read_text(encoding="utf-8"))
+        if recorded["replay"].get("applicable"):
+            banked = replay.banked_candidate_hashes(verdict, lane.spec.flat_delivery_file)
+            if recorded["replay"].get("recorded_hashes") != banked:
+                problems.append(f"{lane.name}: the record's candidate hashes are not the banked "
+                                "verdict's")
+        side = projection.Side(
+            verdict=verdict, commit=lane.commit, tables={},
+            run_root=_banked_root(root, lane, "LOCAL_RUN_DIR"),
+            candidate_root=_banked_root(root, lane, "CANDIDATE_DIR"),
+            member_digest=lane.pack_files.get,
+        )
+        digest = projection.payload_digest(side, lane.shape)
+        for label in ("at_target", "at_verdict_commit"):
+            if recorded["regrade"][label].get("banked_payload_sha256") != digest:
+                problems.append(f"{lane.name}: the {label} comparison is not bound to the banked "
+                                "pack's payload")
     return problems
 
 

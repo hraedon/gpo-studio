@@ -56,6 +56,8 @@ from mypy import build
 from mypy.main import process_options
 from mypy.modulefinder import BuildSource
 from mypy.nodes import (
+    ARG_NAMED,
+    ARG_NAMED_OPT,
     ARG_OPT,
     ARG_POS,
     ARG_STAR,
@@ -133,7 +135,6 @@ _CONVERSIONS: dict[str, tuple[str, ...]] = {
     "builtins.ascii": ("__repr__",),
     "builtins.format": ("__format__",),
     "builtins.print": ("__str__",),
-    "builtins.str.format": ("__format__", "__str__", "__repr__"),
     "builtins.str.format_map": ("__getitem__",),
     "builtins.bool": ("__bool__", "__len__"),
     "builtins.len": ("__len__",),
@@ -164,6 +165,167 @@ _ELEMENT_OPS: dict[str, tuple[str, ...]] = {
     "builtins.list.sort": ("__lt__",),
     "builtins.set": ("__hash__", "__eq__"), "builtins.frozenset": ("__hash__", "__eq__"),
 }
+@dataclass(frozen=True)
+class Protocol:
+    """The code of *other* objects a method of an in-memory type runs (review round 2,
+    Sol B2: `list.remove` runs its elements' `__eq__`; `Pattern.sub` calls a callable
+    replacement). Each entry makes the scan resolve those protocol methods on the
+    static types involved, so an `Any` there is an unresolvable site.
+
+    `args` maps a positional index, a keyword name or "*" (every argument) to the
+    dunders run on that argument (`__call__`: the argument is called, resolved like
+    any call through a value); `elements` and `values` are run on the receiver's
+    element (or key) and value types; `arg_elements` and `arg_values` on those of
+    the first argument.
+    """
+
+    args: tuple[tuple[int | str, tuple[str, ...]], ...] = ()
+    elements: tuple[str, ...] = ()
+    values: tuple[str, ...] = ()
+    arg_elements: tuple[str, ...] = ()
+    arg_values: tuple[str, ...] = ()
+
+    def for_argument(self, position: int | None, keyword: str | None) -> tuple[str, ...]:
+        out: list[str] = []
+        for key, dunders in self.args:
+            if key == "*" or key == position or (keyword is not None and key == keyword):
+                out.extend(d for d in dunders if d not in out)
+        return tuple(out)
+
+
+_EQ = ("__eq__",)
+_HASH_EQ = ("__hash__", "__eq__")
+_ORDER = ("__eq__", "__lt__")
+_INDEX = ("__index__",)
+_CALL = ("__call__",)
+_BUFFER = ("__buffer__",)
+_MAPPING_ARG = ("keys", "__getitem__", "__iter__")
+
+
+def _protocols() -> dict[str, Protocol]:
+    table: dict[str, Protocol] = {}
+
+    def add(names: Iterable[str], protocol: Protocol) -> None:
+        for name in names:
+            table[name] = protocol
+
+    membership = Protocol(args=((0, _EQ),), elements=_EQ)
+    for kind in ("list", "tuple"):
+        add([f"builtins.{kind}.{m}" for m in ("__contains__", "count", "index")],
+            Protocol(args=((0, _EQ), (1, _INDEX), (2, _INDEX)), elements=_EQ))
+        add([f"builtins.{kind}.{m}" for m in ("__eq__", "__ne__")],
+            Protocol(elements=_EQ, arg_elements=_EQ))
+        add([f"builtins.{kind}.{m}" for m in ("__lt__", "__le__", "__gt__", "__ge__")],
+            Protocol(elements=_ORDER, arg_elements=_ORDER))
+        add([f"builtins.{kind}.{m}" for m in ("__getitem__", "__mul__", "__rmul__")],
+            Protocol(args=((0, _INDEX),)))
+    add(["builtins.list.remove"], membership)
+    add(["builtins.tuple.__hash__"], Protocol(elements=("__hash__",)))
+    add(["builtins.list.sort"], Protocol(args=(("key", _CALL),), elements=("__lt__",)))
+    add([f"builtins.list.{m}" for m in ("__setitem__", "__delitem__", "pop", "insert",
+                                         "__imul__")], Protocol(args=((0, _INDEX),)))
+    add(["builtins.list.extend", "builtins.list.__iadd__"],
+        Protocol(args=((0, ("__iter__",)),)))
+    keyed = Protocol(args=((0, _HASH_EQ),), elements=_EQ)
+    add([f"builtins.dict.{m}" for m in ("__getitem__", "get", "pop", "__contains__",
+                                         "__delitem__", "setdefault", "__setitem__")], keyed)
+    add(["builtins.dict.__eq__", "builtins.dict.__ne__"],
+        Protocol(elements=_HASH_EQ, values=_EQ, arg_elements=_HASH_EQ, arg_values=_EQ))
+    add([f"builtins.dict.{m}" for m in ("update", "__ior__", "__or__", "__ror__")],
+        Protocol(args=((0, _MAPPING_ARG),), elements=_EQ, arg_elements=_HASH_EQ))
+    add(["builtins.dict.fromkeys"], Protocol(args=((0, ("__iter__",)),),
+                                             arg_elements=_HASH_EQ))
+    for kind in ("set", "frozenset"):
+        add([f"builtins.{kind}.{m}" for m in ("__contains__", "add", "remove", "discard")],
+            keyed)
+        add([f"builtins.{kind}.{m}" for m in (
+            "update", "union", "intersection", "difference", "symmetric_difference",
+            "issubset", "issuperset", "isdisjoint", "__or__", "__and__", "__sub__", "__xor__",
+            "__ior__", "__iand__", "__isub__", "__ixor__", "__le__", "__ge__", "__lt__",
+            "__gt__", "__eq__", "__ne__", "intersection_update", "difference_update",
+            "symmetric_difference_update",
+        )], Protocol(args=((0, ("__iter__",)),), elements=_HASH_EQ, arg_elements=_HASH_EQ))
+    add(["builtins.str.translate"], Protocol(args=((0, ("__getitem__",)),)))
+    add([f"builtins.{kind}.{m}" for kind in ("str", "bytes")
+         for m in ("__getitem__", "__mul__", "__rmul__")], Protocol(args=((0, _INDEX),)))
+    add(["builtins.str.format_map"], Protocol(arg_values=("__format__", "__str__",
+                                                          "__repr__")))
+    add([f"builtins.bytes.{m}" for m in (
+        "__add__", "__contains__", "count", "find", "rfind", "index", "rindex", "replace",
+        "startswith", "endswith", "split", "rsplit", "strip", "lstrip", "rstrip", "partition",
+        "rpartition", "join", "removeprefix", "removesuffix",
+    )], Protocol(args=(("*", _BUFFER + _INDEX),)))
+    add(["builtins.bytearray.extend"], Protocol(args=((0, ("__iter__",)),),
+                                                 arg_elements=_INDEX))
+    add(["builtins.bytearray.__iadd__", "builtins.bytearray.__add__"],
+        Protocol(args=((0, _BUFFER),)))
+    add(["builtins.int.__round__", "builtins.float.__round__"], Protocol(args=((0, _INDEX),)))
+    add(["builtins.map", "builtins.filter"], Protocol(args=((0, _CALL),)))
+    add(["builtins.sorted", "builtins.min", "builtins.max"],
+        Protocol(args=(("key", _CALL),)))
+    exception_args = Protocol(args=(("*", ("__str__", "__repr__")),))
+    add(["builtins.BaseException.__init__", "builtins.Exception.__init__"], exception_args)
+    add(["re.Pattern.sub", "re.Pattern.subn"],
+        Protocol(args=((0, _CALL + _BUFFER), (1, _BUFFER), ("repl", _CALL + _BUFFER),
+                       ("string", _BUFFER))))
+    add([f"re.Pattern.{m}" for m in ("match", "fullmatch", "search", "finditer", "findall",
+                                     "split", "scanner")],
+        Protocol(args=((0, _BUFFER), ("string", _BUFFER))))
+    add([f"re.Match.{m}" for m in ("group", "start", "end", "span", "__getitem__")],
+        Protocol(args=(("*", _INDEX + _HASH_EQ),)))
+    add(["_hashlib.HASH.update", "_io.BytesIO.write", "_io.BytesIO.writelines"],
+        Protocol(args=((0, _BUFFER),)))
+    add(["_io.BytesIO.seek", "_io.BytesIO.truncate", "_io.BytesIO.read"],
+        Protocol(args=((0, _INDEX),)))
+    element = "xml.etree.ElementTree.Element"
+    add([f"{element}.get"], Protocol(args=((0, _HASH_EQ),)))
+    add([f"{element}.set"], Protocol(args=((0, _HASH_EQ), (1, ("__str__",)))))
+    add([f"{element}.{m}" for m in ("find", "findall", "findtext", "iter", "iterfind")],
+        Protocol(args=(("*", _HASH_EQ),)))
+    add([f"{element}.__getitem__", f"{element}.insert", f"{element}.__setitem__",
+         f"{element}.__delitem__"], Protocol(args=((0, _INDEX),)))
+    add([f"{element}.extend"], Protocol(args=((0, ("__iter__",)),)))
+    add(["xml.etree.ElementTree.TreeBuilder", "xml.etree.ElementTree.TreeBuilder.__init__"],
+        Protocol(args=(("*", _CALL),)))
+    add([f"pathlib.PurePath.{m}" for m in (
+        "__truediv__", "__rtruediv__", "joinpath", "relative_to", "is_relative_to",
+        "with_name", "with_stem", "with_suffix", "match", "full_match", "with_segments",
+    )], Protocol(args=(("*", ("__fspath__",)),)))
+    add([f"collections.Counter.{m}" for m in ("__sub__", "__add__", "__or__", "__and__",
+                                              "update", "subtract")],
+        Protocol(args=((0, _MAPPING_ARG),), elements=_HASH_EQ, arg_elements=_HASH_EQ))
+    # Abstract receivers: whatever concrete container the value is, a lookup
+    # hashes or compares the key or probe against its contents.
+    add(["typing.Mapping.__getitem__", "typing.Mapping.get", "typing.Mapping.__contains__"],
+        keyed)
+    add(["typing.Container.__contains__", "typing.Collection.__contains__",
+         "typing.Sequence.__contains__", "typing.Sequence.index", "typing.Sequence.count",
+         "typing.AbstractSet.__contains__", "typing.KeysView.__contains__",
+         "typing.ItemsView.__contains__", "typing.ValuesView.__contains__"], membership)
+    add(["typing.Sequence.__getitem__"], Protocol(args=((0, _INDEX),)))
+    add(["builtins.str.format"], Protocol(args=(("*", ("__format__", "__str__", "__repr__")),)))
+    add(["copy.deepcopy", "dataclasses.asdict"],
+        Protocol(args=(("*", ("__deepcopy__", "__reduce_ex__")),)))
+    # replace() builds a new object through the instance's own class.
+    add(["dataclasses.replace"], Protocol(args=((0, ("__init__",)),)))
+    add(["difflib.unified_diff"], Protocol(args=((0, ("__iter__",)), (1, ("__iter__",))),
+                                           arg_elements=_HASH_EQ))
+    add(["json.dumps"], Protocol(args=((0, ("items", "__iter__")), ("default", _CALL),
+                                       ("cls", _CALL)), arg_values=("items", "__iter__")))
+    add(["base64.b64encode", "base64.b64decode"], Protocol(args=((0, _BUFFER),)))
+    add(["_struct.pack"], Protocol(args=(("*", ("__index__", "__float__")),)))
+    add(["_struct.unpack", "_struct.unpack_from"], Protocol(args=((1, _BUFFER),)))
+    return table
+
+
+#: Methods of in-memory types that run code of their arguments or elements, and
+#: what they run (review round 2). Every inert entry for such a method must have
+#: a rule here; tests/test_plan036_scan.py holds a negative probe for each.
+METHOD_PROTOCOLS: dict[str, Protocol] = _protocols()
+#: Arguments of a method or operator of a value of unknown type that the method
+#: may hash or compare (a JSON value's `get`, `count`, `index`, `in`, `[]`).
+_ANY_RECEIVER_ARGS = Protocol(args=(("*", _HASH_EQ),))
+
 #: Callees whose *class* arguments are type tests, not callable references.
 _TYPE_TEST_CALLEES = frozenset({"builtins.isinstance", "builtins.issubclass"})
 #: Builtins whose name argument selects an attribute: resolved when literal.
@@ -748,6 +910,27 @@ def _is_property(node: SymbolNode | None) -> bool:
     return False
 
 
+def _member_types(typ: Type | None, which: str) -> list[Type]:
+    """The element (or, for a mapping, key) types, or the value types, of *typ*."""
+    if typ is None:
+        return []
+    proper = get_proper_type(typ)
+    if isinstance(proper, UnionType):
+        return [m for item in proper.items for m in _member_types(item, which)]
+    if isinstance(proper, TupleType):
+        return list(proper.items) if which == "elements" else []
+    if isinstance(proper, Instance):
+        from mypy.maptype import map_instance_to_supertype
+
+        wanted = "typing.Mapping" if which == "values" else "typing.Iterable"
+        for base in proper.type.mro:
+            if base.fullname == wanted:
+                mapped = map_instance_to_supertype(proper, base)
+                index = 1 if which == "values" else 0
+                return [mapped.args[index]] if len(mapped.args) > index else []
+    return []
+
+
 def _item_type(typ: Type | None) -> Type | None:
     """The element type of an iterable, when mypy can name it."""
     if typ is None:
@@ -953,6 +1136,59 @@ class Scanner:
             if isinstance(member, CallableType):
                 self.implicit(member.ret_type, "__next__", line, what)
 
+    def dunder_names(self, typ: Type | None, dunder: str) -> list[str]:
+        """The targets `implicit` would name for *dunder* on a value of *typ*."""
+        out: list[str] = []
+        for info in _infos(typ) or []:
+            found = _lookup(info, dunder)
+            if found is not None and found[0].fullname != _OBJECT:
+                out.append(f"{found[0].fullname}.{dunder}")
+        return out
+
+    def protocols(
+        self,
+        names: Iterable[str],
+        receiver: Expression | None,
+        args: Sequence[tuple[Expression, int | None, str | None]],
+        line: int,
+        extra: Protocol | None = None,
+    ) -> None:
+        """Resolve the protocol methods a call of *names* runs on other objects
+        (`METHOD_PROTOCOLS`); *extra* applies a rule regardless of the name."""
+        if self.guard is not None or self.type_unreachable:
+            return
+        specs = [(name, METHOD_PROTOCOLS[name]) for name in dict.fromkeys(names)
+                 if name in METHOD_PROTOCOLS]
+        if extra is not None:
+            specs.append(("a method of a value of unknown type", extra))
+        for name, spec in specs:
+            what = f"{name} runs it"
+            for expr, position, keyword in args:
+                for dunder in spec.for_argument(position, keyword):
+                    if dunder == "__call__":
+                        self.indirect(expr, line, f"{what}: a call")
+                    else:
+                        self.implicit(self.type_of(expr), dunder, line, what, expr)
+                if position == 0:
+                    self.member_protocols(expr, "elements", spec.arg_elements, line, what)
+                    self.member_protocols(expr, "values", spec.arg_values, line, what)
+            if receiver is not None:
+                self.member_protocols(receiver, "elements", spec.elements, line, what)
+                self.member_protocols(receiver, "values", spec.values, line, what)
+
+    def member_protocols(
+        self, expr: Expression, which: str, dunders: Sequence[str], line: int, what: str
+    ) -> None:
+        """*dunders* on the element (or key) or value types of *expr*'s type."""
+        if not dunders:
+            return
+        typ = self.type_of(expr)
+        if typ is None or _infos(typ) is None:
+            return  # a value of unknown type: its own site is unresolvable or JSON
+        for member in _member_types(typ, which):
+            for dunder in dunders:
+                self.implicit(member, dunder, line, f"{what} on an element")
+
     def element_ops(self, expr: Expression, dunders: Sequence[str], line: int) -> None:
         if self.is_json(expr) and _infos(self.type_of(expr)) is None:
             for dunder in dunders:
@@ -1155,6 +1391,8 @@ class Scanner:
                     if found and found[0].fullname != _OBJECT:
                         name = f"__i{op}__" if _lookup(info, f"__i{op}__") else f"__{op}__"
                         self.target("implicit", f"{found[0].fullname}.{name}", node.line, "+=")
+                        self.protocols([f"{found[0].fullname}.{name}"], node.lvalue,
+                                       [(node.rvalue, 0, None)], node.line)
         self.machinery_write(node.lvalue, node.line)
         self.store(node.lvalue, visit=False)
 
@@ -1268,12 +1506,18 @@ class Scanner:
             self.visit(lvalue.base)
             self.visit(lvalue.index)
             self.machinery_write(lvalue.base, lvalue.line)
+            self.item_protocols(lvalue.base, lvalue.index, "__setitem__", lvalue.line)
             self.implicit(
                 self.type_of(lvalue.base), "__setitem__", lvalue.line, "item store", lvalue.base
             )
             return
         if visit:
             self.visit(lvalue)
+
+    def item_protocols(self, base: Expression, index: Expression, dunder: str, line: int) -> None:
+        unknown = isinstance(get_proper_type(self.type_of(base)), AnyType)
+        self.protocols(self.dunder_names(self.type_of(base), dunder), base, [(index, 0, None)],
+                       line, _ANY_RECEIVER_ARGS if unknown else None)
 
     def delete(self, expr: Expression) -> None:
         if isinstance(expr, TupleExpr):
@@ -1283,6 +1527,7 @@ class Scanner:
             self.visit(expr.base)
             self.visit(expr.index)
             self.machinery_write(expr.base, expr.line)
+            self.item_protocols(expr.base, expr.index, "__delitem__", expr.line)
             self.implicit(
                 self.type_of(expr.base), "__delitem__", expr.line, "item delete", expr.base
             )
@@ -1504,8 +1749,29 @@ class Scanner:
             elif kind == ARG_STAR2:
                 self.implicit(self.type_of(arg), "keys", line, "**kwargs expansion", arg)
                 self.implicit(self.type_of(arg), "__getitem__", line, "**kwargs expansion", arg)
+        arguments: list[tuple[Expression, int | None, str | None]] = []
+        position = 0
+        for arg, kind, keyword in zip(node.args, node.arg_kinds, node.arg_names, strict=True):
+            if kind in (ARG_POS, ARG_OPT):
+                arguments.append((arg, position, None))
+                position += 1
+            elif kind in (ARG_NAMED, ARG_NAMED_OPT):
+                arguments.append((arg, None, keyword))
+        receiver = callee.expr if isinstance(callee, MemberExpr) else None
+        if receiver is not None and isinstance(get_proper_type(self.type_of(receiver)), AnyType):
+            # A method of an unknown (or JSON) value: a lookup hashes or compares
+            # its arguments whatever the receiver turns out to be.
+            self.protocols([], None, arguments, line, _ANY_RECEIVER_ARGS)
         if fullname is None:
             return
+        self.protocols([fullname], receiver, arguments, line)
+        if isinstance(callee, RefExpr) and isinstance(callee.node, TypeInfo) and any(
+            base.fullname == "builtins.BaseException" for base in callee.node.mro
+        ):
+            # BaseException.__new__ keeps every argument in `args`, and str()/repr()
+            # of the exception run their __str__/__repr__: resolved here, where
+            # the arguments' types are known.
+            self.protocols(["builtins.BaseException.__init__"], None, arguments, line)
         positional = [a for a, k in zip(node.args, node.arg_kinds, strict=True) if k == ARG_POS]
         for dunder_list in (_CONVERSIONS.get(fullname),):
             if dunder_list:
@@ -1651,7 +1917,7 @@ class Scanner:
                 return name
         return None
 
-    def indirect(self, callee: Expression, line: int) -> None:
+    def indirect(self, callee: Expression, line: int, what: str = "") -> None:
         """A call through a value: covered where the callable was referenced.
 
         A value of callable type can only hold something a reference produced
@@ -1673,9 +1939,9 @@ class Scanner:
             self.construct(proper.item.type, line, "type[] value called")
             return
         if isinstance(proper, AnyType):
-            self.unresolved("<Any>()", line, "call of a value of unknown type")
+            self.unresolved("<Any>()", line, f"{what or 'call'} of a value of unknown type")
             return
-        self.implicit(typ, "__call__", line, "call of an object")
+        self.implicit(typ, "__call__", line, what or "call of an object")
 
     def attribute_builtin(self, fullname: str, node: CallExpr) -> None:
         if len(node.args) < 2 or not isinstance(node.args[1], StrExpr):
@@ -1728,7 +1994,7 @@ class Scanner:
         if node.op in ("and", "or"):
             self.truth(node.left)
             return
-        self.method_type(node.method_type, node.op, node.line, node.left)
+        self.method_type(node.method_type, node.op, node.line, node.left, [node.right])
         self.reflected(node.right, node.op, node.line)
         if node.op == "%" and isinstance(get_proper_type(self.type_of(node.left)), Instance):
             items = node.right.items if isinstance(node.right, TupleExpr) else [node.right]
@@ -1736,7 +2002,32 @@ class Scanner:
                 for dunder in ("__str__", "__repr__", "__format__"):
                     self.implicit(self.type_of(item), dunder, node.line, "% formatting", item)
 
-    def method_type(self, method: Type | None, op: str, line: int, operand: Expression) -> None:
+    def method_type(
+        self,
+        method: Type | None,
+        op: str,
+        line: int,
+        operand: Expression,
+        others: Sequence[Expression] = (),
+    ) -> None:
+        dunder = _OPERATOR_DUNDER.get(op)
+        names = self.dunder_names(self.type_of(operand), f"__{dunder}__") if dunder else []
+        proper_method = get_proper_type(method) if method is not None else None
+        definition = None
+        if isinstance(proper_method, CallableType):
+            definition = proper_method.definition
+        elif isinstance(proper_method, Overloaded) and proper_method.items:
+            definition = proper_method.items[0].definition
+        if definition is not None and definition.fullname:
+            names.append(definition.fullname)
+        unknown = isinstance(get_proper_type(self.type_of(operand)), AnyType)
+        self.protocols(
+            names, operand, [(other, index, None) for index, other in enumerate(others)], line,
+            _ANY_RECEIVER_ARGS if unknown and op in ("in", "not in", "[]") else None,
+        )
+        self._method_type(method, op, line, operand)
+
+    def _method_type(self, method: Type | None, op: str, line: int, operand: Expression) -> None:
         """The method an operator runs on *operand* (the left operand, or the
         container for `in`). mypy records it on the node when it can; when it
         does not (an `Any` or a natively-handled operand), it is resolved by
@@ -1781,8 +2072,11 @@ class Scanner:
             if op in ("is", "is not"):
                 continue
             method = node.method_types[index] if index < len(node.method_types) else None
-            subject = node.operands[index + 1] if op in ("in", "not in") else node.operands[index]
-            self.method_type(method, op, node.line, subject)
+            if op in ("in", "not in"):
+                subject, other = node.operands[index + 1], node.operands[index]
+            else:
+                subject, other = node.operands[index], node.operands[index + 1]
+            self.method_type(method, op, node.line, subject, [other])
             if op not in ("in", "not in"):
                 self.reflected(node.operands[index + 1], op, node.line)
 
@@ -1800,7 +2094,7 @@ class Scanner:
             return  # a generic alias at run time: list[int], dict[str, Any]
         if _class_object_info(self.type_of(node.base)) is not None:
             return  # Class[...]: __class_getitem__ of a typing construct
-        self.method_type(node.method_type, "[]", node.line, node.base)
+        self.method_type(node.method_type, "[]", node.line, node.base, [node.index])
 
     def _StarExpr(self, node: StarExpr) -> None:
         self.visit(node.expr)

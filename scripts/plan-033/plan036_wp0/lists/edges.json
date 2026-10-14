@@ -498,9 +498,10 @@
    "targets": {
     "<Any>.__format__": 4,
     "<Any>.__getitem__": 5,
-    "<Any>.__iter__": 3,
+    "<Any>.__iter__": 4,
     "<Any>.__repr__": 7,
-    "<Any>.__str__": 7
+    "<Any>.__str__": 7,
+    "<Any>.items": 1
    }
   },
   {
@@ -662,15 +663,17 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 23,
-    "<Any>.__eq__": 3,
+    "<Any>.__eq__": 33,
     "<Any>.__format__": 25,
     "<Any>.__getitem__": 1,
-    "<Any>.__iter__": 3,
+    "<Any>.__hash__": 7,
+    "<Any>.__iter__": 4,
     "<Any>.__len__": 3,
     "<Any>.__ne__": 6,
     "<Any>.__repr__": 28,
     "<Any>.__str__": 28,
-    "<Any>.get": 18
+    "<Any>.get": 18,
+    "<Any>.items": 1
    }
   },
   {
@@ -793,11 +796,12 @@
    "targets": {
     "<Any>.REQUIRED_CASE_IDS": 1,
     "<Any>.__bool__": 12,
-    "<Any>.__eq__": 16,
+    "<Any>.__eq__": 61,
     "<Any>.__format__": 2,
+    "<Any>.__fspath__": 1,
     "<Any>.__getitem__": 1,
-    "<Any>.__hash__": 1,
-    "<Any>.__iter__": 5,
+    "<Any>.__hash__": 10,
+    "<Any>.__iter__": 7,
     "<Any>.__len__": 1,
     "<Any>.__lt__": 1,
     "<Any>.__name__": 3,
@@ -813,6 +817,7 @@
     "<Any>.get": 4,
     "<Any>.import_readiness": 1,
     "<Any>.is_file": 1,
+    "<Any>.items": 2,
     "<Any>.read_bytes": 1,
     "<Any>.startswith": 1
    }
@@ -898,12 +903,13 @@
    "targets": {
     "<Any>.__add__": 3,
     "<Any>.__bool__": 14,
-    "<Any>.__eq__": 12,
+    "<Any>.__buffer__": 3,
+    "<Any>.__eq__": 57,
     "<Any>.__format__": 1,
     "<Any>.__getitem__": 31,
-    "<Any>.__hash__": 2,
+    "<Any>.__hash__": 11,
     "<Any>.__iand__": 1,
-    "<Any>.__iter__": 8,
+    "<Any>.__iter__": 11,
     "<Any>.__len__": 4,
     "<Any>.__lt__": 1,
     "<Any>.__ne__": 4,
@@ -912,7 +918,7 @@
     "<Any>.__repr__": 2,
     "<Any>.__setitem__": 5,
     "<Any>.__str__": 2,
-    "<Any>.items": 1,
+    "<Any>.items": 4,
     "<Any>.sort": 1,
     "<Any>.values": 1
    }
@@ -993,11 +999,12 @@
    "targets": {
     "<Any>()": 1,
     "<Any>.__bool__": 22,
-    "<Any>.__eq__": 31,
+    "<Any>.__buffer__": 8,
+    "<Any>.__eq__": 69,
     "<Any>.__format__": 22,
     "<Any>.__getitem__": 13,
-    "<Any>.__hash__": 10,
-    "<Any>.__iter__": 5,
+    "<Any>.__hash__": 17,
+    "<Any>.__iter__": 9,
     "<Any>.__len__": 1,
     "<Any>.__lt__": 2,
     "<Any>.__name__": 3,
@@ -1007,6 +1014,7 @@
     "<Any>.__str__": 22,
     "<Any>.casefold": 1,
     "<Any>.get": 3,
+    "<Any>.items": 2,
     "<Any>.rsplit": 1
    }
   },
@@ -1073,11 +1081,12 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 10,
-    "<Any>.__eq__": 9,
+    "<Any>.__eq__": 31,
     "<Any>.__getitem__": 7,
-    "<Any>.__hash__": 4,
+    "<Any>.__hash__": 9,
     "<Any>.__index__": 2,
     "<Any>.__int__": 2,
+    "<Any>.__iter__": 2,
     "<Any>.__lt__": 1,
     "<Any>.__ne__": 5,
     "<Any>.__repr__": 1,
@@ -1086,6 +1095,7 @@
     "<Any>.casefold": 9,
     "<Any>.endswith": 1,
     "<Any>.get": 10,
+    "<Any>.items": 2,
     "<Any>.startswith": 1
    }
   },
@@ -1177,13 +1187,15 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 7,
-    "<Any>.__eq__": 5,
+    "<Any>.__eq__": 21,
     "<Any>.__getitem__": 6,
-    "<Any>.__iter__": 1,
+    "<Any>.__hash__": 1,
+    "<Any>.__iter__": 3,
     "<Any>.__len__": 1,
     "<Any>.__repr__": 3,
     "<Any>.__str__": 3,
-    "<Any>.get": 9
+    "<Any>.get": 9,
+    "<Any>.items": 2
    }
   },
   {
@@ -1292,9 +1304,10 @@
     "<Any>.MUST_AGREE_CASE_IDS": 1,
     "<Any>.REQUIRED_CASE_IDS": 1,
     "<Any>.__bool__": 8,
-    "<Any>.__eq__": 11,
+    "<Any>.__eq__": 32,
     "<Any>.__getitem__": 1,
-    "<Any>.__iter__": 5,
+    "<Any>.__hash__": 2,
+    "<Any>.__iter__": 7,
     "<Any>.__len__": 1,
     "<Any>.__lt__": 1,
     "<Any>.__name__": 1,
@@ -1305,6 +1318,7 @@
     "<Any>.build": 1,
     "<Any>.get": 5,
     "<Any>.import_readiness": 1,
+    "<Any>.items": 2,
     "<Any>.startswith": 1
    }
   },
@@ -1383,16 +1397,17 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 30,
-    "<Any>.__eq__": 2,
+    "<Any>.__eq__": 15,
     "<Any>.__format__": 19,
     "<Any>.__getitem__": 10,
-    "<Any>.__hash__": 2,
-    "<Any>.__iter__": 11,
+    "<Any>.__hash__": 9,
+    "<Any>.__iter__": 13,
     "<Any>.__lt__": 2,
     "<Any>.__next__": 4,
     "<Any>.__repr__": 36,
     "<Any>.__str__": 36,
-    "<Any>.get": 23
+    "<Any>.get": 23,
+    "<Any>.items": 2
    }
   },
   {
@@ -1456,16 +1471,17 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 29,
-    "<Any>.__eq__": 2,
+    "<Any>.__eq__": 16,
     "<Any>.__format__": 24,
     "<Any>.__getitem__": 10,
-    "<Any>.__hash__": 2,
-    "<Any>.__iter__": 9,
+    "<Any>.__hash__": 9,
+    "<Any>.__iter__": 11,
     "<Any>.__lt__": 2,
     "<Any>.__next__": 2,
     "<Any>.__repr__": 42,
     "<Any>.__str__": 42,
-    "<Any>.get": 29
+    "<Any>.get": 29,
+    "<Any>.items": 2
    }
   },
   {
@@ -1549,14 +1565,16 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 8,
-    "<Any>.__eq__": 14,
+    "<Any>.__eq__": 24,
     "<Any>.__getitem__": 6,
-    "<Any>.__iter__": 6,
+    "<Any>.__hash__": 1,
+    "<Any>.__iter__": 8,
     "<Any>.__lt__": 5,
     "<Any>.__repr__": 3,
     "<Any>.__str__": 3,
     "<Any>.casefold": 6,
-    "<Any>.get": 16
+    "<Any>.get": 16,
+    "<Any>.items": 2
    }
   },
   {
@@ -1627,12 +1645,14 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 5,
-    "<Any>.__eq__": 3,
+    "<Any>.__eq__": 18,
     "<Any>.__format__": 9,
+    "<Any>.__fspath__": 2,
     "<Any>.__getitem__": 17,
+    "<Any>.__hash__": 6,
     "<Any>.__index__": 1,
     "<Any>.__int__": 1,
-    "<Any>.__iter__": 9,
+    "<Any>.__iter__": 10,
     "<Any>.__ne__": 3,
     "<Any>.__next__": 4,
     "<Any>.__repr__": 10,
@@ -1641,7 +1661,7 @@
     "<Any>.__trunc__": 1,
     "<Any>.casefold": 2,
     "<Any>.get": 3,
-    "<Any>.items": 1
+    "<Any>.items": 2
    }
   },
   {
@@ -1711,11 +1731,12 @@
     "<Any>.__getitem__": 16,
     "<Any>.__index__": 9,
     "<Any>.__int__": 9,
-    "<Any>.__iter__": 2,
+    "<Any>.__iter__": 4,
     "<Any>.__ne__": 2,
     "<Any>.__trunc__": 9,
     "<Any>.casefold": 2,
-    "<Any>.get": 4
+    "<Any>.get": 4,
+    "<Any>.items": 2
    }
   },
   {
@@ -1781,15 +1802,16 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 4,
-    "<Any>.__eq__": 8,
+    "<Any>.__eq__": 15,
     "<Any>.__getitem__": 15,
     "<Any>.__hash__": 2,
-    "<Any>.__iter__": 2,
+    "<Any>.__iter__": 4,
     "<Any>.__ne__": 1,
     "<Any>.__repr__": 8,
     "<Any>.__str__": 8,
     "<Any>.casefold": 2,
-    "<Any>.get": 5
+    "<Any>.get": 5,
+    "<Any>.items": 2
    }
   },
   {
@@ -1850,6 +1872,7 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 1,
+    "<Any>.__eq__": 1,
     "<Any>.strip": 1
    }
   },
@@ -1895,7 +1918,7 @@
     "<Any>.__bool__": 33,
     "<Any>.__contains__": 1,
     "<Any>.__dataclass_fields__": 3,
-    "<Any>.__eq__": 4,
+    "<Any>.__eq__": 25,
     "<Any>.__format__": 6,
     "<Any>.__getitem__": 9,
     "<Any>.__index__": 3,
@@ -2034,12 +2057,14 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__eq__": 3,
+    "<Any>.__eq__": 32,
     "<Any>.__format__": 2,
-    "<Any>.__hash__": 3,
+    "<Any>.__hash__": 15,
+    "<Any>.__iter__": 2,
     "<Any>.__lt__": 2,
     "<Any>.__repr__": 2,
-    "<Any>.__str__": 2
+    "<Any>.__str__": 2,
+    "<Any>.items": 2
    }
   },
   {
@@ -2083,6 +2108,7 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
+    "<Any>.__eq__": 13,
     "<Any>.__iter__": 1,
     "<Any>.__next__": 1
    }
@@ -2163,14 +2189,16 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 1,
+    "<Any>.__eq__": 3,
     "<Any>.__format__": 1,
     "<Any>.__getitem__": 2,
     "<Any>.__index__": 2,
     "<Any>.__int__": 2,
-    "<Any>.__iter__": 1,
+    "<Any>.__iter__": 2,
     "<Any>.__repr__": 1,
     "<Any>.__str__": 1,
-    "<Any>.__trunc__": 2
+    "<Any>.__trunc__": 2,
+    "<Any>.items": 1
    }
   },
   {
@@ -2183,10 +2211,10 @@
    "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
    "targets": {
     "<Any>.__bool__": 4,
-    "<Any>.__eq__": 1,
+    "<Any>.__eq__": 9,
     "<Any>.__format__": 10,
     "<Any>.__gt__": 1,
-    "<Any>.__iter__": 10,
+    "<Any>.__iter__": 12,
     "<Any>.__lt__": 1,
     "<Any>.__next__": 4,
     "<Any>.__repr__": 10,
@@ -2214,7 +2242,9 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
+    "<Any>.__eq__": 3,
     "<Any>.__format__": 1,
+    "<Any>.__hash__": 3,
     "<Any>.__repr__": 1,
     "<Any>.__str__": 1
    }
@@ -2260,20 +2290,22 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 10,
-    "<Any>.__eq__": 1,
+    "<Any>.__eq__": 3,
     "<Any>.__format__": 2,
     "<Any>.__getitem__": 23,
     "<Any>.__index__": 6,
+    "<Any>.__init__": 4,
     "<Any>.__int__": 6,
-    "<Any>.__iter__": 7,
+    "<Any>.__iter__": 8,
     "<Any>.__len__": 7,
-    "<Any>.__repr__": 41,
+    "<Any>.__repr__": 42,
     "<Any>.__rsub__": 1,
-    "<Any>.__str__": 41,
+    "<Any>.__str__": 42,
     "<Any>.__sub__": 1,
     "<Any>.__trunc__": 6,
     "<Any>.close": 1,
     "<Any>.get": 5,
+    "<Any>.items": 1,
     "<Any>.keys": 1,
     "<Any>.strip": 1,
     "<untyped>.__bool__": 7,
@@ -2367,9 +2399,10 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 2,
-    "<Any>.__eq__": 2,
+    "<Any>.__eq__": 3,
     "<Any>.__format__": 2,
     "<Any>.__getitem__": 9,
+    "<Any>.__hash__": 1,
     "<Any>.__index__": 2,
     "<Any>.__int__": 2,
     "<Any>.__repr__": 6,
@@ -2401,9 +2434,9 @@
    "reason": "repository dataclasses handled generically",
    "targets": {
     "<Any>()": 1,
-    "<Any>.__eq__": 2,
+    "<Any>.__eq__": 20,
     "<Any>.__format__": 1,
-    "<Any>.__hash__": 2,
+    "<Any>.__hash__": 12,
     "<Any>.__iter__": 4,
     "<Any>.__lt__": 2,
     "<Any>.__repr__": 5,
@@ -2528,6 +2561,120 @@
    "targets": {
     "typing.Mapping.get": 28,
     "typing.Mapping.items": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-wp1b-candidates.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the candidate index entries json.dumps serialises"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__iter__": 1,
+    "<Any>.items": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/backup_inventory.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "keys of a decoded inventory mapping (dict[Any, Any]), compared by dict lookups"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__eq__": 4
+   }
+  },
+  {
+   "module": "src/gpo_studio/canonical.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "keys of the mapping being canonicalised, hashed and compared by the lookup"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__eq__": 2,
+    "<Any>.__hash__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/gpp.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "items mypy types Any, rebuilt through their class by dataclasses.replace"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__init__": 4
+   }
+  },
+  {
+   "module": "src/gpo_studio/gpp_adapters.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "items mypy types Any, rebuilt through their class by dataclasses.replace"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__init__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/numeric.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the offending value kept in a TypeError's arguments (str() and repr() of the exception run its methods)"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__repr__": 1,
+    "<Any>.__str__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/registry_pol.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "a type code read from the parsed file, hashed and compared by a dict lookup"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__eq__": 1,
+    "<Any>.__hash__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/script_policy.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "artifact ids and orders typed Any, hashed by set membership and add"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__hash__": 8
+   }
+  },
+  {
+   "module": "src/gpo_studio/snapshot_documents.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "keys and values of decoded inventory and fdeploy documents (dict[Any, Any]), compared on lookup and serialised by json.dumps"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__eq__": 13,
+    "<Any>.__iter__": 1,
+    "<Any>.items": 1
    }
   }
  ]
