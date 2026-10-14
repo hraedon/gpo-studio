@@ -34,18 +34,31 @@ record = load("record")
 
 
 def test_the_release_only_closure_gate_holds() -> None:
-    decision, reason = record.gate_decision(REPO_ROOT)
-    if decision == "skip":
-        pytest.skip(reason)
-    assert decision == "run", reason
-    pin = json.loads((REPO_ROOT / record.PIN_RECORD).read_text(encoding="utf-8"))
-    refused = record.gate_interpreter_problems(pin)
-    if refused:
-        # The pinned interpreter's job runs it (see the CI test below); this one
-        # would derive under other stubs and differ without anything being wrong.
-        pytest.skip("WI-083: " + "; ".join(refused))
-    problems = record.verify_pin(REPO_ROOT, pin)
-    assert not problems, "the release-only closure gate is red:\n" + "\n".join(problems)
+    outcome, reasons = record.gate_outcome(REPO_ROOT)
+    if outcome == "skip":
+        # Before the pin exists (WI-083), or under any interpreter but the lanes'
+        # (a constant of reviewed code, never the pin's): the 3.14 job runs it.
+        pytest.skip("; ".join(reasons))
+    assert outcome == "pass", "the release-only closure gate is red:\n" + "\n".join(reasons)
+
+
+def test_a_pin_naming_another_interpreter_fails_and_never_skips_the_gate(
+    tmp_path: Path,
+) -> None:
+    """DeepSeek round 3, B1 (probe_interpreter_bypass.py): a forged pin naming Python
+    3.12 made the only CI gate skip on every job. The required interpreter now
+    comes from reviewed code; the gate skips only for the running interpreter."""
+    forged = {"schema": 1, "analysis": {"python_version": "3.12", "platform": "linux"},
+              "successor_record": record.SUCCESSOR_RECORD, "target_commit": "0" * 40,
+              "lanes": {}, "successor_sha256": "0" * 64}
+    root = _tree(tmp_path, "1.1.0", pin=True)
+    (root / record.PIN_RECORD).write_text(json.dumps(forged) + "\n", encoding="utf-8")
+    outcome, reasons = record.gate_outcome(root)
+    if record.running_interpreter_problems():
+        assert outcome == "skip" and "this is Python" in reasons[0]
+        assert "3.12" not in reasons[0]
+    else:
+        assert outcome == "fail" and any("3.12" in r for r in reasons), reasons
 
 
 def test_ci_runs_the_gate_under_the_lanes_interpreter() -> None:

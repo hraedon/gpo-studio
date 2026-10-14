@@ -106,7 +106,11 @@ DESIGN_NOTES = (
     "recorded input. Exemption gate (c) therefore fails, the release-metadata "
     "line counts, and D-9 selects WP-0: the rule working as written (coordinator "
     "ruling, 2026-10-14; the plan's rule is unchanged). Cost: about one estate "
-    "minute.",
+    "minute. This is the selection at steps 3 and 5, against WP-0's banked verdict. "
+    "Step 6 re-runs WP-0 on the estate at F, so its new verdict's harness inputs name "
+    "F; at step 7 that verdict is live, WP-0's re-grade at F runs and is equal, and "
+    "with nothing changed between its verdict commit and F it is not selected. The "
+    "record written at step 7 is therefore all-equal (review round 3, DeepSeek N3).",
     "Imports only under `if TYPE_CHECKING:` are outside the run-time closure, and "
     "only when the guard resolves to typing.TYPE_CHECKING or "
     "typing_extensions.TYPE_CHECKING (aliases included); any other name is a "
@@ -761,9 +765,7 @@ def successor_problems(successor: Any) -> list[str]:
     if not (isinstance(target, str) and re.fullmatch(r"[0-9a-f]{40}", target)):
         problems.append(f"successor target_commit {target!r} is not a commit id")
     analysis = successor.get("analysis")
-    if not (isinstance(analysis, dict) and analysis.get("python_version")
-            and analysis.get("platform")):
-        problems.append("successor analysis (python_version, platform) is missing")
+    problems.extend(f"successor: {p}" for p in pinned_interpreter_problems(analysis))
     for key in ("lists_sha256", "exemptions_sha256"):
         if not _sha(successor.get(key)):
             problems.append(f"successor {key} is missing")
@@ -787,6 +789,11 @@ def successor_problems(successor: Any) -> list[str]:
     for label, built in sorted(environments.items()):
         if not isinstance(built, dict) or built.get("method") != replay.UV_METHOD:
             problems.append(f"environment {label} was not built by {replay.UV_METHOD}")
+        elif LANE_PYTHON not in (str(built.get("python", "")),
+                                 str(built.get("python", "")).rsplit(".", 1)[0]):
+            # DeepSeek round 3, N4: the environment ran the analysis interpreter.
+            problems.append(f"environment {label} ran Python {built.get('python')!r}, not "
+                            f"the lanes' {LANE_PYTHON}")
         elif not (built.get("installed") and built.get("backend") and built.get("steps")
                   and _sha(built.get("uv_lock_sha256")) and _sha(built.get("backend_lock_sha256"))
                   and _commit_id(built.get("backend_lock_commit"))):
@@ -977,24 +984,58 @@ def gate_decision(root: Path) -> tuple[str, str]:
     )
 
 
-def gate_interpreter_problems(pin: dict[str, Any]) -> list[str]:
-    """Why this interpreter may not run the gate (review round 2, Sol N2).
+def running_interpreter_problems() -> list[str]:
+    """Why this interpreter may not run the gate (review rounds 2 and 3).
 
-    The lanes, the record and the pin are for one Python and the controller's
-    platform; a derivation or a re-execution under another interpreter differs
-    (typeshed's stubs differ by version) without anything being wrong, so the
-    gate refuses to run rather than report a difference.
+    The interpreter is the lanes' one, a constant of this reviewed code
+    (`LANE_PYTHON`), never a value read from the pin: a pin naming another
+    interpreter would otherwise switch the gate off (DeepSeek round 3, B1). A
+    derivation or re-execution under another interpreter differs (typeshed's
+    stubs differ by version) without anything being wrong, so the gate does not
+    run there; the CI job on the lanes' interpreter runs it.
     """
-    want = str(pin.get("analysis", {}).get("python_version"))
     have = f"{sys.version_info.major}.{sys.version_info.minor}"
     problems = []
-    if have != want:
-        problems.append(f"the closure gate runs only under Python {want}, the pinned lanes' "
+    if have != LANE_PYTHON:
+        problems.append(f"the closure gate runs only under Python {LANE_PYTHON}, the lanes' "
                         f"interpreter; this is Python {have}")
     if not sys.platform.startswith(scan.CONTROLLER_PLATFORM):
         problems.append(f"the closure gate runs only on {scan.CONTROLLER_PLATFORM}, the lanes' "
                         f"controller platform; this is {sys.platform}")
     return problems
+
+
+def pinned_interpreter_problems(analysis: Any) -> list[str]:
+    """A pin or record must name the lanes' interpreter and platform, or it fails."""
+    if not isinstance(analysis, dict):
+        return ["the pin does not name its analysis interpreter"]
+    problems = []
+    if analysis.get("python_version") != LANE_PYTHON:
+        problems.append(f"the pin names Python {analysis.get('python_version')!r}, not the "
+                        f"lanes' {LANE_PYTHON}: such a pin cannot be gated, and fails")
+    if analysis.get("platform") != scan.CONTROLLER_PLATFORM:
+        problems.append(f"the pin names platform {analysis.get('platform')!r}, not "
+                        f"{scan.CONTROLLER_PLATFORM}")
+    return problems
+
+
+def gate_outcome(root: Path) -> tuple[str, list[str]]:
+    """What the release-only gate does at *root*: ("skip", why), ("fail", problems)
+    or ("pass", []). The test in tests/test_release_closure_gate.py is this."""
+    decision, reason = gate_decision(root)
+    if decision == "skip":
+        return "skip", [reason]
+    if decision == "fail":
+        return "fail", [reason]
+    refused = running_interpreter_problems()
+    if refused:
+        return "skip", [f"WI-083: {'; '.join(refused)}"]
+    try:
+        pin = json.loads((root / PIN_RECORD).read_text(encoding="utf-8"))
+    except ValueError as exc:
+        return "fail", [f"the pin record is not JSON: {exc}"]
+    problems = verify_pin(root, pin)
+    return ("fail" if problems else "pass"), problems
 
 
 def verify_pin(root: Path, pin: dict[str, Any], workdir: Path | None = None) -> list[str]:
@@ -1005,11 +1046,17 @@ def verify_pin(root: Path, pin: dict[str, Any], workdir: Path | None = None) -> 
     packs; the dynamic half
     (`reexecute_target`) re-runs the record's target-side claims offline in
     this interpreter. Refused outright under any interpreter but the pinned
-    one (`gate_interpreter_problems`).
+    one (`running_interpreter_problems`), and failed for a pin naming any other
+    (`pinned_interpreter_problems`).
     """
-    refused = gate_interpreter_problems(pin)
+    refused = running_interpreter_problems()
     if refused:
         raise Wp0Error("; ".join(refused))
+    if not isinstance(pin, dict):
+        return ["the pin record is not a JSON object"]
+    wrong = pinned_interpreter_problems(pin.get("analysis"))
+    if wrong:
+        return wrong
     lists = scan.Lists.load()
     part1 = derive_part1(root, pin["analysis"]["python_version"], lists)
     problems = compare_pin(root, pin, part1, lists)

@@ -206,12 +206,16 @@ def test_the_gate_re_executes_target_claims_and_refuses_a_false_one(
 
 
 def test_the_gate_refuses_to_run_under_another_interpreter() -> None:
-    """Sol N2: a derivation under another Python differs without anything being wrong."""
+    """Sol N2 / DeepSeek round 3 B1: the gate runs only under the lanes' interpreter,
+    a constant of reviewed code; a pin naming any other interpreter fails."""
     pin = {"analysis": {"python_version": "2.7", "platform": "linux"}}
-    problems = record.gate_interpreter_problems(pin)
-    assert problems and "Python 2.7" in problems[0]
-    with pytest.raises(record.Wp0Error, match="Python 2.7"):
-        record.verify_pin(REPO_ROOT, pin)
+    assert any("2.7" in p for p in record.pinned_interpreter_problems(pin["analysis"]))
+    if record.running_interpreter_problems():
+        with pytest.raises(record.Wp0Error, match=f"only under Python {record.LANE_PYTHON}"):
+            record.verify_pin(REPO_ROOT, pin)
+    else:
+        problems = record.verify_pin(REPO_ROOT, pin)
+        assert problems and "2.7" in problems[0]
 
 
 def test_a_fabricated_pin_with_no_part_2_evidence_is_refused(

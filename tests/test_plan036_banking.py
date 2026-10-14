@@ -39,8 +39,10 @@ replay = load("replay")
 scan = load("scan")
 lanes = load("lanes")
 
-pytestmark = pytest.mark.skipif(sys.platform != "linux",
-                                reason="the gate runs only on the lanes' controller platform")
+pytestmark = pytest.mark.skipif(
+    bool(record.running_interpreter_problems()),
+    reason="the gate and the records run only under the lanes' interpreter on Linux",
+)
 
 PYTHON = f"{sys.version_info.major}.{sys.version_info.minor}"
 

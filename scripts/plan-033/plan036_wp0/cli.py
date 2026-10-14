@@ -90,7 +90,8 @@ def main(argv: list[str] | None = None) -> int:
     write.add_argument("--bank-branch",
                        help="also make B = F + evidence + record + pin on this new branch")
     write.add_argument("--workdir", type=Path, required=True)
-    write.add_argument("--python-version", required=True)
+    write.add_argument("--python-version", default=record.LANE_PYTHON,
+                       help=f"must be the lanes' interpreter, {record.LANE_PYTHON}")
     write.add_argument(
         "--launcher", choices=["uv", "current"], default="uv",
         help="how each clone's environment is built (the successor record accepts only uv)",
@@ -147,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(changed.converge(passes, option3), indent=1))
             return 0
         if args.command == "write-records":
+            if args.python_version != record.LANE_PYTHON:
+                raise Wp0Error(f"records are written only for the lanes' interpreter, Python "
+                               f"{record.LANE_PYTHON} (a pin naming another fails the gate)")
             target = rev_parse(REPO_ROOT, args.target)
             if not is_clean(REPO_ROOT):
                 raise Wp0Error("write-records needs a clean tool tree (its lists and lock are "

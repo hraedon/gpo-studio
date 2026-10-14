@@ -120,11 +120,19 @@ python scripts/plan-033/wp0-live-closure.py write-records --target <F> \
   shows the refusals: an extra file in `B`, a `B` with two parents, and
   staged evidence that edits a dependency or lies outside the evidence paths.
 
-**Interpreter.** The gate runs only under the pinned interpreter (Python 3.14 on
-Linux). Anywhere else, `check-pin` refuses with a message and the pytest gate
-skips with one. CI's `test` job runs 3.13 and 3.14 on ubuntu, so the 3.14 job
-runs the gate; a test asserts the matrix keeps a 3.14 Linux job. `derive` and
-`run` now default to 3.14 rather than the running interpreter.
+**Interpreter.** The gate runs only under the lanes' interpreter, Python 3.14 on
+Linux. That value is a constant in reviewed code (`record.LANE_PYTHON`) and is
+never read from the pin. In round 2 it was read from the pin, so a pin naming
+another version switched the gate off on every CI job (DeepSeek round 3, B1).
+
+- Under another running interpreter, `check-pin` refuses with a message and
+  the pytest gate skips with one.
+- A pin, or a successor record, that names any interpreter other than 3.14
+  fails the gate. So does an environment record that ran another one.
+- `write-records` writes records only for 3.14. `derive` and `run` default to
+  3.14 rather than to the running interpreter.
+- CI's `test` job runs 3.13 and 3.14 on ubuntu, so the 3.14 job runs the gate.
+  A test asserts the matrix keeps a 3.14 Linux job.
 
 **Cost, measured** with the `run` draft above as the record (WP-0's expected
 difference aside), on this host, inside a network namespace with no
@@ -170,6 +178,17 @@ input, so exemption gate (c) fails, the `__version__` line counts, and D-9
 selects WP-0. This is the rule working as written (coordinator ruling,
 2026-10-14); the plan's rule is unchanged. It adds about one estate minute to
 the five lanes the plan expected.
+
+This does not conflict with the all-equal record that step 7 requires
+(DeepSeek round 3, N3). "Always selected" describes the selection at steps 3
+and 5, which run against WP-0's banked verdict from `de9736e`. Step 6 re-runs
+WP-0 on the estate at `F`, so the new verdict's harness inputs name `F`. At
+step 7 that verdict is live, WP-0's re-grade at `F` runs and is equal, and
+since nothing changed between its verdict commit and `F`, WP-0 is not
+selected again. The record is then all-equal, and the gate re-executes WP-0's
+re-grade at `F` like every other lane's. The synthetic banking test follows
+the same pattern with a finalizer that binds the commit it runs at. The real
+WP-0 re-run at `F` happens on the estate, so no offline run can show it.
 
 ## Corrections to the plan's measured record
 

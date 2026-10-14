@@ -10,6 +10,15 @@
   {
    "reason": "Constructors and functions of built-in types that compute in memory",
    "names": [
+    "builtins.id",
+    "builtins.object",
+    "builtins.ord"
+   ]
+  },
+  {
+   "reason": "Constructors and functions of built-in types that compute in memory. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
     "builtins.all",
     "builtins.any",
     "builtins.bool",
@@ -20,7 +29,6 @@
     "builtins.enumerate",
     "builtins.float",
     "builtins.frozenset",
-    "builtins.id",
     "builtins.int",
     "builtins.isinstance",
     "builtins.iter",
@@ -30,8 +38,6 @@
     "builtins.max",
     "builtins.memoryview",
     "builtins.next",
-    "builtins.object",
-    "builtins.ord",
     "builtins.range",
     "builtins.repr",
     "builtins.reversed",
@@ -45,7 +51,8 @@
    ]
   },
   {
-   "reason": "Exception classes: constructing one is in-memory",
+   "reason": "Exception classes: constructing one is in-memory. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
    "names": [
     "builtins.AttributeError",
     "builtins.Exception",
@@ -57,7 +64,8 @@
    ]
   },
   {
-   "reason": "Attribute access by a literal name: the attribute itself is resolved and classified separately (a computed name is unresolvable)",
+   "reason": "Attribute access by a literal name: the attribute itself is resolved and classified separately (a computed name is unresolvable). These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
    "names": [
     "builtins.getattr",
     "builtins.hasattr"
@@ -71,16 +79,28 @@
     "builtins.staticmethod",
     "contextlib.contextmanager",
     "dataclasses.dataclass",
-    "dataclasses.field",
     "functools.wraps",
     "typing.runtime_checkable"
    ]
   },
   {
+   "reason": "Decorators and class machinery that define, not run, code. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
+    "dataclasses.field"
+   ]
+  },
+  {
    "reason": "Writes to the process's own standard streams: an output, never an input the lane depends on",
    "names": [
-    "builtins.print",
     "sys.stderr"
+   ]
+  },
+  {
+   "reason": "Writes to the process's own standard streams: an output, never an input the lane depends on. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.print"
    ]
   },
   {
@@ -94,15 +114,22 @@
   {
    "reason": "Dataclass helpers: copy and introspect in memory",
    "names": [
-    "copy.deepcopy",
     "dataclasses._DefaultFactory.__call__",
+    "dataclasses.fields"
+   ]
+  },
+  {
+   "reason": "Dataclass helpers: copy and introspect in memory. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
+    "copy.deepcopy",
     "dataclasses.asdict",
-    "dataclasses.fields",
     "dataclasses.replace"
    ]
   },
   {
-   "reason": "Codecs and serialisers over in-memory values",
+   "reason": "Codecs and serialisers over in-memory values. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
    "names": [
     "_struct.pack",
     "_struct.unpack",
@@ -129,7 +156,13 @@
    "reason": "Regular expressions: compiled and matched in memory",
    "names": [
     "re.ASCII",
-    "re.IGNORECASE",
+    "re.IGNORECASE"
+   ]
+  },
+  {
+   "reason": "Regular expressions: compiled and matched in memory. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
     "re.compile",
     "re.escape",
     "re.fullmatch",
@@ -138,7 +171,8 @@
    ]
   },
   {
-   "reason": "Hashing in memory",
+   "reason": "Hashing in memory. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
    "names": [
     "_hashlib.openssl_sha256"
    ]
@@ -146,18 +180,12 @@
   {
    "reason": "Value types and constants",
    "names": [
-    "_io.BytesIO",
     "_stat.S_IFREG",
     "_thread.RLock",
-    "collections.Counter",
-    "contextlib.suppress",
     "errno.EEXIST",
     "fcntl.LOCK_EX",
     "fcntl.LOCK_NB",
     "fcntl.LOCK_UN",
-    "ipaddress.ip_address",
-    "ipaddress.ip_network",
-    "ipaddress.summarize_address_range",
     "os.O_CREAT",
     "os.O_EXCL",
     "os.O_RDONLY",
@@ -167,16 +195,29 @@
     "posixpath.altsep",
     "posixpath.sep",
     "sys.platform",
-    "types.MappingProxyType",
     "uuid.NAMESPACE_URL",
+    "zipfile.ZIP_STORED"
+   ]
+  },
+  {
+   "reason": "Value types and constants. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
+    "_io.BytesIO",
+    "collections.Counter",
+    "contextlib.suppress",
+    "ipaddress.ip_address",
+    "ipaddress.ip_network",
+    "ipaddress.summarize_address_range",
+    "types.MappingProxyType",
     "uuid.UUID",
     "uuid.uuid5",
-    "zipfile.ZIP_STORED",
     "zipfile.ZipInfo"
    ]
   },
   {
-   "reason": "stat mode tests on a mode already obtained by a declared call",
+   "reason": "stat mode tests on a mode already obtained by a declared call. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
    "names": [
     "_stat.S_ISDIR",
     "_stat.S_ISLNK",
@@ -186,7 +227,6 @@
   {
    "reason": "Date and time values computed from their arguments (datetime.now, which reads the clock, is a declared edge)",
    "names": [
-    "datetime.datetime",
     "datetime.datetime.__ge__",
     "datetime.datetime.__gt__",
     "datetime.datetime.__le__",
@@ -197,11 +237,24 @@
    ]
   },
   {
+   "reason": "Date and time values computed from their arguments (datetime.now, which reads the clock, is a declared edge). These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
+    "datetime.datetime"
+   ]
+  },
+  {
    "reason": "Pure path construction; Path.cwd and Path.absolute read the process's working directory, which the runner fixes (the repository root) and the record states, and reach no file",
    "names": [
-    "pathlib.Path",
     "pathlib.Path.absolute",
-    "pathlib.Path.cwd",
+    "pathlib.Path.cwd"
+   ]
+  },
+  {
+   "reason": "Pure path construction; Path.cwd and Path.absolute read the process's working directory, which the runner fixes (the repository root) and the record states, and reach no file. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
+    "pathlib.Path",
     "pathlib.PurePosixPath",
     "pathlib.PureWindowsPath",
     "posixpath.normcase"
@@ -210,18 +263,30 @@
   {
    "reason": "Command-line parsing of the launch argv, which the record states",
    "names": [
+    "argparse.Namespace.__getattr__"
+   ]
+  },
+  {
+   "reason": "Command-line parsing of the launch argv, which the record states. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
     "argparse.ArgumentParser",
     "argparse.ArgumentParser.error",
     "argparse.ArgumentParser.parse_args",
-    "argparse.Namespace.__getattr__",
     "argparse._ActionsContainer.add_argument"
    ]
   },
   {
    "reason": "Logging with no handler configured anywhere in a lane process (no basicConfig, FileHandler or dictConfig is reached): the last-resort handler writes to stderr",
    "names": [
-    "logging.Logger.error",
     "logging.getLogger"
+   ]
+  },
+  {
+   "reason": "Logging with no handler configured anywhere in a lane process (no basicConfig, FileHandler or dictConfig is reached): the last-resort handler writes to stderr. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
+    "logging.Logger.error"
    ]
   },
   {
@@ -235,12 +300,18 @@
    "names": [
     "_thread.RLock.__enter__",
     "_thread.RLock.__exit__",
-    "builtins.memoryview.__getitem__",
     "builtins.memoryview.__len__",
     "contextlib.suppress.__enter__",
     "contextlib.suppress.__exit__",
     "datetime.date.fromisoformat",
     "datetime.date.strftime"
+   ]
+  },
+  {
+   "reason": "Methods of types that are not inert as a whole (review round 1 audit): contextlib.suppress enters as itself and swallows the named exception types; an RLock is acquired and released inside the process; date.fromisoformat and date.strftime compute from the value (no clock read); a memoryview over an in-memory bytes object is sliced and measured. These run an argument's or element's protocol methods, or call back a callable they are handed: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS, the iteration, conversion and attribute rules), so an unknown operand is an unresolvable site (review round 3 audit)",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.memoryview.__getitem__"
    ]
   },
   {
@@ -339,6 +410,7 @@
    "reason": "builtins.dict, methods that run their arguments' or elements' protocol methods or callables: in memory for in-memory operands, and scan.py resolves each such protocol at every call (METHOD_PROTOCOLS or the iteration and conversion rules), so an unknown operand is an unresolvable site",
    "runs_code_of_others": true,
    "names": [
+    "builtins.dict.__contains__",
     "builtins.dict.__delitem__",
     "builtins.dict.__eq__",
     "builtins.dict.__getitem__",

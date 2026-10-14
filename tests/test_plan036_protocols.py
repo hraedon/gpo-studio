@@ -27,9 +27,13 @@ PARAMETERS = (
     "a: Any, s: str, b: bytes, xs: list[Any], ls: list[str], ts: tuple[Any, ...], "
     "tt: tuple[str, ...], d: dict[Any, Any], ds: dict[str, int], st: set[Any], "
     "ss: set[str], fs: frozenset[Any], fss: frozenset[str], ba: bytearray, p: PurePath, "
-    "pat: re.Pattern[str], m: re.Match[str], e: ET.Element, c: Counter[str]"
+    "pat: re.Pattern[str], m: re.Match[str], e: ET.Element, c: Counter[str], "
+    "ap: argparse.ArgumentParser, lg: logging.Logger, mv: memoryview"
 )
 HEADER = (
+    "import argparse\nimport contextlib\nimport datetime\nimport io\nimport ipaddress\n"
+    "import logging\nimport os\nimport pathlib\nimport sqlite3\nimport stat\nimport types\n"
+    "import uuid\nimport xml.sax.saxutils\nimport zipfile\n"
     "import base64\nimport copy\nimport dataclasses\nimport difflib\nimport hashlib\n"
     "import json\nimport re\nimport struct\nfrom collections import Counter\n"
     "from pathlib import PurePath\nfrom typing import Any\n"
@@ -39,7 +43,7 @@ HEADER = (
 #: target -> a statement that runs that target with an `Any` where it runs code.
 PROBES = {
     "_hashlib.HASH.update": "hashlib.sha256().update(a)",
-    "builtins.BaseException.__init__": "ValueError(a)",
+    "builtins.BaseException.__init__": "BaseException.__init__(ValueError(), a)",
     "builtins.bytearray.extend": "ba.extend(a)",
     "builtins.bytes.__add__": "b.__add__(a)",
     "builtins.bytes.__contains__": "b.__contains__(a)",
@@ -48,6 +52,7 @@ PROBES = {
     "builtins.bytes.find": "b.find(a)",
     "builtins.bytes.replace": "b.replace(a, b)",
     "builtins.bytes.startswith": "b.startswith(a)",
+    "builtins.dict.__contains__": "ds.__contains__(a)",
     "builtins.dict.__delitem__": "d.__delitem__(s)",
     "builtins.dict.__eq__": "ds.__eq__(d)",
     "builtins.dict.__getitem__": "ds.__getitem__(a)",
@@ -138,6 +143,79 @@ PROBES = {
     "difflib.unified_diff": "difflib.unified_diff(a, ls)",
     "json.dumps": "json.dumps(ds, default=a)",
     "json.loads": "json.loads(s, object_hook=a)",
+    # Round 3 audit (DeepSeek B3): every remaining entry that runs an argument's code.
+    "_hashlib.openssl_sha256": "hashlib.sha256(a)",
+    "_io.BytesIO": "io.BytesIO(a)",
+    "_stat.S_ISDIR": "stat.S_ISDIR(a)",
+    "_stat.S_ISLNK": "stat.S_ISLNK(a)",
+    "_stat.S_ISREG": "stat.S_ISREG(a)",
+    "argparse.ArgumentParser": "argparse.ArgumentParser(formatter_class=a)",
+    "argparse.ArgumentParser.error": "ap.error(a)",
+    "argparse.ArgumentParser.parse_args": "ap.parse_args(a)",
+    "argparse._ActionsContainer.add_argument": "ap.add_argument('--x', type=a)",
+    "builtins.AttributeError": "AttributeError(a)",
+    "builtins.Exception": "Exception(a)",
+    "builtins.OSError": "OSError(a)",
+    "builtins.SystemExit": "SystemExit(a)",
+    "builtins.TypeError": "TypeError(a)",
+    "builtins.ValueError": "ValueError(a)",
+    "sqlite3.Error": "sqlite3.Error(a)",
+    "builtins.all": "all(xs)",
+    "builtins.any": "any(xs)",
+    "builtins.sum": "sum(xs)",
+    "builtins.bool": "bool(a)",
+    "builtins.bytearray": "bytearray(a)",
+    "builtins.bytes": "bytes(a)",
+    "builtins.chr": "chr(a)",
+    "builtins.dict": "dict(a)",
+    "builtins.enumerate": "enumerate(a)",
+    "builtins.float": "float(a)",
+    "builtins.frozenset": "frozenset(a)",
+    "builtins.int": "int(a)",
+    "builtins.iter": "iter(a)",
+    "builtins.len": "len(a)",
+    "builtins.list": "list(a)",
+    "builtins.next": "next(a)",
+    "builtins.repr": "repr(a)",
+    "builtins.reversed": "reversed(a)",
+    "builtins.set": "set(a)",
+    "builtins.str": "str(a)",
+    "builtins.tuple": "tuple(a)",
+    "builtins.zip": "zip(a)",
+    "builtins.getattr": "getattr(a, 'x')",
+    "builtins.hasattr": "hasattr(a, 'x')",
+    "builtins.isinstance": "isinstance(s, a)",
+    "builtins.memoryview": "memoryview(a)",
+    "builtins.memoryview.__getitem__": "mv.__getitem__(a)",
+    "builtins.print": "print(s, file=a)",
+    "builtins.range": "range(a)",
+    "builtins.type": "type('T', a, {})",
+    "collections.Counter": "Counter(a)",
+    "contextlib.suppress": "contextlib.suppress(a)",
+    "dataclasses.field": "dataclasses.field(default_factory=a)",
+    "datetime.datetime": "datetime.datetime(a, 1, 1)",
+    "ipaddress.ip_address": "ipaddress.ip_address(a)",
+    "ipaddress.ip_network": "ipaddress.ip_network(a)",
+    "ipaddress.summarize_address_range": "ipaddress.summarize_address_range(a, a)",
+    "logging.Logger.error": "lg.error(s, a)",
+    "pathlib.Path": "pathlib.Path(a)",
+    "pathlib.PurePosixPath": "pathlib.PurePosixPath(a)",
+    "pathlib.PureWindowsPath": "pathlib.PureWindowsPath(a)",
+    "posixpath.normcase": "os.path.normcase(a)",
+    "re.compile": "re.compile(a)",
+    "re.escape": "re.escape(a)",
+    "re.fullmatch": "re.fullmatch(s, a)",
+    "re.match": "re.match(s, a)",
+    "re.search": "re.search(s, a)",
+    "types.MappingProxyType": "types.MappingProxyType(a)",
+    "uuid.UUID": "uuid.UUID(a)",
+    "uuid.uuid5": "uuid.uuid5(uuid.NAMESPACE_URL, a)",
+    "xml.etree.ElementTree.Element": "ET.Element('t', a)",
+    "xml.etree.ElementTree.SubElement": "ET.SubElement(e, 't', a)",
+    "xml.etree.ElementTree.XMLParser": "ET.XMLParser(target=a)",
+    "xml.etree.ElementTree.tostring": "ET.tostring(a)",
+    "xml.sax.saxutils.quoteattr": "xml.sax.saxutils.quoteattr(a)",
+    "zipfile.ZipInfo": "zipfile.ZipInfo(a)",
 }
 
 #: Sol's round-2 probes (`probe_scan_round2.py`): each must fail the scan.
@@ -205,6 +283,175 @@ SOL_ROUND3 = {
     "r3_json_load_hook": _H + "def f(stream: Any, cb: Callable[..., Any]) -> None:\n"
     "    json.load(stream, object_hook=cb)\n",
 }
+#: DeepSeek's round-3 probes (`.review/tmp/probes/`, review round 3): each must fail.
+DS_ROUND3 = {
+    'ds_alias_bytes_replace': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(b: bytes, o: Any) -> bytes:\n'
+        '    g = b.replace\n'
+        '    return g(b, o)\n'
+    ),
+    'ds_alias_dumps': (
+        'import json\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(ds: dict[str, int], default: Any) -> str:\n'
+        '    g = json.dumps\n'
+        '    return g(ds, default=default)\n'
+    ),
+    'ds_alias_remove': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(xs: list[Any], s: Any) -> None:\n'
+        '    g = list.remove\n'
+        '    g(xs, s)\n'
+    ),
+    'ds_alias_sorted': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(rows: list[str], key: Any) -> None:\n'
+        '    g = sorted\n'
+        '    g(rows, key=key)\n'
+    ),
+    'ds_bound_remove': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(xs: list[Any], s: Any) -> None:\n'
+        '    m = xs.remove\n'
+        '    m(s)\n'
+    ),
+    'ds_bound_sort': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(rows: list[str], key: Any) -> None:\n'
+        '    m = rows.sort\n'
+        '    m(key=key)\n'
+    ),
+    'ds_bound_str_format': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(s: str, x: Any) -> str:\n'
+        '    m = s.format\n'
+        '    return m(x=x)\n'
+    ),
+    'ds_bound_sub': (
+        'import re\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(pat: re.Pattern[str], repl: Any, text: str) -> str:\n'
+        '    m = pat.sub\n'
+        '    return m(repl, text)\n'
+    ),
+    'ds_dict_get_bound': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(rows: dict[str, int], key: Any) -> Any:\n'
+        '    m = rows.get\n'
+        '    return m(key)\n'
+    ),
+    'ds_partial_remove': (
+        'from functools import partial\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(xs: list[Any], s: Any) -> None:\n'
+        '    p = partial(list.remove, xs)\n'
+        '    p(s)\n'
+    ),
+    'ds_partial_sorted': (
+        'from functools import partial\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(rows: list[str], key: Any) -> list[str]:\n'
+        '    p = partial(sorted, rows)\n'
+        '    return p(key=key)\n'
+    ),
+    'ds_method_via_getattr_literal': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(xs: list[Any], s: Any) -> None:\n'
+        '    getattr(xs, "remove")(s)\n'
+    ),
+    'ds_all_any': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(xs: list[Any]) -> bool:\n'
+        '    return all(xs)\n'
+    ),
+    'ds_any_any': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(xs: list[Any]) -> bool:\n'
+        '    return any(xs)\n'
+    ),
+    'ds_sum_any': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(xs: list[Any]) -> Any:\n'
+        '    return sum(xs)\n'
+    ),
+    'ds_memoryview_ctor': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(x: Any) -> memoryview:\n'
+        '    return memoryview(x)\n'
+    ),
+    'ds_memoryview_getitem': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(mv: memoryview, i: Any) -> int:\n'
+        '    return mv[i]\n'
+    ),
+    'ds_print_file_any': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(file: Any) -> None:\n'
+        '    print("hello", file=file)\n'
+    ),
+    'ds_isinstance_any': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(x: Any, cls: Any) -> bool:\n'
+        '    return isinstance(x, cls)\n'
+    ),
+    'ds_argparse_type': (
+        'import argparse\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(parser: argparse.ArgumentParser, conv: Any) -> argparse.Namespace:\n'
+        '    parser.add_argument("--x", type=conv)\n'
+        '    return parser.parse_args([])\n'
+    ),
+    'ds_sorted_key_lambda_any': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(rows: list[str], key: Any) -> list[str]:\n'
+        '    return sorted(rows, key=lambda r: (key, r))\n'
+    ),
+}
+
+
 #: Visible callbacks and harmless class values: these must not fail.
 ROUND3_CONTROLS = {
     "r3c_lambda_key": _H + "def f(rows: list[str]) -> list[str]:\n"
@@ -230,7 +477,7 @@ def classified(tmp_path_factory: pytest.TempPathFactory) -> list[Any]:
     directory = root / "scripts" / "probes"
     directory.mkdir(parents=True)
     (directory / "methods.py").write_text(_module(PROBES), encoding="utf-8")
-    extra = {**SOL_ROUND2, **SOL_ROUND3, **ROUND3_CONTROLS}
+    extra = {**SOL_ROUND2, **SOL_ROUND3, **DS_ROUND3, **ROUND3_CONTROLS}
     for name, source in extra.items():
         (directory / f"{name}.py").write_text(source, encoding="utf-8")
     paths = ["scripts/probes/methods.py", *(f"scripts/probes/{n}.py" for n in extra)]
@@ -245,8 +492,7 @@ def _inert() -> dict[str, Any]:
 
 
 def _rules() -> set[str]:
-    return (set(scan.METHOD_PROTOCOLS) | set(scan._ITERATING) | set(scan._CONVERSIONS)
-            | set(scan._ELEMENT_OPS))
+    return set(scan.RUNS_OTHER_CODE)
 
 
 def test_only_json_values_are_inert_as_a_whole() -> None:
@@ -285,7 +531,7 @@ def test_an_unknown_operand_of_a_code_running_method_fails(
     assert failing, (target, [(c.status, c.site.target, c.site.detail) for c in rows])
 
 
-@pytest.mark.parametrize("probe", sorted(SOL_ROUND3))
+@pytest.mark.parametrize("probe", sorted({**SOL_ROUND3, **DS_ROUND3}))
 def test_a_code_running_callable_reached_through_a_value_fails(
     classified: list[Any], probe: str
 ) -> None:

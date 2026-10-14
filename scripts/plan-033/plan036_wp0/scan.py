@@ -173,8 +173,9 @@ class Protocol:
     static types involved, so an `Any` there is an unresolvable site.
 
     `args` maps a positional index, a keyword name or "*" (every argument) to the
-    dunders run on that argument (`__call__`: the argument is called, resolved like
-    any call through a value); `elements` and `values` are run on the receiver's
+    dunders run on that argument (`__call__`: the argument is called back, see
+    `callback_argument`; a name starting `?`: only an argument of unknown type is
+    a site); `elements` and `values` are run on the receiver's
     element (or key) and value types; `arg_elements` and `arg_values` on those of
     the first argument.
     """
@@ -204,6 +205,7 @@ _MAPPING_ARG = ("keys", "__getitem__", "__iter__")
 
 def _protocols() -> dict[str, Protocol]:
     table: dict[str, Protocol] = {}
+    exception_args = Protocol(args=(("*", ("__str__", "__repr__")),))
 
     def add(names: Iterable[str], protocol: Protocol) -> None:
         for name in names:
@@ -263,7 +265,68 @@ def _protocols() -> dict[str, Protocol]:
     add(["builtins.map", "builtins.filter"], Protocol(args=((0, _CALL),)))
     add(["builtins.sorted", "builtins.min", "builtins.max"],
         Protocol(args=(("key", _CALL),)))
-    exception_args = Protocol(args=(("*", ("__str__", "__repr__")),))
+    # Truth and addition of the elements (review round 3, DeepSeek B3).
+    add(["builtins.any", "builtins.all"], Protocol(arg_elements=("__bool__", "__len__")))
+    add(["builtins.sum"], Protocol(args=((1, ("__add__", "__radd__")), ("start", (
+        "__add__", "__radd__"))), arg_elements=("__add__", "__radd__")))
+    add(["builtins.memoryview"], Protocol(args=((0, _BUFFER),)))
+    add(["builtins.memoryview.__getitem__", "builtins.memoryview.__setitem__"],
+        Protocol(args=((0, _INDEX),)))
+    # print(..., file=f) runs f.write; argparse runs `type=`/`action=` callbacks
+    # and tests membership in `choices=` at parse time (DeepSeek N1, N2).
+    add(["builtins.print"], Protocol(args=(("file", ("?write", "?flush")),)))
+    # Round 3 audit (DeepSeek B3): constructors and functions of the reviewed
+    # inert list that run an argument's protocol methods.
+    add(["builtins.bytearray"], Protocol(args=((0, _INDEX + _BUFFER + ("__iter__",)),),
+                                         arg_elements=_INDEX))
+    add(["builtins.chr"], Protocol(args=((0, _INDEX),)))
+    add(["builtins.range"], Protocol(args=(("*", _INDEX),)))
+    add(["builtins.type"], Protocol(args=((1, ("__iter__",)), (2, ("keys", "__getitem__")))))
+    add(["builtins.isinstance"], Protocol(args=((1, ("?__instancecheck__",)),)))
+    add(["builtins.issubclass"], Protocol(args=((1, ("?__subclasscheck__",)),)))
+    add([f"builtins.{name}" for name in ("AttributeError", "Exception", "OSError",
+                                         "SystemExit", "TypeError", "ValueError")]
+        + ["sqlite3.Error"], exception_args)
+    # `__call0__`: called back only with no arguments, or with values the callee
+    # makes itself (strings from the command line), never the caller's objects.
+    # The factory is called with no arguments: a class there runs nothing of others.
+    add(["dataclasses.field"], Protocol(args=(("default_factory", ("__call0__",)),)))
+    add(["xml.etree.ElementTree.Element", "xml.etree.ElementTree.SubElement"],
+        Protocol(args=(("*", ("__str__", "__contains__")),)))
+    add(["xml.etree.ElementTree.XMLParser"], Protocol(args=(("target", _CALL),)))
+    add(["xml.etree.ElementTree.tostring"], Protocol(args=((0, ("?iter",)),)))
+    add(["xml.sax.saxutils.quoteattr"], Protocol(args=((0, ("?replace",)),
+                                                       (1, ("items",)), ("entities", ("items",)))))
+    add(["re.compile", "re.escape"], Protocol(args=((0, ("?__buffer__",)),)))
+    add(["re.fullmatch", "re.match", "re.search"],
+        Protocol(args=((0, ("?__buffer__",)), (1, _BUFFER), ("string", _BUFFER))))
+    add(["_hashlib.openssl_sha256"], Protocol(args=((0, _BUFFER), ("string", _BUFFER))))
+    add(["_io.BytesIO"], Protocol(args=((0, _BUFFER), ("initial_bytes", _BUFFER))))
+    add(["collections.Counter"], Protocol(args=((0, _MAPPING_ARG),), arg_elements=_HASH_EQ))
+    add(["contextlib.suppress"], Protocol(args=(("*", ("?__subclasscheck__",)),)))
+    add(["ipaddress.ip_address", "ipaddress.ip_network"],
+        Protocol(args=((0, ("__str__", "?__index__")), ("strict", ("__bool__",)))))
+    add(["ipaddress.summarize_address_range"], Protocol(args=(("*", ("?__lt__",)),)))
+    add(["types.MappingProxyType"], Protocol(args=((0, ("?__getitem__",)),)))
+    add(["uuid.UUID"], Protocol(args=(("*", ("?replace", "?__index__")),)))
+    add(["uuid.uuid5"], Protocol(args=((1, ("?encode",)), ("name", ("?encode",)))))
+    add(["zipfile.ZipInfo"], Protocol(args=(("*", ("?__fspath__", "?__index__")),)))
+    add(["_stat.S_ISDIR", "_stat.S_ISLNK", "_stat.S_ISREG"], Protocol(args=((0, _INDEX),)))
+    add(["datetime.datetime"], Protocol(args=(("*", _INDEX),)))
+    add(["pathlib.Path", "pathlib.PurePosixPath", "pathlib.PureWindowsPath",
+         "posixpath.normcase"], Protocol(args=(("*", ("__fspath__",)),)))
+    add(["argparse.ArgumentParser"], Protocol(args=(("formatter_class", _CALL),
+                                                    ("parents", ("__iter__",)))))
+    add(["argparse.ArgumentParser.error"], Protocol(args=((0, ("__str__",)),)))
+    add(["argparse.ArgumentParser.parse_args"], Protocol(args=((0, ("__iter__",)),),
+                                                         arg_elements=("?__str__",)))
+    add(["logging.Logger.error"], Protocol(args=(("*", ("__str__", "__repr__")),)))
+    # `type=` is called on command-line strings, `action=` constructed by argparse:
+    # a referenced class or function runs nothing of other objects there.
+    add(["argparse._ActionsContainer.add_argument"], Protocol(args=(
+        ("type", ("__call0__",)), ("action", ("__call0__",)),
+        ("choices", ("__contains__", "__iter__")),
+    )))
     add(["builtins.BaseException.__init__", "builtins.Exception.__init__"], exception_args)
     add(["re.Pattern.sub", "re.Pattern.subn"],
         Protocol(args=((0, _CALL + _BUFFER), (1, _BUFFER), ("repl", _CALL + _BUFFER),
@@ -326,20 +389,24 @@ def _protocols() -> dict[str, Protocol]:
 #: what they run (review round 2). Every inert entry for such a method must have
 #: a rule here; tests/test_plan036_scan.py holds a negative probe for each.
 METHOD_PROTOCOLS: dict[str, Protocol] = _protocols()
-#: Every callee the scan knows runs code of other objects (its arguments, their
-#: elements, or callables it is handed); one of these taken as a value fails.
-RUNS_OTHER_CODE: frozenset[str] = frozenset(
-    set(METHOD_PROTOCOLS) | set(_ITERATING) | set(_CONVERSIONS) | set(_ELEMENT_OPS)
-)
 #: Arguments of a method or operator of a value of unknown type that the method
 #: may hash or compare (a JSON value's `get`, `count`, `index`, `in`, `[]`).
 _ANY_RECEIVER_ARGS = Protocol(args=(("*", _HASH_EQ),))
 
+#: Callees that compare the results of a `key=` callback.
+_KEYED_ORDERING = frozenset({"builtins.sorted", "builtins.min", "builtins.max",
+                             "builtins.list.sort"})
 #: Callees whose *class* arguments are type tests, not callable references.
 _TYPE_TEST_CALLEES = frozenset({"builtins.isinstance", "builtins.issubclass"})
 #: Builtins whose name argument selects an attribute: resolved when literal.
 _ATTRIBUTE_BUILTINS = frozenset(
     {"builtins.getattr", "builtins.setattr", "builtins.hasattr", "builtins.delattr"}
+)
+#: Every callee the scan knows runs code of other objects (its arguments, their
+#: elements, or callables it is handed); one of these taken as a value fails.
+RUNS_OTHER_CODE: frozenset[str] = frozenset(
+    set(METHOD_PROTOCOLS) | set(_ITERATING) | set(_CONVERSIONS) | set(_ELEMENT_OPS)
+    | set(_ATTRIBUTE_BUILTINS)
 )
 #: Builtins that run code the analysis cannot see; always unresolvable.
 _OPAQUE_BUILTINS = frozenset(
@@ -919,6 +986,19 @@ def _is_property(node: SymbolNode | None) -> bool:
     return False
 
 
+def _call_arguments(call: CallExpr) -> list[tuple[Expression, int | None, str | None]]:
+    """(argument, position, keyword) of a call's ordinary arguments."""
+    arguments: list[tuple[Expression, int | None, str | None]] = []
+    position = 0
+    for arg, kind, keyword in zip(call.args, call.arg_kinds, call.arg_names, strict=True):
+        if kind in (ARG_POS, ARG_OPT):
+            arguments.append((arg, position, None))
+            position += 1
+        elif kind in (ARG_NAMED, ARG_NAMED_OPT):
+            arguments.append((arg, None, keyword))
+    return arguments
+
+
 def _member_types(typ: Type | None, which: str) -> list[Type]:
     """The element (or, for a mapping, key) types, or the value types, of *typ*."""
     if typ is None:
@@ -1188,8 +1268,15 @@ class Scanner:
             what = f"{name} runs it"
             for expr, position, keyword in args:
                 for dunder in spec.for_argument(position, keyword):
-                    if dunder == "__call__":
-                        self.callback_argument(expr, line, what)
+                    if dunder in ("__call__", "__call0__"):
+                        self.callback_argument(expr, line, what,
+                                               no_arguments=dunder == "__call0__")
+                    elif dunder.startswith("?"):
+                        # Only an unknown value is a site: a typed stream's write
+                        # goes where its (classified) opening said.
+                        if isinstance(get_proper_type(self.type_of(expr)), AnyType):
+                            self.unresolved(f"<Any>.{dunder[1:]}", line,
+                                            f"{what} on a value of unknown type")
                     else:
                         self.implicit(self.type_of(expr), dunder, line, what, expr)
                 if position == 0:
@@ -1199,7 +1286,9 @@ class Scanner:
                 self.member_protocols(receiver, "elements", spec.elements, line, what)
                 self.member_protocols(receiver, "values", spec.values, line, what)
 
-    def callback_argument(self, expr: Expression, line: int, what: str) -> None:
+    def callback_argument(
+        self, expr: Expression, line: int, what: str, *, no_arguments: bool = False
+    ) -> None:
         """An argument the callee calls back (a sort key, a replacement, a hook).
 
         Visible code passes: a lambda (its body is scanned), or a direct reference
@@ -1214,7 +1303,7 @@ class Scanner:
         if isinstance(expr, RefExpr) and isinstance(
             expr.node, (FuncBase, Decorator, TypeInfo, OverloadedFuncDef)
         ):
-            if expr.fullname in RUNS_OTHER_CODE:
+            if expr.fullname in RUNS_OTHER_CODE and not no_arguments:
                 # `map(str, rows)`, `key=len`: called back on values the callee
                 # chooses, out of the protocol rules' sight.
                 self.unresolved(f"<value of {expr.fullname}>", line,
@@ -1248,6 +1337,16 @@ class Scanner:
         self.unresolved("<callback value>", line,
                         f"{what}: a callback whose code the scan cannot see here")
 
+    def key_results(self, key: Expression, line: int, callee: str) -> None:
+        proper = get_proper_type(self.type_of(key)) if self.type_of(key) is not None else None
+        if not isinstance(proper, CallableType):
+            return  # an unknown key is already a failing callback site
+        result = get_proper_type(proper.ret_type)
+        items = list(result.items) if isinstance(result, TupleType) else [result]
+        for item in items:
+            for dunder in ("__lt__", "__eq__"):
+                self.implicit(item, dunder, line, f"{callee} compares key results")
+
     def member_protocols(
         self, expr: Expression, which: str, dunders: Sequence[str], line: int, what: str
     ) -> None:
@@ -1257,7 +1356,22 @@ class Scanner:
         typ = self.type_of(expr)
         if typ is None or _infos(typ) is None:
             return  # a value of unknown type: its own site is unresolvable or JSON
-        for member in _member_types(typ, which):
+        members = _member_types(typ, which)
+        if which == "elements" and type(expr).__name__ in (
+            "GeneratorExpr", "ListComprehension", "SetComprehension"
+        ):
+            # mypy types a comprehension from its context (`any(x for x in rows)`
+            # is a Generator[object]); the elements are what its expression yields.
+            generator: Any = getattr(expr, "generator", expr)  # noqa: B009 - mypyc node
+            members = [t for t in [self.type_of(generator.left_expr)] if t is not None]
+        for member in members:
+            proper = get_proper_type(member)
+            if isinstance(proper, Instance) and proper.type.fullname == _OBJECT:
+                # An element typed only `object` can be anything at run time.
+                for dunder in dunders:
+                    self.unresolved(f"<object>.{dunder}", line,
+                                    f"{what} on an element typed object")
+                continue
             for dunder in dunders:
                 self.implicit(member, dunder, line, f"{what} on an element")
 
@@ -1731,7 +1845,7 @@ class Scanner:
                         target = f"{descriptor[0].fullname}.{dunder}"
                         self.target("implicit", target, node.line, "descriptor")
 
-    def type_test(self, expr: Expression) -> None:
+    def type_test(self, expr: Expression, *, report_any: bool = True) -> None:
         """A class in a type-test position (isinstance, except, a base list): no call."""
         if isinstance(expr, (TupleExpr, ListExpr)):
             for item in expr.items:
@@ -1753,6 +1867,11 @@ class Scanner:
             self.type_test(expr.base)
             return
         self.visit(expr)
+        if report_any and isinstance(get_proper_type(self.type_of(expr)), AnyType):
+            # `except cls:` or a base list naming a class of unknown type runs
+            # its metaclass's checks (review round 3, DeepSeek N1).
+            self.unresolved("<Any>.__instancecheck__", expr.line,
+                            "a type test against a value of unknown type")
 
     def call_target_of_ref(
         self, ref: RefExpr, line: int, detail: str, call: CallExpr | None = None
@@ -1813,7 +1932,7 @@ class Scanner:
         type_test = fullname in _TYPE_TEST_CALLEES
         for index, (arg, kind) in enumerate(zip(node.args, node.arg_kinds, strict=True)):
             if type_test and index == 1:
-                self.type_test(arg)
+                self.type_test(arg, report_any=False)  # METHOD_PROTOCOLS reports it
             else:
                 self.visit(arg)
             if kind == ARG_STAR:
@@ -1821,14 +1940,7 @@ class Scanner:
             elif kind == ARG_STAR2:
                 self.implicit(self.type_of(arg), "keys", line, "**kwargs expansion", arg)
                 self.implicit(self.type_of(arg), "__getitem__", line, "**kwargs expansion", arg)
-        arguments: list[tuple[Expression, int | None, str | None]] = []
-        position = 0
-        for arg, kind, keyword in zip(node.args, node.arg_kinds, node.arg_names, strict=True):
-            if kind in (ARG_POS, ARG_OPT):
-                arguments.append((arg, position, None))
-                position += 1
-            elif kind in (ARG_NAMED, ARG_NAMED_OPT):
-                arguments.append((arg, None, keyword))
+        arguments = _call_arguments(node)
         receiver = callee.expr if isinstance(callee, MemberExpr) else None
         if receiver is not None and isinstance(get_proper_type(self.type_of(receiver)), AnyType):
             # A method of an unknown (or JSON) value: a lookup hashes or compares
@@ -1837,7 +1949,9 @@ class Scanner:
         if fullname is None:
             return
         self.protocols([fullname], receiver, arguments, line)
-        if isinstance(callee, RefExpr) and isinstance(callee.node, TypeInfo) and any(
+        if fullname not in METHOD_PROTOCOLS and isinstance(callee, RefExpr) and isinstance(
+            callee.node, TypeInfo
+        ) and any(
             base.fullname == "builtins.BaseException" for base in callee.node.mro
         ):
             # BaseException.__new__ keeps every argument in `args`, and str()/repr()
@@ -1859,6 +1973,12 @@ class Scanner:
                     self.element_ops(arg, _ELEMENT_OPS[fullname], line)
         if fullname == "builtins.list.sort" and isinstance(callee, MemberExpr):
             self.element_ops(callee.expr, _ELEMENT_OPS[fullname], line)
+        if fullname in _KEYED_ORDERING:
+            # With `key=`, the key's results are what is compared (review round 3,
+            # DeepSeek: `sorted(rows, key=lambda r: (unknown, r))`).
+            for arg, _position, keyword in arguments:
+                if keyword == "key":
+                    self.key_results(arg, line, fullname)
         if fullname in _ATTRIBUTE_BUILTINS:
             self.attribute_builtin(fullname, node)
 
@@ -1881,13 +2001,13 @@ class Scanner:
                 self.call_target_of_ref(callee, line, "", call)
                 return callee.fullname
             if isinstance(node, Var):
-                self.indirect(callee, line)
+                self.indirect(callee, line, call=call)
                 return None
             if node is None and self.type_of(callee) is None:
                 if not self.type_unreachable:
                     self.unresolved(f"<name:{callee.name}>", line, "call of an unbound name")
                 return None
-            self.indirect(callee, line)
+            self.indirect(callee, line, call=call)
             return None
         if isinstance(callee, MemberExpr):
             if callee.fullname and isinstance(callee.node, SymbolNode) and callee.kind is not None:
@@ -1902,7 +2022,7 @@ class Scanner:
                     return callee.fullname
                 if isinstance(node, Var):
                     self.machinery_value_use(callee)
-                    self.indirect(callee, line)
+                    self.indirect(callee, line, call=call)
                     return None
                 self.unresolved(callee.fullname, line, "call of a module attribute of unknown kind")
                 return None
@@ -1934,7 +2054,7 @@ class Scanner:
                     self.construct(member, line, "nested class")
                     return member.fullname
                 if isinstance(member, Var):
-                    self.indirect(callee, line)
+                    self.indirect(callee, line, call=call)
                     return None
                 self.target("call", name, line, "")
                 return name
@@ -1963,10 +2083,10 @@ class Scanner:
                 name = f"{owner.fullname}.{callee.name}"
                 if _is_property(member):
                     self.target("implicit", name, line, "property, then called")
-                    self.indirect(callee, line)
+                    self.indirect(callee, line, call=call)
                     continue
                 if isinstance(member, Var):
-                    self.indirect(callee, line)
+                    self.indirect(callee, line, call=call)
                     continue
                 if member is not None and id(member) in self.analysis.method_defs:
                     self.analysis.method_calls.setdefault(id(member), []).append((self.path, call))
@@ -1986,7 +2106,7 @@ class Scanner:
                     break
         # anything else: a call of a call result, a subscript, a lambda, ...
         self.visit(callee)
-        self.indirect(callee, line)
+        self.indirect(callee, line, call=call)
         return None
 
     def super_call(self, callee: MemberExpr, line: int) -> str | None:
@@ -2000,7 +2120,9 @@ class Scanner:
                 return name
         return None
 
-    def indirect(self, callee: Expression, line: int, what: str = "") -> None:
+    def indirect(
+        self, callee: Expression, line: int, what: str = "", call: CallExpr | None = None
+    ) -> None:
         """A call through a value: covered where the callable was referenced.
 
         A value of callable type can only hold something a reference produced
@@ -2017,6 +2139,12 @@ class Scanner:
         if isinstance(proper, (CallableType, Overloaded)):
             if proper.is_type_obj():
                 info = proper.type_object()
+                if call is not None and info.fullname in METHOD_PROTOCOLS:
+                    # A class held in a variable (`error_class(message)`): its
+                    # constructor's protocol rule applies to this call's arguments.
+                    self.protocols([info.fullname], None, _call_arguments(call), line)
+                    self.construct(info, line, "class held in a variable")
+                    return
                 if info.fullname in RUNS_OTHER_CODE:
                     self.unresolved(f"<value of {info.fullname}>", line,
                                     f"{info.fullname}, which runs other objects' code, "

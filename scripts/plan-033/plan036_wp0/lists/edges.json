@@ -795,14 +795,14 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.REQUIRED_CASE_IDS": 1,
-    "<Any>.__bool__": 12,
+    "<Any>.__bool__": 16,
     "<Any>.__eq__": 61,
     "<Any>.__format__": 2,
     "<Any>.__fspath__": 1,
     "<Any>.__getitem__": 1,
     "<Any>.__hash__": 10,
     "<Any>.__iter__": 7,
-    "<Any>.__len__": 1,
+    "<Any>.__len__": 5,
     "<Any>.__lt__": 1,
     "<Any>.__name__": 3,
     "<Any>.__repr__": 7,
@@ -902,15 +902,16 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__add__": 3,
-    "<Any>.__bool__": 14,
+    "<Any>.__bool__": 16,
     "<Any>.__buffer__": 3,
     "<Any>.__eq__": 57,
     "<Any>.__format__": 1,
     "<Any>.__getitem__": 31,
     "<Any>.__hash__": 11,
     "<Any>.__iand__": 1,
+    "<Any>.__index__": 2,
     "<Any>.__iter__": 11,
-    "<Any>.__len__": 4,
+    "<Any>.__len__": 6,
     "<Any>.__lt__": 1,
     "<Any>.__ne__": 4,
     "<Any>.__next__": 1,
@@ -919,6 +920,7 @@
     "<Any>.__setitem__": 5,
     "<Any>.__str__": 2,
     "<Any>.items": 4,
+    "<Any>.replace": 2,
     "<Any>.sort": 1,
     "<Any>.values": 1
    }
@@ -998,14 +1000,14 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>()": 1,
-    "<Any>.__bool__": 22,
+    "<Any>.__bool__": 25,
     "<Any>.__buffer__": 8,
     "<Any>.__eq__": 69,
     "<Any>.__format__": 22,
     "<Any>.__getitem__": 13,
     "<Any>.__hash__": 17,
     "<Any>.__iter__": 9,
-    "<Any>.__len__": 1,
+    "<Any>.__len__": 4,
     "<Any>.__lt__": 2,
     "<Any>.__name__": 3,
     "<Any>.__ne__": 6,
@@ -1080,13 +1082,15 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__bool__": 10,
+    "<Any>.__bool__": 12,
     "<Any>.__eq__": 31,
+    "<Any>.__fspath__": 4,
     "<Any>.__getitem__": 7,
     "<Any>.__hash__": 9,
     "<Any>.__index__": 2,
     "<Any>.__int__": 2,
     "<Any>.__iter__": 2,
+    "<Any>.__len__": 2,
     "<Any>.__lt__": 1,
     "<Any>.__ne__": 5,
     "<Any>.__repr__": 1,
@@ -1303,12 +1307,12 @@
     "<Any>.AUTHORED_VALUES": 1,
     "<Any>.MUST_AGREE_CASE_IDS": 1,
     "<Any>.REQUIRED_CASE_IDS": 1,
-    "<Any>.__bool__": 8,
+    "<Any>.__bool__": 11,
     "<Any>.__eq__": 32,
     "<Any>.__getitem__": 1,
     "<Any>.__hash__": 2,
     "<Any>.__iter__": 7,
-    "<Any>.__len__": 1,
+    "<Any>.__len__": 4,
     "<Any>.__lt__": 1,
     "<Any>.__name__": 1,
     "<Any>.__ne__": 1,
@@ -1564,11 +1568,12 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__bool__": 8,
+    "<Any>.__bool__": 9,
     "<Any>.__eq__": 24,
     "<Any>.__getitem__": 6,
     "<Any>.__hash__": 1,
     "<Any>.__iter__": 8,
+    "<Any>.__len__": 1,
     "<Any>.__lt__": 5,
     "<Any>.__repr__": 3,
     "<Any>.__str__": 3,
@@ -1801,11 +1806,12 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__bool__": 4,
+    "<Any>.__bool__": 5,
     "<Any>.__eq__": 15,
     "<Any>.__getitem__": 15,
     "<Any>.__hash__": 2,
     "<Any>.__iter__": 4,
+    "<Any>.__len__": 1,
     "<Any>.__ne__": 1,
     "<Any>.__repr__": 8,
     "<Any>.__str__": 8,
@@ -1840,7 +1846,7 @@
    "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
    "targets": {
     "<Any>.__iter__": 3,
-    "<Any>.__lt__": 1,
+    "<Any>.__lt__": 2,
     "<Any>.__name__": 1,
     "<Any>.encode": 1,
     "builtins.getattr(<computed name>)": 4
@@ -1949,7 +1955,7 @@
    },
    "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
    "targets": {
-    "<Any>.__bool__": 15,
+    "<Any>.__bool__": 17,
     "<Any>.__name__": 1,
     "<Any>.__ne__": 17,
     "<Any>.enabled": 3,
@@ -2597,7 +2603,7 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__eq__": 2,
+    "<Any>.__eq__": 3,
     "<Any>.__hash__": 1
    }
   },
@@ -2622,7 +2628,8 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__init__": 1
+    "<Any>.__init__": 1,
+    "<Any>.__len__": 2
    }
   },
   {
@@ -2724,6 +2731,216 @@
    "reason": "callbacks: a callable that runs other objects' code, or a callback value the scan cannot see, called back on the values named under 'what'; reviewed at its site (review round 3)",
    "targets": {
     "<value of builtins.str>": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-fdeploy-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 559"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__iter__": 1,
+    "<object>.items": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-firewall-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 329, 331"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__iter__": 2,
+    "<object>.items": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-lifecycle-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 126"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__iter__": 1,
+    "<object>.items": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-object-security-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 187"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__iter__": 1,
+    "<object>.items": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-publication-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 205, 213"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__iter__": 2,
+    "<object>.items": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 388; elements typed object that set operations hash and compare at line(s) 317, 318"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__eq__": 2,
+    "<object>.__hash__": 2,
+    "<object>.__iter__": 1,
+    "<object>.items": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-wp1b-candidates.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 319"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__iter__": 1,
+    "<object>.items": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-wp3-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 170"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__iter__": 1,
+    "<object>.items": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_firewall_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "elements typed object that set operations hash and compare at line(s) 409, 410"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__eq__": 2,
+    "<object>.__hash__": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_object_security_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "elements typed object that set operations hash and compare at line(s) 230"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__eq__": 1,
+    "<object>.__hash__": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "elements typed object that set operations hash and compare at line(s) 373, 374"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__eq__": 2,
+    "<object>.__hash__": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_user_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "elements typed object that set operations hash and compare at line(s) 395, 396"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__eq__": 2,
+    "<object>.__hash__": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/export.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 383"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__iter__": 1,
+    "<object>.items": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/oracle_evidence.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 2075"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__iter__": 1,
+    "<object>.items": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/workspace_ops.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 88"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__iter__": 1,
+    "<object>.items": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/writer_conformance.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "elements typed object that set operations hash and compare at line(s) 494"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__eq__": 1,
+    "<object>.__hash__": 1
    }
   }
  ]
