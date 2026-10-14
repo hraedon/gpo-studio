@@ -34,8 +34,8 @@ Update this list in the same change as any status line;
 
 **5 open.**
 
-- [WI-083](#wi-083--live-verdicts-are-fresh-only-for-a-hand-written-subset-of-what-they-execute) - proposed (awaiting owner) to block 1.1.0 final: derive every live lane's dependency closure, replay and re-grade, bank the result, requalify per D-9 (Plan 036 WP-0).
-- [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036: make bound-file and workflow changes cheap and honest after 1.1.0.
+- [WI-083](#wi-083--live-verdicts-are-fresh-only-for-a-hand-written-subset-of-what-they-execute) - **blocks 1.1.0 final** (accepted by the owner 2026-10-13): derive every live lane's dependency closure, replay and re-grade, bank the result, requalify per D-9 (Plan 036 WP-0).
+- [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
@@ -3825,8 +3825,9 @@ these fail except the add.
 ## WI-083 — live verdicts are fresh only for a hand-written subset of what they execute
 
 **Opened:** 2026-10-13 (measuring change cost for [Plan 036](../plans/036-change-cost.md)).
-**Status:** open. Plan 036 proposes it as a blocker for the 1.1.0 final tag,
-awaiting the owner's ruling.
+**Status:** open. **Blocks the 1.1.0 final tag**: accepted as a blocker by the
+owner on 2026-10-13, with Plan 036 ("Your recommendations are fine: no qualms
+about the plan detailed in 106").
 
 **What is wrong.** Every lane verdict binds the files its finalizer's
 `DEPLOYED_FILES` and `LOCAL_FILES` tables name, and
@@ -3860,7 +3861,8 @@ and Plan 034, Plan 035 and
 ## WI-084 — a bound-file change costs more than it needs to
 
 **Opened:** 2026-10-13 ([Plan 036](../plans/036-change-cost.md)).
-**Status:** open.
+**Status:** open. An accepted programme: the owner accepted Plan 036 and all of
+its recommendations on 2026-10-13.
 
 **What is wrong.** Re-earning evidence binds whole files by hand-written
 tables, so an edit to a shared bound file (the transport, the evidence

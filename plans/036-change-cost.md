@@ -1,15 +1,15 @@
 # Plan 036: Reducing what a change costs
 
-Status: **proposed** (2026-10-13, revision 7). A design pass: none of it is
-built yet. It was written for a two-lineage design review. Rounds 1 to 5 (Sol
-and DeepSeek; approve-with-changes in rounds 1 to 4, and in round 5 one
-blocker from Sol and none from DeepSeek; round 6 none) are folded in; the disposition
-of each finding is under [Review disposition](#review-disposition-round-1). One
-part, WP-0, is proposed as a **1.1.0 final blocker** (registered as WI-083,
-awaiting the owner's ruling), because the
-measurement found that the live evidence's freshness check does not cover what
-the lanes execute. Every change to what "qualified" means is an owner decision,
-not a work package that can start on its own.
+Status: **active**: accepted by the owner on 2026-10-13 ("Your
+recommendations are fine: no qualms about the plan detailed in 106"), with
+every recommendation taken (see [Owner decisions](#owner-decisions)). None of
+it is built yet. It was written for a two-lineage design review. Rounds 1 to 6
+(Sol and DeepSeek; approve-with-changes in rounds 1 to 4, one blocker from Sol
+and none from DeepSeek in round 5, none in round 6) are folded in; the
+disposition of each finding is under
+[Review disposition](#review-disposition-round-1). One part, WP-0, is a
+**1.1.0 final blocker** (WI-083), because the measurement found that the live
+evidence's freshness check does not cover what the lanes execute.
 
 Scope: the cost of changing code that Windows evidence binds, the cost of
 changing CI workflows, and the CI failures reviewers do not see. The aim is to
@@ -457,8 +457,8 @@ binds the tree that ships. The gate proves that only for the hand-written
 sets, and nine lanes depend on changed code outside them. Nothing measured says
 the release behaves wrongly. But the claim the release makes about its evidence
 is not true as stated, and that has to be settled before the final tag, not
-after. WI-083 proposes WP-0 as a final-tag blocker; that is awaiting the
-owner's ruling.
+after. WI-083 makes WP-0 a final-tag blocker; the owner accepted that on
+2026-10-13.
 
 ### What WP-0 edits
 
@@ -1850,8 +1850,9 @@ fault-injection tests. It rides WP-4, which changes `psdirect.ps1` anyway
 
 Each is a choice only the owner can make, because it changes what "qualified"
 means, what runs unattended on the estate, or when the release is touched.
-Each has a recommendation. None is taken by this plan except where the owner
-has already said something, which is recorded as such.
+Each had a recommendation. The owner accepted every recommendation on
+2026-10-13 ("Your recommendations are fine: no qualms about the plan detailed
+in 106"); each decision is recorded below.
 
 - **D-1. Derived binding (R4b).** Bind each lane's derived, trace-audited
   union instead of a hand-written table. *Recommend: yes.* Consequence: a
@@ -1859,37 +1860,47 @@ has already said something, which is recorded as such.
   R5 is what keeps that affordable, so D-1 and D-2 should be taken together.
   Sub-question: keep deliberate over-binding (the firewall lane's
   `publication.py`) as a declared extra, or drop it. *Recommend: keep it,
-  declared.*
+  declared.* Decided by the owner, 2026-10-13: yes, derived binding, with deliberate
+  over-binding kept as declared extras.
 - **D-2. Carried-by-replay verdicts count as qualified (R5).** This overturns
   the 2026-08-05 position recorded at `tests/test_committed_evidence.py:579`.
   *Recommend: yes, once the proof obligations hold, with a limit:* every
   release's final tag requires each lane to rest on an estate run made since
   the previous release's final tag, with no environment drift, and the release
   evidence report lists each lane's estate run and every carry since.
+  Decided by the owner, 2026-10-13: yes, once the proof obligations hold, with that limit.
 - **D-3. The transport certified by a conformance lane (R7).** *Recommend: yes,
   if and only if* the lane passes two reviewers, one executing the
   fault-injection probes. Until then the transport stays byte-bound, and the
-  October eligibility drops from 25 re-runs to 7.
-- **D-4. Normalised digests (R3).** *Recommend: reject.*
+  October eligibility drops from 25 re-runs to 7. Decided by the owner, 2026-10-13: yes, if and
+  only if the conformance lane passes two reviewers, one executing the
+  fault-injection probes.
+- **D-4. Normalised digests (R3).** *Recommend: reject.* Decided by the owner, 2026-10-13: reject.
 - **D-5. Where routine packs live.** In-repository (today), or packs in a
   separate evidence repository or orphan branch with verdicts, manifests and
   hashes in `main`. *Recommend:* stay in-repository while routine batches bank
   only the lanes they re-ran, and revisit when `docs/plan-033/` passes a size
-  the owner names (it is 67 MB today).
+  the owner names (it is 67 MB today). Decided by the owner, 2026-10-13: stay in the
+  repository and revisit at a size threshold; the threshold is to be named.
 - **D-6. How much of the routine runs unattended (R2).** (a) Operator-started:
   one command does preflight, lease, run, bank and push. (b) Label-started on
   mvmcc02 when the owner labels a reviewed PR. Also where the lease lives (the
   Hyper-V host, or Vault check-and-set), the matching windows-evidence-lab
   change, and whether mvmcc02 may push to PR branches (gh under the identifier
   gate, per the 2026-10-01 ruling). *Recommend:* (a) first; (b) after five
-  clean operator-started runs; the lease on the Hyper-V host.
+  clean operator-started runs; the lease on the Hyper-V host. Decided by the owner, 2026-10-13: (a)
+  first, then (b) after five clean operator-started runs, with the lease on the
+  Hyper-V host.
 - **D-7. Risk-tiered review and the Windows leg (R6).** The tiers, the
   three-rounds rule, and whether uv may be installed on mvmcitest01, a box
   other projects use for AD validation. *Recommend: adopt the tiers and review
   them after a month; install uv there only if the box's other users agree.*
+  Decided by the owner, 2026-10-13: adopt the tiers and review them after a month. Installing uv
+  on mvmcitest01 stays conditional on the box's other users agreeing, and is
+  still open.
 - **D-8. When R1 switches the workflows.** *Recommend: after 1.1.0 final*, with
   Python 3.15 landing on the new shape rather than as one more grammar
-  extension.
+  extension. Decided by the owner, 2026-10-13: after 1.1.0 final.
 - **D-9. Which lanes are requalified on the estate before 1.1.0 final.**
   WP-0's replay and re-grade runs on all live lanes under every option, and
   any lane whose replay or re-grade differs is requalified under every option.
@@ -1909,11 +1920,12 @@ has already said something, which is recorded as such.
   closure probe missed this because it never resolved the package's own
   `__init__.py`; WP-0's closure includes it.
 
-  **Owner, 2026-10-13: leaning to option 2, tentatively** ("I default to #2,
-  but it isn't a strong position"). Because that position is weak and the
-  repository prefers strict defaults, the coordinator set option 2's
-  definition on 2026-10-13 to the strict, mechanical reading, and on the same
-  day added the release-metadata exemption:
+  Decided by the owner, 2026-10-13: **option 2, as defined below.** Earlier the same day the owner
+  had leaned to option 2 tentatively ("I default to #2, but it isn't a strong
+  position"); because that position was weak and the repository prefers strict
+  defaults, the coordinator set option 2's definition to the strict,
+  mechanical reading, and added the release-metadata exemption; the owner's
+  acceptance of the plan that evening made it the decision:
 
   - *Changed line*: a line on the new side of
     `git diff -U0 --diff-algorithm=histogram <verdict commit> <F> -- <file>`, for
@@ -1961,23 +1973,23 @@ has already said something, which is recorded as such.
     and then definitively at `F`, at most twice, as
     [WP-0's order](#order-and-which-commit-binds-what) sets out.
 
-  WP-0 schedules option 2: every selected lane is re-run at `F`, its finalizer
+  WP-0 carries out option 2: every selected lane is re-run at `F`, its finalizer
   tables first extended with its derived dependencies (see
   [What WP-0 edits](#what-wp-0-edits)). Options 1 and 3 stay documented with
-  their costs so the owner can change course until `F0`. What the reruns add is
+  their costs, for the record. What the reruns add is
   stated in [WP-0](#what-the-reruns-add-and-what-they-do-not): a clean binding
   record and a fresh estate observation, not a test of new candidate content.
 - **D-10. Where a requalification banks (R2).** (a) Into the bound-file PR
   itself, before merge, so `main` is never stale. (b) After merge, with a
   short-lived "debt" state on `main` that release gates refuse.
-  *Recommend: (a).*
+  *Recommend: (a).* Decided by the owner, 2026-10-13: (a).
 
 ## Work packages
 
 Each package says whether it edits a bound file and whether it may land before
 1.1.0 final. Only WP-0 may.
 
-### WP-0 — The 1.1.0 final blocker (WI-083, awaiting the owner's ruling)
+### WP-0 — The 1.1.0 final blocker (WI-083)
 
 Before the final tag. Adds tooling, two generated records (the successor
 record and the pin) and a test, and edits the bound finalizer of each lane
@@ -1990,7 +2002,7 @@ D-9 selects (five on the current data). Specified, with its ordering, in
   two-clone replay (WP-0 has none: not applicable), all banked in the
   successor record with its caveat; the lane set `S` named in the exit is
   either the one D-9's rule selected at that final `F` within two passes
-  (option 2 as defined, unless the owner chose otherwise before `F0`), or, if
+  (option 2 as defined, decided by the owner on 2026-10-13), or, if
   the passes did not converge, the conservative fallback set, labelled as
   such, with the final trace recorded beside it; every lane in `S`, and every lane whose replay or re-grade
   differs, has passed on the estate from a clean clone at `F`, with its
@@ -2114,7 +2126,7 @@ itself because the release ships it and reviewers read it as policy.
 1.1.0 final is due 2026-10-31. `v1.1.0-rc.1` is published and the owner's NVDA
 acceptance is pending.
 
-**Before 1.1.0 final: WP-0 only.** It is the proposed blocker, so it must land;
+**Before 1.1.0 final: WP-0 only.** It is the blocker, so it must land;
 it adds a release gate on purpose, so it is reviewed as gate code and lands
 before `F0`. Its bound edits are confined to the finalizers of the lanes it
 re-runs, and its estate part is a successor batch at `F`, the kind of change
