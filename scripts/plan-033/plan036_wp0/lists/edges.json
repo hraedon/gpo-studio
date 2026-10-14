@@ -65,7 +65,9 @@
    },
    "reason": "stages files to archive or rebuild them",
    "targets": {
-    "tempfile.TemporaryDirectory": 1
+    "tempfile.TemporaryDirectory": 1,
+    "tempfile.TemporaryDirectory.__enter__": 1,
+    "tempfile.TemporaryDirectory.__exit__": 1
    }
   },
   {
@@ -77,7 +79,11 @@
    },
    "reason": "builds or re-reads an archive in memory",
    "targets": {
-    "zipfile.ZipFile": 1
+    "zipfile.ZipFile": 1,
+    "zipfile.ZipFile.__del__": 1,
+    "zipfile.ZipFile.__enter__": 1,
+    "zipfile.ZipFile.__exit__": 1,
+    "zipfile.ZipFile.namelist": 1
    }
   },
   {
@@ -306,7 +312,11 @@
    },
    "reason": "builds or re-reads an archive in memory",
    "targets": {
-    "zipfile.ZipFile": 1
+    "zipfile.ZipFile": 1,
+    "zipfile.ZipFile.__del__": 1,
+    "zipfile.ZipFile.__enter__": 1,
+    "zipfile.ZipFile.__exit__": 1,
+    "zipfile.ZipFile.namelist": 1
    }
   },
   {
@@ -318,7 +328,9 @@
    },
    "reason": "stages files to archive or rebuild them",
    "targets": {
-    "tempfile.TemporaryDirectory": 1
+    "tempfile.TemporaryDirectory": 1,
+    "tempfile.TemporaryDirectory.__enter__": 1,
+    "tempfile.TemporaryDirectory.__exit__": 1
    }
   },
   {
@@ -500,7 +512,12 @@
    },
    "reason": "re-reads the archive it wrote, to print its members",
    "targets": {
-    "zipfile.ZipFile": 1
+    "zipfile.ZipFile": 1,
+    "zipfile.ZipFile.__del__": 1,
+    "zipfile.ZipFile.__enter__": 1,
+    "zipfile.ZipFile.__exit__": 1,
+    "zipfile.ZipFile.namelist": 1,
+    "zipfile.ZipFile.read": 1
    }
   },
   {
@@ -644,13 +661,16 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__bool__": 15,
+    "<Any>.__bool__": 23,
     "<Any>.__eq__": 3,
     "<Any>.__format__": 25,
+    "<Any>.__getitem__": 1,
+    "<Any>.__iter__": 3,
     "<Any>.__len__": 3,
-    "<Any>.__ne__": 1,
-    "<Any>.__repr__": 25,
-    "<Any>.__str__": 25
+    "<Any>.__ne__": 6,
+    "<Any>.__repr__": 28,
+    "<Any>.__str__": 28,
+    "<Any>.get": 18
    }
   },
   {
@@ -690,7 +710,11 @@
    },
    "reason": "opens the candidate archive the controller built",
    "targets": {
-    "zipfile.ZipFile": 1
+    "zipfile.ZipFile": 1,
+    "zipfile.ZipFile.__del__": 1,
+    "zipfile.ZipFile.__enter__": 1,
+    "zipfile.ZipFile.__exit__": 1,
+    "zipfile.ZipFile.read": 1
    }
   },
   {
@@ -702,7 +726,9 @@
    },
    "reason": "stages files to archive or rebuild them",
    "targets": {
-    "tempfile.TemporaryDirectory": 1
+    "tempfile.TemporaryDirectory": 1,
+    "tempfile.TemporaryDirectory.__enter__": 1,
+    "tempfile.TemporaryDirectory.__exit__": 1
    }
   },
   {
@@ -767,22 +793,24 @@
    "targets": {
     "<Any>.REQUIRED_CASE_IDS": 1,
     "<Any>.__bool__": 12,
-    "<Any>.__eq__": 12,
+    "<Any>.__eq__": 16,
     "<Any>.__format__": 2,
     "<Any>.__getitem__": 1,
     "<Any>.__hash__": 1,
-    "<Any>.__iter__": 4,
+    "<Any>.__iter__": 5,
     "<Any>.__len__": 1,
     "<Any>.__lt__": 1,
     "<Any>.__name__": 3,
-    "<Any>.__repr__": 6,
+    "<Any>.__repr__": 7,
     "<Any>.__rtruediv__": 1,
-    "<Any>.__str__": 6,
+    "<Any>.__setitem__": 1,
+    "<Any>.__str__": 7,
     "<Any>.__truediv__": 1,
     "<Any>.backup_info": 1,
     "<Any>.build": 1,
     "<Any>.case_dir": 1,
     "<Any>.casefold": 1,
+    "<Any>.get": 4,
     "<Any>.import_readiness": 1,
     "<Any>.is_file": 1,
     "<Any>.read_bytes": 1,
@@ -826,7 +854,12 @@
    },
    "reason": "opens the candidate archive the controller built",
    "targets": {
-    "zipfile.ZipFile": 1
+    "zipfile.ZipFile": 1,
+    "zipfile.ZipFile.__del__": 1,
+    "zipfile.ZipFile.__enter__": 1,
+    "zipfile.ZipFile.__exit__": 1,
+    "zipfile.ZipFile.namelist": 1,
+    "zipfile.ZipFile.read": 1
    }
   },
   {
@@ -863,22 +896,24 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__add__": 2,
-    "<Any>.__bool__": 11,
-    "<Any>.__eq__": 3,
+    "<Any>.__add__": 3,
+    "<Any>.__bool__": 14,
+    "<Any>.__eq__": 12,
     "<Any>.__format__": 1,
-    "<Any>.__getitem__": 15,
+    "<Any>.__getitem__": 31,
     "<Any>.__hash__": 2,
     "<Any>.__iand__": 1,
-    "<Any>.__iter__": 4,
-    "<Any>.__len__": 1,
+    "<Any>.__iter__": 8,
+    "<Any>.__len__": 4,
     "<Any>.__lt__": 1,
     "<Any>.__ne__": 4,
     "<Any>.__next__": 1,
-    "<Any>.__radd__": 2,
-    "<Any>.__repr__": 1,
+    "<Any>.__radd__": 3,
+    "<Any>.__repr__": 2,
     "<Any>.__setitem__": 5,
-    "<Any>.__str__": 1,
+    "<Any>.__str__": 2,
+    "<Any>.items": 1,
+    "<Any>.sort": 1,
     "<Any>.values": 1
    }
   },
@@ -957,17 +992,22 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>()": 1,
-    "<Any>.__bool__": 20,
-    "<Any>.__eq__": 14,
+    "<Any>.__bool__": 22,
+    "<Any>.__eq__": 31,
     "<Any>.__format__": 22,
-    "<Any>.__getitem__": 1,
+    "<Any>.__getitem__": 13,
     "<Any>.__hash__": 10,
+    "<Any>.__iter__": 5,
+    "<Any>.__len__": 1,
     "<Any>.__lt__": 2,
     "<Any>.__name__": 3,
-    "<Any>.__ne__": 4,
+    "<Any>.__ne__": 6,
     "<Any>.__next__": 1,
     "<Any>.__repr__": 22,
-    "<Any>.__str__": 22
+    "<Any>.__str__": 22,
+    "<Any>.casefold": 1,
+    "<Any>.get": 3,
+    "<Any>.rsplit": 1
    }
   },
   {
@@ -1033,17 +1073,19 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 10,
-    "<Any>.__eq__": 5,
+    "<Any>.__eq__": 9,
+    "<Any>.__getitem__": 7,
     "<Any>.__hash__": 4,
-    "<Any>.__index__": 1,
-    "<Any>.__int__": 1,
+    "<Any>.__index__": 2,
+    "<Any>.__int__": 2,
     "<Any>.__lt__": 1,
     "<Any>.__ne__": 5,
     "<Any>.__repr__": 1,
     "<Any>.__str__": 1,
-    "<Any>.__trunc__": 1,
+    "<Any>.__trunc__": 2,
     "<Any>.casefold": 9,
     "<Any>.endswith": 1,
+    "<Any>.get": 10,
     "<Any>.startswith": 1
    }
   },
@@ -1134,7 +1176,14 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__bool__": 6
+    "<Any>.__bool__": 7,
+    "<Any>.__eq__": 5,
+    "<Any>.__getitem__": 6,
+    "<Any>.__iter__": 1,
+    "<Any>.__len__": 1,
+    "<Any>.__repr__": 3,
+    "<Any>.__str__": 3,
+    "<Any>.get": 9
    }
   },
   {
@@ -1174,7 +1223,9 @@
    },
    "reason": "stages files to archive or rebuild them",
    "targets": {
-    "tempfile.TemporaryDirectory": 1
+    "tempfile.TemporaryDirectory": 1,
+    "tempfile.TemporaryDirectory.__enter__": 1,
+    "tempfile.TemporaryDirectory.__exit__": 1
    }
   },
   {
@@ -1241,15 +1292,18 @@
     "<Any>.MUST_AGREE_CASE_IDS": 1,
     "<Any>.REQUIRED_CASE_IDS": 1,
     "<Any>.__bool__": 8,
-    "<Any>.__eq__": 7,
-    "<Any>.__iter__": 4,
+    "<Any>.__eq__": 11,
+    "<Any>.__getitem__": 1,
+    "<Any>.__iter__": 5,
     "<Any>.__len__": 1,
     "<Any>.__lt__": 1,
     "<Any>.__name__": 1,
     "<Any>.__ne__": 1,
-    "<Any>.__repr__": 4,
-    "<Any>.__str__": 4,
+    "<Any>.__repr__": 5,
+    "<Any>.__setitem__": 1,
+    "<Any>.__str__": 5,
     "<Any>.build": 1,
+    "<Any>.get": 5,
     "<Any>.import_readiness": 1,
     "<Any>.startswith": 1
    }
@@ -1328,17 +1382,17 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__bool__": 4,
+    "<Any>.__bool__": 30,
     "<Any>.__eq__": 2,
     "<Any>.__format__": 19,
-    "<Any>.__getitem__": 6,
+    "<Any>.__getitem__": 10,
     "<Any>.__hash__": 2,
-    "<Any>.__iter__": 3,
+    "<Any>.__iter__": 11,
     "<Any>.__lt__": 2,
     "<Any>.__next__": 4,
-    "<Any>.__repr__": 21,
-    "<Any>.__str__": 21,
-    "<Any>.get": 1
+    "<Any>.__repr__": 36,
+    "<Any>.__str__": 36,
+    "<Any>.get": 23
    }
   },
   {
@@ -1401,17 +1455,17 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__bool__": 5,
+    "<Any>.__bool__": 29,
     "<Any>.__eq__": 2,
     "<Any>.__format__": 24,
-    "<Any>.__getitem__": 6,
+    "<Any>.__getitem__": 10,
     "<Any>.__hash__": 2,
-    "<Any>.__iter__": 2,
+    "<Any>.__iter__": 9,
     "<Any>.__lt__": 2,
     "<Any>.__next__": 2,
-    "<Any>.__repr__": 26,
-    "<Any>.__str__": 26,
-    "<Any>.get": 1
+    "<Any>.__repr__": 42,
+    "<Any>.__str__": 42,
+    "<Any>.get": 29
    }
   },
   {
@@ -1452,7 +1506,12 @@
    },
    "reason": "opens the candidate archive the controller built",
    "targets": {
-    "zipfile.ZipFile": 1
+    "zipfile.ZipFile": 1,
+    "zipfile.ZipFile.__del__": 1,
+    "zipfile.ZipFile.__enter__": 1,
+    "zipfile.ZipFile.__exit__": 1,
+    "zipfile.ZipFile.namelist": 1,
+    "zipfile.ZipFile.read": 3
    }
   },
   {
@@ -1490,12 +1549,14 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 8,
-    "<Any>.__eq__": 9,
-    "<Any>.__iter__": 5,
+    "<Any>.__eq__": 14,
+    "<Any>.__getitem__": 6,
+    "<Any>.__iter__": 6,
     "<Any>.__lt__": 5,
     "<Any>.__repr__": 3,
     "<Any>.__str__": 3,
-    "<Any>.casefold": 6
+    "<Any>.casefold": 6,
+    "<Any>.get": 16
    }
   },
   {
@@ -1520,11 +1581,14 @@
    },
    "reason": "reads what Windows returned and what the controller built, and hashes bound files",
    "targets": {
+    "_io.BufferedReader.__enter__": 1,
+    "_io.BufferedReader.__exit__": 1,
     "pathlib.Path.is_file": 5,
     "pathlib.Path.open": 1,
     "pathlib.Path.read_bytes": 1,
     "pathlib.Path.read_text": 3,
     "pathlib.Path.resolve": 3,
+    "xml.etree.ElementTree._IterParseIterator.__iter__": 1,
     "xml.etree.ElementTree.iterparse": 1
    }
   },
@@ -1562,16 +1626,21 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__bool__": 4,
+    "<Any>.__bool__": 5,
+    "<Any>.__eq__": 3,
     "<Any>.__format__": 9,
-    "<Any>.__getitem__": 2,
+    "<Any>.__getitem__": 17,
     "<Any>.__index__": 1,
     "<Any>.__int__": 1,
-    "<Any>.__iter__": 4,
+    "<Any>.__iter__": 9,
+    "<Any>.__ne__": 3,
     "<Any>.__next__": 4,
-    "<Any>.__repr__": 9,
-    "<Any>.__str__": 9,
+    "<Any>.__repr__": 10,
+    "<Any>.__rtruediv__": 2,
+    "<Any>.__str__": 10,
     "<Any>.__trunc__": 1,
+    "<Any>.casefold": 2,
+    "<Any>.get": 3,
     "<Any>.items": 1
    }
   },
@@ -1637,10 +1706,16 @@
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__bool__": 4,
-    "<Any>.__index__": 5,
-    "<Any>.__int__": 5,
-    "<Any>.__trunc__": 5
+    "<Any>.__bool__": 6,
+    "<Any>.__eq__": 3,
+    "<Any>.__getitem__": 16,
+    "<Any>.__index__": 9,
+    "<Any>.__int__": 9,
+    "<Any>.__iter__": 2,
+    "<Any>.__ne__": 2,
+    "<Any>.__trunc__": 9,
+    "<Any>.casefold": 2,
+    "<Any>.get": 4
    }
   },
   {
@@ -1706,10 +1781,15 @@
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 4,
-    "<Any>.__eq__": 3,
+    "<Any>.__eq__": 8,
+    "<Any>.__getitem__": 15,
     "<Any>.__hash__": 2,
-    "<Any>.__iter__": 1,
-    "<Any>.casefold": 1
+    "<Any>.__iter__": 2,
+    "<Any>.__ne__": 1,
+    "<Any>.__repr__": 8,
+    "<Any>.__str__": 8,
+    "<Any>.casefold": 2,
+    "<Any>.get": 5
    }
   },
   {
@@ -1753,7 +1833,11 @@
    },
    "reason": "builds or re-reads an archive in memory",
    "targets": {
-    "zipfile.ZipFile": 1
+    "zipfile.ZipFile": 1,
+    "zipfile.ZipFile.__del__": 1,
+    "zipfile.ZipFile.__enter__": 1,
+    "zipfile.ZipFile.__exit__": 1,
+    "zipfile.ZipFile.writestr": 1
    }
   },
   {
@@ -1903,6 +1987,9 @@
    },
    "reason": "the evidence contract's binding and WP-0's finalizer",
    "targets": {
+    "_io.BufferedReader.__enter__": 1,
+    "_io.BufferedReader.__exit__": 1,
+    "_io.BufferedReader.read": 1,
     "pathlib.Path.is_dir": 1,
     "pathlib.Path.is_file": 8,
     "pathlib.Path.open": 1,
@@ -2023,6 +2110,12 @@
    },
    "reason": "descriptor-relative, symlink-refusing opens and directory scans",
    "targets": {
+    "os.DirEntry.name": 1,
+    "os.DirEntry.stat": 1,
+    "os._ScandirIterator.__enter__": 1,
+    "os._ScandirIterator.__exit__": 1,
+    "os._ScandirIterator.__iter__": 1,
+    "os._ScandirIterator.__next__": 1,
     "os.close": 8,
     "os.fstat": 3,
     "os.open": 5,
@@ -2055,7 +2148,9 @@
    },
    "reason": "WorkspaceStore's and the workspace operations' database access; store.py is in the closure because import_export imports it for gpo_from_dict, and no lane's builder or finalizer constructs a WorkspaceStore or opens a workspace",
    "targets": {
-    "sqlite3.Connection.execute": 23
+    "sqlite3.Connection.execute": 23,
+    "sqlite3.Cursor.fetchall": 1,
+    "sqlite3.Cursor.fetchone": 1
    }
   },
   {
@@ -2149,6 +2244,9 @@
     "_sqlite3.connect": 1,
     "sqlite3.Connection.close": 1,
     "sqlite3.Connection.execute": 44,
+    "sqlite3.Cursor.fetchall": 11,
+    "sqlite3.Cursor.fetchone": 4,
+    "sqlite3.Cursor.rowcount": 1,
     "sqlite3.Row": 1
    }
   },
@@ -2169,12 +2267,13 @@
     "<Any>.__int__": 6,
     "<Any>.__iter__": 7,
     "<Any>.__len__": 7,
-    "<Any>.__repr__": 36,
+    "<Any>.__repr__": 41,
     "<Any>.__rsub__": 1,
-    "<Any>.__str__": 36,
+    "<Any>.__str__": 41,
     "<Any>.__sub__": 1,
     "<Any>.__trunc__": 6,
     "<Any>.close": 1,
+    "<Any>.get": 5,
     "<Any>.keys": 1,
     "<Any>.strip": 1,
     "<untyped>.__bool__": 7,
@@ -2231,7 +2330,11 @@
     "sqlite3.Connection.backup": 2,
     "sqlite3.Connection.close": 5,
     "sqlite3.Connection.commit": 1,
-    "sqlite3.Connection.execute": 11
+    "sqlite3.Connection.execute": 11,
+    "sqlite3.Cursor.__iter__": 1,
+    "sqlite3.Cursor.__next__": 1,
+    "sqlite3.Cursor.fetchall": 2,
+    "sqlite3.Cursor.fetchone": 3
    }
   },
   {
@@ -2375,6 +2478,56 @@
     "<Any>.__format__": 1,
     "<Any>.__repr__": 2,
     "<Any>.__str__": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_lifecycle_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "whatever mapping the caller passes for a Mapping-typed parameter"
+   },
+   "reason": "read access through a Mapping-typed parameter (get/items): the concrete mapping is not known statically, so the call is declared rather than assumed in-memory",
+   "targets": {
+    "typing.Mapping.get": 1,
+    "typing.Mapping.items": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_object_security_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "whatever mapping the caller passes for a Mapping-typed parameter"
+   },
+   "reason": "read access through a Mapping-typed parameter (get/items): the concrete mapping is not known statically, so the call is declared rather than assumed in-memory",
+   "targets": {
+    "typing.Mapping.get": 5
+   }
+  },
+  {
+   "module": "src/gpo_studio/export.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "whatever mapping the caller passes for a Mapping-typed parameter"
+   },
+   "reason": "read access through a Mapping-typed parameter (get/items): the concrete mapping is not known statically, so the call is declared rather than assumed in-memory",
+   "targets": {
+    "typing.Mapping.get": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/oracle_evidence.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "whatever mapping the caller passes for a Mapping-typed parameter"
+   },
+   "reason": "read access through a Mapping-typed parameter (get/items): the concrete mapping is not known statically, so the call is declared rather than assumed in-memory",
+   "targets": {
+    "typing.Mapping.get": 28,
+    "typing.Mapping.items": 2
    }
   }
  ]

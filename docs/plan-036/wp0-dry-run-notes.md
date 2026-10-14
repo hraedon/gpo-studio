@@ -10,10 +10,30 @@ left as it is and the correction is recorded here.
 ## The run
 
 - Target: `main` at `7f1649e` (the merge of PR #106), read-only. Every run
-  used fresh `git worktree` clones with their own environment synced from
-  `uv.lock`; outputs were written outside the repository and not committed.
-- Tooling: `scripts/plan-033/wp0-live-closure.py run`, analysis for Python
-  3.14 on the controller's platform (Linux).
+  used fresh `git worktree` clones; outputs were written outside the
+  repository and not committed.
+- Command (after review round 1, with an empty uv cache):
+
+  ```
+  export TMPDIR=<a scratch directory outside the repository>
+  export UV_CACHE_DIR="$TMPDIR/uv-cache-cold"   # empty before the run
+  python scripts/plan-033/wp0-live-closure.py run --target 7f1649e \
+      --workdir "$TMPDIR/dryrun" --python-version 3.14
+  ```
+
+  Every figure below is either a line of that command's summary or, where a
+  figure is split by half (builder or finalizer), the changed lines in
+  `result.json`'s `selection.<lane>.executed_changed` intersected with the
+  lines `changed.executed_lines` reads from that half's traces
+  (`lanes.<lane>.replay.trace` and its children for the builder,
+  `lanes.<lane>.regrade_traced.trace` and its children for the finalizer).
+- Environments: four clones (the target twice, `9940561` and `de9736e`), each
+  built by `replay.uv_environment` and recorded in the result's
+  `environments`. Both verdict commits predate `547626b`, and their `uv.lock`
+  locks no build backend; the backend (hatchling 1.32.4, editables 0.6) came
+  by hash from the tool tree's lock, as recorded. With an empty cache the
+  whole run took about two minutes.
+- Tooling analysis for Python 3.14 on the controller's platform (Linux).
 - Part 1: 64 modules analysed across the 26 live lanes; no completeness
   problem, no failing site, no declaration out of step with the code.
 - Part 2: all 25 candidates rebuilt byte-identical in two fresh clones and
@@ -48,15 +68,22 @@ the five lanes the plan expected.
    binding. Endpoint executes 18 changed lines of `canonical.py`; wp2
    executes 5 of `canonical.py` and 2 of `backup_inventory.py`; lifecycle 2 of
    `backup_inventory.py`. All three lanes are selected already.
-2. **Endpoint's `gpp.py` count.** The builder trace counts 80 changed lines of
-   `gpp.py` executed; the round-1 probe counted 78. Every other builder count
-   matches it: 120 of `gpp_adapters.py` and 37 of `gpp_native.py` for
-   endpoint; 42 of `gpp.py` and 22 of `gpp_native.py` for wp2 and lifecycle;
-   one `store.py` line for wp1b and report-parity.
+2. **Endpoint's builder counts.** Endpoint's builder executes 80 changed
+   lines of `gpp.py` (the round-1 probe counted 78), 121 of `gpp_adapters.py`,
+   37 of `gpp_native.py` and 18 of `canonical.py`; its finalizer executes none.
+   The wp2 and lifecycle builders each execute 42 of `gpp.py` and 22 of
+   `gpp_native.py` (wp2's also 5 of `canonical.py`, lifecycle's 1 of
+   `backup_inventory.py`); the wp1b and report-parity builders one `store.py`
+   line each. (An earlier draft of these notes said 120 for endpoint's
+   `gpp_adapters.py`; the command above gives 121.)
 3. **The finalizer half adds lines, not lanes.** wp2's finalizer executes 75
-   changed lines of `gpp_adapters.py` and 6 of `store.py` while re-grading;
-   lifecycle's executes 2 of `backup_inventory.py`. No unselected lane executes
-   a changed line in either half.
+   changed lines of `gpp_adapters.py`, 28 of `gpp_native.py`, 42 of `gpp.py`,
+   6 of `store.py` and 2 of `backup_inventory.py` while re-grading;
+   lifecycle's executes 28 of `gpp_native.py`, 42 of `gpp.py` and 2 of
+   `backup_inventory.py`. The summary's per-lane figures are the union of the
+   two halves, which is why it shows 28 for `gpp_native.py` where the builders
+   alone execute 22. No unselected lane executes a changed line in either
+   half.
 4. **`template_store.py` is in no lane's closure.** The plan cites its ADMX
    discovery as an example edge; only `api.py` imports it, and no lane's
    builder or finalizer reaches `api.py`.
@@ -84,3 +111,12 @@ the five lanes the plan expected.
    WP-0 runner run short inline Python (`uv run python -` with a here-document,
    `python3 -c`). The plan traces builders and finalizers; these snippets are
    bound by the runners' bytes, not traced.
+10. **Environments at the verdict commits.** The first draft of the tooling
+    ran `uv sync --locked --offline` in each clone. That works only with a
+    cache that already holds an unpinned hatchling: at `9940561` and
+    `de9736e` the lock locks no build backend, so building the project needs
+    one the lock does not pin, and offline uv refuses (review round 1;
+    reproduced with an empty cache, and with a cache holding every locked
+    artifact, where uv reports the hatchling requirement unsatisfiable). The
+    environment is now built the same way at every commit and recorded in
+    the successor record (`environments`), as described above.

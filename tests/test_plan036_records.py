@@ -25,18 +25,59 @@ scan = load("scan")
 @pytest.fixture(scope="module")
 def derived() -> tuple[dict[str, Any], Any]:
     lists = scan.Lists.load()
-    return record.derive_part1(REPO_ROOT, "3.13", lists), lists
+    return record.derive_part1(REPO_ROOT, "3.14", lists), lists
 
 
-@pytest.fixture
-def pinned(derived: tuple[dict[str, Any], Any], tmp_path: Path) -> dict[str, Any]:
-    part1, _lists = derived
-    successor = {"schema": 1, "target_commit": "f" * 40,
-                 "analysis": {"python_version": "3.13", "platform": "linux"}}
+TARGET = "f" * 40
+
+
+def _environment(label: str, commit: str) -> dict[str, Any]:
+    return {"method": "uv-locked", "commit": commit, "uv": "uv 0.12.0", "python": "3.14.6",
+            "uv_lock_sha256": "1" * 64, "backend_source": "test", "backend_lock_sha256": "1" * 64,
+            "backend": ["hatchling==1.32.4"], "steps": [["uv", "sync"]],
+            "installed": ["-e <clone>", "hatchling==1.32.4"], "label": label}
+
+
+def _complete_result(part1: dict[str, Any]) -> dict[str, Any]:
+    """A run of parts 1 and 2 in which every replay and re-grade agreed."""
+    lanes, selection = {}, {}
+    for name, lane1 in part1["lanes"].items():
+        lanes[name] = {
+            "replay": ({"applicable": True, "identical": True, "problems": []}
+                       if lane1["has_candidate"] else {"applicable": False}),
+            "regrade_target": {"equal": True},
+            "regrade_verdict_commit": {"commit": lane1["commit"], "equal": True},
+            "regrade_problems": [],
+            "regrade_equal": True,
+            "fidelity_equal": True,
+            "changes": {},
+        }
+        selection[name] = {"executed_changed": {}, "exempted": {}, "incomplete": [],
+                           "selected": False, "reasons": []}
+    environments = {label: _environment(label, TARGET) for label in ("target-a", "target-b")}
+    for commit in {lane1["commit"] for lane1 in part1["lanes"].values()}:
+        environments[f"verdict-{commit}"] = _environment("verdict", commit)
+    return {"target": TARGET, "part1": part1, "environments": environments, "lanes": lanes,
+            "selection": selection, "option2": [], "option3": []}
+
+
+def _write(successor: dict[str, Any], tmp_path: Path) -> tuple[bytes, Path]:
     data = record._dump(successor)
     path = tmp_path / "successor.json"
     path.write_bytes(data)
-    pin = record.pin_from(successor, data, part1)
+    return data, path
+
+
+@pytest.fixture
+def complete(derived: tuple[dict[str, Any], Any]) -> dict[str, Any]:
+    part1, _lists = derived
+    return record.successor_record(_complete_result(part1), {})
+
+
+@pytest.fixture
+def pinned(complete: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
+    data, path = _write(complete, tmp_path)
+    pin = record.pin_from(complete, data)
     pin["successor_record"] = str(path)  # absolute: compare_pin reads root / it
     return pin
 
@@ -58,6 +99,83 @@ def _compare(pin: dict[str, Any], derived: tuple[dict[str, Any], Any]) -> list[s
 
 def test_an_untouched_pin_matches_the_tree(pinned: dict[str, Any], derived: Any) -> None:
     assert _compare(pinned, derived) == []
+
+
+def test_a_fabricated_pin_with_no_part_2_evidence_is_refused(
+    derived: tuple[dict[str, Any], Any], tmp_path: Path
+) -> None:
+    """Review round 1, Sol B1 (repro_pin_bypass.py): a successor record carrying no
+    lanes, replays or re-grades yields no pin, and a pin hand-built over it fails."""
+    successor = {"schema": 1, "target_commit": "0" * 40,
+                 "analysis": {"python_version": "3.14", "platform": "linux"}}
+    data, path = _write(successor, tmp_path)
+    with pytest.raises(record.Wp0Error):
+        record.pin_from(successor, data)
+    part1, _lists = derived
+    pin = {"schema": 1, "successor_record": str(path),
+           "successor_sha256": record.sha256_bytes(data), "target_commit": "0" * 40,
+           "analysis": successor["analysis"], "lists_sha256": part1["lists_sha256"],
+           "exemptions_sha256": part1["exemptions_sha256"], "toolchain": part1["toolchain"],
+           "lanes": {name: {"verdict": lane["verdict"], "verdict_commit": lane["commit"],
+                            "closure": lane["closure"], "resources": lane["resources"],
+                            "external": sorted({m for proc in lane["processes"].values()
+                                                for m in proc["external"]}),
+                            "memberships": lane["memberships"], "floor": lane["floor"],
+                            "edges": lane["edges"]}
+                     for name, lane in part1["lanes"].items()}}
+    problems = _compare(pin, derived)
+    assert any("names no lanes" in p for p in problems), problems
+
+
+SUCCESSOR_DEFECTS = {
+    "replay-differs": lambda s: s["lanes"]["wp2"]["replay"].__setitem__("identical", False),
+    "replay-dropped": lambda s: s["lanes"]["wp2"].__setitem__("replay", {"applicable": False}),
+    "regrade-differs": lambda s: s["lanes"]["wp2"]["regrade"].__setitem__("equal", False),
+    "regrade-at-target-differs": lambda s: s["lanes"]["wp2"]["regrade"]["at_target"]
+    .__setitem__("equal", False),
+    "own-commit-regrade-differs": lambda s: s["lanes"]["wp2"]["regrade"]["at_verdict_commit"]
+    .__setitem__("equal", False),
+    "own-commit-regrade-elsewhere": lambda s: s["lanes"]["wp2"]["regrade"]["at_verdict_commit"]
+    .__setitem__("commit", "e" * 40),
+    "regrade-problem": lambda s: s["lanes"]["wp2"]["regrade"]["problems"].append("x"),
+    "lane-dropped": lambda s: s["lanes"].pop("wp2"),
+    "environment-current": lambda s: s["environments"]["target-a"].__setitem__(
+        "method", "current-interpreter"),
+    "environment-missing": lambda s: s["environments"].pop(
+        f"verdict-{s['lanes']['wp2']['verdict_commit']}"),
+    "closure-edited": lambda s: s["lanes"]["wp2"]["closure"].pop(
+        sorted(s["lanes"]["wp2"]["closure"])[0]),
+    "verdict-commit-edited": lambda s: s["lanes"]["wp2"].__setitem__("verdict_commit", "e" * 40),
+    "scan-failing": lambda s: s["lanes"]["wp2"]["scan_counts"].__setitem__("unclassified", 1),
+}
+
+
+@pytest.mark.parametrize("defect", sorted(SUCCESSOR_DEFECTS))
+def test_a_pin_over_an_incomplete_or_unequal_successor_is_refused(
+    complete: dict[str, Any], derived: Any, tmp_path: Path, defect: str
+) -> None:
+    """The gate re-checks the record the pin names: every replay identical, every
+    re-grade equal, every environment built by the recorded uv method, and lane
+    set, commits and closures equal to the re-derivation at the gated tree. The
+    pin is re-derived consistently (digest and content), so only these checks
+    can catch the defect."""
+    successor = copy.deepcopy(complete)
+    SUCCESSOR_DEFECTS[defect](successor)
+    data, path = _write(successor, tmp_path)
+    pin = record._pin_of(successor, data)
+    pin["successor_record"] = str(path)
+    assert _compare(pin, derived), defect
+    if not defect.endswith("-edited") and defect != "lane-dropped":
+        with pytest.raises(record.Wp0Error):
+            record.pin_from(successor, data)
+
+
+def test_a_hand_edited_pin_is_refused_even_when_the_tree_agrees(
+    pinned: dict[str, Any], derived: Any
+) -> None:
+    pin = copy.deepcopy(pinned)
+    pin["target_commit"] = "e" * 40
+    assert any("determines" in p for p in _compare(pin, derived))
 
 
 def test_the_toolchain_names_every_declared_process_executable(derived: Any) -> None:

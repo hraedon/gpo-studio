@@ -77,6 +77,10 @@ def main(argv: list[str] | None = None) -> int:
     write = sub.add_parser("write-records", help="full run at HEAD, then the successor and pin")
     write.add_argument("--workdir", type=Path, required=True)
     write.add_argument("--python-version", required=True)
+    write.add_argument(
+        "--launcher", choices=["uv", "current"], default="uv",
+        help="how each clone's environment is built (the successor record accepts only uv)",
+    )
 
     sub.add_parser("check-pin", help="the release-only closure gate, on the working tree")
 
@@ -112,7 +116,11 @@ def main(argv: list[str] | None = None) -> int:
                 json.dumps(successor, indent=1, sort_keys=True) + "\n", encoding="utf-8"
             )
             print(_summary(result))
-            refused = record.refusals(result)
+            for label, built in sorted(result["environments"].items()):
+                print(f"  environment {label}: {built.get('method')} at "
+                      f"{str(built.get('commit'))[:12]}, backend {built.get('backend')} from "
+                      f"{built.get('backend_source')}")
+            refused = record.refusals(result) or record.successor_problems(successor)
             print(f"records could {'NOT ' if refused else ''}be written from this run"
                   + (f": {len(refused)} refusals, first {refused[:3]}" if refused else ""))
             return 0
@@ -129,7 +137,8 @@ def main(argv: list[str] | None = None) -> int:
             if not is_clean(REPO_ROOT):
                 raise Wp0Error("write-records needs a clean tree at the freeze commit")
             args.workdir.mkdir(parents=True, exist_ok=False)
-            result = record.run(REPO_ROOT, head, args.workdir, args.python_version)
+            result = record.run(REPO_ROOT, head, args.workdir, args.python_version,
+                                launcher=args.launcher)
             refused = record.write_records(REPO_ROOT, result, _environment())
             if refused:
                 print("REFUSED: the records are written only from a run with no difference:",

@@ -319,7 +319,7 @@ _LOG_LINE = re.compile(r"^([A-Z_]+)=(.*)$")
 _DRIVER_ROW = re.compile(r'^\s*"([a-z0-9-]+)\|([^|]+)\|(\d+)\|([^"]*)"\s*$')
 
 
-def _controller_log(root: Path, lane: Lane, key: str) -> str:
+def controller_log(root: Path, lane: Lane, key: str) -> str:
     data = (root / lane.pack / "controller.log").read_bytes().decode("utf-8", errors="strict")
     values = {
         match.group(2)
@@ -362,7 +362,7 @@ def resolve_inputs(root: Path, lane: Lane) -> dict[str, str]:
                 if source.kind == "verdict":
                     raw = _pointer(verdict, source.key)
                 elif source.kind == "controller-log":
-                    raw = _controller_log(root, lane, source.key)
+                    raw = controller_log(root, lane, source.key)
                 elif source.kind == "candidate-json":
                     document = json.loads(
                         (root / lane.pack / "controller-candidate" / source.file).read_text(

@@ -24,6 +24,36 @@ repo = load("repo")
 #: name -> source. Every probe is fully annotated so that mypy types it; what
 #: makes it fail is the target, never a missing annotation.
 FAILING_PROBES = {
+    # Review round 1 (Sol B3 / DeepSeek N1): methods of a ZipFile, a DirEntry, a
+    # stream or an abstract mutable mapping reach outside memory; none is inert.
+    "zip_write": (
+        "import zipfile\nfrom pathlib import Path\n\n\n"
+        "def f(archive: Path, undeclared_input: Path) -> None:\n"
+        "    with zipfile.ZipFile(archive, 'w') as bundle:\n"
+        "        bundle.write(undeclared_input)\n"
+    ),
+    "zip_extractall": (
+        "import io\nimport zipfile\nfrom pathlib import Path\n\n\n"
+        "def f(data: bytes, where: Path) -> None:\n"
+        "    zipfile.ZipFile(io.BytesIO(data)).extractall(where)\n"
+    ),
+    "direntry_stat": (
+        "import os\n\n\ndef f(entry: os.DirEntry[str]) -> int:\n"
+        "    return entry.stat().st_size\n"
+    ),
+    "stream_write": (
+        "from typing import BinaryIO\n\n\ndef f(stream: BinaryIO) -> None:\n"
+        "    stream.write(b'x')\n"
+    ),
+    "mutable_mapping_store": (
+        "from collections.abc import MutableMapping\n\n\n"
+        "def f(env: MutableMapping[str, str]) -> None:\n    env['X'] = '1'\n"
+    ),
+    "context_manager_exit": (
+        "from contextlib import AbstractContextManager\n\n\n"
+        "def f(manager: AbstractContextManager[object]) -> None:\n"
+        "    with manager:\n        pass\n"
+    ),
     "logging_fileconfig": (
         "import logging.config\n\n\ndef f(path: str) -> None:\n"
         "    logging.config.fileConfig(path)\n"
@@ -83,6 +113,10 @@ UNREACHABLE_PROBES = {
 }
 #: Probes the JSON proof and the argparse plugin must and must not discharge.
 TYPED_PROBES = {
+    "dict_update": (
+        "def f(table: dict[str, int]) -> None:\n    table.update({'x': 1})\n"
+        "    table.setdefault('y', 2)\n"
+    ),
     "json_local": (
         "import json\n\n\ndef f(text: str) -> str:\n    data = json.loads(text)\n"
         "    return str(data['k'].get('x'))\n"
@@ -164,6 +198,92 @@ TYPED_PROBES = {
     "json_param_of_unexecuted_function_is_not_json": (
         "import json\nfrom typing import Any\n\n\ndef unused(record: dict[str, Any]) -> str:\n"
         "    return str(record.get('x'))\n"
+    ),
+    # Review round 1 (Sol B2, DeepSeek B2): a JSON container is mutable, so
+    # anything stored into it is no longer JSON. Each must leave `<Any>` sites.
+    "json_contaminated_by_a_store": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> str:\n"
+        "    data = json.loads(text)\n    data['value'] = other\n"
+        "    return str(data['value'].read_text())\n"
+    ),
+    "json_contaminated_dict_item": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    data['x'] = other\n    data['x'].danger()\n"
+    ),
+    "json_contaminated_by_append": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    data.append(other)\n    data[0].danger()\n"
+    ),
+    "json_contaminated_nested": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    data['k']['x'] = other\n    data['k']['x'].danger()\n"
+    ),
+    "json_contaminated_through_an_alias": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    inner = data['k']\n    inner['x'] = other\n"
+        "    data['k']['x'].danger()\n"
+    ),
+    "json_contaminated_by_a_helper": (
+        "import json\nfrom typing import Any\n\n\ndef put(record: Any, value: Any) -> None:\n"
+        "    record['x'] = value\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    put(data, other)\n    data['x'].danger()\n"
+    ),
+    "json_contaminated_through_a_returned_alias": (
+        "import json\nfrom typing import Any\n\n\ndef pick(record: Any) -> Any:\n"
+        "    return record['k']\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    pick(data)['x'] = other\n    data['k']['x'].danger()\n"
+    ),
+    "json_contaminated_by_setdefault": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    data.setdefault('x', other).danger()\n"
+    ),
+    "json_contaminated_by_update": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    data.update({'x': other})\n    data['x'].danger()\n"
+    ),
+    "json_contaminated_by_a_closure": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n\n    def g() -> None:\n        data['x'] = other\n\n"
+        "    g()\n    data['x'].danger()\n"
+    ),
+    "json_contaminated_through_a_copy": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    rows = list(data)\n    rows[0]['x'] = other\n"
+        "    data[0]['x'].danger()\n"
+    ),
+    "json_contaminated_by_a_get_default": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    data.get('x', other).danger()\n"
+    ),
+    "json_contaminated_through_a_display": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    rows = [data['k']]\n    rows[0]['x'] = other\n"
+        "    data['k']['x'].danger()\n"
+    ),
+    "json_contaminated_through_a_comprehension": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    rows = [row for row in data]\n"
+        "    rows[0]['x'] = other\n    data[0]['x'].danger()\n"
+    ),
+    "json_fresh_literal_filled_is_not_json": (
+        "from typing import Any\n\n\ndef f(other: Any) -> None:\n"
+        "    rows = []\n    rows.append(other)\n    rows[0].danger()\n"
+    ),
+    "json_contaminated_by_sort": (
+        "import json\nfrom typing import Any\n\n\ndef f(text: str, other: Any) -> None:\n"
+        "    data = json.loads(text)\n    data['rows'].sort(key=other)\n"
+        "    data['rows'][0].danger()\n"
+    ),
+    "json_at_module_level_is_not_json": (
+        "import json\n\nCONFIG = json.loads('{}')\n\n\ndef f() -> None:\n"
+        "    CONFIG['x'].danger()\n"
+    ),
+    "json_read_only": (
+        "import json\n\n\ndef f(text: str) -> int:\n    data = json.loads(text)\n"
+        "    total = 0\n    for key, value in data.items():\n"
+        "        if key.startswith('a') and value.get('n'):\n"
+        "            total += len(value['items'])\n"
+        "    name = data.get('name', '')\n    return total + len(name.strip())\n"
     ),
     "argparse_dest": (
         "import argparse\nfrom pathlib import Path\n\n\ndef main() -> str:\n"
@@ -262,7 +382,7 @@ def _json_and_any(sites: list[Any], probe: str) -> tuple[set[str], set[str]]:
     return json_sites, {t for t in targets if t.startswith("<Any>")}
 
 
-@pytest.mark.parametrize("probe", ["json_local", "json_through_helpers"])
+@pytest.mark.parametrize("probe", ["json_local", "json_through_helpers", "json_read_only"])
 def test_json_values_are_proved(scanned: tuple[Any, list[Any]], probe: str) -> None:
     json_sites, any_sites = _json_and_any(scanned[1], probe)
     assert json_sites and not any_sites, (json_sites, any_sites)
@@ -276,6 +396,23 @@ JSON_NEGATIVES = [
     "json_parse_float_is_not_json",
     "json_overridden_method_is_not_json",
     "json_param_of_unexecuted_function_is_not_json",
+    "json_contaminated_by_a_store",
+    "json_contaminated_dict_item",
+    "json_contaminated_by_append",
+    "json_contaminated_nested",
+    "json_contaminated_through_an_alias",
+    "json_contaminated_by_a_helper",
+    "json_contaminated_through_a_returned_alias",
+    "json_contaminated_by_setdefault",
+    "json_contaminated_by_update",
+    "json_contaminated_by_a_closure",
+    "json_contaminated_through_a_copy",
+    "json_contaminated_by_a_get_default",
+    "json_at_module_level_is_not_json",
+    "json_contaminated_through_a_display",
+    "json_contaminated_through_a_comprehension",
+    "json_fresh_literal_filled_is_not_json",
+    "json_contaminated_by_sort",
 ]
 
 
@@ -294,6 +431,48 @@ def test_json_is_not_assumed_where_it_is_not_proved(
     _json_sites, any_sites = _json_and_any(scanned[1], probe)
     assert any_sites, f"{probe}: an unproved value was treated as JSON"
     assert _fails(scanned[1], probe, "<Any>") == [], f"{probe}: an unproved Any site passed"
+
+
+#: The reviewed closed list of types inert as a whole (review round 1, Sol B3 /
+#: DeepSeek N1). Every method of each is in-memory: no method opens, reads,
+#: writes, stats, scans or deletes anything, reads the clock or the environment,
+#: or starts anything. Adding a type here is a review decision; any other type
+#: is listed method by method in inert.json, or its methods are declared edges.
+PURE_TYPES = frozenset({
+    "<json>", "builtins.str", "builtins.bytes", "builtins.bytearray", "builtins.int",
+    "builtins.float", "builtins.bool", "builtins.list", "builtins.dict", "builtins.set",
+    "builtins.frozenset", "builtins.tuple", "builtins.range", "builtins.enumerate",
+    "builtins.zip", "builtins.map", "builtins.reversed", "builtins.BaseException",
+    "re.Pattern", "re.Match", "_hashlib.HASH", "xml.etree.ElementTree.Element",
+    "xml.etree.ElementTree.TreeBuilder", "pathlib.PurePath", "collections.Counter",
+    "uuid.UUID", "ipaddress._BaseAddress", "ipaddress._BaseNetwork", "enum.IntFlag",
+    "os.stat_result", "_io.BytesIO",
+})
+
+
+def test_type_level_inert_entries_are_only_the_reviewed_pure_types() -> None:
+    types = set(scan.Lists.load().inert_types)
+    assert types <= PURE_TYPES, f"type-level entries off the reviewed list: {types - PURE_TYPES}"
+    for impure in ("zipfile.ZipFile", "os.DirEntry", "_io._IOBase", "_io._BufferedIOBase",
+                   "sqlite3.Cursor", "tempfile.TemporaryDirectory", "typing.MutableMapping"):
+        assert impure not in types
+
+
+def test_the_producer_rule_covers_only_read_only_protocols() -> None:
+    """Protocol dunders on an abstract receiver pass only for read-only protocols."""
+    covered = scan._PROTOCOL_DUNDERS_COVERED_AT_PRODUCER
+    for mutable in ("typing.MutableMapping", "typing.MutableSequence", "typing.MutableSet",
+                    "typing.ContextManager", "contextlib.AbstractContextManager"):
+        assert mutable not in covered
+
+
+def test_a_mixin_method_is_named_after_the_concrete_receiver(
+    scanned: tuple[Any, list[Any]],
+) -> None:
+    """`dict.update` is typeshed's `MutableMapping.update`; it is classified as dict's."""
+    targets = {s.target for s in scanned[1] if s.module.endswith("/dict_update.py")}
+    assert {"builtins.dict.update", "builtins.dict.setdefault"} <= targets, targets
+    assert not any(t.startswith("typing.MutableMapping") for t in targets), targets
 
 
 def test_argparse_values_get_the_type_argparse_guarantees(scanned: tuple[Any, list[Any]]) -> None:

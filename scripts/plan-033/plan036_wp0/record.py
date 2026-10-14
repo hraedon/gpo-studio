@@ -17,6 +17,16 @@ successor record carries the replay and re-grade results. `write_records`
 refuses to write either if any lane's replay or re-grade differs, if the scan
 fails anywhere, or if any declaration is unused; the gate refuses a pin whose
 successor digest does not match the committed successor record.
+
+**The pin is bound to the record's content, not only its digest** (review
+round 1, Sol B1: a pin over a fabricated two-key successor record passed).
+The gate requires the committed successor record to be complete and all-equal
+(`successor_problems`: every applicable replay identical, every re-grade equal
+at the target and at the verdict's own commit, no failing scan site, every
+environment built by the recorded uv method), rebuilds the pin from it and
+refuses any pin that differs (a pin is never edited by hand), and holds the
+record's lane set, verdict commits, closures, resources, floor, memberships,
+external modules and declared edges to the re-derivation at the gated tree.
 """
 
 from __future__ import annotations
@@ -37,6 +47,7 @@ from . import changed as changed_mod
 from . import closure as closure_mod
 from . import projection, replay, scan
 from .lanes import Lane, live_lanes
+from .lanes import controller_log as controller_log_value
 from .repo import LISTS_DIR, REPO_ROOT, Wp0Error, git, rev_parse, sha256_bytes, sha256_file
 from .repo import tracked_files as repo_tracked
 
@@ -63,7 +74,16 @@ DESIGN_NOTES = (
     "A file the verdict already binds that changed selects its lane through the "
     "existing freshness gate, listed with its own reason.",
     "The scan's argparse plugin and JSON-provenance proof type values mypy "
-    "leaves Any; a value neither proves stays Any and fails unless declared.",
+    "leaves Any; a value neither proves stays Any and fails unless declared. "
+    "The JSON proof holds only inside a JSON-clean function, one in which no "
+    "value that may alias decoded JSON is stored into, mutated, or handed to "
+    "code the proof does not follow (review round 1).",
+    "Every clone environment is built by replay.uv_environment: the commit's own "
+    "lock synced without building anything, the build backend from that lock or, "
+    "for a lock that locks none (before 547626b), from the tool tree's lock by "
+    "hash, and the project built offline without isolation. Each environment's "
+    "method, pins and installed set are recorded under `environments` (review "
+    "round 1).",
 )
 CAVEAT = (
     "These verdicts were earned on the estate at their own commits (de9736e or "
@@ -192,6 +212,7 @@ def derive_part1(
             "verdict": lane.verdict,
             "commit": lane.commit,
             "shape": lane.shape,
+            "has_candidate": lane.has_candidate,
             "processes": {
                 role: {
                     "entry": proc.entry,
@@ -267,6 +288,7 @@ def run(
     clones = workdir / "clones"
     with replay.clone(repo, target, clones, "target-a", launcher=launcher) as clone_a, \
             replay.clone(repo, target, clones, "target-b", launcher=launcher) as clone_b:
+        environments = {"target-a": clone_a.environment, "target-b": clone_b.environment}
         part1 = derive_part1(clone_a.path, python_version, lists, python=clone_a.python)
         lanes = [lane for lane in live_lanes(clone_a.path)
                  if lanes_wanted is None or lane.name in lanes_wanted]
@@ -281,6 +303,7 @@ def run(
                 fidelity_clones[commit] = stack.enter_context(
                     replay.clone(repo, commit, clones, f"verdict-{commit[:12]}", launcher=launcher)
                 )
+                environments[f"verdict-{commit}"] = fidelity_clones[commit].environment
 
             def tables(at: replay.Clone, lane: Lane) -> dict[str, Any]:
                 key = (at.commit, lane.spec.finalizer)
@@ -344,6 +367,7 @@ def run(
     return {
         "target": target,
         "part1": part1,
+        "environments": environments,
         "lanes": results,
         "selection": {name: asdict(s) for name, s in selections.items()},
         "option2": sorted(name for name, s in selections.items() if s.selected),
@@ -387,9 +411,15 @@ def _part2_lane(
             member_digest=digest,
         )
 
+    # The banked verdict was written on the controller in LOCAL_RUN_DIR (with
+    # the candidate in CANDIDATE_DIR), as its pack's controller.log records, so
+    # the projection's path rewrite applies to the banked side too (review
+    # round 1, DeepSeek N3). A pack that does not record one has no such root.
     banked_side = projection.Side(
         verdict=banked, commit=lane.commit, tables=tables(fidelity, lane),
-        run_root="", candidate_root="", member_digest=lane.pack_files.get,
+        run_root=_banked_root(root, lane, "LOCAL_RUN_DIR"),
+        candidate_root=_banked_root(root, lane, "CANDIDATE_DIR"),
+        member_digest=lane.pack_files.get,
     )
     problems: list[str] = []
     for result in (plain, traced, observed, own):
@@ -430,6 +460,15 @@ def _part2_lane(
     }
 
 
+def _banked_root(root: Path, lane: Lane, key: str) -> str:
+    """The controller directory *key* names in the lane's pack ("" when absent)."""
+    try:
+        value = controller_log_value(root, lane, key)
+    except (KeyError, OSError):
+        return ""
+    return value if value.startswith("/") and value.rstrip("/") else ""
+
+
 def _digest_in(run_root: str, member: str) -> str | None:
     if not run_root:
         return None
@@ -456,6 +495,7 @@ def successor_record(result: dict[str, Any], environment: dict[str, str]) -> dic
             "verdict": lane1["verdict"],
             "verdict_commit": lane1["commit"],
             "shape": lane1["shape"],
+            "has_candidate": lane1["has_candidate"],
             "closure": lane1["closure"],
             "external_modules": sorted({m for proc in lane1["processes"].values()
                                         for m in proc["external"]}),
@@ -488,6 +528,7 @@ def successor_record(result: dict[str, Any], environment: dict[str, str]) -> dic
         "exemptions_sha256": part1["exemptions_sha256"],
         "toolchain": part1["toolchain"],
         "environment": environment,
+        "environments": result.get("environments", {}),
         "design_notes": list(DESIGN_NOTES),
         "option2": result["option2"],
         "option3": result["option3"],
@@ -515,30 +556,137 @@ def refusals(result: dict[str, Any]) -> list[str]:
     return problems
 
 
-def pin_from(
-    successor: dict[str, Any], successor_bytes: bytes, part1: dict[str, Any]
-) -> dict[str, Any]:
+#: Per-lane fields a successor record must carry, and the part 1 field each
+#: must equal at the gated tree.
+_REDERIVED = {
+    "verdict": "verdict", "verdict_commit": "commit", "has_candidate": "has_candidate",
+    "closure": "closure", "resources": "resources", "floor": "floor",
+    "memberships": "memberships", "declared_edges": "edges",
+}
+_LANE_FIELDS = (*_REDERIVED, "external_modules", "replay", "regrade", "scan_counts", "selected")
+
+
+def _sha(value: Any) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def successor_problems(successor: Any) -> list[str]:
+    """Why *successor* is not a complete, all-equal successor record (empty: it is).
+
+    Review round 1 (Sol B1): the pin is only as good as the record it names.
+    A record qualifies only if every applicable replay is identical, every
+    re-grade (at the target and at the verdict's own commit) is equal with no
+    problem, no scan site fails, and every clone environment was built by the
+    recorded uv method (`replay.uv_environment`), one for the target and one
+    for each verdict commit.
+    """
+    if not isinstance(successor, dict):
+        return ["the successor record is not a JSON object"]
+    problems: list[str] = []
+    if successor.get("schema") != 1:
+        problems.append(f"successor schema {successor.get('schema')!r} is not 1")
+    target = successor.get("target_commit")
+    if not (isinstance(target, str) and re.fullmatch(r"[0-9a-f]{40}", target)):
+        problems.append(f"successor target_commit {target!r} is not a commit id")
+    analysis = successor.get("analysis")
+    if not (isinstance(analysis, dict) and analysis.get("python_version")
+            and analysis.get("platform")):
+        problems.append("successor analysis (python_version, platform) is missing")
+    for key in ("lists_sha256", "exemptions_sha256"):
+        if not _sha(successor.get(key)):
+            problems.append(f"successor {key} is missing")
+    if not isinstance(successor.get("toolchain"), dict):
+        problems.append("successor toolchain is missing")
+    if successor.get("design_notes") != list(DESIGN_NOTES):
+        problems.append("successor design notes are not this tooling's")
+    lanes = successor.get("lanes")
+    if not isinstance(lanes, dict) or not lanes:
+        return [*problems, "the successor record names no lanes"]
+    environments = successor.get("environments")
+    if not isinstance(environments, dict):
+        environments = {}
+        problems.append("the successor record does not say how its environments were built")
+    for label, built in sorted(environments.items()):
+        if not isinstance(built, dict) or built.get("method") != replay.UV_METHOD:
+            problems.append(f"environment {label} was not built by {replay.UV_METHOD}")
+        elif not (built.get("installed") and built.get("backend") and built.get("steps")
+                  and _sha(built.get("uv_lock_sha256"))):
+            problems.append(f"environment {label} does not record its build")
+    built_commits = {built.get("commit") for built in environments.values()
+                     if isinstance(built, dict)}
+    for label in ("target-a", "target-b"):
+        if environments.get(label, {}).get("commit") != target:
+            problems.append(f"no {label} environment at the target commit")
+    selected = []
+    for name, lane in sorted(lanes.items()):
+        if not isinstance(lane, dict):
+            problems.append(f"{name}: not an object")
+            continue
+        missing = [key for key in _LANE_FIELDS if key not in lane]
+        if missing:
+            problems.append(f"{name}: missing {missing}")
+            continue
+        if lane["verdict_commit"] not in built_commits:
+            problems.append(f"{name}: no environment at its verdict commit")
+        replayed = lane["replay"]
+        if bool(replayed.get("applicable")) != bool(lane["has_candidate"]):
+            problems.append(f"{name}: replay applicability does not match the lane")
+        if replayed.get("applicable") and not (
+            replayed.get("identical") is True and not replayed.get("problems")
+        ):
+            problems.append(f"{name}: the replay is not identical")
+        regrade = lane["regrade"]
+        at_commit = regrade.get("at_verdict_commit") or {}
+        if not (regrade.get("equal") is True and not regrade.get("problems")
+                and (regrade.get("at_target") or {}).get("equal") is True
+                and at_commit.get("equal") is True):
+            problems.append(f"{name}: the re-grade is not equal")
+        if at_commit.get("commit") != lane["verdict_commit"]:
+            problems.append(f"{name}: the own-commit re-grade ran at another commit")
+        failing = {k: v for k, v in (lane["scan_counts"] or {}).items() if k in scan.FAILING}
+        if any(failing.values()):
+            problems.append(f"{name}: scan sites fail {failing}")
+        if lane["selected"]:
+            selected.append(name)
+    if successor.get("option2") != selected:
+        problems.append("successor option2 is not the lanes it marks selected")
+    return problems
+
+
+def pin_from(successor: dict[str, Any], successor_bytes: bytes) -> dict[str, Any]:
+    """The pin a successor record determines (refused for an incomplete record).
+
+    Every field is copied from the successor record, so the gate can rebuild
+    the pin from the committed record and refuse any pin that differs.
+    """
+    problems = successor_problems(successor)
+    if problems:
+        raise Wp0Error(f"no pin from an incomplete successor record: {problems[:5]}")
+    return _pin_of(successor, successor_bytes)
+
+
+def _pin_of(successor: dict[str, Any], successor_bytes: bytes) -> dict[str, Any]:
     return {
         "schema": 1,
         "successor_record": SUCCESSOR_RECORD,
         "successor_sha256": sha256_bytes(successor_bytes),
         "target_commit": successor["target_commit"],
         "analysis": successor["analysis"],
-        "lists_sha256": part1["lists_sha256"],
-        "exemptions_sha256": part1["exemptions_sha256"],
-        "toolchain": part1["toolchain"],
+        "lists_sha256": successor["lists_sha256"],
+        "exemptions_sha256": successor["exemptions_sha256"],
+        "toolchain": successor["toolchain"],
         "lanes": {
             name: {
-                "verdict": lane1["verdict"],
-                "closure": lane1["closure"],
-                "external": sorted({m for proc in lane1["processes"].values()
-                                    for m in proc["external"]}),
-                "resources": lane1["resources"],
-                "memberships": lane1["memberships"],
-                "floor": lane1["floor"],
-                "edges": lane1["edges"],
+                "verdict": lane["verdict"],
+                "verdict_commit": lane["verdict_commit"],
+                "closure": lane["closure"],
+                "external": lane["external_modules"],
+                "resources": lane["resources"],
+                "memberships": lane["memberships"],
+                "floor": lane["floor"],
+                "edges": lane["declared_edges"],
             }
-            for name, lane1 in sorted(part1["lanes"].items())
+            for name, lane in sorted(successor["lanes"].items())
         },
     }
 
@@ -550,8 +698,12 @@ def write_records(repo: Path, result: dict[str, Any], environment: dict[str, str
         return problems
     successor = successor_record(result, environment)
     successor_bytes = _dump(successor)
+    problems = successor_problems(successor)
+    if problems:
+        return problems
+    pin = pin_from(successor, successor_bytes)
     (repo / SUCCESSOR_RECORD).write_bytes(successor_bytes)
-    (repo / PIN_RECORD).write_bytes(_dump(pin_from(successor, successor_bytes, result["part1"])))
+    (repo / PIN_RECORD).write_bytes(_dump(pin))
     return []
 
 
@@ -640,14 +792,28 @@ def compare_pin(
 ) -> list[str]:
     """`verify_pin` against an already derived part 1 (the tests reuse one derivation)."""
     problems: list[str] = []
-    successor = root / pin["successor_record"]
-    if not successor.is_file():
+    successor_path = root / pin["successor_record"]
+    if not successor_path.is_file():
         return [f"the successor record {pin['successor_record']} is missing"]
-    if sha256_file(successor) != pin["successor_sha256"]:
+    successor_bytes = successor_path.read_bytes()
+    if sha256_bytes(successor_bytes) != pin.get("successor_sha256"):
         problems.append(
             "the pin was not derived from the committed successor record (its digest differs): "
             "regenerate both with a full run of parts 1 and 2, never the pin alone"
         )
+    try:
+        successor = json.loads(successor_bytes)
+    except ValueError:
+        return [*problems, "the successor record is not JSON"]
+    incomplete = successor_problems(successor)
+    problems.extend(f"successor record: {p}" for p in incomplete)
+    if not incomplete:
+        if pin != _pin_of(successor, successor_bytes) | {
+            "successor_record": pin.get("successor_record")
+        }:
+            problems.append("the pin is not the one its successor record determines "
+                            "(a pin is never edited by hand)")
+        problems.extend(_successor_against(successor, part1, lists))
     if lists.digest != pin["lists_sha256"]:
         problems.append("the classification lists changed since the pin (a tier-2 change)")
     if sha256_file(LISTS_DIR / "exemptions.json") != pin["exemptions_sha256"]:
@@ -674,10 +840,6 @@ def compare_pin(
             for path in sorted(set(lane1[label]) & set(pinned[label])):
                 if lane1[label][path] != pinned[label][path]:
                     problems.append(f"{name}: {path} changed since the pin")
-        if not set(pinned["floor"]) <= set(pinned["closure"]) | set(pinned["resources"]) | set(
-            pinned["floor"]
-        ):  # pragma: no cover - by construction
-            problems.append(f"{name}: the floor is not inside the pinned dependency set")
         external = sorted({m for proc in lane1["processes"].values() for m in proc["external"]})
         if external != pinned["external"]:
             problems.append(f"{name}: external modules {external} != {pinned['external']}")
@@ -696,6 +858,34 @@ def compare_pin(
     if unpinned:
         problems.append(f"pinned files a Windows checkout could rewrite (no eol=lf/-text): "
                         f"{unpinned}")
+    return problems
+
+
+def _successor_against(
+    successor: dict[str, Any], part1: dict[str, Any], lists: scan.Lists
+) -> list[str]:
+    """The successor record against the re-derivation at the gated tree."""
+    problems: list[str] = []
+    if successor["lists_sha256"] != lists.digest:
+        problems.append("successor record: the classification lists differ from the tree's")
+    if successor["exemptions_sha256"] != part1["exemptions_sha256"]:
+        problems.append("successor record: the exemption table differs from the tree's")
+    if successor["toolchain"] != part1["toolchain"]:
+        problems.append("successor record: the toolchain differs from the tree's")
+    if sorted(successor["lanes"]) != sorted(part1["lanes"]):
+        problems.append(f"successor record: lane set {sorted(successor['lanes'])} is not the "
+                        f"live lane set {sorted(part1['lanes'])}")
+    for name, lane in sorted(successor["lanes"].items()):
+        lane1 = part1["lanes"].get(name)
+        if lane1 is None:
+            continue
+        for field_name, part1_name in _REDERIVED.items():
+            if lane[field_name] != lane1[part1_name]:
+                problems.append(f"successor record: {name}: {field_name} differs from the "
+                                "re-derivation at this tree")
+        external = sorted({m for proc in lane1["processes"].values() for m in proc["external"]})
+        if lane["external_modules"] != external:
+            problems.append(f"successor record: {name}: external modules differ")
     return problems
 
 

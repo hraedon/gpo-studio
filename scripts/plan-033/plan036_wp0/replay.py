@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -57,7 +58,15 @@ from pathlib import Path
 from typing import Any
 
 from .lanes import RUNNER_PYTHON_FLAGS, Lane, render_argv, resolve_inputs, script_argument
-from .repo import PACKAGE_DIR, Wp0Error, detached_worktree, git, is_clean, sha256_file
+from .repo import (
+    PACKAGE_DIR,
+    Wp0Error,
+    detached_worktree,
+    git,
+    is_clean,
+    sha256_bytes,
+    sha256_file,
+)
 
 TRACER = PACKAGE_DIR / "tracer.py"
 #: Variables passed through from the tool's environment (everything else is dropped).
@@ -76,35 +85,126 @@ class Clone:
     commit: str
     python: list[str]
     env: dict[str, str]
+    #: How the clone's interpreter environment was built (carried into the
+    #: successor record; review round 1, DeepSeek B1).
+    environment: dict[str, Any] = field(default_factory=dict)
+
+
+#: The environment method `write-records` requires (the successor record refuses any other).
+UV_METHOD = "uv-locked"
+_BACKEND = re.compile(rb'^name = "hatchling"$', re.MULTILINE)
+
+
+def _uv(args: list[str], cwd: Path, env: dict[str, str]) -> str:
+    result = subprocess.run(["uv", *args], cwd=cwd, capture_output=True, check=False, env=env)
+    if result.returncode != 0:
+        raise Wp0Error(
+            f"uv {' '.join(args[:3])} failed in {cwd}: "
+            + result.stderr.decode("utf-8", errors="replace").strip()[-600:]
+        )
+    return result.stdout.decode("utf-8")
+
+
+def uv_environment(path: Path, commit: str, tool_root: Path) -> tuple[list[str], dict[str, Any]]:
+    """Build the clone's `.venv` deterministically, the same way at every commit.
+
+    1. `uv sync --locked --no-install-project --no-build`: the commit's own
+       locked, hash-checked dependencies, wheels only (nothing is built).
+    2. The build backend: a commit whose uv.lock locks hatchling (every commit
+       from 547626b on) installed it in step 1 (its default `build-backend`
+       group). An older lock does not lock a backend at all (its CI built the
+       project in an isolated environment with whatever hatchling the index
+       served that day), so the backend is installed from the *tool tree's*
+       lock instead: `uv export --locked --only-group build-backend` there,
+       installed `--require-hashes --no-build --no-deps`. Which source was used,
+       and the exact pins, are recorded; nothing falls back silently.
+    3. `uv pip install --no-deps --no-build-isolation --offline -e <clone>`:
+       the project, editable, built by that backend with no network.
+
+    Network access is used only by steps 1 and 2, only for hash-pinned locked
+    artifacts, so a cold cache and a warm one produce the same environment.
+    """
+    env = {**os.environ, "VIRTUAL_ENV": "", "UV_PROJECT_ENVIRONMENT": ""}
+    steps: list[list[str]] = []
+    placeholders = {str(path): "<clone>"}
+
+    def step(args: list[str], cwd: Path) -> str:
+        steps.append(["uv", *args])
+        return _uv(args, cwd, env)
+
+    step(["sync", "--locked", "--no-install-project", "--no-build", "--quiet"], path)
+    bindir = path / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+    python = str(bindir / ("python.exe" if os.name == "nt" else "python"))
+    placeholders[python] = "<python>"
+    lock = (path / "uv.lock").read_bytes()
+    if _BACKEND.search(lock):
+        backend_source = "the commit's own uv.lock (default group build-backend)"
+        backend_lock_sha256 = sha256_bytes(lock)
+    else:
+        tool_lock = (tool_root / "uv.lock").read_bytes()
+        backend_source = "the tool tree's uv.lock (this commit's lock locks no backend)"
+        backend_lock_sha256 = sha256_bytes(tool_lock)
+        requirements = _uv(
+            ["export", "--locked", "--only-group", "build-backend", "--no-emit-project",
+             "--format", "requirements-txt", "--quiet", "--project", str(tool_root)],
+            tool_root, env,
+        )
+        steps.append(["uv", "export", "--locked", "--only-group", "build-backend",
+                      "--no-emit-project", "--format", "requirements-txt", "--project",
+                      "<tool tree>"])
+        backend_file = path.parent / f"{path.name}-backend.txt"
+        placeholders[str(backend_file)] = "<the tool lock's build-backend export>"
+        backend_file.write_text(requirements, encoding="utf-8")
+        try:
+            step(["pip", "install", "--python", python, "--require-hashes", "--no-build",
+                  "--no-deps", "--quiet", "-r", str(backend_file)], path)
+        finally:
+            backend_file.unlink(missing_ok=True)
+    step(["pip", "install", "--python", python, "--no-deps", "--no-build-isolation",
+          "--offline", "--quiet", "-e", str(path)], path)
+    frozen = _uv(["pip", "freeze", "--python", python], path, env)
+    installed = sorted(
+        "-e <clone>" if line.startswith("-e ") else line
+        for line in frozen.splitlines() if line.strip()
+    )
+    backend = sorted(line for line in installed
+                     if line.split("==")[0] in ("hatchling", "editables"))
+    version = subprocess.run(
+        [python, "-I", "-c", "import platform; print(platform.python_version())"],
+        capture_output=True, check=True,
+    ).stdout.decode("utf-8").strip()
+    record = {
+        "method": UV_METHOD,
+        "commit": commit,
+        "uv": _uv(["--version"], path, env).strip(),
+        "python": version,
+        "uv_lock_sha256": sha256_bytes(lock),
+        "backend_source": backend_source,
+        "backend_lock_sha256": backend_lock_sha256,
+        "backend": backend,
+        "steps": [[placeholders.get(a, a) for a in argv] for argv in steps],
+        "installed": installed,
+    }
+    return [python], record
 
 
 @contextmanager
 def clone(
-    repo: Path, commit: str, parent: Path, name: str, *, launcher: str = "uv"
+    repo: Path, commit: str, parent: Path, name: str, *, launcher: str = "uv",
+    tool_root: Path | None = None,
 ) -> Iterator[Clone]:
     """A fresh worktree of *commit* with an interpreter that imports its own src/.
 
-    launcher "uv": `uv sync --locked --offline` into the clone's `.venv` (the
-    lanes' environment). launcher "current": this interpreter with the clone's
-    `src` on PYTHONPATH (tests on synthetic repositories only).
+    launcher "uv": `uv_environment` builds the clone's `.venv` (the lanes'
+    environment) and records how. launcher "current": this interpreter with the
+    clone's `src` on PYTHONPATH (tests on synthetic repositories only; the
+    successor record refuses an environment built this way).
     """
     with detached_worktree(repo, commit, parent, name) as path:
         base = {k: os.environ[k] for k in RUN_ENVIRONMENT if k in os.environ}
         if launcher == "uv":
-            result = subprocess.run(
-                ["uv", "sync", "--locked", "--offline", "--quiet"],
-                cwd=path,
-                capture_output=True,
-                check=False,
-                env={**os.environ, "VIRTUAL_ENV": "", "UV_PROJECT_ENVIRONMENT": ""},
-            )
-            if result.returncode != 0:
-                raise Wp0Error(
-                    f"uv sync failed in {path}: "
-                    + result.stderr.decode("utf-8", errors="replace").strip()[-400:]
-                )
-            bindir = path / ".venv" / ("Scripts" if os.name == "nt" else "bin")
-            python = [str(bindir / ("python.exe" if os.name == "nt" else "python"))]
+            python, environment = uv_environment(path, commit, tool_root or repo)
+            bindir = Path(python[0]).parent
             env = {
                 **base,
                 "VIRTUAL_ENV": str(path / ".venv"),
@@ -113,9 +213,11 @@ def clone(
         elif launcher == "current":
             python = [sys.executable]
             env = {**base, "PYTHONPATH": str(path / "src")}
+            environment = {"method": "current-interpreter", "commit": commit,
+                           "python": sys.version.split()[0]}
         else:
             raise Wp0Error(f"unknown launcher {launcher}")
-        yield Clone(path=path, commit=commit, python=python, env=env)
+        yield Clone(path=path, commit=commit, python=python, env=env, environment=environment)
 
 
 @dataclass

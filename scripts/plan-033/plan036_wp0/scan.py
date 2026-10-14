@@ -109,7 +109,7 @@ from mypy.types import (
 )
 
 from .argparse_plugin import ArgparsePlugin
-from .json_origin import JsonOrigins, ParameterOracle
+from .json_origin import JsonOrigins, ParameterOracle, immutable
 from .repo import LISTS_DIR, Wp0Error, sha256_bytes
 
 #: The controller's platform, as `sys.platform` and `os.name` report it. The
@@ -183,16 +183,20 @@ _OPAQUE_REASON = {
 }
 #: Classes whose instance methods are all special-cased elsewhere.
 _OBJECT = "builtins.object"
+#: Read-only protocols: an implicit dunder on a receiver typed only by one of
+#: these runs on a concrete object made by a call classified where it was made
+#: (a declared open covers reading the file it opened). Mutable protocols and
+#: context managers are excluded (review round 1): a store into an abstract
+#: MutableMapping may be a store into os.environ, and an abstract `__exit__` may
+#: write an archive's central directory.
 _PROTOCOL_DUNDERS_COVERED_AT_PRODUCER = frozenset(
     {
         "typing.Iterator", "typing.Iterable", "typing.Generator", "typing.AsyncIterator",
         "typing.Reversible", "typing.Collection", "typing.Container", "typing.Sized",
-        "typing.Sequence", "typing.Mapping", "typing.MutableMapping",
-        "typing.MutableSequence", "typing.AbstractSet", "typing.MutableSet",
+        "typing.Sequence", "typing.Mapping", "typing.AbstractSet",
         "typing.KeysView", "typing.ValuesView", "typing.ItemsView", "typing.MappingView",
         "typing.SupportsIndex", "typing.SupportsInt", "typing.SupportsFloat",
-        "typing.SupportsAbs", "typing.Hashable", "typing.ContextManager",
-        "typing.AbstractContextManager", "contextlib.AbstractContextManager",
+        "typing.SupportsAbs", "typing.Hashable",
     }
 )
 
@@ -704,10 +708,35 @@ def _class_object_info(typ: Type | None) -> TypeInfo | None:
     return None
 
 
+#: Abstract bases and mixins whose methods typeshed declares once for many
+#: concrete classes. A method found on one of these is named after the last
+#: concrete class before it in the receiver's MRO: at run time that class (or
+#: its C implementation) is what runs, so `dict.update`, `BytesIO.read` or a
+#: file's `__exit__` is classified as itself rather than as
+#: `MutableMapping.update` or `_IOBase.__exit__` shared with every other
+#: subclass. A receiver typed by the abstract class itself keeps the abstract
+#: name (its concrete class is unknown).
+_ABSTRACT_PREFIXES = ("typing.", "collections.abc.", "_collections_abc.", "_typeshed.")
+_ABSTRACT_CLASSES = frozenset({
+    "contextlib.AbstractContextManager", "contextlib.AbstractAsyncContextManager",
+    "_io._IOBase", "_io._RawIOBase", "_io._BufferedIOBase", "_io._TextIOBase",
+    "io.IOBase", "io.RawIOBase", "io.BufferedIOBase", "io.TextIOBase",
+})
+
+
+def _abstract(info: TypeInfo) -> bool:
+    return info.fullname.startswith(_ABSTRACT_PREFIXES) or info.fullname in _ABSTRACT_CLASSES
+
+
 def _lookup(info: TypeInfo, name: str) -> tuple[TypeInfo, SymbolNode | None] | None:
+    concrete: TypeInfo | None = None
     for base in info.mro:
         if name in base.names:
+            if concrete is not None and _abstract(base):
+                return concrete, base.names[name].node
             return base, base.names[name].node
+        if not _abstract(base) and base.fullname != _OBJECT:
+            concrete = base
     return None
 
 
@@ -1046,7 +1075,11 @@ class Scanner:
         else:
             self.implicit(typ, "__iter__", node.line, "for loop", subject=node.expr)
             if node.inferred_iterator_type is not None:
-                self.implicit(node.inferred_iterator_type, "__next__", node.line, "for loop")
+                # The iterator of a JSON value (a list or dict iterator) is JSON-side.
+                self.implicit(
+                    node.inferred_iterator_type, "__next__", node.line, "for loop",
+                    subject=node.expr,
+                )
         self.store(node.index)
         self.visit(node.body)
         self.visit(node.else_body)
@@ -1963,6 +1996,13 @@ class JsonParameters(ParameterOracle):
 
     Every call site in the analysed set constrains a function, including call
     sites in modules another lane loads: more constraints, never fewer.
+
+    The same fixpoint decides which functions are **JSON-clean** (json_origin.py:
+    every use of every possibly-JSON name is read-only). A caller may hand a JSON
+    value to a function only if the receiving parameter is assumed JSON and the
+    callee is clean, so a callee that stores into, appends to or leaks its
+    parameter makes the caller dirty in turn. Cleanliness starts assumed for
+    every plain function and is refuted round by round with the rest.
     """
 
     def __init__(self, analysis: Analysis) -> None:
@@ -1970,6 +2010,10 @@ class JsonParameters(ParameterOracle):
         self.assume: dict[tuple[str, int, str], bool] = {}
         self.returns: dict[tuple[str, int], bool] = {}
         self.call_index: dict[tuple[str, tuple[int, int, int, int]], tuple[str, int]] = {}
+        #: (caller, call span) -> (call, callee) for direct calls of plain functions.
+        self.call_nodes: dict[tuple[str, tuple[int, int, int, int]], tuple[CallExpr, FuncDef]] = {}
+        self.clean: dict[tuple[str, int], bool] = {}
+        self.immutable: dict[tuple[str, int, str], bool] = {}
         self.solved = False
 
     @classmethod
@@ -1985,6 +2029,46 @@ class JsonParameters(ParameterOracle):
     def is_json_call(self, path: str, span: tuple[int, int, int, int]) -> bool:
         callee = self.call_index.get((path, span))
         return callee is not None and self.returns.get(callee, False)
+
+    def is_immutable_parameter(self, path: str, def_line: int, name: str) -> bool:
+        return self.immutable.get((path, def_line, name), False)
+
+    def returns_proven(self, path: str, def_line: int) -> bool:
+        return self.returns.get((path, def_line), False)
+
+    def argument_stays_json(
+        self, path: str, call: tuple[int, int, int, int], argument: tuple[int, int, int, int]
+    ) -> bool:
+        found = self.call_nodes.get((path, call))
+        if found is None:
+            return False
+        call_expr, function = found
+        callee = self.call_index[(path, call)]
+        if not self.clean.get(callee, False):
+            return False
+        if any(kind in (ARG_STAR, ARG_STAR2) for kind in call_expr.arg_kinds):
+            return False
+        position = 0
+        for value, kind, keyword in zip(
+            call_expr.args, call_expr.arg_kinds, call_expr.arg_names, strict=True
+        ):
+            span = (value.line, value.column, value.end_line, value.end_column)
+            if span == argument:
+                if kind == ARG_POS:
+                    if position >= len(function.arguments):
+                        return False
+                    parameter = function.arguments[position]
+                    if parameter.kind not in (ARG_POS, ARG_OPT):
+                        return False
+                else:
+                    named = [a for a in function.arguments if a.variable.name == keyword]
+                    if len(named) != 1 or named[0].kind in (ARG_STAR, ARG_STAR2):
+                        return False
+                    parameter = named[0]
+                return self.assume.get((callee[0], callee[1], parameter.variable.name), False)
+            if kind == ARG_POS:
+                position += 1
+        return False
 
     def solve(self) -> None:
         if self.solved:
@@ -2014,6 +2098,7 @@ class JsonParameters(ParameterOracle):
                 if call.end_line is not None and call.end_column is not None:
                     span = (call.line, call.column, call.end_line, call.end_column)
                     self.call_index[(caller, span)] = by_id[id(function)]
+                    self.call_nodes[(caller, span)] = (call, function)
             if not live_calls.get(id(function)):
                 continue
             if not function.is_generator and not function.is_coroutine:
@@ -2025,11 +2110,25 @@ class JsonParameters(ParameterOracle):
                     continue
                 candidates[(path, line, argument.variable.name)] = (function, index)
         self.assume = dict.fromkeys(candidates, True)
+        self.clean = dict.fromkeys(analysis.functions, True)
+        # Syntactic, so outside the fixpoint: every actual (or the default an
+        # omitted argument takes) is a constant or another immutable expression.
+        for key, (function, index) in candidates.items():
+            self.immutable[key] = all(
+                self._actual_is_immutable(caller, call, key[0], function, index)
+                for caller, call, _enclosing in live_calls[id(function)]
+            )
         changed = True
         while changed:
             changed = False
             for origins in analysis.origins.values():
                 origins.reset()
+            for (path, line), holds in list(self.clean.items()):
+                if holds and not (
+                    path in analysis.origins and analysis.origins[path].function_clean_at(line)
+                ):
+                    self.clean[(path, line)] = False
+                    changed = True
             for (path, line), holds in list(self.returns.items()):
                 if holds and not (
                     path in analysis.origins and analysis.origins[path].returns_json(line)
@@ -2082,6 +2181,38 @@ class JsonParameters(ParameterOracle):
                         changed = True
                         break
         return executed
+
+    def _actual(
+        self, call: CallExpr, function: FuncDef, index: int
+    ) -> tuple[Expression | None, bool]:
+        """The expression passed for parameter *index* (None when omitted), and
+        whether the call can be mapped at all (no `*`/`**` expansion)."""
+        if any(kind in (ARG_STAR, ARG_STAR2) for kind in call.arg_kinds):
+            return None, False
+        argument = function.arguments[index]
+        positional = [a for a, k in zip(call.args, call.arg_kinds, strict=True) if k == ARG_POS]
+        if index < len(positional) and argument.kind in (ARG_POS, ARG_OPT):
+            return positional[index], True
+        for value, keyword in zip(call.args, call.arg_names, strict=True):
+            if keyword == argument.variable.name:
+                return value, True
+        return None, True
+
+    def _actual_is_immutable(
+        self, caller: str, call: CallExpr, callee_path: str, function: FuncDef, index: int
+    ) -> bool:
+        actual, mapped = self._actual(call, function, index)
+        if not mapped:
+            return False
+        origins = self.analysis.origins
+        if actual is None:
+            actual, caller = function.arguments[index].initializer, callee_path
+        if actual is None or caller not in origins:
+            return False
+        nodes = origins[caller].by_position.get(
+            (actual.line, actual.column, actual.end_line or -1, actual.end_column or -1), []
+        )
+        return bool(nodes) and all(immutable(node) for node in nodes)
 
     def _argument_is_json(
         self, caller: str, call: CallExpr, callee_path: str, function: FuncDef, index: int

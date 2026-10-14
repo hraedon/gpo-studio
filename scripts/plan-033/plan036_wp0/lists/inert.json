@@ -1,5 +1,5 @@
 {
- "comment": "Plan 036 WP-0's reviewed inert list (tier-2 data; plan036_wp0/scan.py). A target here touches nothing outside the process's memory. Keyed by fully qualified target, or (types) by class for a closed set of in-memory types whose every method is inert. A wrong entry hides an edge: that is the residual the plan names.",
+ "comment": "Plan 036 WP-0's reviewed inert list (tier-2 data; plan036_wp0/scan.py). A target here touches nothing outside the process's memory. Keyed by fully qualified target, or (types) by class for a closed set of in-memory types whose every method is inert (the reviewed list PURE_TYPES in tests/test_plan036_scan.py; any other type is listed method by method). A wrong entry hides an edge: that is the residual the plan names.",
  "types": [
   {
    "type": "<json>",
@@ -16,10 +16,6 @@
   {
    "type": "builtins.bytearray",
    "reason": "a mutable byte buffer in memory; no method reaches outside the process"
-  },
-  {
-   "type": "builtins.memoryview",
-   "reason": "a view of an in-memory buffer"
   },
   {
    "type": "builtins.int",
@@ -126,60 +122,8 @@
    "reason": "the fields of a stat result already obtained by a declared call"
   },
   {
-   "type": "os.DirEntry",
-   "reason": "fields of a directory entry already obtained by a declared scandir; DirEntry.stat is listed as a declared edge, not here"
-  },
-  {
-   "type": "contextlib.suppress",
-   "reason": "a context manager that swallows the named exceptions"
-  },
-  {
-   "type": "_thread.RLock",
-   "reason": "an in-process re-entrant lock"
-  },
-  {
-   "type": "typing.Mapping",
-   "reason": "an abstract protocol: the concrete mapping was produced by a call or module read classified where it happened"
-  },
-  {
-   "type": "typing.MutableMapping",
-   "reason": "an abstract protocol: the concrete mapping was produced by a call or module read classified where it happened"
-  },
-  {
-   "type": "typing.MutableSet",
-   "reason": "an abstract protocol: the concrete set was produced by a call classified where it happened"
-  },
-  {
-   "type": "zipfile.ZipFile",
-   "reason": "operations on an archive object whose construction is a declared edge (constructor sites are declared, not inert)"
-  },
-  {
-   "type": "_io._IOBase",
-   "reason": "close/enter/exit of a stream whose opening is a declared edge, or an in-memory buffer"
-  },
-  {
-   "type": "_io._BufferedIOBase",
-   "reason": "reads from a stream whose opening is a declared edge, or an in-memory buffer"
-  },
-  {
    "type": "_io.BytesIO",
    "reason": "an in-memory byte stream"
-  },
-  {
-   "type": "tempfile.TemporaryDirectory",
-   "reason": "enter/exit of a temporary directory whose creation is a declared edge"
-  },
-  {
-   "type": "os._ScandirIterator",
-   "reason": "context management of a directory iterator whose creation (os.scandir) is a declared edge"
-  },
-  {
-   "type": "sqlite3.Cursor",
-   "reason": "rows of a query whose execution (sqlite3.Connection.execute) is a declared edge"
-  },
-  {
-   "type": "datetime.date",
-   "reason": "date arithmetic and formatting (no method of date reads the clock; date.today is not used)"
   }
  ],
  "targets": [
@@ -404,6 +348,19 @@
    "reason": "Type aliases built at import by typing's own __or__/__getitem__ on classes and typing objects (X = A | B, X = Literal[...]): in-memory",
    "names": [
     "typing.<type alias construction>"
+   ]
+  },
+  {
+   "reason": "Methods of types that are not inert as a whole (review round 1 audit): contextlib.suppress enters as itself and swallows the named exception types; an RLock is acquired and released inside the process; date.fromisoformat and date.strftime compute from the value (no clock read); a memoryview over an in-memory bytes object is sliced and measured",
+   "names": [
+    "_thread.RLock.__enter__",
+    "_thread.RLock.__exit__",
+    "builtins.memoryview.__getitem__",
+    "builtins.memoryview.__len__",
+    "contextlib.suppress.__enter__",
+    "contextlib.suppress.__exit__",
+    "datetime.date.fromisoformat",
+    "datetime.date.strftime"
    ]
   }
  ]
