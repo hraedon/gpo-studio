@@ -64,7 +64,7 @@ def test_write_records_refuses_a_dirty_tree(
     monkeypatch.setattr(cli, "is_clean", lambda _root: False)
     code = cli.main(["write-records", "--workdir", str(tmp_path / "w"),
                      "--python-version", "3.14"])
-    assert code == 2 and "clean tree" in capsys.readouterr().err
+    assert code == 2 and "clean tool tree" in capsys.readouterr().err
 
 
 def test_run_hands_its_launcher_and_lanes_to_the_run(

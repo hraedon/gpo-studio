@@ -62,10 +62,14 @@ import fnmatch
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -79,6 +83,7 @@ from .repo import (
     LISTS_DIR,
     REPO_ROOT,
     Wp0Error,
+    detached_worktree,
     git,
     rev_parse,
     sha256_bytes,
@@ -326,17 +331,35 @@ def run(
     *,
     lanes_wanted: set[str] | None = None,
     launcher: str = "uv",
+    evidence: Path | None = None,
 ) -> dict[str, Any]:
-    """Parts 1 and 2 for every live lane at *target*, and D-9's selection."""
+    """Parts 1 and 2 for every live lane at *target*, and D-9's selection.
+
+    With *evidence* (the plan's step 7, review round 3, Sol B2): a directory of
+    staged evidence files at their repository paths (the new packs, batch
+    manifest and registry entries, prose corrections: everything the banking
+    commit B adds besides the successor record and the pin). They are made live
+    in an *evidence view*, a worktree of *target* with the files laid over it,
+    from which lanes, verdicts and packs are read; the builders and finalizers
+    still run in clean clones of *target*, so the run binds *target* exactly as
+    the estate runs did. Evidence that touches any lane's dependency set is
+    refused.
+    """
     target = rev_parse(repo, target)
     lists = scan.Lists.load()
     exemptions = changed_mod.load_exemptions()
+    staged = staged_evidence(evidence) if evidence is not None else {}
     clones = workdir / "clones"
     with replay.clone(repo, target, clones, "target-a", launcher=launcher) as clone_a, \
-            replay.clone(repo, target, clones, "target-b", launcher=launcher) as clone_b:
+            replay.clone(repo, target, clones, "target-b", launcher=launcher) as clone_b, \
+            evidence_view(repo, target, evidence, clones) as view:
         environments = {"target-a": clone_a.environment, "target-b": clone_b.environment}
-        part1 = derive_part1(clone_a.path, python_version, lists, python=clone_a.python)
-        lanes = [lane for lane in live_lanes(clone_a.path)
+        root = view if view is not None else clone_a.path
+        part1 = derive_part1(root, python_version, lists, python=clone_a.python)
+        touched = sorted(set(staged) & (dependency_paths(part1) | {"uv.lock"}))
+        if touched:
+            raise Wp0Error(f"the staged evidence changes a dependency of a live lane: {touched}")
+        lanes = [lane for lane in live_lanes(root)
                  if lanes_wanted is None or lane.name in lanes_wanted]
         tables_cache: dict[tuple[str, str], dict[str, Any]] = {}
         commits = sorted({lane.commit for lane in lanes})
@@ -361,7 +384,7 @@ def run(
 
             for lane in lanes:
                 results[lane.name] = _part2_lane(
-                    repo, clone_a.path, lane, clone_a, clone_b, fidelity_clones[lane.commit],
+                    repo, root, lane, clone_a, clone_b, fidelity_clones[lane.commit],
                     workdir, tables,
                 )
         selections = _select_all(repo, target, lanes, part1, results, clone_b, exemptions)
@@ -369,11 +392,85 @@ def run(
         "target": target,
         "part1": part1,
         "environments": environments,
+        "evidence": staged,
         "lanes": results,
         "selection": {name: asdict(s) for name, s in selections.items()},
         "option2": sorted(name for name, s in selections.items() if s.selected),
         "option3": sorted(name for name, s in selections.items() if s.option3),
     }
+
+
+#: Where staged evidence may live: the evidence packs, manifests, registry and
+#: records under docs/, and prose under plans/. Anything else in B is refused.
+EVIDENCE_PREFIXES = ("docs/", "plans/")
+
+
+def staged_evidence(directory: Path) -> dict[str, str]:
+    """{repository path: sha256} of every file staged under *directory*."""
+    if not directory.is_dir():
+        raise Wp0Error(f"no staged evidence directory at {directory}")
+    files: dict[str, str] = {}
+    for path in sorted(directory.rglob("*")):
+        relative = path.relative_to(directory).as_posix()
+        if path.is_symlink():
+            raise Wp0Error(f"staged evidence {relative} is a symbolic link")
+        if path.is_dir():
+            continue
+        if not relative.startswith(EVIDENCE_PREFIXES):
+            raise Wp0Error(f"staged evidence {relative} is outside {EVIDENCE_PREFIXES}")
+        if relative in (SUCCESSOR_RECORD, PIN_RECORD):
+            raise Wp0Error(f"staged evidence {relative} is a record write-records produces")
+        files[relative] = sha256_file(path)
+    if not files:
+        raise Wp0Error(f"the staged evidence directory {directory} is empty")
+    return files
+
+
+@contextmanager
+def evidence_view(
+    repo: Path, target: str, evidence: Path | None, parent: Path
+) -> Iterator[Path | None]:
+    """A worktree of *target* with the staged evidence laid over it (or None)."""
+    if evidence is None:
+        yield None
+        return
+    with detached_worktree(repo, target, parent, "evidence-view") as path:
+        for relative in staged_evidence(evidence):
+            destination = path / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(evidence / relative, destination)
+        yield path
+
+
+def dependency_paths(part1: dict[str, Any]) -> set[str]:
+    """Every path any live lane depends on (closure, resources, floor)."""
+    return {p for lane in part1["lanes"].values()
+            for label in ("closure", "resources", "floor") for p in lane[label]}
+
+
+def bank_commit(
+    repo: Path, target: str, evidence: Path, records: Path, branch: str, message: str
+) -> str:
+    """Make the banking commit B: *target* plus the staged evidence, the successor
+    record and the pin, as one commit whose sole parent is *target*, on a new
+    branch *branch*. Returns B."""
+    files = {relative: evidence / relative for relative in staged_evidence(evidence)}
+    for relative in (SUCCESSOR_RECORD, PIN_RECORD):
+        files[relative] = records / relative
+    with tempfile.TemporaryDirectory(prefix="wp0-bank-") as scratch:
+        path = Path(scratch) / "bank"
+        git(repo, "worktree", "add", "-q", "-b", branch, str(path), target)
+        try:
+            for relative, source in sorted(files.items()):
+                destination = path / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+            git(path, "add", "-A")
+            git(path, "commit", "-q", "-m", message)
+            bank = git(path, "rev-parse", "HEAD").strip()
+        finally:
+            git(repo, "worktree", "remove", "--force", str(path))
+    return bank
 
 
 def _select_all(
@@ -599,6 +696,7 @@ def successor_record(result: dict[str, Any], environment: dict[str, str]) -> dic
         "toolchain": part1["toolchain"],
         "environment": environment,
         "environments": result.get("environments", {}),
+        "evidence": result.get("evidence", {}),
         "design_notes": list(DESIGN_NOTES),
         "option2": result["option2"],
         "option3": result["option3"],
@@ -673,6 +771,12 @@ def successor_problems(successor: Any) -> list[str]:
         problems.append("successor toolchain is missing")
     if successor.get("design_notes") != list(DESIGN_NOTES):
         problems.append("successor design notes are not this tooling's")
+    evidence = successor.get("evidence")
+    if not (isinstance(evidence, dict) and all(
+        isinstance(path, str) and path.startswith(EVIDENCE_PREFIXES) and _sha(digest)
+        for path, digest in evidence.items()
+    )):
+        problems.append("the successor record does not list the evidence it was run with")
     lanes = successor.get("lanes")
     if not isinstance(lanes, dict) or not lanes:
         return [*problems, "the successor record names no lanes"]
@@ -779,8 +883,12 @@ def _pin_of(successor: dict[str, Any], successor_bytes: bytes) -> dict[str, Any]
     }
 
 
-def write_records(repo: Path, result: dict[str, Any], environment: dict[str, str]) -> list[str]:
-    """Write the successor record and the pin into *repo*, or refuse (returns refusals)."""
+def write_records(
+    repo: Path, result: dict[str, Any], environment: dict[str, str], out: Path | None = None
+) -> list[str]:
+    """Write the successor record and the pin under *out* (default *repo*), at their
+    repository paths, or refuse (returns refusals)."""
+    out = out or repo
     problems = refusals(result)
     if problems:
         return problems
@@ -790,8 +898,9 @@ def write_records(repo: Path, result: dict[str, Any], environment: dict[str, str
     if problems:
         return problems
     pin = pin_from(successor, successor_bytes)
-    (repo / SUCCESSOR_RECORD).write_bytes(successor_bytes)
-    (repo / PIN_RECORD).write_bytes(_dump(pin))
+    for relative, data in ((SUCCESSOR_RECORD, successor_bytes), (PIN_RECORD, _dump(pin))):
+        (out / relative).parent.mkdir(parents=True, exist_ok=True)
+        (out / relative).write_bytes(data)
     return []
 
 
@@ -909,8 +1018,6 @@ def verify_pin(root: Path, pin: dict[str, Any], workdir: Path | None = None) -> 
     if problems or successor_problems(successor):
         return problems
     if workdir is None:
-        import tempfile
-
         with tempfile.TemporaryDirectory(prefix="wp0-gate-") as scratch:
             return reexecute_target(root, successor, part1, Path(scratch))
     return reexecute_target(root, successor, part1, workdir)
@@ -962,7 +1069,7 @@ def reexecute_target(
                 return tables_cache[key]
 
             results = {
-                lane.name: _part2_lane(repo, clone.path, lane, clone, clone,
+                lane.name: _part2_lane(repo, repo, lane, clone, clone,
                                        verdict_trees[lane.commit], workdir, tables,
                                        own_commit=False)
                 for lane in lanes
@@ -1184,16 +1291,31 @@ def history_problems(root: Path, pin: dict[str, Any]) -> list[str]:
             problems.append(f"{path} differs between the pin's target commit and the gated "
                             "tree: a dependency of a live lane changed after the freeze")
     # The commit that last added the pin record is the banking commit B.
-    added = git(root, "log", "--format=%H", "--diff-filter=A", "--", PIN_RECORD).split()
+    # (`-m`: a merge that brings the pin in counts too, and step 8 refuses it.)
+    added = list(dict.fromkeys(
+        git(root, "log", "-m", "--format=%H", "--diff-filter=A", "--", PIN_RECORD).split()
+    ))
+    evidence: dict[str, str] | None = None
+    successor_path = root / str(pin.get("successor_record", SUCCESSOR_RECORD))
+    if successor_path.is_file():
+        try:
+            listed = json.loads(successor_path.read_bytes()).get("evidence")
+        except (ValueError, AttributeError):
+            listed = None
+        evidence = listed if isinstance(listed, dict) else None
     if added:
-        problems.extend(f"step 8: {p}" for p in bank_problems(root, target, added[0], pin))
+        problems.extend(f"step 8: {p}"
+                        for p in bank_problems(root, target, added[0], pin, evidence))
     else:
         problems.append(f"step 8: no commit adds {PIN_RECORD}; the pin must be committed in "
                         "the banking commit, F's child")
     return problems
 
 
-def bank_problems(repo: Path, freeze: str, bank: str, pin: dict[str, Any]) -> list[str]:
+def bank_problems(
+    repo: Path, freeze: str, bank: str, pin: dict[str, Any],
+    evidence: dict[str, str] | None = None,
+) -> list[str]:
     """The plan's step 8: `B` is a child of `F` and changes no dependency file.
 
     Every path any lane's pinned closure, resources or floor names, and the
@@ -1214,6 +1336,22 @@ def bank_problems(repo: Path, freeze: str, bank: str, pin: dict[str, Any]) -> li
     for path in sorted(changed):
         if path in pinned or path == "uv.lock" or path.startswith(lists_prefix):
             problems.append(f"{path}: the banking commit changes a dependency of a live lane")
+    if evidence is not None:
+        # Review round 3 (Sol B2): B is exactly F + the evidence the record was
+        # run with + the successor record + the pin, byte for byte.
+        allowed = set(evidence) | {SUCCESSOR_RECORD, PIN_RECORD}
+        extra = sorted(set(changed) - allowed)
+        if extra:
+            problems.append(f"the banking commit changes files the record was not run with: "
+                            f"{extra[:10]}")
+        for record_path in (SUCCESSOR_RECORD, PIN_RECORD):
+            if record_path not in changed:
+                problems.append(f"the banking commit does not add {record_path}")
+        for path, digest in sorted(evidence.items()):
+            blob = show(repo, bank, path)
+            if blob is None or sha256_bytes(blob) != digest:
+                problems.append(f"{path}: the banking commit does not carry the evidence the "
+                                "record was run with")
     return problems
 
 

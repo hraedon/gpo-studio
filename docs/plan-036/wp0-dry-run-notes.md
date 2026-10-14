@@ -82,6 +82,44 @@ in CI too: the commit that added the pin record must be the target's child
 and change no dependency. Before this, step 8 ran only as the `check-bank`
 command.
 
+**Steps 7 and 8 as the tooling performs them** (review round 3, Sol B2). The plan
+says the estate lanes run at `F`, parts 1 and 2 run once more at `F` with the
+new verdicts live, and one commit `B`, whose sole parent is `F`, banks
+everything. Before this round, `write-records` could not do that: it ran at a
+clean `HEAD` and read lanes from a clone of it, so the new evidence was never
+live while `F` was the target. It now runs:
+
+```
+python scripts/plan-033/wp0-live-closure.py write-records --target <F> \
+    --evidence <staged dir> --bank-branch <branch> \
+    --workdir <scratch> --python-version 3.14
+```
+
+- **Staged evidence.** The staged directory holds, at their repository paths,
+  every file `B` adds besides the two records: the new packs, the batch
+  manifest and registry entries, and the prose corrections. These must be
+  under `docs/` or `plans/`. The tool refuses a file elsewhere, a symbolic
+  link, and the two record paths.
+- **Where the run reads and executes.** The files are laid over a worktree of
+  `F` (the evidence view), and lanes, verdicts and packs are read from it.
+  Builders and finalizers still run in clean clones of `F`, so every
+  re-graded verdict binds `F` and a clean tree, as the estate's did.
+- **Dependencies.** If the staged evidence touches any lane's closure,
+  resources, floor or `uv.lock`, the run is refused.
+- **Records and `B`.** The successor record names `F` and lists every staged
+  file with its digest. With `--bank-branch` the tool makes `B` itself: `F`
+  plus the staged files, the successor record and the pin, in one commit
+  whose sole parent is `F`. Without it, it prints the exact commands.
+- **The check at `B`.** The gate (and `check-bank`) holds `B` to exactly that.
+  The parent must be `F` alone. The changed paths must be exactly the listed
+  evidence plus the two records, each listed file with its recorded bytes.
+  No dependency may change.
+- **Test.** `tests/test_plan036_banking.py` runs the whole sequence on a
+  synthetic repository: `F`, then an estate run at `F`, staged evidence,
+  `write-records`, `B`, `check-bank` and `check-pin`, all green. It also
+  shows the refusals: an extra file in `B`, a `B` with two parents, and
+  staged evidence that edits a dependency or lies outside the evidence paths.
+
 **Interpreter.** The gate runs only under the pinned interpreter (Python 3.14 on
 Linux). Anywhere else, `check-pin` refuses with a message and the pytest gate
 skips with one. CI's `test` job runs 3.13 and 3.14 on ubuntu, so the 3.14 job

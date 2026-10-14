@@ -310,6 +310,10 @@ def _protocols() -> dict[str, Protocol]:
     add(["dataclasses.replace"], Protocol(args=((0, ("__init__",)),)))
     add(["difflib.unified_diff"], Protocol(args=((0, ("__iter__",)), (1, ("__iter__",))),
                                            arg_elements=_HASH_EQ))
+    add(["json.loads", "json.load"], Protocol(args=tuple(
+        (name, _CALL) for name in ("object_hook", "object_pairs_hook", "parse_float",
+                                   "parse_int", "parse_constant", "cls")
+    )))
     add(["json.dumps"], Protocol(args=((0, ("items", "__iter__")), ("default", _CALL),
                                        ("cls", _CALL)), arg_values=("items", "__iter__")))
     add(["base64.b64encode", "base64.b64decode"], Protocol(args=((0, _BUFFER),)))
@@ -322,6 +326,11 @@ def _protocols() -> dict[str, Protocol]:
 #: what they run (review round 2). Every inert entry for such a method must have
 #: a rule here; tests/test_plan036_scan.py holds a negative probe for each.
 METHOD_PROTOCOLS: dict[str, Protocol] = _protocols()
+#: Every callee the scan knows runs code of other objects (its arguments, their
+#: elements, or callables it is handed); one of these taken as a value fails.
+RUNS_OTHER_CODE: frozenset[str] = frozenset(
+    set(METHOD_PROTOCOLS) | set(_ITERATING) | set(_CONVERSIONS) | set(_ELEMENT_OPS)
+)
 #: Arguments of a method or operator of a value of unknown type that the method
 #: may hash or compare (a JSON value's `get`, `count`, `index`, `in`, `[]`).
 _ANY_RECEIVER_ARGS = Protocol(args=(("*", _HASH_EQ),))
@@ -1046,6 +1055,20 @@ class Scanner:
     def target(self, kind: str, fullname: str, line: int, detail: str = "") -> None:
         if self.guard is None and self.is_repo_target(fullname):
             return
+        if (kind == "reference" and self.guard is None and fullname in RUNS_OTHER_CODE
+                and detail not in ("class used as a value", "alias used as a value")):
+            # Review round 3 (Sol B1): the protocol rules apply where a call names
+            # its target; a callable that runs other objects' code, taken as a
+            # value (`remove = rows.remove`, `key=len`), would run wherever it is
+            # called, out of their sight. Fail closed here. A class taken as a
+            # value (`default_factory=tuple`, `type(x) is int`) fails where it is
+            # called back or called through a variable instead (callback_argument,
+            # indirect).
+            self.unresolved(
+                f"<value of {fullname}>", line,
+                f"{fullname}, which runs other objects' code, taken as a value",
+            )
+            return
         self.record(kind, fullname, line, detail)
 
     def unresolved(
@@ -1166,7 +1189,7 @@ class Scanner:
             for expr, position, keyword in args:
                 for dunder in spec.for_argument(position, keyword):
                     if dunder == "__call__":
-                        self.indirect(expr, line, f"{what}: a call")
+                        self.callback_argument(expr, line, what)
                     else:
                         self.implicit(self.type_of(expr), dunder, line, what, expr)
                 if position == 0:
@@ -1175,6 +1198,55 @@ class Scanner:
             if receiver is not None:
                 self.member_protocols(receiver, "elements", spec.elements, line, what)
                 self.member_protocols(receiver, "values", spec.values, line, what)
+
+    def callback_argument(self, expr: Expression, line: int, what: str) -> None:
+        """An argument the callee calls back (a sort key, a replacement, a hook).
+
+        Visible code passes: a lambda (its body is scanned), or a direct reference
+        to a function, method or class (the reference is classified where it
+        stands, and fails if it runs other objects' code). A value that is not
+        callable (a `str` replacement, `None`) calls nothing. Anything else (a
+        callable held in a variable, a parameter, an attribute or a call result)
+        fails closed: the scan cannot see what it will run (review round 3).
+        """
+        if isinstance(expr, LambdaExpr):
+            return
+        if isinstance(expr, RefExpr) and isinstance(
+            expr.node, (FuncBase, Decorator, TypeInfo, OverloadedFuncDef)
+        ):
+            if expr.fullname in RUNS_OTHER_CODE:
+                # `map(str, rows)`, `key=len`: called back on values the callee
+                # chooses, out of the protocol rules' sight.
+                self.unresolved(f"<value of {expr.fullname}>", line,
+                                f"{what}: calls back {expr.fullname}, which runs other "
+                                "objects' code")
+            return
+        if isinstance(expr, MemberExpr):
+            # `str.casefold`, `obj.method`: a method looked up on a typed class or
+            # instance is a reference the scan classifies where it stands.
+            receiver = self.type_of(expr.expr)
+            owners = [cls] if (cls := _class_object_info(receiver)) is not None else (
+                _infos(receiver) or []
+            )
+            found_all = [_lookup(owner, expr.name) for owner in owners]
+            if found_all and all(
+                found is not None and isinstance(found[1], (FuncBase, Decorator))
+                for found in found_all
+            ):
+                return
+        typ = self.type_of(expr)
+        proper = get_proper_type(typ) if typ is not None else None
+        if isinstance(proper, NoneType):
+            return
+        if proper is not None and not isinstance(proper, (AnyType, CallableType, Overloaded)):
+            infos = _infos(typ)
+            if infos is not None and not any(
+                (found := _lookup(info, "__call__")) is not None
+                and found[0].fullname != _OBJECT for info in infos
+            ):
+                return  # not callable: nothing is called back
+        self.unresolved("<callback value>", line,
+                        f"{what}: a callback whose code the scan cannot see here")
 
     def member_protocols(
         self, expr: Expression, which: str, dunders: Sequence[str], line: int, what: str
@@ -1628,12 +1700,12 @@ class Scanner:
             return
         infos = _infos(receiver)
         if infos is None:
-            if self.is_json(node.expr):
-                self.record("reference", f"<json>.{node.name}", node.line, "JSON value attribute")
-                return
+            # Not proved JSON even when it is: a JSON value's method taken as a
+            # value (`get = data.get`) would hash and compare whatever it is
+            # later called with (review round 3).
             self.unresolved(
                 f"<Any>.{node.name}", node.line, "attribute of a value of unknown type",
-                node.expr, "reference",
+                node.expr,
             )
             return
         for info in infos:
@@ -1901,6 +1973,17 @@ class Scanner:
                 self.target("call", name, line, "")
                 resolved = name
             return resolved
+        if type(callee).__name__ == "SuperExpr" and self.class_stack:
+            # `super().name(...)`: called, so the protocol rules apply to the call.
+            method: str = getattr(callee, "name")  # noqa: B009 - mypyc node, no common base
+            for base in self.class_stack[-1].mro[1:]:
+                if method in base.names:
+                    member = base.names[method].node
+                    if isinstance(member, (FuncBase, Decorator)) and not _is_property(member):
+                        name = f"{base.fullname}.{method}"
+                        self.target("call", name, line, "super()")
+                        return name
+                    break
         # anything else: a call of a call result, a subscript, a lambda, ...
         self.visit(callee)
         self.indirect(callee, line)
@@ -1933,7 +2016,13 @@ class Scanner:
         proper = get_proper_type(typ)
         if isinstance(proper, (CallableType, Overloaded)):
             if proper.is_type_obj():
-                self.construct(proper.type_object(), line, "class held in a variable")
+                info = proper.type_object()
+                if info.fullname in RUNS_OTHER_CODE:
+                    self.unresolved(f"<value of {info.fullname}>", line,
+                                    f"{info.fullname}, which runs other objects' code, "
+                                    "called through a value")
+                    return
+                self.construct(info, line, "class held in a variable")
             return
         if isinstance(proper, TypeType) and isinstance(proper.item, Instance):
             self.construct(proper.item.type, line, "type[] value called")
@@ -1956,13 +2045,10 @@ class Scanner:
             return
         infos = _infos(receiver)
         cls = _class_object_info(receiver)
-        if infos is None and cls is None and self.is_json(node.args[0]):
-            self.record("reference", f"<json>.{name}", node.line, f"{fullname} on a JSON value")
-            return
         if infos is None and cls is None:
             self.unresolved(
                 f"<Any>.{name}", node.line, f"{fullname} on a value of unknown type",
-                node.args[0], "reference",
+                node.args[0],
             )
             return
         for info in ([cls] if cls is not None else infos or []):

@@ -2676,6 +2676,55 @@
     "<Any>.__iter__": 1,
     "<Any>.items": 1
    }
+  },
+  {
+   "module": "scripts/plan-033/build-fdeploy-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "max(paths, key=len) over the guest path strings this builder composes"
+   },
+   "reason": "callbacks: a callable that runs other objects' code, or a callback value the scan cannot see, called back on the values named under 'what'; reviewed at its site (review round 3)",
+   "targets": {
+    "<value of builtins.len>": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-firewall-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "map(str, r.remote_port_range) over the port integers of a firewall rule model"
+   },
+   "reason": "callbacks: a callable that runs other objects' code, or a callback value the scan cannot see, called back on the values named under 'what'; reviewed at its site (review round 3)",
+   "targets": {
+    "<value of builtins.str>": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "sorted(..., key=_ordinal(repo)) over repository manifest paths (the key is a closure this module defines and the scan reads), and max(paths, key=len) over path strings"
+   },
+   "reason": "callbacks: a callable that runs other objects' code, or a callback value the scan cannot see, called back on the values named under 'what'; reviewed at its site (review round 3)",
+   "targets": {
+    "<callback value>": 3,
+    "<value of builtins.len>": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_endpoint_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "map(str, residual) over the residual task names a decoded observation record lists"
+   },
+   "reason": "callbacks: a callable that runs other objects' code, or a callback value the scan cannot see, called back on the values named under 'what'; reviewed at its site (review round 3)",
+   "targets": {
+    "<value of builtins.str>": 2
+   }
   }
  ]
 }

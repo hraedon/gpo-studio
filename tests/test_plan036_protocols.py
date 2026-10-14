@@ -137,6 +137,7 @@ PROBES = {
     "base64.b64encode": "base64.b64encode(a)",
     "difflib.unified_diff": "difflib.unified_diff(a, ls)",
     "json.dumps": "json.dumps(ds, default=a)",
+    "json.loads": "json.loads(s, object_hook=a)",
 }
 
 #: Sol's round-2 probes (`probe_scan_round2.py`): each must fail the scan.
@@ -165,6 +166,57 @@ SOL_ROUND2 = {
 }
 
 
+_H = "import functools\nimport json\nimport re\nfrom typing import Any, Callable\n\n\n"
+#: Sol's round-3 probes (`probe_protocol_alias_round3.py`) and variants: a callable
+#: that runs other objects' code, reached through a value, or a callback the scan
+#: cannot see. Each must fail the scan.
+SOL_ROUND3 = {
+    "r3_bound_variable": _H + "def f(rows: list[Any], value: Any) -> None:\n"
+    "    remove = rows.remove\n    remove(value)\n",
+    "r3_unbound_variable": _H + "def f(rows: list[Any], value: Any) -> None:\n"
+    "    remove: Callable[[list[Any], Any], None] = list.remove\n    remove(rows, value)\n",
+    "r3_partial_bound": _H + "def f(rows: list[Any], value: Any) -> None:\n"
+    "    remove = functools.partial(rows.remove, value)\n    remove()\n",
+    "r3_getattr_literal": _H + "def f(rows: list[str], value: str) -> None:\n"
+    "    getattr(rows, 'remove')(value)\n",
+    "r3_regex_bound_variable": _H + "def f(p: re.Pattern[str], r: Any, t: str) -> str:\n"
+    "    substitute = p.sub\n    return substitute(r, t)\n",
+    "r3_sorted_alias": _H + "def f(values: list[str], cb: Callable[[str], Any]) -> None:\n"
+    "    order = sorted\n    order(values, key=cb)\n",
+    "r3_lambda_wrapper": _H + "def f(rows: list[Any], value: Any) -> None:\n"
+    "    g = lambda v: rows.remove(v)\n    g(value)\n",
+    "r3_class_alias": _H + "def f(value: Any) -> int:\n    convert = int\n"
+    "    return convert(value)\n",
+    "r3_map_conversion": _H + "def f(rows: list[Any]) -> list[str]:\n"
+    "    return list(map(str, rows))\n",
+    "r3_key_len": _H + "def f(rows: list[Any]) -> Any:\n    return max(rows, key=len)\n",
+    "r3_callback_parameter": _H + "def f(rows: list[str], cb: Callable[[str], int]) -> None:\n"
+    "    rows.sort(key=cb)\n",
+    "r3_json_value_method": _H + "def f(text: str, key: Any) -> None:\n"
+    "    data = json.loads(text)\n    get = data.get\n    get(key)\n",
+    "r3_super_exception": _H + "class Failure(Exception):\n"
+    "    def __init__(self, value: Any) -> None:\n        super().__init__(value)\n",
+    **{
+        f"r3_json_{hook}": _H + f"def f(text: str, cb: Callable[..., Any]) -> None:\n"
+        f"    json.loads(text, {hook}=cb)\n"
+        for hook in ("object_hook", "object_pairs_hook", "parse_float", "parse_int",
+                     "parse_constant")
+    },
+    "r3_json_load_hook": _H + "def f(stream: Any, cb: Callable[..., Any]) -> None:\n"
+    "    json.load(stream, object_hook=cb)\n",
+}
+#: Visible callbacks and harmless class values: these must not fail.
+ROUND3_CONTROLS = {
+    "r3c_lambda_key": _H + "def f(rows: list[str]) -> list[str]:\n"
+    "    return sorted(rows, key=lambda v: v.casefold())\n",
+    "r3c_method_key": _H + "def f(rows: list[str]) -> list[str]:\n"
+    "    return sorted(rows, key=str.casefold)\n",
+    "r3c_default_factory": "import dataclasses\n\n\n@dataclasses.dataclass\nclass C:\n"
+    "    items: tuple[str, ...] = dataclasses.field(default_factory=tuple)\n",
+    "r3c_type_identity": _H + "def f(value: object) -> bool:\n    return type(value) is int\n",
+}
+
+
 def _module(probes: dict[str, str]) -> str:
     lines = [HEADER]
     for index, statement in enumerate(probes.values()):
@@ -178,9 +230,10 @@ def classified(tmp_path_factory: pytest.TempPathFactory) -> list[Any]:
     directory = root / "scripts" / "probes"
     directory.mkdir(parents=True)
     (directory / "methods.py").write_text(_module(PROBES), encoding="utf-8")
-    for name, source in SOL_ROUND2.items():
+    extra = {**SOL_ROUND2, **SOL_ROUND3, **ROUND3_CONTROLS}
+    for name, source in extra.items():
         (directory / f"{name}.py").write_text(source, encoding="utf-8")
-    paths = ["scripts/probes/methods.py", *(f"scripts/probes/{n}.py" for n in SOL_ROUND2)]
+    paths = ["scripts/probes/methods.py", *(f"scripts/probes/{n}.py" for n in extra)]
     analysis = scan.analyse(root, paths, "3.14")
     assert scan.assert_complete(analysis) == []
     return list(scan.classify(scan.scan_all(analysis), scan.Lists.load()))
@@ -230,6 +283,26 @@ def test_an_unknown_operand_of_a_code_running_method_fails(
     named = target.removesuffix(".__init__")  # a constructor call names the class
     failing = [c for c in rows if c.status in scan.FAILING and named in c.site.detail]
     assert failing, (target, [(c.status, c.site.target, c.site.detail) for c in rows])
+
+
+@pytest.mark.parametrize("probe", sorted(SOL_ROUND3))
+def test_a_code_running_callable_reached_through_a_value_fails(
+    classified: list[Any], probe: str
+) -> None:
+    """Review round 3, Sol B1: aliases, bound and unbound methods, partial, getattr,
+    lambda wrappers, class aliases, callbacks held in values, and json.loads hooks."""
+    rows = [c for c in classified if c.site.module.endswith(f"/{probe}.py")]
+    assert any(c.status in scan.FAILING for c in rows), [
+        (c.status, c.site.target, c.site.detail) for c in rows
+    ]
+
+
+@pytest.mark.parametrize("probe", sorted(ROUND3_CONTROLS))
+def test_visible_callbacks_and_class_values_pass(classified: list[Any], probe: str) -> None:
+    rows = [c for c in classified if c.site.module.endswith(f"/{probe}.py")]
+    assert rows and not [c for c in rows if c.status in scan.FAILING], [
+        (c.status, c.site.target, c.site.detail) for c in rows if c.status in scan.FAILING
+    ]
 
 
 @pytest.mark.parametrize("probe", sorted(SOL_ROUND2))

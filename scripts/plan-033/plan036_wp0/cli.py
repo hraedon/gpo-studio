@@ -76,7 +76,19 @@ def main(argv: list[str] | None = None) -> int:
     select = sub.add_parser("select", help="the convergence rule over selection passes")
     select.add_argument("passes", type=Path, nargs="+", help="result.json of each pass, in order")
 
-    write = sub.add_parser("write-records", help="full run at HEAD, then the successor and pin")
+    write = sub.add_parser(
+        "write-records",
+        help="step 7: a full run at the freeze commit with the new evidence live, then the "
+        "successor record and the pin (and, with --bank-branch, step 8's commit B)",
+    )
+    write.add_argument("--target", default="HEAD", help="the freeze commit F (default HEAD)")
+    write.add_argument(
+        "--evidence", type=Path,
+        help="staged evidence: the files B adds at their repository paths (new packs, batch "
+        "manifest and registry entries, prose corrections), made live for the run",
+    )
+    write.add_argument("--bank-branch",
+                       help="also make B = F + evidence + record + pin on this new branch")
     write.add_argument("--workdir", type=Path, required=True)
     write.add_argument("--python-version", required=True)
     write.add_argument(
@@ -135,20 +147,41 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(changed.converge(passes, option3), indent=1))
             return 0
         if args.command == "write-records":
-            head = rev_parse(REPO_ROOT, "HEAD")
+            target = rev_parse(REPO_ROOT, args.target)
             if not is_clean(REPO_ROOT):
-                raise Wp0Error("write-records needs a clean tree at the freeze commit")
+                raise Wp0Error("write-records needs a clean tool tree (its lists and lock are "
+                               "what the record names)")
             args.workdir.mkdir(parents=True, exist_ok=False)
-            result = record.run(REPO_ROOT, head, args.workdir, args.python_version,
-                                launcher=args.launcher)
-            refused = record.write_records(REPO_ROOT, result, _environment())
+            evidence = args.evidence.resolve() if args.evidence else None
+            result = record.run(REPO_ROOT, target, args.workdir, args.python_version,
+                                launcher=args.launcher, evidence=evidence)
+            records = args.workdir / "records"
+            refused = record.write_records(REPO_ROOT, result, _environment(), records)
             if refused:
                 print("REFUSED: the records are written only from a run with no difference:",
                       file=sys.stderr)
                 for line in refused:
                     print(f"  {line}", file=sys.stderr)
                 return 1
-            print(f"wrote {record.SUCCESSOR_RECORD} and {record.PIN_RECORD}")
+            print(f"wrote {records / record.SUCCESSOR_RECORD} and {records / record.PIN_RECORD} "
+                  f"(target {target})")
+            if args.bank_branch:
+                if evidence is None:
+                    raise Wp0Error("--bank-branch needs --evidence (B carries the new packs)")
+                made = record.bank_commit(
+                    REPO_ROOT, target, evidence, records, args.bank_branch,
+                    f"Bank the 1.1.0 freeze evidence, successor record and pin (F {target[:12]})",
+                )
+                print(f"made B {made} on branch {args.bank_branch}, sole parent {target}")
+                print("check it: wp0-live-closure.py check-bank --freeze "
+                      f"{target} --bank {made}; then check-pin at B")
+            else:
+                print("make B (one commit, sole parent F, nothing else in it):")
+                print(f"  git worktree add -b <branch> <dir> {target}")
+                if evidence is not None:
+                    print(f"  cp -a {evidence}/. <dir>/")
+                print(f"  cp -a {records}/. <dir>/")
+                print("  git -C <dir> add -A && git -C <dir> commit -m '<message>'")
             return 0
         if args.command == "check-bank":
             pin_path = REPO_ROOT / record.PIN_RECORD
@@ -156,7 +189,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"no pin at {record.PIN_RECORD}: B must carry it")
                 return 1
             pin = json.loads(pin_path.read_text("utf-8"))
-            problems = record.bank_problems(REPO_ROOT, args.freeze, args.bank, pin)
+            successor = REPO_ROOT / pin.get("successor_record", record.SUCCESSOR_RECORD)
+            listed = (json.loads(successor.read_text("utf-8")).get("evidence")
+                      if successor.is_file() else None)
+            problems = record.bank_problems(REPO_ROOT, args.freeze, args.bank, pin,
+                                            listed if isinstance(listed, dict) else None)
             for problem in problems:
                 print(problem)
             return 1 if problems else 0
