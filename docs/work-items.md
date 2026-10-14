@@ -32,8 +32,10 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**3 open.**
+**5 open.**
 
+- [WI-083](#wi-083--live-verdicts-are-fresh-only-for-a-hand-written-subset-of-what-they-execute) - **blocks 1.1.0 final** (accepted by the owner 2026-10-13): derive every live lane's dependency closure, replay and re-grade, bank the result, requalify per D-9 (Plan 036 WP-0).
+- [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
@@ -3819,3 +3821,56 @@ these fail except the add.
 **Lanes.** `api.py` and `store.py` are unbound; no lane candidate edits an item.
 
 **Closes when:** the WI-080 requalification banks.
+
+## WI-083 — live verdicts are fresh only for a hand-written subset of what they execute
+
+**Opened:** 2026-10-13 (measuring change cost for [Plan 036](../plans/036-change-cost.md)).
+**Status:** open. **Blocks the 1.1.0 final tag**: accepted as a blocker by the
+owner on 2026-10-13, with Plan 036 ("Your recommendations are fine: no qualms
+about the plan detailed in 106").
+
+**What is wrong.** Every lane verdict binds the files its finalizer's
+`DEPLOYED_FILES` and `LOCAL_FILES` tables name, and
+`test_a_live_verdict_still_binds_the_harness_that_ships` proves only those are
+unchanged. The tables are written by hand and miss real dependencies. The 13
+RSoP lanes do not bind `rsop.py`, `som.py` or `model.py`, which their builder
+imports and calls. Nine live verdicts (wp1b, wp2, endpoint, fdeploy, firewall,
+lifecycle, publication, report-parity, scripts-metadata) import product
+modules changed since their batch that they do not bind: all nine `ilt.py`;
+wp2, endpoint and lifecycle `gpp.py`, `gpp_adapters.py` and `gpp_native.py`;
+wp1b, report-parity and wp2 `store.py`. So the statement that every live
+verdict binds the tree that ships, made by Plan 034, Plan 035 and
+`release-evidence-1.1.0.md`, is true only of the hand-written sets.
+
+**What is known.** The Plan 036 round-1 reviewers rebuilt all nine candidates
+byte-identical to the banked hashes and re-graded the banked packs with the
+current code, reproducing the verdicts on the fields compared. A line trace of
+the builders found changed code executed by endpoint (function bodies) and by
+wp2, lifecycle, report-parity and wp1b (definition lines run at import); the
+grading half has not yet been traced at line level. Nothing measured says 1.1.0
+behaves wrongly; the defect is in what the freshness claim covers.
+
+**Closes when:** Plan 036's WP-0 lands: at the final freeze commit every live
+lane's derived closure, replay and full re-grade are banked as a successor
+record; the lanes D-9 selects (and any whose replay or re-grade differs) have
+passed on the estate at that commit; a release-only test re-derives every
+live lane's dependency closure and fails on any added, removed or changed edge;
+and Plan 034, Plan 035 and
+`release-evidence-1.1.0.md` state the limitation and its disposition.
+
+## WI-084 — a bound-file change costs more than it needs to
+
+**Opened:** 2026-10-13 ([Plan 036](../plans/036-change-cost.md)).
+**Status:** open. An accepted programme: the owner accepted Plan 036 and all of
+its recommendations on 2026-10-13.
+
+**What is wrong.** Re-earning evidence binds whole files by hand-written
+tables, so an edit to a shared bound file (the transport, the evidence
+contract) expires every lane; a late finding supersedes a frozen batch; and
+the workflow grammar models shell to hold installs to the locks. Measured in
+Plan 036: 202 lane re-qualifications, of which 45 were eligible to skip the
+estate under replay and a separately certified transport; work deferred or
+placed where binding is cheap; 17 review rounds for the grammar's creation.
+
+**Closes when:** Plan 036 exits: every risk in its exit table has a tested
+control or a recorded owner acceptance naming the residual risk.
