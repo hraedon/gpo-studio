@@ -125,6 +125,46 @@ TYPED_PROBES = {
         "    parser.add_argument('run_dir', type=Path)\n    extend(parser)\n"
         "    args = parser.parse_args()\n    return args.run_dir.read_text()\n"
     ),
+    "argparse_custom_type": (
+        "import argparse\nfrom pathlib import Path\n\n\ndef as_path(text: str) -> Path:\n"
+        "    return Path(text)\n\n\ndef main() -> str:\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    parser.add_argument('run_dir', type=as_path)\n"
+        "    args = parser.parse_args()\n    return args.run_dir.read_text()\n"
+    ),
+    "argparse_nargs": (
+        "import argparse\nfrom pathlib import Path\n\n\ndef main() -> str:\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    parser.add_argument('run_dir', type=Path, nargs='?')\n"
+        "    args = parser.parse_args()\n    return args.run_dir.read_text()\n"
+    ),
+    "argparse_args_rebound": (
+        "import argparse\nfrom pathlib import Path\nfrom typing import Any\n\n\n"
+        "def main(other: Any) -> str:\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    parser.add_argument('run_dir', type=Path)\n"
+        "    args = parser.parse_args()\n    args = other\n    return args.run_dir.read_text()\n"
+    ),
+    "argparse_unknown_dest": (
+        "import argparse\nfrom pathlib import Path\n\n\ndef main() -> str:\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    parser.add_argument('run_dir', type=Path)\n"
+        "    args = parser.parse_args()\n    return args.other_dir.read_text()\n"
+    ),
+    "json_parse_float_is_not_json": (
+        "import json\n\n\ndef f(text: str) -> str:\n"
+        "    data = json.loads(text, parse_float=str)\n    return str(data.get('x'))\n"
+    ),
+    "json_overridden_method_is_not_json": (
+        "import json\nfrom typing import Any\n\n\nclass Base:\n"
+        "    def load(self, text: str) -> Any:\n        return json.loads(text)\n\n\n"
+        "class Other(Base):\n    def load(self, text: str) -> Any:\n        return object()\n\n\n"
+        "def f(reader: Base, text: str) -> str:\n    return str(reader.load(text).get('x'))\n"
+    ),
+    "json_param_of_unexecuted_function_is_not_json": (
+        "import json\nfrom typing import Any\n\n\ndef unused(record: dict[str, Any]) -> str:\n"
+        "    return str(record.get('x'))\n"
+    ),
     "argparse_dest": (
         "import argparse\nfrom pathlib import Path\n\n\ndef main() -> str:\n"
         "    parser = argparse.ArgumentParser()\n"
@@ -228,20 +268,32 @@ def test_json_values_are_proved(scanned: tuple[Any, list[Any]], probe: str) -> N
     assert json_sites and not any_sites, (json_sites, any_sites)
 
 
-@pytest.mark.parametrize(
-    "probe",
-    [
-        "json_refuted_by_a_caller",
-        "json_with_a_hook_is_not_json",
-        "json_rebound_is_not_json",
-        "json_escaping_function",
-    ],
-)
+JSON_NEGATIVES = [
+    "json_refuted_by_a_caller",
+    "json_with_a_hook_is_not_json",
+    "json_rebound_is_not_json",
+    "json_escaping_function",
+    "json_parse_float_is_not_json",
+    "json_overridden_method_is_not_json",
+    "json_param_of_unexecuted_function_is_not_json",
+]
+
+
+def _fails(sites: list[Any], probe: str, prefix: str) -> list[Any]:
+    """The probe's unproved sites, as the scan classifies them: each must fail."""
+    statuses = [c for c in _statuses(sites, probe) if c.site.target.startswith(prefix)]
+    assert statuses, f"{probe}: no {prefix} site at all"
+    return [c for c in statuses if c.status not in scan.FAILING]
+
+
+@pytest.mark.parametrize("probe", JSON_NEGATIVES)
 def test_json_is_not_assumed_where_it_is_not_proved(
     scanned: tuple[Any, list[Any]], probe: str
 ) -> None:
+    """An Any value the JSON proof cannot prove stays Any, and the scan fails on it."""
     _json_sites, any_sites = _json_and_any(scanned[1], probe)
     assert any_sites, f"{probe}: an unproved value was treated as JSON"
+    assert _fails(scanned[1], probe, "<Any>") == [], f"{probe}: an unproved Any site passed"
 
 
 def test_argparse_values_get_the_type_argparse_guarantees(scanned: tuple[Any, list[Any]]) -> None:
@@ -249,12 +301,24 @@ def test_argparse_values_get_the_type_argparse_guarantees(scanned: tuple[Any, li
     assert "pathlib.Path.read_text" in targets
 
 
-@pytest.mark.parametrize("probe", ["argparse_escaping_parser", "argparse_dest"])
+ARGPARSE_NEGATIVES = [
+    "argparse_escaping_parser",
+    "argparse_dest",
+    "argparse_custom_type",
+    "argparse_nargs",
+    "argparse_args_rebound",
+    "argparse_unknown_dest",
+]
+
+
+@pytest.mark.parametrize("probe", ARGPARSE_NEGATIVES)
 def test_argparse_values_stay_any_when_the_parser_is_not_fully_visible(
     scanned: tuple[Any, list[Any]], probe: str
 ) -> None:
+    """A Namespace attribute the plugin cannot type stays Any, and the scan fails on it."""
     targets = {s.target for s in scanned[1] if s.module.endswith(f"/{probe}.py")}
     assert "<Any>.read_text" in targets and "pathlib.Path.read_text" not in targets
+    assert _fails(scanned[1], probe, "<Any>") == [], f"{probe}: an untyped Any site passed"
 
 
 def test_completeness_refuses_a_module_hidden_by_a_file_level_ignore(tmp_path: Path) -> None:

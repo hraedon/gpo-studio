@@ -19,20 +19,33 @@
   finalizer's re-grade at `F`, children included. A non-Python child that
   runs a repository file executes every changed line in it.
 - **Rule**: a lane is selected iff some non-exempt changed line in its
-  dependency set executed in either half, or its trace is incomplete; and,
-  under every option, any lane whose replay or re-grade differs. A lane
-  whose hand-bound file changed is listed too, with its own reason: that is
-  not D-9 but the existing freshness gate, which already expires it.
+  dependency set executed in either half, or a changed data file it reads
+  (below), or its trace is incomplete; and, under every option, any lane
+  whose replay or re-grade differs. A lane whose hand-bound file changed is
+  listed too, with its own reason: that is not D-9 but the existing freshness
+  gate, which already expires it.
 
-Two signals are computed beside the rule and **never change it**, because the
-rule is the owner's decision as worded; they are reported so a reviewer can
-see whether the wording leaves a gap on the data at hand:
+The coordinator closed two gaps in the wording on 2026-10-14, strictly and
+mechanically:
 
-- `deletion_adjacent`: a pure deletion has no new-side line, so the
-  definition cannot count it; this reports whether a new-side line bracketing
-  a deletion point executed;
-- `changed_data_read`: a data file in the dependency set is read, not
-  executed; this reports a changed one the trace saw opened.
+- **Pure deletions.** A deletion hunk has no new-side line, so the literal
+  definition could not count it (a deleted guard clause would be invisible).
+  Each deletion maps to the surviving statements on either side of the
+  deletion point **within the same scope**: the scope that executed the
+  deleted lines (the enclosing function, or the class or module body at top
+  level; a `def` line belongs to the scope that executes it, not to its own
+  body). The nearest statement at or before the point and the nearest at or
+  after it, in that scope, are the deletion's adjacent lines, and if either
+  executed, the deletion counts as an executed changed line. A scope is a
+  function, not a block: a deletion at the end of an `if` body maps to the
+  next statement in the function even if it follows the `if`, which can
+  only select more. A file that does not parse, or any non-Python file, uses
+  the raw lines either side of the point.
+- **Data files.** A changed file that the lane reads, either declared (a
+  resource or enumerated member in the dependency set) or observed (a
+  repository file the trace saw opened that is not a Python module of the
+  closure), counts as a changed dependency and selects the lane, exactly as
+  an executed changed line does.
 """
 
 from __future__ import annotations
@@ -71,13 +84,82 @@ class FileChange:
     def new_lines(self) -> set[int]:
         return {number for hunk in self.hunks for number in hunk.new_numbers}
 
+    #: New-side statements adjacent to each pure deletion, in the deleted
+    #: lines' own scope (see the module docstring).
+    deletion_lines: set[int] = field(default_factory=set)
+
     def deletion_points(self) -> set[int]:
-        """New-side lines bracketing a pure deletion (no new-side line of its own)."""
-        points: set[int] = set()
-        for hunk in self.hunks:
-            if not hunk.new_lines and hunk.old_lines:
-                points.update({hunk.new_start, hunk.new_start + 1})
-        return points
+        return set(self.deletion_lines)
+
+
+def _scoped_statements(source: bytes) -> list[tuple[int, int, str]] | None:
+    """(first line, last line, executing scope) for every statement, or None."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return None
+    found: list[tuple[int, int, str]] = []
+
+    def visit(statements: list[ast.stmt], scope: str) -> None:
+        for statement in statements:
+            last = statement.end_lineno or statement.lineno
+            found.append((statement.lineno, last, scope))
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                visit(statement.body, f"{scope}.{statement.name}")
+                continue
+            for name in ("body", "orelse", "finalbody"):
+                visit(getattr(statement, name, []) or [], scope)
+            for handler in getattr(statement, "handlers", []) or []:
+                found.append((handler.lineno, handler.end_lineno or handler.lineno, scope))
+                visit(handler.body, scope)
+            for case in getattr(statement, "cases", []) or []:
+                visit(case.body, scope)
+
+    visit(tree.body, "<module>")
+    return found
+
+
+def _scope_of(statements: list[tuple[int, int, str]], line: int) -> str | None:
+    """The scope of the innermost statement spanning *line* (the last match wins:
+    statements are listed outer before inner)."""
+    scope = None
+    for first, last, owner in statements:
+        if first <= line <= last:
+            scope = owner
+    return scope
+
+
+def deletion_adjacent(path: str, old: bytes, new: bytes, hunks: list[Hunk]) -> set[int]:
+    """New-side lines adjacent to every pure deletion in *hunks* (module docstring)."""
+    deletions = [h for h in hunks if h.old_lines and not h.new_lines]
+    if not deletions:
+        return set()
+    new_count = new.count(b"\n") + (0 if new.endswith(b"\n") else 1)
+    raw: set[int] = set()
+    for hunk in deletions:
+        raw.update(line for line in (hunk.new_start, hunk.new_start + 1) if 1 <= line <= new_count)
+    if not path.endswith(".py"):
+        return raw
+    old_statements, new_statements = _scoped_statements(old), _scoped_statements(new)
+    if old_statements is None or new_statements is None:
+        return raw
+    adjacent: set[int] = set()
+    for hunk in deletions:
+        point = hunk.new_start  # git: the deletion follows this new-side line
+        deleted = range(hunk.old_start, hunk.old_start + len(hunk.old_lines))
+        scopes = {_scope_of(old_statements, line) for line in deleted} - {None}
+        for scope in scopes or {"<module>"}:
+            lines = sorted({first for first, _last, owner in new_statements if owner == scope})
+            if not lines:
+                adjacent.update(line for line in (point, point + 1) if 1 <= line <= new_count)
+                continue
+            before = [line for line in lines if line <= point]
+            after = [line for line in lines if line >= point + 1]
+            if before:
+                adjacent.add(before[-1])
+            if after:
+                adjacent.add(after[0])
+    return adjacent
 
 
 def diff_file(repo: Path, base: str, target: str, path: str) -> FileChange:
@@ -116,7 +198,7 @@ def diff_file(repo: Path, base: str, target: str, path: str) -> FileChange:
             current.old_lines.append(line[1:])
     if not hunks:
         raise Wp0Error(f"{path}: bytes differ but git reports no hunk (attributes?)")
-    return FileChange(path, "modified", hunks)
+    return FileChange(path, "modified", hunks, deletion_adjacent(path, old, new, hunks))
 
 
 # --- the release-metadata exemption ---------------------------------------------------
@@ -274,6 +356,9 @@ class LaneSelection:
     deletion_adjacent: dict[str, list[int]]
     changed_data_read: list[str]
     option3: bool
+    #: The scope this selection was made over: the dependency set plus the
+    #: repository files the trace saw opened.
+    considered: list[str] = field(default_factory=list)
 
 
 def select_lane(
@@ -289,8 +374,16 @@ def select_lane(
     replay_identical: bool | None,
     regrade_equal: bool,
     exemptions: Sequence[Exemption],
+    resources: Iterable[str] = (),
 ) -> LaneSelection:
-    """D-9 option 2 for one lane, as a Boolean over the inputs (no human input)."""
+    """D-9 option 2 for one lane, as a Boolean over the inputs (no human input).
+
+    *opened* are repository files the trace saw opened and *resources* the data
+    files the declarations say the lane reads; a changed one of either that is
+    not a Python module of the closure selects the lane. *changes* must hold a
+    diff for every path in the dependency set and in *opened*.
+    """
+    declared_reads = set(resources)
     reasons: list[str] = []
     executed_changed: dict[str, list[int]] = {}
     exempted: dict[str, list[int]] = {}
@@ -300,7 +393,8 @@ def select_lane(
     changed_data: list[str] = []
     option3 = False
     gates_bc = (replay_identical is not False) and regrade_equal
-    for path in sorted(dependency_set):
+    considered = sorted(set(dependency_set) | set(opened))
+    for path in considered:
         change = changes[path]
         if change.status == "unchanged":
             continue
@@ -316,21 +410,21 @@ def select_lane(
                     "gate (b) failed: the replay differs" if replay_identical is False
                     else "gate (c) failed: the re-grade differs"
                 )
-        if path in python_modules and path not in floor and counted:
+        if path in python_modules and path not in floor and (counted or change.deletion_lines):
             option3 = True
         ran = executed.get(path, set())
         if path in child_files:
-            ran = ran | new  # a non-Python child ran the whole file
-        hits = sorted(counted & ran)
-        if hits:
-            executed_changed[path] = hits
-        elif counted:
-            unexecuted[path] = len(counted)
+            ran = ran | new | change.deletion_lines  # a non-Python child ran the whole file
         adjacent = sorted(change.deletion_points() & ran)
         if adjacent:
-            deletion_adjacent[path] = adjacent
-        if path not in python_modules and path in opened and counted:
-            changed_data.append(path)
+            deletion_adjacent[path] = adjacent  # a deletion whose neighbours ran counts
+        hits = sorted((counted & ran) | set(adjacent))
+        if hits:
+            executed_changed[path] = hits
+        elif counted or change.deletion_lines:
+            unexecuted[path] = len(counted | change.deletion_lines)
+        if path not in python_modules and (path in opened or path in declared_reads):
+            changed_data.append(path)  # a changed data file the lane reads
         if change.status == "removed":
             reasons.append(f"{path} was removed from the tree")
         if path in floor:
@@ -342,6 +436,10 @@ def select_lane(
             "changed lines executed: "
             + ", ".join(f"{p} ({len(v)})" for p, v in sorted(executed_changed.items()))
         )
+    if deletion_adjacent:
+        reasons.append(f"deletions whose adjacent lines executed: {sorted(deletion_adjacent)}")
+    if changed_data:
+        reasons.append(f"changed data files the lane reads: {changed_data}")
     if incomplete:
         reasons.append(f"trace incomplete: {list(incomplete)[:3]}")
     if replay_identical is False:
@@ -359,7 +457,8 @@ def select_lane(
         changed_unexecuted=unexecuted,
         deletion_adjacent=deletion_adjacent,
         changed_data_read=changed_data,
-        option3=option3 or replay_identical is False or not regrade_equal,
+        option3=option3 or bool(changed_data) or replay_identical is False or not regrade_equal,
+        considered=considered,
     )
 
 

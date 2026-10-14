@@ -6,6 +6,11 @@ record; `write_records` writes the successor record and the pin, and only
 after a full run that found no difference; `verify_pin` is the release-only
 closure gate's re-derivation (`tests/test_release_closure_gate.py` runs it).
 
+The successor record carries `DESIGN_NOTES`: the readings of the plan this
+tooling makes (WP-0 always selected; the TYPE_CHECKING interpretation; the
+D-9 deletion and data-file rules), so the record names the rules it was
+produced under.
+
 **The pin cannot be refreshed by regenerating it** (DeepSeek round-2 N2-9):
 it carries the SHA-256 of the successor record it was derived from, and the
 successor record carries the replay and re-grade results. `write_records`
@@ -33,9 +38,33 @@ from . import closure as closure_mod
 from . import projection, replay, scan
 from .lanes import Lane, live_lanes
 from .repo import LISTS_DIR, REPO_ROOT, Wp0Error, git, rev_parse, sha256_bytes, sha256_file
+from .repo import tracked_files as repo_tracked
 
 SUCCESSOR_RECORD = "docs/plan-033/release110-dependency-audit.json"
 PIN_RECORD = "docs/plan-033/release110-closure-pin.json"
+#: Design notes carried in every successor record: the readings of the plan
+#: the tooling makes, so the record says under which rules it was produced.
+DESIGN_NOTES = (
+    "WP-0 is always selected. Its shipping finalizer binds the harness-input "
+    "record to the commit it was deployed at and refuses finalization at any "
+    "other commit, so its canonical re-grade at F cannot run without altering a "
+    "recorded input. Exemption gate (c) therefore fails, the release-metadata "
+    "line counts, and D-9 selects WP-0: the rule working as written (coordinator "
+    "ruling, 2026-10-14; the plan's rule is unchanged). Cost: about one estate "
+    "minute.",
+    "Imports only under `if TYPE_CHECKING:` are outside the run-time closure, and "
+    "only when the guard resolves to typing.TYPE_CHECKING or "
+    "typing_extensions.TYPE_CHECKING (aliases included); any other name is a "
+    "run-time import (an interpretation, coordinator ruling 2026-10-14).",
+    "A pure deletion counts through the surviving statements adjacent to the "
+    "deletion point in the deleted lines' own scope; a changed data file a lane "
+    "reads (declared, or observed opened in the trace) selects the lane "
+    "(coordinator ruling 2026-10-14, closing two gaps in D-9's wording).",
+    "A file the verdict already binds that changed selects its lane through the "
+    "existing freshness gate, listed with its own reason.",
+    "The scan's argparse plugin and JSON-provenance proof type values mypy "
+    "leaves Any; a value neither proves stays Any and fails unless declared.",
+)
 CAVEAT = (
     "These verdicts were earned on the estate at their own commits (de9736e or "
     "9940561). At the target commit their candidates and grading reproduce "
@@ -267,16 +296,25 @@ def run(
                     workdir, tables,
                 )
         selections = {}
+        tracked: dict[str, set[str]] = {target: set(repo_tracked(repo, target))}
         for lane in lanes:
             lane1 = part1["lanes"][lane.name]
             outcome = results[lane.name]
             dependency = sorted(set(lane1["closure"]) | set(lane1["resources"]) |
                                 set(lane1["floor"]))
-            changes = {path: changed_mod.diff_file(repo, lane.commit, target, path)
-                       for path in dependency}
             traces = [outcome["replay"].get("trace"), *outcome["replay"].get("trace_children", []),
                       outcome["regrade_traced"].get("trace"),
                       *outcome["regrade_traced"].get("trace_children", [])]
+            # Repository files the trace saw opened (tracked at either commit:
+            # bytecode caches and run outputs are not repository files).
+            if lane.commit not in tracked:
+                tracked[lane.commit] = set(repo_tracked(repo, lane.commit))
+            opened = {
+                path for path in changed_mod.opened_files(traces, clone_b.path)
+                if path in tracked[target] or path in tracked[lane.commit]
+            }
+            changes = {path: changed_mod.diff_file(repo, lane.commit, target, path)
+                       for path in sorted(set(dependency) | opened)}
             executed = changed_mod.executed_lines(traces, clone_b.path)
             incomplete = changed_mod.trace_incompleteness(
                 traces, part1["toolchain"]["process_executables"]
@@ -288,14 +326,16 @@ def run(
                 set(lane1["floor"]),
                 changes,
                 executed,
-                changed_mod.opened_files(traces, clone_b.path),
+                opened,
                 changed_mod.child_repository_files(traces, clone_b.path),
                 incomplete,
                 outcome["replay"]["identical"] if outcome["replay"]["applicable"] else None,
                 outcome["regrade_equal"],
                 exemptions,
+                resources=lane1["resources"],
             )
             selections[lane.name] = selection
+            outcome["opened_repository_files"] = sorted(opened)
             outcome["changes"] = {
                 path: {"status": c.status, "new_lines": len(c.new_lines()),
                        "hunks": len(c.hunks)}
@@ -448,6 +488,7 @@ def successor_record(result: dict[str, Any], environment: dict[str, str]) -> dic
         "exemptions_sha256": part1["exemptions_sha256"],
         "toolchain": part1["toolchain"],
         "environment": environment,
+        "design_notes": list(DESIGN_NOTES),
         "option2": result["option2"],
         "option3": result["option3"],
         "lanes": lanes,

@@ -24,14 +24,24 @@ recorded as external. A name found nowhere in the repository and not in the
 standard library is recorded as external too, by name: the closure gate pins
 the external set, so a new third-party import is an added edge.
 
-An import under `if TYPE_CHECKING:` never executes (`typing.TYPE_CHECKING` is
-False at run time), so it is not part of the run-time closure. It is honoured
-only when the guard is exactly that constant: the name bound in the module by
-`from typing import TYPE_CHECKING` (or `typing.TYPE_CHECKING` with `typing`
-bound by `import typing`) and by nothing else; anything else counts as a run
--time import. The `else:` branch of such a guard does run and is walked. Type
--only imports are recorded beside the closure (`ProcessClosure.type_only`), so
-the record shows what was left out and why.
+**An interpretation for the reviewers to check.** An import under
+`if TYPE_CHECKING:` never executes (`TYPE_CHECKING` is False at run time), so
+it is left out of the run-time closure. The plan does not say this; it says
+"imports at any depth". Without it, `model.py`'s type-only imports of `gpp`
+and `fdeploy` would put those modules in every lane's closure, and D-9's
+option 3 would select all 26 lanes. The guard is honoured only when it
+resolves to `typing.TYPE_CHECKING` or `typing_extensions.TYPE_CHECKING`:
+
+- a bare name bound in the module only by `from typing import TYPE_CHECKING`
+  or `from typing_extensions import TYPE_CHECKING` (aliased with `as` or not);
+- or `<m>.TYPE_CHECKING`, where `<m>` is bound in the module only by
+  `import typing` or `import typing_extensions` (aliased or not).
+
+Any other name, including a local `TYPE_CHECKING = ...`, a `TYPE_CHECKING`
+imported from anywhere else, or one also bound a second way, makes the
+guarded imports run-time imports. The `else:` branch of a real guard does run
+and is walked. Type-only imports are recorded beside the closure
+(`ProcessClosure.type_only`), so the record shows what was left out and why.
 
 A module loaded dynamically (`runpy.run_path`, `importlib.util.
 spec_from_file_location`) is not an import statement; the scan finds the call
@@ -142,8 +152,11 @@ def _package_of(module_name: str, path: str) -> str:
     return module_name.rpartition(".")[0]
 
 
+_TYPING_MODULES = frozenset({"typing", "typing_extensions"})
+
+
 def _type_checking_guards(tree: ast.Module) -> tuple[set[str], set[str]]:
-    """Names meaning typing.TYPE_CHECKING, and names meaning the typing module.
+    """Names meaning TYPE_CHECKING, and names meaning typing or typing_extensions.
 
     A name counts only if every binding of it in the module is that import.
     """
@@ -164,12 +177,16 @@ def _type_checking_guards(tree: ast.Module) -> tuple[set[str], set[str]]:
         if len(binders) != 1:
             continue
         binder = binders[0]
-        if isinstance(binder, ast.ImportFrom) and binder.module == "typing" and not binder.level:
+        if (
+            isinstance(binder, ast.ImportFrom)
+            and binder.module in _TYPING_MODULES
+            and not binder.level
+        ):
             if any(a.name == "TYPE_CHECKING" and (a.asname or a.name) == name
                    for a in binder.names):
                 constants.add(name)
         elif isinstance(binder, ast.Import) and any(
-            a.name == "typing" and (a.asname or "typing") == name for a in binder.names
+            a.name in _TYPING_MODULES and (a.asname or a.name) == name for a in binder.names
         ):
             modules.add(name)
     return constants, modules

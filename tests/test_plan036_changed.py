@@ -143,7 +143,8 @@ def test_selection_is_a_boolean_over_execution_and_incompleteness(
     broken = changed.select_lane(*base_args, {}, set(), set(), ["a shell child"], True, True,
                                  EXEMPTIONS)
     assert ran.selected and not idle.selected and broken.selected
-    assert idle.changed_unexecuted == {"mod.py": 1} and idle.option3
+    # line 2 (b replaced) plus 3 and 4, the statements either side of d's deletion
+    assert idle.changed_unexecuted == {"mod.py": 3} and idle.option3
 
 
 def test_a_non_python_child_running_a_changed_file_executes_all_of_it(
@@ -191,3 +192,121 @@ def test_a_changed_hand_bound_file_selects_the_lane_through_the_freshness_gate(
     selection = changed.select_lane("lane", ["mod.py"], set(), {"mod.py"}, {"mod.py": mod}, {},
                                     set(), set(), [], True, True, EXEMPTIONS)
     assert selection.selected and any("freshness gate" in r for r in selection.reasons)
+
+
+GUARDED_BASE = """\
+def f(x):
+    total = 0
+    if x is None:
+        return 0
+    total += x
+    return total
+
+
+def g():
+    value = 1
+    print(value)
+    return value
+"""
+GUARDED_TARGET = """\
+def f(x):
+    total = 0
+    total += x
+    return total
+
+
+def g():
+    value = 1
+    return value
+"""
+
+
+@pytest.fixture
+def deletions(tmp_path: Path) -> tuple[Path, str, str]:
+    """f loses a guard clause; g loses its last-but-one statement; data.txt changes."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    for args in (("init", "-q"), ("config", "user.email", "t@example.invalid"),
+                 ("config", "user.name", "t"), ("config", "core.autocrlf", "false")):
+        _git(root, *args)
+    (root / "code.py").write_text(GUARDED_BASE, encoding="utf-8")
+    (root / "data.txt").write_text("one\ntwo\n", encoding="utf-8")
+    (root / "same.txt").write_text("same\n", encoding="utf-8")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "base")
+    base = _git(root, "rev-parse", "HEAD")
+    (root / "code.py").write_text(GUARDED_TARGET, encoding="utf-8")
+    (root / "data.txt").write_text("one\n", encoding="utf-8")  # a pure deletion in data
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "target")
+    return root, base, _git(root, "rev-parse", "HEAD")
+
+
+def _code_lane(change: object, executed: set[int]) -> object:
+    return changed.select_lane("lane", ["code.py"], {"code.py"}, set(), {"code.py": change},
+                               {"code.py": executed}, set(), set(), [], True, True, EXEMPTIONS)
+
+
+def test_a_deleted_guard_clause_maps_to_its_neighbours_in_the_same_function(
+    deletions: tuple[Path, str, str],
+) -> None:
+    root, base, target = deletions
+    code = changed.diff_file(root, base, target, "code.py")
+    assert code.new_lines() == set()  # pure deletions only: no new-side line at all
+    # f's guard went between `total = 0` (2) and `total += x` (3); g lost `print`
+    # between `value = 1` (8) and `return value` (9).
+    assert code.deletion_lines == {2, 3, 8, 9}
+
+
+def test_a_deleted_guard_in_an_executed_function_selects_the_lane(
+    deletions: tuple[Path, str, str],
+) -> None:
+    root, base, target = deletions
+    code = changed.diff_file(root, base, target, "code.py")
+    selection = _code_lane(code, {1, 2, 3, 4, 7})  # f ran; g was only defined
+    assert selection.selected
+    assert selection.deletion_adjacent == {"code.py": [2, 3]}
+    assert selection.executed_changed == {"code.py": [2, 3]}
+
+
+def test_a_deletion_in_a_function_that_never_ran_does_not_select(
+    deletions: tuple[Path, str, str],
+) -> None:
+    """The def lines ran at import, but they belong to the module scope, not to the
+    functions whose bodies lost a statement: the scope restriction at work."""
+    root, base, target = deletions
+    code = changed.diff_file(root, base, target, "code.py")
+    selection = _code_lane(code, {1, 7})
+    assert not selection.selected and selection.changed_unexecuted == {"code.py": 4}
+
+
+def test_a_deletion_at_the_end_of_a_function_does_not_borrow_the_next_definition(
+    tmp_path: Path,
+) -> None:
+    old = b"def f():\n    a = 1\n    b = 2\n\n\ndef g():\n    return 3\n"
+    new = b"def f():\n    a = 1\n\n\ndef g():\n    return 3\n"
+    hunk = changed.Hunk(3, ["    b = 2"], 2, [])
+    # Only f's own surviving statement; the raw rule would also have taken line 3
+    # (a blank line) and the scope-blind one `def g():` (5), which runs at import.
+    assert changed.deletion_adjacent("m.py", old, new, [hunk]) == {2}
+    assert changed.deletion_adjacent("m.txt", old, new, [hunk]) == {2, 3}
+
+
+def _data_lane(changes: dict[str, object], *, opened: set[str] = frozenset(),
+               resources: set[str] = frozenset()) -> object:
+    return changed.select_lane("lane", sorted(resources), set(), set(), changes, {}, set(opened),
+                               set(), [], True, True, EXEMPTIONS, resources=resources)
+
+
+def test_a_changed_data_file_the_lane_reads_selects_it(deletions: tuple[Path, str, str]) -> None:
+    root, base, target = deletions
+    data = changed.diff_file(root, base, target, "data.txt")
+    same = changed.diff_file(root, base, target, "same.txt")
+    declared = _data_lane({"data.txt": data}, resources={"data.txt"})
+    observed = _data_lane({"data.txt": data}, opened={"data.txt"})
+    unchanged = _data_lane({"same.txt": same}, opened={"same.txt"}, resources={"same.txt"})
+    unread = _data_lane({})
+    for selection in (declared, observed):
+        assert selection.selected and selection.changed_data_read == ["data.txt"]
+        assert any("data files" in r for r in selection.reasons)
+    assert not unchanged.selected and not unread.selected

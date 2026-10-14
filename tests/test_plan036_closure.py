@@ -43,22 +43,61 @@ def test_imports_at_any_depth_and_every_package_init(tmp_path: Path) -> None:
     }
 
 
-def test_type_checking_imports_are_left_out_only_under_the_real_guard(tmp_path: Path) -> None:
+REAL_GUARDS = {
+    "typing": "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n",
+    "typing aliased": "from typing import TYPE_CHECKING as TC\nif TC:\n",
+    "typing module": "import typing\nif typing.TYPE_CHECKING:\n",
+    "typing module aliased": "import typing as t\nif t.TYPE_CHECKING:\n",
+    "typing_extensions": "from typing_extensions import TYPE_CHECKING\nif TYPE_CHECKING:\n",
+    "typing_extensions aliased": (
+        "from typing_extensions import TYPE_CHECKING as TC\nif TC:\n"
+    ),
+    "typing_extensions module": "import typing_extensions\nif typing_extensions.TYPE_CHECKING:\n",
+    "typing_extensions module aliased": "import typing_extensions as te\nif te.TYPE_CHECKING:\n",
+}
+FAKE_GUARDS = {
+    "local constant": "TYPE_CHECKING = True\nif TYPE_CHECKING:\n",
+    "imported from elsewhere": "from settings import TYPE_CHECKING\nif TYPE_CHECKING:\n",
+    "rebound after import": (
+        "from typing import TYPE_CHECKING\nTYPE_CHECKING = True\nif TYPE_CHECKING:\n"
+    ),
+    "aliased name reused": (
+        "from typing import TYPE_CHECKING as TC\nTC = 1\nif TC:\n"
+    ),
+    "attribute of another module": "import settings\nif settings.TYPE_CHECKING:\n",
+    "typing rebound": "import typing\ntyping = object()\nif typing.TYPE_CHECKING:\n",
+    "a different typing attribute": "import typing\nif typing.TYPE_CHECKING_X:\n",
+}
+
+
+def _guarded_tree(tmp_path: Path, guard: str) -> object:
     _write(tmp_path, {
-        "scripts/tool/run.py": "import pkg.a\nimport pkg.b\n",
+        "scripts/tool/run.py": "import pkg.a\n",
         "src/pkg/__init__.py": "",
-        "src/pkg/a.py": "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n"
-                        "    from . import only_types\nelse:\n    from . import at_run_time\n",
-        "src/pkg/b.py": "TYPE_CHECKING = True\nif TYPE_CHECKING:\n    from . import rebound\n",
+        "src/pkg/a.py": (
+            guard + "    from . import only_types\nelse:\n    from . import at_run_time\n"
+        ),
         "src/pkg/only_types.py": "",
         "src/pkg/at_run_time.py": "",
-        "src/pkg/rebound.py": "",
     })
-    process = closure.derive_process(tmp_path, "scripts/tool/run.py")
-    assert "src/pkg/only_types.py" not in process.modules
-    assert "src/pkg/at_run_time.py" in process.modules
-    assert "src/pkg/rebound.py" in process.modules  # not typing's constant: a run-time import
+    return closure.derive_process(tmp_path, "scripts/tool/run.py")
+
+
+@pytest.mark.parametrize("spelling", sorted(REAL_GUARDS))
+def test_imports_under_the_real_type_checking_guard_are_left_out(
+    tmp_path: Path, spelling: str
+) -> None:
+    process = _guarded_tree(tmp_path, REAL_GUARDS[spelling])
+    assert "src/pkg/only_types.py" not in process.modules, spelling
+    assert "src/pkg/at_run_time.py" in process.modules  # the else branch runs
     assert any("only_types" in module for _, _, module in process.type_only)
+
+
+@pytest.mark.parametrize("spelling", sorted(FAKE_GUARDS))
+def test_a_fake_type_checking_guard_is_not_honoured(tmp_path: Path, spelling: str) -> None:
+    process = _guarded_tree(tmp_path, FAKE_GUARDS[spelling])
+    assert "src/pkg/only_types.py" in process.modules, spelling
+    assert process.type_only == []
 
 
 def test_the_scripts_directory_comes_first_and_can_shadow_the_standard_library(
