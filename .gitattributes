@@ -155,3 +155,26 @@ PSScriptAnalyzerSettings.psd1 text eol=lf
 eslint.config.mjs text eol=lf
 playwright.config.mjs text eol=lf
 vitest.config.mjs text eol=lf
+
+# Plan 036 WP-0 (WI-083): the release-only closure gate pins every file in a live
+# lane's derived dependency closure, and uv.lock, by SHA-256 of the checkout bytes
+# (tests/test_release_closure_gate.py). These are in a closure but no earlier rule
+# pinned them; without `text eol=lf` the Windows test job's checkout smudges them
+# to CRLF and the gate could never be green there. The blobs are LF already.
+src/gpo_studio/__init__.py text eol=lf
+src/gpo_studio/gpmc_interop.py text eol=lf
+src/gpo_studio/gpp_native.py text eol=lf
+src/gpo_studio/identity.py text eol=lf
+src/gpo_studio/ilt.py text eol=lf
+src/gpo_studio/numeric.py text eol=lf
+src/gpo_studio/rsop.py text eol=lf
+src/gpo_studio/schema.py text eol=lf
+src/gpo_studio/snapshot_documents.py text eol=lf
+src/gpo_studio/som.py text eol=lf
+src/gpo_studio/store.py text eol=lf
+src/gpo_studio/workspace_ops.py text eol=lf
+uv.lock text eol=lf
+# The WP-0 tooling's own sources and reviewed lists: the pin carries the lists'
+# digest, so their checkout bytes must not depend on the platform either.
+scripts/plan-033/plan036_wp0/** text eol=lf
+scripts/plan-033/wp0-live-closure.py text eol=lf

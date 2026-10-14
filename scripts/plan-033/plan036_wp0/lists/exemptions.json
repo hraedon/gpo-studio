@@ -1,0 +1,11 @@
+{
+  "comment": "D-9's release-metadata exemption table: (file, name, line pattern). Closed and reviewed; adding an entry is a tier-2 change. A matching changed line is not counted only if gates (a), (b) and (c) hold (plan036_wp0/changed.py). The release process edits, among source files, only this line (release-evidence-1.1.0.md, 'How this release is approved').",
+  "entries": [
+    {
+      "file": "src/gpo_studio/__init__.py",
+      "name": "__version__",
+      "pattern": "__version__ = \"[^\"\\\\]*\"",
+      "reason": "the release version bump; hatchling reads the version from this line"
+    }
+  ]
+}

@@ -1,0 +1,2381 @@
+{
+ "comment": "Plan 036 WP-0's declared edges (tier-2 data; plan036_wp0/scan.py). Each group covers exact targets in one module (all of it, or the named scopes), with the exact number of sites per target: an added or removed site is a mismatch until a reviewer updates the count. 'reaches' says what the sites reach; repository files and directories named there (repo_files, repo_dir, repo_reaches) are pinned by digest and membership. 'unresolved' groups declare values typed Any and say what they are.",
+ "edges": [],
+ "groups": [
+  {
+   "module": "scripts/plan-033/build-endpoint-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 1,
+    "pathlib.Path.write_bytes": 1,
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-fdeploy-candidate.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the builder's staging tree"
+   },
+   "reason": "lists the staged files to archive them",
+   "targets": {
+    "pathlib.Path.rglob": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-fdeploy-candidate.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the builder's own staging tree and output directory, and its own path"
+   },
+   "reason": "reads back what it staged or wrote",
+   "targets": {
+    "pathlib.Path.is_dir": 1,
+    "pathlib.Path.is_file": 2,
+    "pathlib.Path.read_bytes": 5,
+    "pathlib.Path.resolve": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-fdeploy-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 3,
+    "pathlib.Path.write_bytes": 7
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-fdeploy-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "a private temporary directory, removed when the with-block exits"
+   },
+   "reason": "stages files to archive or rebuild them",
+   "targets": {
+    "tempfile.TemporaryDirectory": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-fdeploy-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "in_memory": "an io.BytesIO buffer: the archive is built or read back in memory"
+   },
+   "reason": "builds or re-reads an archive in memory",
+   "targets": {
+    "zipfile.ZipFile": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-fdeploy-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the fixture provenance (json.loads) and the expectation dictionary the builder assembles before printing it"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 5,
+    "<Any>.__format__": 5,
+    "<Any>.__getitem__": 5,
+    "<Any>.__index__": 1,
+    "<Any>.__int__": 1,
+    "<Any>.__repr__": 5,
+    "<Any>.__str__": 5,
+    "<Any>.__trunc__": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-fdeploy-candidate.py",
+   "scopes": [
+    "_transcript_bytes"
+   ],
+   "kind": "file-read",
+   "reaches": {
+    "repo_files": [
+     "tests/fixtures/native-folder-redirection-gpmc/fdeploy.ini.txt",
+     "tests/fixtures/native-folder-redirection-gpmc/fdeploy1.ini.txt",
+     "tests/fixtures/native-folder-redirection-gpmc/provenance.json"
+    ]
+   },
+   "reason": "rebuilds R3's native fdeploy bytes from the banked transcripts and their provenance",
+   "targets": {
+    "pathlib.Path.read_text": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-fdeploy-candidate.py",
+   "scopes": [
+    "r3_bytes"
+   ],
+   "kind": "file-read",
+   "reaches": {
+    "repo_files": [
+     "tests/fixtures/native-folder-redirection-gpmc/fdeploy.ini.txt",
+     "tests/fixtures/native-folder-redirection-gpmc/fdeploy1.ini.txt",
+     "tests/fixtures/native-folder-redirection-gpmc/provenance.json"
+    ]
+   },
+   "reason": "rebuilds R3's native fdeploy bytes from the banked transcripts and their provenance",
+   "targets": {
+    "pathlib.Path.read_text": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-firewall-candidate.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the builder's own staging tree and output directory, and its own path"
+   },
+   "reason": "reads back what it staged or wrote",
+   "targets": {
+    "pathlib.Path.resolve": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-firewall-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 1,
+    "pathlib.Path.write_bytes": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-firewall-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the expectation is built from json.loads of a canonical rendering and read back through dict[str, Any]"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 2,
+    "<Any>.__eq__": 2,
+    "<Any>.__getitem__": 9,
+    "<Any>.__iter__": 3,
+    "<Any>.__next__": 1,
+    "<Any>.__repr__": 2,
+    "<Any>.__str__": 2,
+    "<Any>.get": 16
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-lifecycle-candidate.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the builder's own staging tree and output directory, and its own path"
+   },
+   "reason": "reads back what it staged or wrote",
+   "targets": {
+    "pathlib.Path.resolve": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-lifecycle-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 1,
+    "pathlib.Path.write_bytes": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-object-security-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 1,
+    "pathlib.Path.write_bytes": 1,
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-publication-candidate.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the builder's own staging tree and output directory, and its own path"
+   },
+   "reason": "reads back what it staged or wrote",
+   "targets": {
+    "pathlib.Path.read_bytes": 1,
+    "pathlib.Path.resolve": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-publication-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 1,
+    "pathlib.Path.write_bytes": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-publication-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the expectation dictionary the builder prints"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__format__": 2,
+    "<Any>.__repr__": 2,
+    "<Any>.__str__": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the builder's staging tree"
+   },
+   "reason": "lists the staged files to archive them",
+   "targets": {
+    "pathlib.Path.rglob": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the builder's own staging tree and output directory, and its own path"
+   },
+   "reason": "reads back what it staged or wrote",
+   "targets": {
+    "pathlib.Path.is_file": 1,
+    "pathlib.Path.read_bytes": 3,
+    "pathlib.Path.resolve": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 2,
+    "pathlib.Path.write_bytes": 4
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "in_memory": "an io.BytesIO buffer: the archive is built or read back in memory"
+   },
+   "reason": "builds or re-reads an archive in memory",
+   "targets": {
+    "zipfile.ZipFile": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "a private temporary directory, removed when the with-block exits"
+   },
+   "reason": "stages files to archive or rebuild them",
+   "targets": {
+    "tempfile.TemporaryDirectory": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the expectation dictionary (dict[str, Any]) the builder prints"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__format__": 5,
+    "<Any>.__getitem__": 5,
+    "<Any>.__repr__": 5,
+    "<Any>.__str__": 5
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": [
+    "corpus"
+   ],
+   "kind": "enumerate",
+   "reaches": {
+    "copies_parent_tree": true,
+    "glob": "*/manifest.xml",
+    "repo_dir": "tests/fixtures/native-gpp-gpmc"
+   },
+   "reason": "enumerates the Windows-produced backup corpus",
+   "targets": {
+    "pathlib.Path.glob": 3
+   },
+   "repo_reaches": [
+    {
+     "copies_parent_tree": true,
+     "glob": "*/manifest.xml",
+     "repo_dir": "tests/fixtures/native-gpp-registry-gpmc"
+    },
+    {
+     "copies_parent_tree": true,
+     "glob": "*-evidence/wi059-20260908/**/manifest.xml",
+     "repo_dir": "docs/plan-033"
+    },
+    {
+     "copies_parent_tree": true,
+     "glob": "manifest.xml",
+     "repo_dir": "docs/plan-033/wp1b-evidence/backup-report-20260908/scripts-metadata/rebackup"
+    }
+   ]
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": [
+    "import_readiness"
+   ],
+   "kind": "file-read",
+   "reaches": {
+    "copies_parent_tree": true,
+    "glob": "*/manifest.xml",
+    "outside_tree": "when its finalizer calls it: a backup Windows returned in the run directory",
+    "repo_dir": "tests/fixtures/native-gpp-gpmc"
+   },
+   "reason": "checks each corpus backup (in the repository) for import readiness before staging it",
+   "targets": {
+    "pathlib.Path.is_dir": 1,
+    "pathlib.Path.is_file": 1,
+    "pathlib.Path.read_bytes": 2
+   },
+   "repo_reaches": [
+    {
+     "copies_parent_tree": true,
+     "glob": "*/manifest.xml",
+     "repo_dir": "tests/fixtures/native-gpp-registry-gpmc"
+    },
+    {
+     "copies_parent_tree": true,
+     "glob": "*-evidence/wi059-20260908/**/manifest.xml",
+     "repo_dir": "docs/plan-033"
+    },
+    {
+     "copies_parent_tree": true,
+     "glob": "manifest.xml",
+     "repo_dir": "docs/plan-033/wp1b-evidence/backup-report-20260908/scripts-metadata/rebackup"
+    }
+   ]
+  },
+  {
+   "module": "scripts/plan-033/build-report-parity-candidate.py",
+   "scopes": [
+    "stage_case"
+   ],
+   "kind": "enumerate",
+   "reaches": {
+    "copies_parent_tree": true,
+    "glob": "*/manifest.xml",
+    "repo_dir": "tests/fixtures/native-gpp-gpmc"
+   },
+   "reason": "copies each corpus backup directory (found by corpus()) into the staging tree",
+   "targets": {
+    "shutil.copytree": 1
+   },
+   "repo_reaches": [
+    {
+     "copies_parent_tree": true,
+     "glob": "*/manifest.xml",
+     "repo_dir": "tests/fixtures/native-gpp-registry-gpmc"
+    },
+    {
+     "copies_parent_tree": true,
+     "glob": "*-evidence/wi059-20260908/**/manifest.xml",
+     "repo_dir": "docs/plan-033"
+    },
+    {
+     "copies_parent_tree": true,
+     "glob": "manifest.xml",
+     "repo_dir": "docs/plan-033/wp1b-evidence/backup-report-20260908/scripts-metadata/rebackup"
+    }
+   ]
+  },
+  {
+   "module": "scripts/plan-033/build-rsop-candidate.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the builder's own staging tree and output directory, and its own path"
+   },
+   "reason": "reads back what it staged or wrote",
+   "targets": {
+    "pathlib.Path.resolve": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-rsop-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 1,
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-rsop-candidate.py",
+   "scopes": "*",
+   "kind": "sys-path",
+   "reaches": {
+    "sys_path_front": "src"
+   },
+   "reason": "inserts the repository's src/ at the front of sys.path (the editable install already provides it; the insertion makes the script runnable without it)",
+   "targets": {
+    "sys.path": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-rsop-candidate.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the prediction and topology documents (dict[str, Any]) the builder serialises and prints"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__format__": 4,
+    "<Any>.__getitem__": 5,
+    "<Any>.__iter__": 3,
+    "<Any>.__repr__": 7,
+    "<Any>.__str__": 7
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-scripts-backup-candidate.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the archive this builder just wrote to its output directory"
+   },
+   "reason": "re-reads the archive it wrote, to print its members",
+   "targets": {
+    "zipfile.ZipFile": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-scripts-backup-candidate.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the builder's own staging tree and output directory, and its own path"
+   },
+   "reason": "reads back what it staged or wrote",
+   "targets": {
+    "pathlib.Path.stat": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-scripts-backup-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 1,
+    "pathlib.Path.write_bytes": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-wp1b-candidates.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 2,
+    "pathlib.Path.write_bytes": 1,
+    "pathlib.Path.write_text": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-wp2-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 1,
+    "pathlib.Path.write_bytes": 1,
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-wp3-candidate.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the candidate output directory and the builder's staging tree"
+   },
+   "reason": "writes the candidate",
+   "targets": {
+    "pathlib.Path.mkdir": 1,
+    "pathlib.Path.write_bytes": 1,
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_endpoint_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_endpoint_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 3,
+    "pathlib.Path.read_bytes": 1,
+    "pathlib.Path.read_text": 1,
+    "pathlib.Path.resolve": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_endpoint_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_endpoint_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_endpoint_run.py",
+   "scopes": "*",
+   "kind": "sys-path",
+   "reaches": {
+    "sys_path_front": "src"
+   },
+   "reason": "inserts the repository's src/ at the front of sys.path (the editable install already provides it; the insertion makes the script runnable without it)",
+   "targets": {
+    "sys.path": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_endpoint_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 15,
+    "<Any>.__eq__": 3,
+    "<Any>.__format__": 25,
+    "<Any>.__len__": 3,
+    "<Any>.__ne__": 1,
+    "<Any>.__repr__": 25,
+    "<Any>.__str__": 25
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_fdeploy_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_fdeploy_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 10,
+    "pathlib.Path.read_bytes": 5,
+    "pathlib.Path.read_text": 2,
+    "pathlib.Path.resolve": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_fdeploy_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the candidate archive in the candidate root"
+   },
+   "reason": "opens the candidate archive the controller built",
+   "targets": {
+    "zipfile.ZipFile": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_fdeploy_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "a private temporary directory, removed when the with-block exits"
+   },
+   "reason": "stages files to archive or rebuild them",
+   "targets": {
+    "tempfile.TemporaryDirectory": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_fdeploy_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_fdeploy_run.py",
+   "scopes": "*",
+   "kind": "module-load",
+   "reaches": {
+    "module": "scripts/plan-033/build-fdeploy-candidate.py"
+   },
+   "reason": "loads the bound candidate builder scripts/plan-033/build-fdeploy-candidate.py into the finalizer to recompute the expectation from the bound source (WI-025); the builder joins this process's closure",
+   "targets": {
+    "_frozen_importlib.module_from_spec": 1,
+    "_frozen_importlib_external.spec_from_file_location": 1,
+    "importlib._abc.Loader.exec_module": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_fdeploy_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_fdeploy_run.py",
+   "scopes": "*",
+   "kind": "sys-modules",
+   "reaches": {
+    "outside_tree": "registers the builder module it loaded under a private name"
+   },
+   "reason": "registers the loaded builder in sys.modules so its dataclasses resolve",
+   "targets": {
+    "sys.modules": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_fdeploy_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values; and attributes and functions of the bound builder module the finalizer loads at run time (declared module-load; the builder's own code is in this lane's closure and is scanned)"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.REQUIRED_CASE_IDS": 1,
+    "<Any>.__bool__": 12,
+    "<Any>.__eq__": 12,
+    "<Any>.__format__": 2,
+    "<Any>.__getitem__": 1,
+    "<Any>.__hash__": 1,
+    "<Any>.__iter__": 4,
+    "<Any>.__len__": 1,
+    "<Any>.__lt__": 1,
+    "<Any>.__name__": 3,
+    "<Any>.__repr__": 6,
+    "<Any>.__rtruediv__": 1,
+    "<Any>.__str__": 6,
+    "<Any>.__truediv__": 1,
+    "<Any>.backup_info": 1,
+    "<Any>.build": 1,
+    "<Any>.case_dir": 1,
+    "<Any>.casefold": 1,
+    "<Any>.import_readiness": 1,
+    "<Any>.is_file": 1,
+    "<Any>.read_bytes": 1,
+    "<Any>.startswith": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_firewall_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_firewall_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 7,
+    "pathlib.Path.read_bytes": 1,
+    "pathlib.Path.read_text": 3,
+    "pathlib.Path.resolve": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_firewall_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the candidate archive in the candidate root"
+   },
+   "reason": "opens the candidate archive the controller built",
+   "targets": {
+    "zipfile.ZipFile": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_firewall_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_firewall_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_firewall_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__add__": 2,
+    "<Any>.__bool__": 11,
+    "<Any>.__eq__": 3,
+    "<Any>.__format__": 1,
+    "<Any>.__getitem__": 15,
+    "<Any>.__hash__": 2,
+    "<Any>.__iand__": 1,
+    "<Any>.__iter__": 4,
+    "<Any>.__len__": 1,
+    "<Any>.__lt__": 1,
+    "<Any>.__ne__": 4,
+    "<Any>.__next__": 1,
+    "<Any>.__radd__": 2,
+    "<Any>.__repr__": 1,
+    "<Any>.__setitem__": 5,
+    "<Any>.__str__": 1,
+    "<Any>.values": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_lifecycle_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_lifecycle_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 7,
+    "pathlib.Path.read_bytes": 1,
+    "pathlib.Path.read_text": 2,
+    "pathlib.Path.resolve": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_lifecycle_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_lifecycle_run.py",
+   "scopes": "*",
+   "kind": "module-load",
+   "reaches": {
+    "module": "scripts/plan-033/build-lifecycle-candidate.py"
+   },
+   "reason": "loads the bound candidate builder scripts/plan-033/build-lifecycle-candidate.py into the finalizer to recompute the expectation from the bound source (WI-025); the builder joins this process's closure",
+   "targets": {
+    "runpy.run_path": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_lifecycle_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_lifecycle_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values; and attributes and functions of the bound builder module the finalizer loads at run time (declared module-load; the builder's own code is in this lane's closure and is scanned)"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>()": 1,
+    "<Any>.__bool__": 20,
+    "<Any>.__eq__": 14,
+    "<Any>.__format__": 22,
+    "<Any>.__getitem__": 1,
+    "<Any>.__hash__": 10,
+    "<Any>.__lt__": 2,
+    "<Any>.__name__": 3,
+    "<Any>.__ne__": 4,
+    "<Any>.__next__": 1,
+    "<Any>.__repr__": 22,
+    "<Any>.__str__": 22
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_object_security_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_object_security_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 6,
+    "pathlib.Path.read_bytes": 3,
+    "pathlib.Path.read_text": 2,
+    "pathlib.Path.resolve": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_object_security_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_object_security_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_object_security_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 10,
+    "<Any>.__eq__": 5,
+    "<Any>.__hash__": 4,
+    "<Any>.__index__": 1,
+    "<Any>.__int__": 1,
+    "<Any>.__lt__": 1,
+    "<Any>.__ne__": 5,
+    "<Any>.__repr__": 1,
+    "<Any>.__str__": 1,
+    "<Any>.__trunc__": 1,
+    "<Any>.casefold": 9,
+    "<Any>.endswith": 1,
+    "<Any>.startswith": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_oracle_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.resolve": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_oracle_run.py",
+   "scopes": "*",
+   "kind": "sys-path",
+   "reaches": {
+    "sys_path_front": "src"
+   },
+   "reason": "inserts the repository's src/ at the front of sys.path (the editable install already provides it; the insertion makes the script runnable without it)",
+   "targets": {
+    "sys.path": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_publication_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_publication_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 9,
+    "pathlib.Path.read_bytes": 1,
+    "pathlib.Path.read_text": 2,
+    "pathlib.Path.resolve": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_publication_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_publication_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_publication_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 6
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_report_parity_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_report_parity_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 10,
+    "pathlib.Path.read_bytes": 5,
+    "pathlib.Path.read_text": 2,
+    "pathlib.Path.resolve": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_report_parity_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "a private temporary directory, removed when the with-block exits"
+   },
+   "reason": "stages files to archive or rebuild them",
+   "targets": {
+    "tempfile.TemporaryDirectory": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_report_parity_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_report_parity_run.py",
+   "scopes": "*",
+   "kind": "module-load",
+   "reaches": {
+    "module": "scripts/plan-033/build-report-parity-candidate.py"
+   },
+   "reason": "loads the bound candidate builder scripts/plan-033/build-report-parity-candidate.py into the finalizer to recompute the expectation from the bound source (WI-025); the builder joins this process's closure",
+   "targets": {
+    "_frozen_importlib.module_from_spec": 1,
+    "_frozen_importlib_external.spec_from_file_location": 1,
+    "importlib._abc.Loader.exec_module": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_report_parity_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_report_parity_run.py",
+   "scopes": "*",
+   "kind": "sys-modules",
+   "reaches": {
+    "outside_tree": "registers the builder module it loaded under a private name"
+   },
+   "reason": "registers the loaded builder in sys.modules so its dataclasses resolve",
+   "targets": {
+    "sys.modules": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_report_parity_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values; and attributes and functions of the bound builder module the finalizer loads at run time (declared module-load; the builder's own code is in this lane's closure and is scanned)"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.AUTHORED_VALUES": 1,
+    "<Any>.MUST_AGREE_CASE_IDS": 1,
+    "<Any>.REQUIRED_CASE_IDS": 1,
+    "<Any>.__bool__": 8,
+    "<Any>.__eq__": 7,
+    "<Any>.__iter__": 4,
+    "<Any>.__len__": 1,
+    "<Any>.__lt__": 1,
+    "<Any>.__name__": 1,
+    "<Any>.__ne__": 1,
+    "<Any>.__repr__": 4,
+    "<Any>.__str__": 4,
+    "<Any>.build": 1,
+    "<Any>.import_readiness": 1,
+    "<Any>.startswith": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 3,
+    "pathlib.Path.read_bytes": 1,
+    "pathlib.Path.read_text": 1,
+    "pathlib.Path.resolve": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_run.py",
+   "scopes": "*",
+   "kind": "sys-path",
+   "reaches": {
+    "sys_path_front": "src"
+   },
+   "reason": "inserts the repository's src/ at the front of sys.path (the editable install already provides it; the insertion makes the script runnable without it)",
+   "targets": {
+    "sys.path": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 4,
+    "<Any>.__eq__": 2,
+    "<Any>.__format__": 19,
+    "<Any>.__getitem__": 6,
+    "<Any>.__hash__": 2,
+    "<Any>.__iter__": 3,
+    "<Any>.__lt__": 2,
+    "<Any>.__next__": 4,
+    "<Any>.__repr__": 21,
+    "<Any>.__str__": 21,
+    "<Any>.get": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_user_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 3,
+    "pathlib.Path.resolve": 5
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_user_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_user_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_user_run.py",
+   "scopes": "*",
+   "kind": "sys-path",
+   "reaches": {
+    "sys_path_front": "src"
+   },
+   "reason": "inserts the repository's src/ at the front of sys.path (the editable install already provides it; the insertion makes the script runnable without it)",
+   "targets": {
+    "sys.path": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_rsop_user_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 5,
+    "<Any>.__eq__": 2,
+    "<Any>.__format__": 24,
+    "<Any>.__getitem__": 6,
+    "<Any>.__hash__": 2,
+    "<Any>.__iter__": 2,
+    "<Any>.__lt__": 2,
+    "<Any>.__next__": 2,
+    "<Any>.__repr__": 26,
+    "<Any>.__str__": 26,
+    "<Any>.get": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_scripts_backup_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.glob": 1,
+    "pathlib.Path.rglob": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_scripts_backup_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 8,
+    "pathlib.Path.read_bytes": 4,
+    "pathlib.Path.read_text": 1,
+    "pathlib.Path.resolve": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_scripts_backup_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the candidate archive in the candidate root"
+   },
+   "reason": "opens the candidate archive the controller built",
+   "targets": {
+    "zipfile.ZipFile": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_scripts_backup_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_scripts_backup_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_scripts_backup_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 8,
+    "<Any>.__eq__": 9,
+    "<Any>.__iter__": 5,
+    "<Any>.__lt__": 5,
+    "<Any>.__repr__": 3,
+    "<Any>.__str__": 3,
+    "<Any>.casefold": 6
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp1b_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp1b_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 5,
+    "pathlib.Path.open": 1,
+    "pathlib.Path.read_bytes": 1,
+    "pathlib.Path.read_text": 3,
+    "pathlib.Path.resolve": 3,
+    "xml.etree.ElementTree.iterparse": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp1b_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp1b_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp1b_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 4,
+    "<Any>.__format__": 9,
+    "<Any>.__getitem__": 2,
+    "<Any>.__index__": 1,
+    "<Any>.__int__": 1,
+    "<Any>.__iter__": 4,
+    "<Any>.__next__": 4,
+    "<Any>.__repr__": 9,
+    "<Any>.__str__": 9,
+    "<Any>.__trunc__": 1,
+    "<Any>.items": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp2_import_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp2_import_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 5,
+    "pathlib.Path.read_bytes": 2,
+    "pathlib.Path.read_text": 2,
+    "pathlib.Path.resolve": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp2_import_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp2_import_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp2_import_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 4,
+    "<Any>.__index__": 5,
+    "<Any>.__int__": 5,
+    "<Any>.__trunc__": 5
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp3_run.py",
+   "scopes": "*",
+   "kind": "enumerate",
+   "reaches": {
+    "outside_tree": "the run directory (the artifacts inventory) and the candidate root"
+   },
+   "reason": "lists every file the run produced so the verdict hashes them",
+   "targets": {
+    "pathlib.Path.rglob": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp3_run.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "the lane's hand-written DEPLOYED_FILES, hashed from the repository to compare with the copies the guest returned",
+    "outside_tree": "the run directory and candidate root the finalizer is given (run inputs outside the tree), the finalizer's own path (to find the repository root)"
+   },
+   "reason": "reads what Windows returned and what the controller built, and hashes bound files",
+   "targets": {
+    "pathlib.Path.is_file": 5,
+    "pathlib.Path.read_bytes": 3,
+    "pathlib.Path.read_text": 2,
+    "pathlib.Path.resolve": 3
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp3_run.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "the verdict file (and RSoP's verdict copies) in the run directory"
+   },
+   "reason": "writes the verdict",
+   "targets": {
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp3_run.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 2
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_wp3_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 4,
+    "<Any>.__eq__": 3,
+    "<Any>.__hash__": 2,
+    "<Any>.__iter__": 1,
+    "<Any>.casefold": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/backup.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the backup directory the caller passes: a run directory Windows returned, or a builder's staging copy"
+   },
+   "reason": "reads a GPMC backup tree through safe_io's descriptor-relative opens",
+   "targets": {
+    "os.close": 4,
+    "os.read": 2,
+    "pathlib.Path.exists": 6,
+    "pathlib.Path.is_dir": 2,
+    "pathlib.Path.resolve": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/canonical.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "items serialised generically: getattr over dataclass field names and family names, and dict keys of JSON-like values"
+   },
+   "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
+   "targets": {
+    "<Any>.__iter__": 3,
+    "<Any>.__lt__": 1,
+    "<Any>.__name__": 1,
+    "<Any>.encode": 1,
+    "builtins.getattr(<computed name>)": 4
+   }
+  },
+  {
+   "module": "src/gpo_studio/deterministic_zip.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "in_memory": "an io.BytesIO buffer: the archive is built or read back in memory"
+   },
+   "reason": "builds or re-reads an archive in memory",
+   "targets": {
+    "zipfile.ZipFile": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/fdeploy.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "a decoded INI value"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 1,
+    "<Any>.strip": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/firewall_policy.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "firewall rule and profile fields validated through getattr over the module's constant field-name tuples"
+   },
+   "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
+   "targets": {
+    "<Any>.__bool__": 2,
+    "<Any>.__eq__": 1,
+    "<Any>.__iter__": 1,
+    "<Any>.__ne__": 1,
+    "<Any>.__next__": 1,
+    "<Any>.log_file_size_kb": 1,
+    "builtins.getattr(<computed name>)": 7
+   }
+  },
+  {
+   "module": "src/gpo_studio/gpp.py",
+   "scopes": "*",
+   "kind": "clock-or-random",
+   "reaches": {
+    "outside_tree": "uuid4 or the wall clock"
+   },
+   "reason": "a fresh random identifier or the current time; a value that reached a candidate or a verdict's claim would make the replay or the re-grade differ, which part 2 checks",
+   "targets": {
+    "uuid.uuid4": 5
+   }
+  },
+  {
+   "module": "src/gpo_studio/gpp.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values (gpp_collection_from_dict and its helpers reconstruct a collection from a plain dict), GPP items handled generically through getattr over the module's constant family names, the PEP 562 module __getattr__/__dir__ hooks, and adapter classes looked up in the module's registry and constructed"
+   },
+   "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
+   "targets": {
+    "<Any>.__bool__": 33,
+    "<Any>.__contains__": 1,
+    "<Any>.__dataclass_fields__": 3,
+    "<Any>.__eq__": 4,
+    "<Any>.__format__": 6,
+    "<Any>.__getitem__": 9,
+    "<Any>.__index__": 3,
+    "<Any>.__int__": 3,
+    "<Any>.__iter__": 38,
+    "<Any>.__len__": 16,
+    "<Any>.__name__": 2,
+    "<Any>.__ne__": 7,
+    "<Any>.__next__": 6,
+    "<Any>.__repr__": 65,
+    "<Any>.__str__": 64,
+    "<Any>.__trunc__": 3,
+    "<Any>.document_position": 2,
+    "<Any>.get": 65,
+    "<Any>.id": 2,
+    "<Any>.native_xml": 5,
+    "builtins.getattr(<computed name>)": 18,
+    "builtins.globals": 1,
+    "builtins.type.__call__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/gpp_adapters.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "adapter items compared field by field through getattr over the module's constant field-name tuples"
+   },
+   "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
+   "targets": {
+    "<Any>.__bool__": 15,
+    "<Any>.__name__": 1,
+    "<Any>.__ne__": 17,
+    "<Any>.enabled": 3,
+    "<Any>.task_xml": 2,
+    "builtins.getattr(<computed name>)": 19
+   }
+  },
+  {
+   "module": "src/gpo_studio/import_export.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the backup directory the caller passes"
+   },
+   "reason": "resolves paths inside a backup (case-insensitively, contained)",
+   "targets": {
+    "os.listdir": 1,
+    "pathlib.Path.exists": 3,
+    "pathlib.Path.is_dir": 1,
+    "pathlib.Path.resolve": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/numeric.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the defensive else of an exhaustive isinstance(str) / isinstance(int) chain, which mypy proves unreachable"
+   },
+   "reason": "code the type checker proves unreachable",
+   "targets": {
+    "<untyped>.__name__": 1,
+    "<untyped>.format": 2,
+    "<untyped>.join": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/object_security.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "values matched out of an INF section by a regular expression"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__format__": 2,
+    "<Any>.__repr__": 2,
+    "<Any>.__str__": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/oracle_evidence.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "floor": "bound harness files read from the tree to hash them",
+    "outside_tree": "the run directory (raw manifest, streams, backups) and the harness-inputs record"
+   },
+   "reason": "the evidence contract's binding and WP-0's finalizer",
+   "targets": {
+    "pathlib.Path.is_dir": 1,
+    "pathlib.Path.is_file": 8,
+    "pathlib.Path.open": 1,
+    "pathlib.Path.read_bytes": 8,
+    "pathlib.Path.read_text": 2,
+    "pathlib.Path.stat": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/oracle_evidence.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "normalized/ and manifest.json in the run directory"
+   },
+   "reason": "WP-0's finalizer writes its normalised artifacts and manifest",
+   "targets": {
+    "pathlib.Path.mkdir": 2,
+    "pathlib.Path.write_bytes": 2,
+    "pathlib.Path.write_text": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/oracle_evidence.py",
+   "scopes": "*",
+   "kind": "process",
+   "reaches": {
+    "argv": "rev-parse HEAD, status --porcelain, show <commit>:<path>, var GIT_COMMITTER_IDENT, tag (tagging is skipped with --no-tag)",
+    "executable": "git"
+   },
+   "reason": "git on the repository the finalizer is given, for the commit, clean-tree state and blob bytes the verdict binds",
+   "targets": {
+    "subprocess.run": 7
+   }
+  },
+  {
+   "module": "src/gpo_studio/oracle_evidence.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values (the raw manifest and harness-inputs record) compared and formatted"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__eq__": 3,
+    "<Any>.__format__": 2,
+    "<Any>.__hash__": 3,
+    "<Any>.__lt__": 2,
+    "<Any>.__repr__": 2,
+    "<Any>.__str__": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/publication.py",
+   "scopes": "*",
+   "kind": "clock-or-random",
+   "reaches": {
+    "outside_tree": "uuid4 or the wall clock"
+   },
+   "reason": "a fresh random identifier or the current time; a value that reached a candidate or a verdict's claim would make the replay or the re-grade differ, which part 2 checks",
+   "targets": {
+    "uuid.uuid4": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/registry_pol.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "integers unpacked by struct.unpack (typed tuple[Any, ...]) from registry.pol bytes"
+   },
+   "reason": "binary parsing",
+   "targets": {
+    "<Any>.__add__": 2,
+    "<Any>.__bool__": 2,
+    "<Any>.__format__": 2,
+    "<Any>.__gt__": 1,
+    "<Any>.__iadd__": 1,
+    "<Any>.__ne__": 1,
+    "<Any>.__radd__": 2,
+    "<Any>.__repr__": 2,
+    "<Any>.__str__": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/report_parity.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON values of a stored inventory"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__iter__": 1,
+    "<Any>.__next__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/rsop.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "a result row's field read with getattr by a field name the method is given"
+   },
+   "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
+   "targets": {
+    "<Any>.__bool__": 1,
+    "<Any>.__eq__": 1,
+    "builtins.getattr(<computed name>)": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/safe_io.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the paths the caller passes (backup trees)"
+   },
+   "reason": "descriptor-relative, symlink-refusing opens and directory scans",
+   "targets": {
+    "os.close": 8,
+    "os.fstat": 3,
+    "os.open": 5,
+    "os.scandir": 1,
+    "pathlib.Path.is_junction": 1,
+    "pathlib.Path.is_symlink": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/safe_io.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "open flags built from getattr(os, 'O_DIRECTORY'/'O_NOFOLLOW'/'O_CLOEXEC', 0) (ints), and Path.is_junction fetched with getattr (a bound method or None)"
+   },
+   "reason": "platform-optional os constants and methods",
+   "targets": {
+    "<Any>()": 1,
+    "<Any>.__bool__": 2,
+    "<Any>.__len__": 1,
+    "<Any>.__ror__": 12
+   }
+  },
+  {
+   "module": "src/gpo_studio/schema.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "a workspace SQLite database whose path the caller supplies"
+   },
+   "reason": "WorkspaceStore's and the workspace operations' database access; store.py is in the closure because import_export imports it for gpo_from_dict, and no lane's builder or finalizer constructs a WorkspaceStore or opens a workspace",
+   "targets": {
+    "sqlite3.Connection.execute": 23
+   }
+  },
+  {
+   "module": "src/gpo_studio/schema.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "rows of the workspace database's schema queries"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 1,
+    "<Any>.__format__": 1,
+    "<Any>.__getitem__": 2,
+    "<Any>.__index__": 2,
+    "<Any>.__int__": 2,
+    "<Any>.__iter__": 1,
+    "<Any>.__repr__": 1,
+    "<Any>.__str__": 1,
+    "<Any>.__trunc__": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/script_policy.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "script entries fetched with getattr over the script-type names (startup, shutdown, logon, logoff) and their PowerShell twins"
+   },
+   "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
+   "targets": {
+    "<Any>.__bool__": 4,
+    "<Any>.__eq__": 1,
+    "<Any>.__format__": 10,
+    "<Any>.__gt__": 1,
+    "<Any>.__iter__": 10,
+    "<Any>.__lt__": 1,
+    "<Any>.__next__": 4,
+    "<Any>.__repr__": 10,
+    "<Any>.__str__": 10,
+    "<Any>.artifact_id": 6,
+    "<Any>.execution": 5,
+    "<Any>.no_profile": 1,
+    "<Any>.non_interactive": 1,
+    "<Any>.order": 6,
+    "<Any>.original_name": 4,
+    "<Any>.parameters": 2,
+    "<Any>.script_id": 4,
+    "<Any>.script_type": 2,
+    "<Any>.timeout_seconds": 3,
+    "<Any>.validate": 2,
+    "builtins.getattr(<computed name>)": 6
+   }
+  },
+  {
+   "module": "src/gpo_studio/sddl.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "a parse error's offending token, formatted into the message"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__format__": 1,
+    "<Any>.__repr__": 1,
+    "<Any>.__str__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/store.py",
+   "scopes": "*",
+   "kind": "clock-or-random",
+   "reaches": {
+    "outside_tree": "uuid4 or the wall clock"
+   },
+   "reason": "a fresh random identifier or the current time; a value that reached a candidate or a verdict's claim would make the replay or the re-grade differ, which part 2 checks",
+   "targets": {
+    "datetime.datetime.now": 1,
+    "uuid.uuid4": 7
+   }
+  },
+  {
+   "module": "src/gpo_studio/store.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "a workspace SQLite database whose path the caller supplies"
+   },
+   "reason": "WorkspaceStore's and the workspace operations' database access; store.py is in the closure because import_export imports it for gpo_from_dict, and no lane's builder or finalizer constructs a WorkspaceStore or opens a workspace",
+   "targets": {
+    "_sqlite3.connect": 1,
+    "sqlite3.Connection.close": 1,
+    "sqlite3.Connection.execute": 44,
+    "sqlite3.Row": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/store.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "JSON snapshots and rows from the workspace database (WorkspaceStore, which no lane constructs), and code mypy proves unreachable by types"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 10,
+    "<Any>.__eq__": 1,
+    "<Any>.__format__": 2,
+    "<Any>.__getitem__": 23,
+    "<Any>.__index__": 6,
+    "<Any>.__int__": 6,
+    "<Any>.__iter__": 7,
+    "<Any>.__len__": 7,
+    "<Any>.__repr__": 36,
+    "<Any>.__rsub__": 1,
+    "<Any>.__str__": 36,
+    "<Any>.__sub__": 1,
+    "<Any>.__trunc__": 6,
+    "<Any>.close": 1,
+    "<Any>.keys": 1,
+    "<Any>.strip": 1,
+    "<untyped>.__bool__": 7,
+    "<untyped>.__iter__": 3,
+    "<untyped>.common": 1,
+    "<untyped>.document_position": 2,
+    "<untyped>.format": 1,
+    "<untyped>.join": 1,
+    "<untyped>.native_xml": 3
+   }
+  },
+  {
+   "module": "src/gpo_studio/workspace_ops.py",
+   "scopes": "*",
+   "kind": "clock-or-random",
+   "reaches": {
+    "outside_tree": "uuid4 or the wall clock"
+   },
+   "reason": "a fresh random identifier or the current time; a value that reached a candidate or a verdict's claim would make the replay or the re-grade differ, which part 2 checks",
+   "targets": {
+    "datetime.datetime.now": 2,
+    "uuid.uuid4": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/workspace_ops.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "a workspace directory and lock file the caller supplies"
+   },
+   "reason": "workspace locking and recovery (no lane opens a workspace)",
+   "targets": {
+    "os.close": 13,
+    "os.fstat": 2,
+    "os.lseek": 3,
+    "os.read": 3,
+    "pathlib.Path.exists": 4,
+    "pathlib.Path.resolve": 2,
+    "pathlib.Path.stat": 1,
+    "posixpath.lexists": 4
+   }
+  },
+  {
+   "module": "src/gpo_studio/workspace_ops.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "a workspace SQLite database whose path the caller supplies"
+   },
+   "reason": "WorkspaceStore's and the workspace operations' database access; store.py is in the closure because import_export imports it for gpo_from_dict, and no lane's builder or finalizer constructs a WorkspaceStore or opens a workspace",
+   "targets": {
+    "_sqlite3.connect": 5,
+    "sqlite3.Connection.backup": 2,
+    "sqlite3.Connection.close": 5,
+    "sqlite3.Connection.commit": 1,
+    "sqlite3.Connection.execute": 11
+   }
+  },
+  {
+   "module": "src/gpo_studio/workspace_ops.py",
+   "scopes": "*",
+   "kind": "file-write",
+   "reaches": {
+    "outside_tree": "a workspace directory and lock file the caller supplies"
+   },
+   "reason": "workspace locking and recovery (no lane opens a workspace)",
+   "targets": {
+    "fcntl.flock": 2,
+    "os.fsync": 4,
+    "os.ftruncate": 1,
+    "os.link": 1,
+    "os.replace": 1,
+    "os.write": 1,
+    "pathlib.Path.mkdir": 1,
+    "pathlib.Path.rename": 2,
+    "pathlib.Path.unlink": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/workspace_ops.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "rows of the workspace database"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__bool__": 2,
+    "<Any>.__eq__": 2,
+    "<Any>.__format__": 2,
+    "<Any>.__getitem__": 9,
+    "<Any>.__index__": 2,
+    "<Any>.__int__": 2,
+    "<Any>.__repr__": 6,
+    "<Any>.__str__": 6,
+    "<Any>.__trunc__": 2,
+    "<Any>.fstat": 1,
+    "<Any>.st_size": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/writer_conformance.py",
+   "scopes": "*",
+   "kind": "file-read",
+   "reaches": {
+    "outside_tree": "the GPMC report path the caller passes (a run directory file)"
+   },
+   "reason": "reads a Windows-produced report",
+   "targets": {
+    "pathlib.Path.read_bytes": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/writer_conformance.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "GPP model items passed as Any to per-family summarisers (a dispatch table of repository functions), and getattr over the collection's family names"
+   },
+   "reason": "repository dataclasses handled generically",
+   "targets": {
+    "<Any>()": 1,
+    "<Any>.__eq__": 2,
+    "<Any>.__format__": 1,
+    "<Any>.__hash__": 2,
+    "<Any>.__iter__": 4,
+    "<Any>.__lt__": 2,
+    "<Any>.__repr__": 5,
+    "<Any>.__str__": 4,
+    "<Any>.account_disabled": 1,
+    "<Any>.account_locked_out": 1,
+    "<Any>.account_name": 1,
+    "<Any>.action": 6,
+    "<Any>.append_failure_count": 1,
+    "<Any>.apply_once": 1,
+    "<Any>.arguments": 2,
+    "<Any>.common": 1,
+    "<Any>.default": 1,
+    "<Any>.description": 2,
+    "<Any>.disabled": 1,
+    "<Any>.element_variant": 1,
+    "<Any>.enabled": 1,
+    "<Any>.first_failure": 1,
+    "<Any>.full_name": 1,
+    "<Any>.hive": 2,
+    "<Any>.ilt_filter": 1,
+    "<Any>.interact_with_desktop": 1,
+    "<Any>.items": 1,
+    "<Any>.key": 2,
+    "<Any>.label": 1,
+    "<Any>.letter": 1,
+    "<Any>.members": 1,
+    "<Any>.name": 4,
+    "<Any>.password_never_expires": 1,
+    "<Any>.path": 1,
+    "<Any>.persistent": 1,
+    "<Any>.program": 2,
+    "<Any>.registry_type": 2,
+    "<Any>.remove_all_groups": 1,
+    "<Any>.remove_all_users": 1,
+    "<Any>.remove_when_unapplied": 1,
+    "<Any>.reset_fail_count_delay_seconds": 1,
+    "<Any>.restart_computer_delay_milliseconds": 1,
+    "<Any>.restart_message": 1,
+    "<Any>.restart_service_delay_milliseconds": 1,
+    "<Any>.run_as": 1,
+    "<Any>.second_failure": 1,
+    "<Any>.service_action": 1,
+    "<Any>.service_name": 1,
+    "<Any>.sid": 2,
+    "<Any>.start_in": 1,
+    "<Any>.startup_type": 1,
+    "<Any>.stop_on_error": 1,
+    "<Any>.third_failure": 1,
+    "<Any>.timeout_seconds": 1,
+    "<Any>.trigger_days": 1,
+    "<Any>.trigger_time": 1,
+    "<Any>.trigger_type": 1,
+    "<Any>.use_letter": 1,
+    "<Any>.user_cannot_change_password": 1,
+    "<Any>.user_name": 1,
+    "<Any>.user_security_context": 1,
+    "<Any>.value": 3,
+    "<Any>.value_name": 1,
+    "builtins.getattr(<computed name>)": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/xml_safety.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the offending value, formatted into a refusal message"
+   },
+   "reason": "values typed Any that the scan cannot resolve",
+   "targets": {
+    "<Any>.__format__": 1,
+    "<Any>.__repr__": 2,
+    "<Any>.__str__": 2
+   }
+  }
+ ]
+}

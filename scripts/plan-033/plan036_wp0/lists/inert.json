@@ -1,0 +1,410 @@
+{
+ "comment": "Plan 036 WP-0's reviewed inert list (tier-2 data; plan036_wp0/scan.py). A target here touches nothing outside the process's memory. Keyed by fully qualified target, or (types) by class for a closed set of in-memory types whose every method is inert. A wrong entry hides an edge: that is the residual the plan names.",
+ "types": [
+  {
+   "type": "<json>",
+   "reason": "a value json.loads/json.load produced (dict, list, str, int, float, bool or None), proved by plan036_wp0/json_origin.py: every method of those types is in-memory"
+  },
+  {
+   "type": "builtins.str",
+   "reason": "immutable text: every method computes in memory"
+  },
+  {
+   "type": "builtins.bytes",
+   "reason": "immutable bytes: every method computes in memory"
+  },
+  {
+   "type": "builtins.bytearray",
+   "reason": "a mutable byte buffer in memory; no method reaches outside the process"
+  },
+  {
+   "type": "builtins.memoryview",
+   "reason": "a view of an in-memory buffer"
+  },
+  {
+   "type": "builtins.int",
+   "reason": "integers: arithmetic and formatting only"
+  },
+  {
+   "type": "builtins.float",
+   "reason": "floats: arithmetic and formatting only"
+  },
+  {
+   "type": "builtins.bool",
+   "reason": "booleans: arithmetic and formatting only"
+  },
+  {
+   "type": "builtins.list",
+   "reason": "an in-memory container; element protocol calls are classified at their own sites"
+  },
+  {
+   "type": "builtins.dict",
+   "reason": "an in-memory container; key hashing of repository types is scanned in the repository"
+  },
+  {
+   "type": "builtins.set",
+   "reason": "an in-memory container"
+  },
+  {
+   "type": "builtins.frozenset",
+   "reason": "an immutable in-memory container"
+  },
+  {
+   "type": "builtins.tuple",
+   "reason": "an immutable in-memory container"
+  },
+  {
+   "type": "builtins.range",
+   "reason": "an arithmetic sequence"
+  },
+  {
+   "type": "builtins.enumerate",
+   "reason": "an iterator adaptor over an iterable classified where it was produced"
+  },
+  {
+   "type": "builtins.zip",
+   "reason": "an iterator adaptor over iterables classified where they were produced"
+  },
+  {
+   "type": "builtins.map",
+   "reason": "an iterator adaptor; the mapped callable is classified where it is referenced"
+  },
+  {
+   "type": "builtins.reversed",
+   "reason": "an iterator adaptor over an in-memory sequence"
+  },
+  {
+   "type": "builtins.BaseException",
+   "reason": "exception objects: construction, str() and repr() are in-memory (subclasses inherit these methods)"
+  },
+  {
+   "type": "re.Pattern",
+   "reason": "a compiled regular expression: matching is in-memory"
+  },
+  {
+   "type": "re.Match",
+   "reason": "a regular-expression match result"
+  },
+  {
+   "type": "_hashlib.HASH",
+   "reason": "a hash object: update() and hexdigest() compute in memory"
+  },
+  {
+   "type": "xml.etree.ElementTree.Element",
+   "reason": "an in-memory XML element tree; no method parses a file or resolves an entity"
+  },
+  {
+   "type": "xml.etree.ElementTree.TreeBuilder",
+   "reason": "builds an element tree in memory from events it is fed"
+  },
+  {
+   "type": "pathlib.PurePath",
+   "reason": "pure path arithmetic: no PurePath method touches the filesystem (Path methods that do are declared edges)"
+  },
+  {
+   "type": "collections.Counter",
+   "reason": "an in-memory multiset"
+  },
+  {
+   "type": "uuid.UUID",
+   "reason": "an immutable UUID value"
+  },
+  {
+   "type": "ipaddress._BaseAddress",
+   "reason": "an immutable IP address value"
+  },
+  {
+   "type": "ipaddress._BaseNetwork",
+   "reason": "an immutable IP network value"
+  },
+  {
+   "type": "enum.IntFlag",
+   "reason": "enum flag arithmetic"
+  },
+  {
+   "type": "os.stat_result",
+   "reason": "the fields of a stat result already obtained by a declared call"
+  },
+  {
+   "type": "os.DirEntry",
+   "reason": "fields of a directory entry already obtained by a declared scandir; DirEntry.stat is listed as a declared edge, not here"
+  },
+  {
+   "type": "contextlib.suppress",
+   "reason": "a context manager that swallows the named exceptions"
+  },
+  {
+   "type": "_thread.RLock",
+   "reason": "an in-process re-entrant lock"
+  },
+  {
+   "type": "typing.Mapping",
+   "reason": "an abstract protocol: the concrete mapping was produced by a call or module read classified where it happened"
+  },
+  {
+   "type": "typing.MutableMapping",
+   "reason": "an abstract protocol: the concrete mapping was produced by a call or module read classified where it happened"
+  },
+  {
+   "type": "typing.MutableSet",
+   "reason": "an abstract protocol: the concrete set was produced by a call classified where it happened"
+  },
+  {
+   "type": "zipfile.ZipFile",
+   "reason": "operations on an archive object whose construction is a declared edge (constructor sites are declared, not inert)"
+  },
+  {
+   "type": "_io._IOBase",
+   "reason": "close/enter/exit of a stream whose opening is a declared edge, or an in-memory buffer"
+  },
+  {
+   "type": "_io._BufferedIOBase",
+   "reason": "reads from a stream whose opening is a declared edge, or an in-memory buffer"
+  },
+  {
+   "type": "_io.BytesIO",
+   "reason": "an in-memory byte stream"
+  },
+  {
+   "type": "tempfile.TemporaryDirectory",
+   "reason": "enter/exit of a temporary directory whose creation is a declared edge"
+  },
+  {
+   "type": "os._ScandirIterator",
+   "reason": "context management of a directory iterator whose creation (os.scandir) is a declared edge"
+  },
+  {
+   "type": "sqlite3.Cursor",
+   "reason": "rows of a query whose execution (sqlite3.Connection.execute) is a declared edge"
+  },
+  {
+   "type": "datetime.date",
+   "reason": "date arithmetic and formatting (no method of date reads the clock; date.today is not used)"
+  }
+ ],
+ "targets": [
+  {
+   "reason": "Constructors and functions of built-in types that compute in memory",
+   "names": [
+    "builtins.all",
+    "builtins.any",
+    "builtins.bool",
+    "builtins.bytearray",
+    "builtins.bytes",
+    "builtins.chr",
+    "builtins.dict",
+    "builtins.enumerate",
+    "builtins.float",
+    "builtins.frozenset",
+    "builtins.id",
+    "builtins.int",
+    "builtins.isinstance",
+    "builtins.iter",
+    "builtins.len",
+    "builtins.list",
+    "builtins.map",
+    "builtins.max",
+    "builtins.memoryview",
+    "builtins.next",
+    "builtins.object",
+    "builtins.ord",
+    "builtins.range",
+    "builtins.repr",
+    "builtins.reversed",
+    "builtins.set",
+    "builtins.sorted",
+    "builtins.str",
+    "builtins.sum",
+    "builtins.tuple",
+    "builtins.type",
+    "builtins.zip"
+   ]
+  },
+  {
+   "reason": "Exception classes: constructing one is in-memory",
+   "names": [
+    "builtins.AttributeError",
+    "builtins.Exception",
+    "builtins.OSError",
+    "builtins.SystemExit",
+    "builtins.TypeError",
+    "builtins.ValueError",
+    "sqlite3.Error"
+   ]
+  },
+  {
+   "reason": "Attribute access by a literal name: the attribute itself is resolved and classified separately (a computed name is unresolvable)",
+   "names": [
+    "builtins.getattr",
+    "builtins.hasattr"
+   ]
+  },
+  {
+   "reason": "Decorators and class machinery that define, not run, code",
+   "names": [
+    "abc.ABCMeta",
+    "builtins.property",
+    "builtins.staticmethod",
+    "contextlib.contextmanager",
+    "dataclasses.dataclass",
+    "dataclasses.field",
+    "functools.wraps",
+    "typing.runtime_checkable"
+   ]
+  },
+  {
+   "reason": "Writes to the process's own standard streams: an output, never an input the lane depends on",
+   "names": [
+    "builtins.print",
+    "sys.stderr"
+   ]
+  },
+  {
+   "reason": "Typing helpers that are identity functions or introspection at run time",
+   "names": [
+    "typing.assert_never",
+    "typing.cast",
+    "typing.get_args"
+   ]
+  },
+  {
+   "reason": "Dataclass helpers: copy and introspect in memory",
+   "names": [
+    "copy.deepcopy",
+    "dataclasses._DefaultFactory.__call__",
+    "dataclasses.asdict",
+    "dataclasses.fields",
+    "dataclasses.replace"
+   ]
+  },
+  {
+   "reason": "Codecs and serialisers over in-memory values",
+   "names": [
+    "_struct.pack",
+    "_struct.unpack",
+    "_struct.unpack_from",
+    "base64.b64decode",
+    "base64.b64encode",
+    "difflib.unified_diff",
+    "json.dumps",
+    "json.loads",
+    "xml.etree.ElementTree.Element",
+    "xml.etree.ElementTree.SubElement",
+    "xml.etree.ElementTree.XMLParser",
+    "xml.etree.ElementTree.tostring",
+    "xml.sax.saxutils.quoteattr"
+   ]
+  },
+  {
+   "reason": "Process-global but in-memory: the ElementTree namespace prefix table",
+   "names": [
+    "xml.etree.ElementTree.register_namespace"
+   ]
+  },
+  {
+   "reason": "Regular expressions: compiled and matched in memory",
+   "names": [
+    "re.ASCII",
+    "re.IGNORECASE",
+    "re.compile",
+    "re.escape",
+    "re.fullmatch",
+    "re.match",
+    "re.search"
+   ]
+  },
+  {
+   "reason": "Hashing in memory",
+   "names": [
+    "_hashlib.openssl_sha256"
+   ]
+  },
+  {
+   "reason": "Value types and constants",
+   "names": [
+    "_io.BytesIO",
+    "_stat.S_IFREG",
+    "_thread.RLock",
+    "collections.Counter",
+    "contextlib.suppress",
+    "errno.EEXIST",
+    "fcntl.LOCK_EX",
+    "fcntl.LOCK_NB",
+    "fcntl.LOCK_UN",
+    "ipaddress.ip_address",
+    "ipaddress.ip_network",
+    "ipaddress.summarize_address_range",
+    "os.O_CREAT",
+    "os.O_EXCL",
+    "os.O_RDONLY",
+    "os.O_RDWR",
+    "os.SEEK_SET",
+    "os.name",
+    "posixpath.altsep",
+    "posixpath.sep",
+    "sys.platform",
+    "types.MappingProxyType",
+    "uuid.NAMESPACE_URL",
+    "uuid.UUID",
+    "uuid.uuid5",
+    "zipfile.ZIP_STORED",
+    "zipfile.ZipInfo"
+   ]
+  },
+  {
+   "reason": "stat mode tests on a mode already obtained by a declared call",
+   "names": [
+    "_stat.S_ISDIR",
+    "_stat.S_ISLNK",
+    "_stat.S_ISREG"
+   ]
+  },
+  {
+   "reason": "Date and time values computed from their arguments (datetime.now, which reads the clock, is a declared edge)",
+   "names": [
+    "datetime.datetime",
+    "datetime.datetime.__ge__",
+    "datetime.datetime.__gt__",
+    "datetime.datetime.__le__",
+    "datetime.datetime.__lt__",
+    "datetime.datetime.isoformat",
+    "datetime.datetime.strptime",
+    "datetime.datetime.tzinfo"
+   ]
+  },
+  {
+   "reason": "Pure path construction; Path.cwd and Path.absolute read the process's working directory, which the runner fixes (the repository root) and the record states, and reach no file",
+   "names": [
+    "pathlib.Path",
+    "pathlib.Path.absolute",
+    "pathlib.Path.cwd",
+    "pathlib.PurePosixPath",
+    "pathlib.PureWindowsPath",
+    "posixpath.normcase"
+   ]
+  },
+  {
+   "reason": "Command-line parsing of the launch argv, which the record states",
+   "names": [
+    "argparse.ArgumentParser",
+    "argparse.ArgumentParser.error",
+    "argparse.ArgumentParser.parse_args",
+    "argparse.Namespace.__getattr__",
+    "argparse._ActionsContainer.add_argument"
+   ]
+  },
+  {
+   "reason": "Logging with no handler configured anywhere in a lane process (no basicConfig, FileHandler or dictConfig is reached): the last-resort handler writes to stderr",
+   "names": [
+    "logging.Logger.error",
+    "logging.getLogger"
+   ]
+  },
+  {
+   "reason": "Type aliases built at import by typing's own __or__/__getitem__ on classes and typing objects (X = A | B, X = Literal[...]): in-memory",
+   "names": [
+    "typing.<type alias construction>"
+   ]
+  }
+ ]
+}
