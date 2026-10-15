@@ -28,15 +28,15 @@ PARAMETERS = (
     "tt: tuple[str, ...], d: dict[Any, Any], ds: dict[str, int], st: set[Any], "
     "ss: set[str], fs: frozenset[Any], fss: frozenset[str], ba: bytearray, p: PurePath, "
     "pat: re.Pattern[str], m: re.Match[str], e: ET.Element, c: Counter[str], "
-    "ap: argparse.ArgumentParser, lg: logging.Logger, mv: memoryview"
+    "ap: argparse.ArgumentParser, lg: logging.Logger, mv: memoryview, cb: Callable[..., Any]"
 )
 HEADER = (
-    "import argparse\nimport contextlib\nimport datetime\nimport io\nimport ipaddress\n"
+    "import abc\nimport argparse\nimport contextlib\nimport datetime\nimport io\nimport ipaddress\n"
     "import logging\nimport os\nimport pathlib\nimport sqlite3\nimport stat\nimport types\n"
     "import functools\nimport typing\nimport uuid\nimport xml.sax.saxutils\nimport zipfile\n"
     "import base64\nimport copy\nimport dataclasses\nimport difflib\nimport hashlib\n"
     "import json\nimport re\nimport struct\nfrom collections import Counter\n"
-    "from pathlib import PurePath\nfrom typing import Any\n"
+    "from pathlib import PurePath\nfrom typing import Any, Callable\n"
     "from xml.etree import ElementTree as ET\n"
 )
 
@@ -232,7 +232,13 @@ PROBES = {
     "dataclasses.fields": "dataclasses.fields(a)",
     "typing.get_args": "typing.get_args(a)",
     "typing.assert_never": "typing.assert_never(a)",
-    "functools.wraps": "functools.wraps(a)",
+    "functools.wraps": "functools.wraps(cb)",
+    # Round 5 (Sol B2): consumers a runtime probe showed running caller code.
+    "builtins.property": "property(cb)",
+    "builtins.staticmethod": "staticmethod(cb)",
+    "contextlib.contextmanager": "contextlib.contextmanager(cb)",
+    "abc.ABCMeta": "abc.ABCMeta('M', (), d)",
+    "uuid.UUID.__eq__": "uuid.UUID(int=1).__eq__(a)",
 }
 
 #: Sol's round-2 probes (`probe_scan_round2.py`): each must fail the scan.
@@ -629,6 +635,63 @@ DS_ROUND4 = {
 }
 
 
+#: Sol's round-5 probes (`r5_scan_probe.py`): each must fail.
+SOL_ROUND5 = {
+    'r5_decorator_factory_identity': (
+        'from typing import Any, Callable\n'
+        '\n'
+        'def identity(dec: Callable[[Any], Any]) -> Callable[[Any], Any]:\n'
+        '    return dec\n'
+        '\n'
+        'def outer(dec: Callable[[Any], Any]) -> None:\n'
+        '    @identity(dec)\n'
+        '    def inner() -> None:\n'
+        '        pass\n'
+    ),
+    'r5_wraps_callable_object': (
+        'import functools\n'
+        'from typing import Any, Callable\n'
+        '\n'
+        'def outer(wrapped: Callable[..., Any]) -> None:\n'
+        '    @functools.wraps(wrapped)\n'
+        '    def inner() -> None:\n'
+        '        pass\n'
+    ),
+    'r5_contextmanager_callable_object': (
+        'import contextlib\n'
+        'from typing import Any, Callable\n'
+        '\n'
+        'def make(fn: Callable[..., Any]) -> object:\n'
+        '    return contextlib.contextmanager(fn)\n'
+    ),
+    'r5_property_callable_object': (
+        'from typing import Any, Callable\n'
+        '\n'
+        'def make(fn: Callable[..., Any]) -> property:\n'
+        '    return property(fn)\n'
+    ),
+    'r5_abcmeta_descriptor': (
+        'import abc\n'
+        'from typing import Any\n'
+        '\n'
+        'def make(namespace: dict[str, Any]) -> type:\n'
+        '    return abc.ABCMeta("Made", (), namespace)\n'
+    ),
+    'r5_type_list_parameter': (
+        'from typing import Any\n'
+        '\n'
+        'def make(factory: type[list[Any]], value: Any) -> list[Any]:\n'
+        '    return factory(value)\n'
+    ),
+    'r5_type_object_parameter': (
+        'from typing import Any\n'
+        '\n'
+        'def make(factory: type[object], value: Any) -> object:\n'
+        '    return factory(value)\n'
+    ),
+}
+
+
 #: Visible callbacks and harmless class values: these must not fail.
 ROUND3_CONTROLS = {
     "r3c_lambda_key": _H + "def f(rows: list[str]) -> list[str]:\n"
@@ -657,8 +720,12 @@ ROUND3_CONTROLS = {
         '        return self.x\n'
         '\n'
         '\n'
-        'def wrap(fn: Callable[..., Any]) -> Callable[..., Any]:\n'
-        '    @functools.wraps(fn)\n'
+        'def helper() -> None:\n'
+        '    pass\n'
+        '\n'
+        '\n'
+        'def wrap() -> Callable[..., Any]:\n'
+        '    @functools.wraps(helper)\n'
         '    def inner(*args: Any) -> Any:\n'
         '        return None\n'
         '    return inner\n'
@@ -688,7 +755,7 @@ def classified(tmp_path_factory: pytest.TempPathFactory) -> list[Any]:
     directory = root / "scripts" / "probes"
     directory.mkdir(parents=True)
     (directory / "methods.py").write_text(_module(PROBES), encoding="utf-8")
-    extra = {**SOL_ROUND2, **SOL_ROUND3, **DS_ROUND3, **SOL_ROUND4, **DS_ROUND4,
+    extra = {**SOL_ROUND2, **SOL_ROUND3, **DS_ROUND3, **SOL_ROUND4, **DS_ROUND4, **SOL_ROUND5,
              **ROUND3_CONTROLS}
     for name, source in extra.items():
         (directory / f"{name}.py").write_text(source, encoding="utf-8")
@@ -744,7 +811,7 @@ def test_an_unknown_operand_of_a_code_running_method_fails(
 
 
 @pytest.mark.parametrize("probe", sorted({**SOL_ROUND3, **DS_ROUND3, **SOL_ROUND4,
-                                          **DS_ROUND4}))
+                                          **DS_ROUND4, **SOL_ROUND5}))
 def test_a_code_running_callable_reached_through_a_value_fails(
     classified: list[Any], probe: str
 ) -> None:
@@ -783,13 +850,10 @@ def test_the_probe_module_is_valid_python() -> None:
 #: reviewed as running none of that argument's code at the call, with the reason.
 #: Every other entry with such a signature must be flagged `runs_code_of_others`.
 REVIEWED_NO_CALL = {
-    "abc.ABCMeta": "class creation from a namespace of repository definitions",
+    # Re-audited in round 5 by calling each with a hostile object that logs every
+    # attribute read and protocol call (Sol's method): these ran none.
     "builtins.id": "returns the object's identity",
-    "builtins.property": "stores the function; access calls it, and that is scanned",
-    "builtins.staticmethod": "stores the function",
-    "contextlib.contextmanager": "wraps the generator function; its body is scanned",
     "typing.cast": "returns its second argument unchanged",
-    "uuid.UUID.__eq__": "isinstance-guarded; any other operand returns NotImplemented",
     "xml.etree.ElementTree.Element.__deepcopy__": "the memo dict the copy machinery passes",
     "xml.etree.ElementTree.Element.append": "C Element checks the argument is an Element",
     **{f"builtins.{kind}.{op}": "rich comparison in C: a foreign operand returns NotImplemented"

@@ -228,3 +228,42 @@ def test_a_python_path_handed_to_git_as_data_keeps_the_trace_complete(tmp_path: 
         {"kind": "process", "argv": ["git", "show", ":scripts/plan-033/build-x.py"]},
     ]}
     assert changed.trace_incompleteness([trace], ["git"]) == []
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("git") is None, reason="needs POSIX git")
+def test_a_python_grandchild_hidden_in_a_git_alias_makes_the_trace_incomplete(
+    tmp_path: Path,
+) -> None:
+    """Review round 5, Sol B3 (r5_git_child_probe.py): `git -c alias.run=!python child.py
+    run` starts a Python grandchild the tracer never sees, through the one declared
+    executable. The embedded interpreter makes the trace incomplete, and child.py,
+    named inside the argument, joins the selection domain."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "child.py").write_text("open('ran', 'w').close()\n", encoding="utf-8")
+    (tmp_path / "builder.py").write_text(
+        "import subprocess, sys\n"
+        "subprocess.run(['git', '-c', f'alias.run=!{sys.executable} child.py', 'run'],"
+        " check=True)\n", encoding="utf-8")
+    result = _run(tmp_path, [sys.executable, str(TRACER), str(tmp_path / "t"), "--", "builder.py"])
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "ran").exists()
+    trace = _trace(tmp_path / "t")
+    assert changed.trace_incompleteness([trace], ["git"]), trace["processes"]
+    assert "child.py" in changed.child_repository_files([trace], tmp_path)
+
+
+@pytest.mark.parametrize("argument", [
+    "alias.x=!sh -c true", "core.sshCommand=ssh -i k", "a;b", "$(id)", "--upload-pack=x", "-c",
+])
+def test_an_embedded_command_in_a_declared_programs_argv_makes_the_trace_incomplete(
+    argument: str,
+) -> None:
+    trace = {"incomplete": [], "processes": [{"kind": "process", "argv": ["git", argument]}]}
+    assert changed.trace_incompleteness([trace], ["git"])
+
+
+@pytest.mark.parametrize("name", ["python3.14-dbg", "pypy3", "/usr/bin/python3", "python"])
+def test_a_python_interpreter_named_by_pattern_makes_the_trace_incomplete(name: str) -> None:
+    """DeepSeek round 5, N2: by pattern, not a list."""
+    trace = {"incomplete": [], "processes": [{"kind": "process", "argv": ["git", name, "x"]}]}
+    assert changed.trace_incompleteness([trace], ["git"])

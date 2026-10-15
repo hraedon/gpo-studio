@@ -49,7 +49,8 @@ language or to the code cannot pass by being invisible.
 
 **Known limitation: truth tests and comparisons of values typed only `object`**
 (accepted by the coordinator in review round 4, pending the owner). Exactly
-these pass without a site: a truth test (`__bool__`, `__len__`), and an
+these pass without a site: a truth test (`if o`, `not o`, `bool(o)`, which run
+`__bool__` or `__len__`; `len(o)` itself fails, DeepSeek round 5, N3), and an
 equality or order comparison (`__eq__`, `__ne__`, `__lt__`, `__le__`, `__gt__`,
 `__ge__`, including those `sorted(..., key=...)` makes of key results) of a
 value whose static type is plain `object` (`_OBJECT_RESIDUAL`). At run time
@@ -206,6 +207,8 @@ class Protocol:
     values: tuple[str, ...] = ()
     arg_elements: tuple[str, ...] = ()
     arg_values: tuple[str, ...] = ()
+    #: (position, dunders) run on the value types of a mapping argument there.
+    values_at: tuple[tuple[int, tuple[str, ...]], ...] = ()
 
     def for_argument(self, position: int | None, keyword: str | None) -> tuple[str, ...]:
         out: list[str] = []
@@ -351,7 +354,17 @@ def _protocols() -> dict[str, Protocol]:
     add(["dataclasses.fields"], Protocol(args=((0, ("?__dataclass_fields__",)),)))
     add(["typing.get_args"], Protocol(args=((0, ("?__args__",)),)))
     add(["typing.assert_never"], Protocol(args=((0, ("__repr__",)),)))
-    add(["functools.wraps"], Protocol(args=((0, ("?__name__",)),)))
+    # Review round 5 (Sol B2, runtime probe): these read many attributes of the
+    # callable they are given (wraps, contextmanager and staticmethod copy
+    # __module__, __name__, __qualname__, __doc__, __dict__, ...; property reads
+    # __doc__), and ABCMeta runs the namespace values' __set_name__. A direct
+    # reference (a function, method or class) passes; any other value fails.
+    add(["functools.wraps", "contextlib.contextmanager", "builtins.staticmethod",
+         "builtins.classmethod"], Protocol(args=((0, ("__call0__",)), ("wrapped", ("__call0__",)))))
+    add(["builtins.property"], Protocol(args=(("*", ("__call0__",)),)))
+    add(["abc.ABCMeta"], Protocol(args=((2, ("?keys",)),),
+                                  values_at=((2, ("__set_name__", "?__isabstractmethod__")),)))
+    add(["uuid.UUID.__eq__"], Protocol(args=((0, ("?__class__",)),)))
     add(["argparse.ArgumentParser"], Protocol(args=(("formatter_class", _CALL),
                                                     ("parents", ("__iter__",)))))
     add(["argparse.ArgumentParser.error"], Protocol(args=((0, ("__str__",)),)))
@@ -458,8 +471,8 @@ _OPAQUE_REASON = {
 }
 #: The accepted residual for values typed only `object` (see the module docstring):
 #: truth tests and comparisons. Every other protocol method of such a value fails.
-_OBJECT_RESIDUAL = frozenset({"__bool__", "__len__", "__eq__", "__ne__", "__lt__", "__le__",
-                              "__gt__", "__ge__"})
+_OBJECT_RESIDUAL = frozenset({"__bool__", "__eq__", "__ne__", "__lt__", "__le__", "__gt__",
+                              "__ge__"})
 #: Classes whose instance methods are all special-cased elsewhere.
 _OBJECT = "builtins.object"
 #: Read-only protocols: an implicit dunder on a receiver typed only by one of
@@ -1027,6 +1040,21 @@ def _is_property(node: SymbolNode | None) -> bool:
     return False
 
 
+def _is_plain_object(typ: Type | None) -> bool:
+    proper = get_proper_type(typ) if typ is not None else None
+    return isinstance(proper, Instance) and proper.type.fullname == _OBJECT
+
+
+def _exact_class_value(callee: Expression) -> bool:
+    """A local name inferred from a class reference (`c = Repo; c()`): it holds that
+    exact class, which was classified where it was referenced."""
+    if not (isinstance(callee, NameExpr) and isinstance(callee.node, Var)):
+        return False
+    var = callee.node
+    declared = get_proper_type(var.type) if var.type is not None else None
+    return bool(var.is_inferred) and isinstance(declared, (CallableType, Overloaded))
+
+
 def _call_arguments(call: CallExpr) -> list[tuple[Expression, int | None, str | None]]:
     """(argument, position, keyword) of a call's ordinary arguments."""
     arguments: list[tuple[Expression, int | None, str | None]] = []
@@ -1129,6 +1157,8 @@ class Scanner:
         #: id() of class references a reviewed consumer judges (a callback slot, a
         #: comparison): they are not "used as a value" (review round 4).
         self.consumed: set[int] = set()
+        #: id() of decorator references: classified as calls by decorator_call.
+        self.decorator_refs: set[int] = set()
         if path not in analysis.origins:
             analysis.origins[path] = JsonOrigins.for_file(
                 analysis.root / path, path, JsonParameters.of(analysis)
@@ -1334,6 +1364,9 @@ class Scanner:
                 if position == 0:
                     self.member_protocols(expr, "elements", spec.arg_elements, line, what)
                     self.member_protocols(expr, "values", spec.arg_values, line, what)
+                for at, dunders in spec.values_at:
+                    if position == at:
+                        self.member_protocols(expr, "values", dunders, line, what)
             if receiver is not None:
                 self.member_protocols(receiver, "elements", spec.elements, line, what)
                 self.member_protocols(receiver, "values", spec.values, line, what)
@@ -1655,6 +1688,9 @@ class Scanner:
 
     def _Decorator(self, node: Decorator) -> None:
         for decorator in node.original_decorators:
+            if isinstance(decorator, RefExpr):
+                self.consumed.add(id(decorator))  # called as a decorator, not a value
+                self.decorator_refs.add(id(decorator))
             self.visit(decorator)
             self.decorator_call(decorator, "decorator")
         self.visit(node.func)
@@ -1669,7 +1705,17 @@ class Scanner:
         if isinstance(decorator, CallExpr) and isinstance(decorator.callee, RefExpr) and (
             isinstance(decorator.callee.node, (FuncBase, Decorator, TypeInfo))
         ):
-            return  # `@dataclass(frozen=True)`: the factory call is classified itself
+            factory = decorator.callee.node
+            if id(factory) not in self.repo_definitions and not self.is_repo_target(
+                decorator.callee.fullname
+            ):
+                # `@dataclass(frozen=True)`: a reviewed library factory; what it
+                # returns is part of its classification (inert, edge or failing).
+                return
+            # A repository factory (`@identity(dec)`) returns a value like any other
+            # callable value: classified, or failing closed (review round 5, Sol B2).
+            self.indirect(decorator, decorator.line, detail)
+            return
         if isinstance(decorator, MemberExpr) and decorator.node is None:
             receiver = self.type_of(decorator.expr)
             infos = _infos(receiver)
@@ -1696,6 +1742,9 @@ class Scanner:
 
     def _ClassDef(self, node: Any) -> None:
         for decorator in node.decorators:
+            if isinstance(decorator, RefExpr):
+                self.consumed.add(id(decorator))  # called as a decorator, not a value
+                self.decorator_refs.add(id(decorator))
             self.visit(decorator)
             self.decorator_call(decorator, "class decorator")
         for base in [*node.base_type_exprs, *node.removed_base_type_exprs]:
@@ -1848,6 +1897,8 @@ class Scanner:
     def reference(self, node: RefExpr) -> None:
         """A name used as a value: a callable reference unless it is data or a module."""
         target = node.node
+        if id(node) in self.decorator_refs and isinstance(target, (FuncBase, Decorator)):
+            return  # a decorator: classified as the call it is (decorator_call)
         if target is not None and id(target) in self.repo_definitions:
             self.analysis.escapes.add(id(target))
             return
@@ -2075,6 +2126,10 @@ class Scanner:
         for dunder_list in (_CONVERSIONS.get(fullname),):
             if dunder_list:
                 for arg in positional:
+                    if fullname == "builtins.bool" and _is_plain_object(self.type_of(arg)):
+                        # bool(o) of a value typed object is a truth test: inside the
+                        # documented residual (truth tests and comparisons only).
+                        continue
                     for dunder in dunder_list:
                         self.implicit(
                             self.type_of(arg), dunder, line, f"{fullname}() argument", arg
@@ -2254,6 +2309,14 @@ class Scanner:
             return
         proper = get_proper_type(typ)
         if isinstance(proper, (CallableType, Overloaded)):
+            if proper.is_type_obj() and not _exact_class_value(callee):
+                # A class held in a parameter, attribute or annotated variable can
+                # be any subclass at run time (review round 5, Sol B1).
+                bound = proper.type_object().fullname
+                self.unresolved(f"<type[{bound}] value>()", line,
+                                f"{what or 'call'} of a type[{bound}] value: a subclass the "
+                                "scan cannot see may run")
+                return
             if proper.is_type_obj():
                 info = proper.type_object()
                 if call is not None and info.fullname in METHOD_PROTOCOLS:
@@ -2298,8 +2361,14 @@ class Scanner:
             self.unresolved("<callable value>()", line,
                             f"{what or 'call'} of a callable value the scan cannot resolve")
             return
-        if isinstance(proper, TypeType) and isinstance(proper.item, Instance):
-            self.construct(proper.item.type, line, "type[] value called")
+        if isinstance(proper, TypeType):
+            # `factory: type[T]; factory(...)`: the value can be any subclass, whose
+            # __new__, __init__ or metaclass __call__ run anything (review round 5,
+            # Sol B1). Only the static bound is known, so the call fails closed.
+            bound = proper.item.type.fullname if isinstance(proper.item, Instance) else "?"
+            self.unresolved(f"<type[{bound}] value>()", line,
+                            f"{what or 'call'} of a type[{bound}] value: a subclass the scan "
+                            "cannot see may run")
             return
         if isinstance(proper, AnyType):
             self.unresolved("<Any>()", line, f"{what or 'call'} of a value of unknown type")

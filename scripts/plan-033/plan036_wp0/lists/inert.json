@@ -74,12 +74,18 @@
   {
    "reason": "Decorators and class machinery that define, not run, code",
    "names": [
+    "dataclasses.dataclass",
+    "typing.runtime_checkable"
+   ]
+  },
+  {
+   "reason": "Decorators and class machinery that define, not run, code. These read attributes of, call, or run descriptor hooks of an argument (a runtime probe with a hostile object showed it; review round 5): scan.py resolves each at every call (METHOD_PROTOCOLS), so an argument that is not a direct reference, or is of unknown type, is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
     "abc.ABCMeta",
     "builtins.property",
     "builtins.staticmethod",
-    "contextlib.contextmanager",
-    "dataclasses.dataclass",
-    "typing.runtime_checkable"
+    "contextlib.contextmanager"
    ]
   },
   {
@@ -771,8 +777,14 @@
   {
    "reason": "uuid.UUID, methods that run no code of other objects: the UUID's value; == is isinstance-guarded",
    "names": [
-    "uuid.UUID.__eq__",
     "uuid.UUID.hex"
+   ]
+  },
+  {
+   "reason": "uuid.UUID. These read attributes of, call, or run descriptor hooks of an argument (a runtime probe with a hostile object showed it; review round 5): scan.py resolves each at every call (METHOD_PROTOCOLS), so an argument that is not a direct reference, or is of unknown type, is an unresolvable site",
+   "runs_code_of_others": true,
+   "names": [
+    "uuid.UUID.__eq__"
    ]
   },
   {

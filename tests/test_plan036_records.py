@@ -486,3 +486,21 @@ def test_a_pin_naming_another_successor_record_is_refused(
     alternate.write_bytes(Path(record.SUCCESSOR_RECORD).read_bytes())
     pin = {**pinned, "successor_record": str(alternate)}
     assert any("names successor record" in p for p in _compare(pin, derived))
+
+
+def test_a_missing_successor_record_is_a_problem_not_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DeepSeek round 5, N1: verify_pin read the successor record before looking at
+    the problems compare_pin had already reported, and raised FileNotFoundError."""
+    if record.running_interpreter_problems():
+        pytest.skip("verify_pin runs only under the lanes' interpreter")
+    monkeypatch.setattr(record, "derive_part1", lambda *a, **k: {})
+    monkeypatch.setattr(record, "history_problems", lambda *a, **k: [])
+    root = tmp_path / "tree"
+    root.mkdir()
+    pin = {"analysis": {"python_version": record.LANE_PYTHON, "platform": "linux"},
+           "successor_record": record.SUCCESSOR_RECORD}
+    Path(record.SUCCESSOR_RECORD).unlink(missing_ok=True)
+    problems = record.verify_pin(root, pin)
+    assert any("is missing" in p for p in problems), problems

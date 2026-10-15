@@ -291,6 +291,9 @@ def opened_files(traces: Iterable[dict[str, Any] | None], clone_root: Path) -> s
     return found
 
 
+_TOKEN_SPLIT = re.compile(r"[\s=!'\":;,()|&`<>]+")
+
+
 def child_repository_files(
     traces: Iterable[dict[str, Any] | None], clone_root: Path
 ) -> set[str]:
@@ -302,15 +305,21 @@ def child_repository_files(
             if process.get("kind") not in ("process", "shell"):
                 continue
             for argument in process.get("argv", [])[1:]:
-                candidate = Path(str(argument))
-                if not candidate.is_absolute():
-                    candidate = prefix / candidate
-                try:
-                    resolved = candidate.resolve()
-                    if resolved.is_file():
-                        files.add(resolved.relative_to(prefix).as_posix())
-                except (OSError, ValueError):
-                    continue
+                # The whole item and every token in it (`-c alias.x=!python child.py`,
+                # `:scripts/x.py`): a repository file named anywhere joins the domain
+                # (review round 5, Sol B3).
+                for token in {str(argument), *_TOKEN_SPLIT.split(str(argument))}:
+                    if not token:
+                        continue
+                    candidate = Path(token)
+                    if not candidate.is_absolute():
+                        candidate = prefix / candidate
+                    try:
+                        resolved = candidate.resolve()
+                        if resolved.is_file():
+                            files.add(resolved.relative_to(prefix).as_posix())
+                    except (OSError, ValueError):
+                        continue
     return files
 
 
@@ -344,9 +353,14 @@ def trace_incompleteness(
                     # Review round 4 (Sol B2): `env python child.py`, `timeout 5 x`:
                     # the program a wrapper starts is not traced.
                     reasons.append(f"a wrapper ({name}) starts another program untraced: {argv}")
-                elif any(_names_python(argument) for argument in argv[1:]):
+                elif any(_PYTHON_ANYWHERE.search(argument) for argument in argv[1:]):
                     reasons.append(f"a child process names a Python interpreter, which it "
                                    f"may start untraced: {argv}")
+                elif any(_embeds_command(argument) for argument in argv[1:]):
+                    # Review round 5 (Sol B3): `git -c alias.x=!python child.py x`: a
+                    # declared program can run an embedded command untraced.
+                    reasons.append(f"a child process is handed an embedded command it may "
+                                   f"run untraced: {argv}")
     return reasons
 
 
@@ -357,14 +371,35 @@ WRAPPERS = frozenset({
     "watch", "script", "busybox", "exec", "command", "builtin", "uv", "uvx", "pipx", "npx",
     "cmd", "start", "powershell", "pwsh",
 })
-_PYTHON_NAME = re.compile(r"^(python|pypy)(\d+(\.\d+)*)?w?(\.exe)?$", re.IGNORECASE)
+#: A Python interpreter's name anywhere in an argv item (`python3.14-dbg`, `pypy3`,
+#: `!/usr/bin/python3 x.py`), by pattern, not a list (DeepSeek round 5, N2). A `.py`
+#: path alone is data to most programs (`git show :x.py`); a repository file a
+#: child is handed is in the selection domain instead (`child_repository_files`).
+_PYTHON_ANYWHERE = re.compile(
+    r"(?:^|[\s/\\=!'\"(:;|&`])(?:python|pypy)[\w.+-]*(?:\.exe)?(?=$|[\s'\");|&`])",
+    re.IGNORECASE,
+)
+#: Shell metacharacters and git's `!` shell alias: an argv item a program may hand
+#: to a shell.
+_EMBEDDED = re.compile(r"[;&|`<>\n]|\$\(|\$\{|(?:^|=)!")
+#: Options that name a command for the program to run, and git configuration
+#: keys that do (`git -c core.sshCommand=...`).
+_COMMAND_OPTIONS = frozenset({
+    "-c", "--command", "--exec", "-e", "--upload-pack", "--receive-pack", "--exec-path",
+    "-x", "--config", "--config-env",
+})
+_COMMAND_CONFIG = ("alias.", "core.sshcommand", "core.pager", "core.editor", "core.fsmonitor",
+                   "core.hookspath", "credential.helper", "filter.", "diff.external",
+                   "gpg.program", "sequence.editor", "pager.", "uploadpack.packobjectshook")
 
 
-def _names_python(argument: str) -> bool:
-    """Does an argv item name a Python interpreter? (A `.py` path alone is data to
-    most programs, `git show :x.py` among them; a repository file a child is
-    handed is in the selection domain, `child_repository_files`.)"""
-    return bool(_PYTHON_NAME.match(Path(argument).name))
+def _embeds_command(argument: str) -> bool:
+    lowered = argument.lower()
+    return (
+        argument.split("=", 1)[0] in _COMMAND_OPTIONS
+        or bool(_EMBEDDED.search(argument))
+        or lowered.startswith(_COMMAND_CONFIG)
+    )
 
 
 @dataclass

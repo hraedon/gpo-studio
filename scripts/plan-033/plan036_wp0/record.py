@@ -139,6 +139,13 @@ DESIGN_NOTES = (
     "a call among them, fails); covering them adds about 400 sites, and in these "
     "lanes such values come from repository code or decoded JSON (scan.py's module "
     "docstring).",
+    "Design note (review round 5): the runtime trace at F records every executed "
+    "line, every audited open and every child process; the static scan's lasting "
+    "contribution is the input channels the trace does not record (directory "
+    "enumeration, C-level reads, environment, clock, network). The dry-run notes "
+    "propose making the trace the soundness basis once its domain and pin cover "
+    "every traced file and those channels are hooked or refused; until then the "
+    "scan stays release-blocking.",
     "Every clone environment is built by replay.uv_environment: the commit's own "
     "lock synced without building anything, the build backend from that lock or, "
     "for a lock that locks none (before 547626b), from the tool tree's lock by "
@@ -1083,8 +1090,10 @@ def verify_pin(root: Path, pin: dict[str, Any], workdir: Path | None = None) -> 
     part1 = derive_part1(root, pin["analysis"]["python_version"], lists)
     problems = compare_pin(root, pin, part1, lists)
     problems.extend(history_problems(root, pin))
+    if problems:
+        return problems  # (a missing or unreadable successor record is among them)
     successor = json.loads((root / SUCCESSOR_RECORD).read_bytes())
-    if problems or successor_problems(successor):
+    if successor_problems(successor):
         return problems
     if workdir is None:
         with tempfile.TemporaryDirectory(prefix="wp0-gate-") as scratch:

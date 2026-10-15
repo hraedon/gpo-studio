@@ -268,7 +268,8 @@ WP-0 re-run at `F` happens on the estate, so no offline run can show it.
     declaration that names the exact argument list.
 12. **Known limitation: truth tests and comparisons of values typed only
     `object`.** Exactly these pass the scan without a site: a truth test
-    (`__bool__`, `__len__`), and an equality or order comparison, including
+    (`if o`, `not o`, `bool(o)`; `len(o)` fails), and an equality or order
+    comparison, including
     those `sorted(..., key=...)` makes of key results, of a value whose static
     type is plain `object`. At run time such a value can belong to any class,
     whose methods run code. Every other use of an `object` value fails and is
@@ -305,3 +306,155 @@ WP-0 re-run at `F` happens on the estate, so no offline run can show it.
 15. **The pin names the one successor record.** A pin whose `successor_record`
     is not `docs/plan-033/release110-dependency-audit.json` fails; the gate
     reads only that path (DeepSeek round 4, N1).
+
+16. **Round 5.** A call through a `type[...]` value (a parameter, an
+    attribute or an annotated variable) fails, because a subclass the scan
+    cannot see may run. The seven `error_class(...)` calls in
+    `xml_safety.py` are declared.
+
+    `property`, `staticmethod`, `contextlib.contextmanager` and
+    `functools.wraps` read attributes of their argument, and `abc.ABCMeta`
+    runs `__set_name__` on the namespace values. A runtime probe with a
+    hostile object showed all of this. Each now has a rule (a direct
+    reference passes; anything else fails), and the reviewed exception
+    table holds only `id`, `typing.cast` and entries the probe showed run
+    nothing. A decorator built by a repository factory is classified like
+    any callable value.
+
+    An argv item handed to a declared program that embeds a command (shell
+    metacharacters, a `!` alias, a command-running option or git config key)
+    or names a Python interpreter anywhere makes the trace incomplete.
+    Repository files named inside an argv item join the selection domain.
+
+## Design note: what the runtime trace guarantees, and what the static scan adds
+
+Rounds 3, 4 and 5 of the review each found the same class of defect: an escape
+in the static scan's positive classification of Python semantics (a callable
+reached through a value, a protocol run by a "pure" method, a `type[...]`
+call, a decorator consumer that reads its argument's attributes). Plan 036's
+own rule for three rounds finding one class is a design change, not a fourth
+fix. This section is the analysis. It changes no behaviour: the gate still
+treats the static scan as release-blocking.
+
+### 1. What the trace already guarantees at `F`, exactly
+
+At `F` every lane's builder (twice, in two clones) and finalizer (three times
+at the target, once at the verdict's own commit) run under
+`plan036_wp0/tracer.py`, with recorded inputs: the banked pack, the argv the
+runner used, a scrubbed environment (`replay.RUN_ENVIRONMENT`; the trace
+records `tracer.ENV_ALLOWLIST`), and the clone as working directory. The
+trace records:
+
+- **Executed lines.** Every (file, line) executed by any Python code object,
+  through `sys.monitoring` LINE events. That includes modules imported
+  dynamically and code reached through any value, alias, decorator or
+  protocol. Code compiled from a string records the pseudo-file `<string>`;
+  the string's source is whatever produced it.
+- **Files opened**, from audit `open` events. These cover `open()`, `io.open`,
+  `os.open` and so `pathlib` reads, and the source file of a module imported
+  from source. Measured: importing a module raises `open` for its `.py`.
+  A module loaded from a fresh `.pyc` opens the `.pyc`, not the `.py`.
+- **Child processes**, from `subprocess.Popen` (wrapped; Python children are
+  traced in turn) and the audit events `os.posix_spawn`, `os.exec`,
+  `os.spawn`, `os.system`, `os.fork`/`os.forkpty` and `os.startfile`.
+  Shells, wrappers, embedded commands and untraced Python children make the
+  trace incomplete.
+- **Final process state**: the module files in `sys.modules`, `sys.path`,
+  `sys.flags`, the working directory and the filtered environment.
+
+The replays compare candidate bytes, and the re-grades compare canonical
+payloads. Their equality is the evidence that the executions at `F`
+reproduce the banked ones.
+
+**What the trace does not record** (each measured with an audit hook on
+Python 3.14):
+
+- Directory enumeration. `os.listdir`, `os.scandir` and `glob.glob` raise
+  audit events, but the tracer does not hook them.
+- Files a C extension opens itself. `sqlite3.connect` opens its database in
+  C and raises `sqlite3.connect`, not `open`. `mmap.__new__` maps an
+  already-open descriptor. `ctypes` can run arbitrary C.
+- Environment reads. `os.environ` has no audit event; the scrubbed
+  environment bounds what such reads can see.
+- The clock, random numbers, the network (the `socket.*` events are not
+  hooked), and what a non-Python child (`git`) reads beyond its argv.
+- The interpreter's patch level and its standard library. The gate pins
+  `3.14` and `uv.lock`, not the patch release.
+
+### 2. What the static scan adds beyond the trace
+
+The trace proves what ran at `F`. The release claim is about the release
+commit `R`, where the gate re-executes the record's claims at `F` and checks
+that nothing the lanes depend on changed between `F` and `R`. The dependency
+set it pins today is the static closure, the declared resources and the
+floor, not the set the trace saw.
+
+The question is whether any branch unexecuted at `F` can run at `R` without
+any pinned file changing.
+
+- Code cannot change unnoticed. Every executed file, and every file holding
+  an unexecuted branch of an executed function, would be pinned if the pin
+  were the trace's file set.
+- An unexecuted branch then runs at `R` only if a decision input differs:
+  - Banked inputs are fixed by `B`.
+  - The bytes of pinned files are unchanged.
+  - What remains are the unrecorded channels above: directory membership,
+    C-level file reads, environment, clock, random, network, child-process
+    reads, and the interpreter patch level.
+
+So the set of activatable branches is empty exactly when every decision input
+comes through a pinned channel. With today's trace it is **not** empty. The
+static scan is what closes those channels:
+
+- It declares and pins directory memberships (the report-parity corpus glob,
+  for example).
+- It refuses `ctypes` and declares `sqlite3`.
+- It declares environment reads, the clock and processes.
+
+That is the scan's real contribution. Its classification of Python semantics
+(attribute protocols, callables as values, `object` truth tests, `isinstance`
+reading `__class__`) only matters for code that does not run at `F`. Any
+such code that does run at `F` is in the trace whatever the scan concluded.
+
+One gap in the current domain is worth naming. D-9's selection domain is
+the static dependency set, plus opened files, plus files a child is handed.
+A repository module imported dynamically is in it only through its `.py`
+being opened, and that depends on whether a fresh `.pyc` existed when the
+traced run imported it. Its executed lines are always in the trace, but they
+are counted only if the file is in the domain.
+
+### 3. Proposal
+
+The argument holds, conditionally. Make the runtime trace the soundness basis
+for the release claim, once these changes are made:
+
+1. **Trace-derived domain and pin.** D-9's domain and the gate's pinned set
+   include every repository file with an executed line or an `open` in any
+   trace at `F`, plus the files children are handed. That closes the
+   dynamic-import gap above and makes "every executed file is pinned" true.
+2. **Hook the enumeration channels.** Record directory memberships from
+   `os.listdir`, `os.scandir` and `glob.glob` (and so `os.walk`), and pin
+   them as the static `enumerate` declarations pin them today.
+3. **Fail closed on unrecordable channels.** Make an audit event from a
+   channel that cannot be pinned (`ctypes.*`, `socket.*`, `sqlite3.connect`
+   on an undeclared path, `mmap.__new__` on an unrecorded descriptor) make
+   the trace incomplete, unless a reviewed declaration names it.
+4. **Keep the inputs fixed as today.** The scrubbed environment and the
+   recorded argv and working directory stay; clock-dependent output is
+   caught by the two-clone replay comparison.
+
+With those changes, the static scan becomes defense in depth: fail-closed and
+still run, but scoped to the channel classes in item 3 and to the clock,
+environment and network edges it already declares. Its Python-semantics
+escapes become a documented residual rather than a release blocker, because
+code they could hide either ran at `F` (and is in the trace) or can run later
+only through a channel the trace pins or refuses. The remaining limits would
+be stated, not removed:
+
+- the interpreter patch level;
+- what non-Python children read beyond their argv;
+- C code reached without an audit event.
+
+Until those changes are made, the static scan stays release-blocking as it
+is today. It is the only thing between the release claim and the unrecorded
+channels above.

@@ -3158,6 +3158,30 @@
     "<object>.__repr__": 1,
     "<object>.__str__": 1
    }
+  },
+  {
+   "module": "src/gpo_studio/gpp_adapters.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "functools.wraps(parse) in _retains_native, whose parse is one of the adapter item parsers of this module (repository functions)"
+   },
+   "reason": "callbacks: a callable that runs other objects' code, or a callback value the scan cannot see, called back on the values named under 'what'; reviewed at its site (review round 3)",
+   "targets": {
+    "<callback value>": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/xml_safety.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the error_class parameter (type[Exception], default ValueError), raised with a message; its callers in this closure pass repository exception classes (BackupError, IltError, OracleEvidenceError, ReportParityError, WriterConformanceError)"
+   },
+   "reason": "callable values: a call through a Callable-typed parameter, field or table entry; nothing in the call says which function it holds, so it is declared rather than resolved (review round 4, DeepSeek B1)",
+   "targets": {
+    "<type[builtins.Exception] value>()": 7
+   }
   }
  ]
 }
