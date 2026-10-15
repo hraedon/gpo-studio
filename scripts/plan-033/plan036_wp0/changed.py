@@ -340,7 +340,30 @@ def trace_incompleteness(
                 name = Path(argv[0]).name.lower().removesuffix(".exe")
                 if name not in allowed:
                     reasons.append(f"a child process no declared edge names: {argv[0]}")
+                if name in WRAPPERS:
+                    # Review round 4 (Sol B2): `env python child.py`, `timeout 5 x`:
+                    # the program a wrapper starts is not traced.
+                    reasons.append(f"a wrapper ({name}) starts another program untraced: {argv}")
+                elif any(_names_python(argument) for argument in argv[1:]):
+                    reasons.append(f"a child process hands Python code to another program, "
+                                   f"untraced: {argv}")
     return reasons
+
+
+#: Programs whose job is to run another program named in their argv.
+WRAPPERS = frozenset({
+    "env", "nice", "nohup", "timeout", "time", "stdbuf", "setsid", "ionice", "chrt",
+    "taskset", "xargs", "sudo", "doas", "su", "runuser", "unshare", "chroot", "flock",
+    "watch", "script", "busybox", "exec", "command", "builtin", "uv", "uvx", "pipx", "npx",
+    "cmd", "start", "powershell", "pwsh",
+})
+_PYTHON_NAME = re.compile(r"^(python|pypy)(\d+(\.\d+)*)?w?(\.exe)?$", re.IGNORECASE)
+
+
+def _names_python(argument: str) -> bool:
+    """Does an argv item name a Python interpreter or a Python source file?"""
+    base = Path(argument).name
+    return bool(_PYTHON_NAME.match(base)) or base.lower().endswith((".py", ".pyw"))
 
 
 @dataclass
@@ -393,7 +416,12 @@ def select_lane(
     changed_data: list[str] = []
     option3 = False
     gates_bc = (replay_identical is not False) and regrade_equal
-    considered = sorted(set(dependency_set) | set(opened))
+    # Repository files a child process was handed are in the domain too (review
+    # round 4, Sol B2): a changed one the child ran selects the lane.
+    considered = sorted(set(dependency_set) | set(opened) | set(child_files))
+    missing = [path for path in considered if path not in changes]
+    if missing:
+        raise Wp0Error(f"{lane}: no diff for files in the selection domain: {missing[:5]}")
     for path in considered:
         change = changes[path]
         if change.status == "unchanged":

@@ -15,8 +15,8 @@ What it does (`plans/036-change-cost.md`, "The four parts", 1):
 - **Classification.** A target defined in the repository is not an edge: its
   body is in the closure and is scanned. Every other target, in the standard
   library, a built-in or a third-party distribution, must be on exactly one
-  reviewed list: inert (by fully qualified name, or by type for a closed set of
-  pure in-memory types), a declared edge for that site, or proved
+  reviewed list: inert (by fully qualified name; by type only for `<json>`), a
+  declared edge for that site, or proved
   platform-unreachable under a recorded `sys.platform`/`os.name` guard that is
   false on the controller. Anything else fails, whatever its module.
 - **Unresolvable** targets fail unless declared for that site: a receiver of
@@ -40,6 +40,25 @@ digests separately).
 The walker visits mypy's node classes explicitly and **fails on any node
 class it does not know** rather than skipping it: a construct added to the
 language or to the code cannot pass by being invisible.
+
+- **Code other objects run.** A listed method or function that runs its
+  arguments', elements' or callbacks' code (`list.remove`, `sorted(key=...)`,
+  `Pattern.sub`, `json.loads(object_hook=...)`) is resolved at every call by
+  `METHOD_PROTOCOLS` and the iteration and conversion rules, and fails closed
+  when taken as a value instead of called (reviews rounds 2 to 4).
+
+**Known limitation: values typed only `object`** (accepted by the coordinator in
+review round 4, pending the owner). A truth test, an equality or order
+comparison, or a comparison of `sorted(..., key=...)` results on a value whose
+static type is plain `object` passes without a site, although at run time the
+value can be an instance of any class whose `__bool__`, `__len__`, `__eq__` or
+ordering methods run code. Treating every such use as unknown, as `Any` is
+treated, adds about 400 sites across the live closure (measured in round 3).
+In these lanes such values come from repository code (scanned in the
+repository) or from decoded JSON and in-memory containers. Where the container
+rules look at elements (set operations, `json.dumps` values, `any`/`all`/`sum`
+of a comprehension), an element typed `object` already fails. The residual
+bounds any reuse of this scanner beyond these lanes.
 """
 
 from __future__ import annotations
@@ -315,6 +334,12 @@ def _protocols() -> dict[str, Protocol]:
     add(["datetime.datetime"], Protocol(args=(("*", _INDEX),)))
     add(["pathlib.Path", "pathlib.PurePosixPath", "pathlib.PureWindowsPath",
          "posixpath.normcase"], Protocol(args=(("*", ("__fspath__",)),)))
+    # Review round 4 (Sol B4): helpers that read an argument's attributes or
+    # format it run its attribute protocol or __repr__.
+    add(["dataclasses.fields"], Protocol(args=((0, ("?__dataclass_fields__",)),)))
+    add(["typing.get_args"], Protocol(args=((0, ("?__args__",)),)))
+    add(["typing.assert_never"], Protocol(args=((0, ("__repr__",)),)))
+    add(["functools.wraps"], Protocol(args=((0, ("?__name__",)),)))
     add(["argparse.ArgumentParser"], Protocol(args=(("formatter_class", _CALL),
                                                     ("parents", ("__iter__",)))))
     add(["argparse.ArgumentParser.error"], Protocol(args=((0, ("__str__",)),)))
@@ -1085,6 +1110,9 @@ class Scanner:
         self.function_stack: list[FuncDef] = []
         self.sites: list[Site] = []
         self.counts: dict[tuple[str, str, str], int] = {}
+        #: id() of class references a reviewed consumer judges (a callback slot, a
+        #: comparison): they are not "used as a value" (review round 4).
+        self.consumed: set[int] = set()
         if path not in analysis.origins:
             analysis.origins[path] = JsonOrigins.for_file(
                 analysis.root / path, path, JsonParameters.of(analysis)
@@ -1395,6 +1423,12 @@ class Scanner:
     def visit(self, node: Node | None) -> None:
         if node is None:
             return
+        if isinstance(node, MemberExpr) and isinstance(node.expr, RefExpr) and isinstance(
+            node.expr.node, (TypeInfo, TypeAlias)
+        ):
+            # `str.casefold`, `bytes.fromhex(...)`: the class is the receiver of an
+            # attribute lookup, not a value that is called later.
+            self.consumed.add(id(node.expr))
         kind = type(node).__name__
         handler = getattr(self, "_" + kind, None)
         if handler is not None:
@@ -1771,10 +1805,14 @@ class Scanner:
         if isinstance(target, (FuncBase, Decorator)):
             self.target("reference", node.fullname, node.line, "function used as a value")
         elif isinstance(target, TypeInfo):
+            if self.class_value_fails(node, target.fullname):
+                return
             self.target("reference", target.fullname, node.line, "class used as a value")
         elif isinstance(target, TypeAlias):
             aliased = get_proper_type(target.target)
             if isinstance(aliased, Instance):
+                if self.class_value_fails(node, aliased.type.fullname):
+                    return
                 self.target("reference", aliased.type.fullname, node.line, "alias used as a value")
         elif isinstance(target, Var) and node.fullname in REFUSED_ATTRIBUTE_READS:
             self.record("attribute-read", node.fullname, node.line, "refused read")
@@ -1787,6 +1825,17 @@ class Scanner:
             and self.type_of(node) is None
         ):
             self.unresolved(f"<name:{node.name}>", node.line, "a name mypy did not bind")
+
+    def class_value_fails(self, node: RefExpr, fullname: str) -> bool:
+        """A class whose constructor runs other objects' code, taken as a value and
+        not immediately called, fails closed (review round 4, Sol B3: widened
+        `factory: Callable[[Any], object] = list`, `type[object]`, conditionals)."""
+        if self.guard is not None or fullname not in RUNS_OTHER_CODE or id(node) in self.consumed:
+            return False
+        self.unresolved(f"<value of {fullname}>", node.line,
+                        f"{fullname}, whose constructor runs other objects' code, taken as a "
+                        "value")
+        return True
 
     def member_access(self, node: MemberExpr, *, setter: bool = False) -> None:
         """`x.attr` on an instance or class: a property, descriptor or method reference."""
@@ -1929,7 +1978,22 @@ class Scanner:
         callee = node.callee
         line = node.line
         fullname = self.callee_target(callee, node)
+        if isinstance(callee, RefExpr) and isinstance(callee.node, TypeAlias):
+            aliased = get_proper_type(callee.node.target)
+            if isinstance(aliased, Instance):
+                # `Factory = list; Factory(xs)`: the rules of the class it names
+                # apply (review round 4, Sol B3).
+                fullname = aliased.type.fullname
         type_test = fullname in _TYPE_TEST_CALLEES
+        if fullname in METHOD_PROTOCOLS:
+            spec = METHOD_PROTOCOLS[fullname]
+            for arg, position, keyword in _call_arguments(node):
+                if isinstance(arg, RefExpr) and {
+                    "__call__", "__call0__", "?__subclasscheck__", "?__instancecheck__"
+                } & set(spec.for_argument(position, keyword)):
+                    # callback_argument judges a callback; a class in a type-test
+                    # slot (`contextlib.suppress(OSError)`) is never called.
+                    self.consumed.add(id(arg))
         for index, (arg, kind) in enumerate(zip(node.args, node.arg_kinds, strict=True)):
             if type_test and index == 1:
                 self.type_test(arg, report_any=False)  # METHOD_PROTOCOLS reports it
@@ -1985,6 +2049,10 @@ class Scanner:
     def callee_target(self, callee: Expression, call: CallExpr) -> str | None:
         """Classify what *callee* calls; returns the fully qualified target if known."""
         line = call.line
+        if isinstance(callee, MemberExpr) and isinstance(callee.expr, RefExpr) and isinstance(
+            callee.expr.node, (TypeInfo, TypeAlias)
+        ):
+            self.consumed.add(id(callee.expr))  # `bytes.fromhex(...)`: a class's method
         if self.guard is not None:
             text = _dotted(callee)
             self.record("call", text or "?", line, "call in guarded code")
@@ -2279,8 +2347,16 @@ class Scanner:
             return
         self.implicit(self.type_of(operand), name, line, f"reflected {op}", operand)
 
+    def _RaiseStmt(self, node: Any) -> None:
+        for expr in (node.expr, node.from_expr):
+            if isinstance(expr, RefExpr) and isinstance(expr.node, (TypeInfo, TypeAlias)):
+                self.consumed.add(id(expr))  # `raise ValueError`: instantiated with no arguments
+            self.visit(expr)
+
     def _ComparisonExpr(self, node: ComparisonExpr) -> None:
         for operand in node.operands:
+            if isinstance(operand, RefExpr) and isinstance(operand.node, (TypeInfo, TypeAlias)):
+                self.consumed.add(id(operand))  # `type(x) is int`: compared, never called
             self.visit(operand)
         for index, op in enumerate(node.operators):
             if op in ("is", "is not"):

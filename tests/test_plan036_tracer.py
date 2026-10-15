@@ -19,9 +19,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from plan036_support import PACKAGE
+from plan036_support import PACKAGE, load
 
 TRACER = PACKAGE / "tracer.py"
+changed = load("changed")
 
 PROBE = """\
 import json, sys
@@ -179,3 +180,42 @@ def test_the_exit_status_and_trace_survive_a_failing_script(tmp_path: Path) -> N
     result = _run(tmp_path, [sys.executable, str(TRACER), str(tmp_path / "t"), "--", "main.py"])
     assert result.returncode == 3
     assert _trace(tmp_path / "t")["exit"] == 3
+
+
+WRAPPED = {
+    "env": "subprocess.run(['env', sys.executable, 'child.py'], check=True)",
+    "nice": "subprocess.run(['nice', sys.executable, 'child.py'], check=True)",
+    "timeout": "subprocess.run(['timeout', '30', sys.executable, 'child.py'], check=True)",
+    "interpreter-path-arg": "subprocess.run(['git', '--version', sys.executable], check=True)",
+}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the wrappers are POSIX programs")
+@pytest.mark.parametrize("variant", sorted(WRAPPED))
+def test_a_wrapped_python_child_makes_the_trace_incomplete_and_joins_the_domain(
+    tmp_path: Path, variant: str
+) -> None:
+    """Review round 4, Sol B2 (r4_env_wrapper_probe.py): `env <python> child.py` ran
+    an untraced Python child even with `env` declared, and child.py stayed outside
+    the selection domain. A wrapper, or any argv naming a Python interpreter or
+    source, now makes the trace incomplete; repository files a child is handed
+    are in the domain."""
+    (tmp_path / "child.py").write_text("MARKED = 'changed and executed'\n", encoding="utf-8")
+    (tmp_path / "builder.py").write_text(
+        f"import subprocess, sys\n{WRAPPED[variant]}\n", encoding="utf-8")
+    result = _run(tmp_path, [sys.executable, str(TRACER), str(tmp_path / "t"), "--", "builder.py"])
+    assert result.returncode == 0, result.stderr
+    trace = _trace(tmp_path / "t")
+    declared = ["env", "nice", "timeout", "git"]
+    incomplete = changed.trace_incompleteness([trace], declared)
+    assert incomplete, trace["processes"]
+    if variant != "interpreter-path-arg":
+        children = changed.child_repository_files([trace], tmp_path)
+        assert "child.py" in children
+        change = changed.FileChange("child.py", "modified", [], set())
+        selection = changed.select_lane(
+            "probe", ["builder.py"], {"builder.py"}, set(),
+            {"builder.py": changed.FileChange("builder.py", "unchanged"), "child.py": change},
+            {}, set(), children, incomplete, True, True, [],
+        )
+        assert selection.selected and "child.py" in selection.considered

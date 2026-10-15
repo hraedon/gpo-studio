@@ -33,7 +33,7 @@ PARAMETERS = (
 HEADER = (
     "import argparse\nimport contextlib\nimport datetime\nimport io\nimport ipaddress\n"
     "import logging\nimport os\nimport pathlib\nimport sqlite3\nimport stat\nimport types\n"
-    "import uuid\nimport xml.sax.saxutils\nimport zipfile\n"
+    "import functools\nimport typing\nimport uuid\nimport xml.sax.saxutils\nimport zipfile\n"
     "import base64\nimport copy\nimport dataclasses\nimport difflib\nimport hashlib\n"
     "import json\nimport re\nimport struct\nfrom collections import Counter\n"
     "from pathlib import PurePath\nfrom typing import Any\n"
@@ -216,6 +216,11 @@ PROBES = {
     "xml.etree.ElementTree.tostring": "ET.tostring(a)",
     "xml.sax.saxutils.quoteattr": "xml.sax.saxutils.quoteattr(a)",
     "zipfile.ZipInfo": "zipfile.ZipInfo(a)",
+    # Round 4 audit (Sol B4): attribute protocol and __repr__ of an argument.
+    "dataclasses.fields": "dataclasses.fields(a)",
+    "typing.get_args": "typing.get_args(a)",
+    "typing.assert_never": "typing.assert_never(a)",
+    "functools.wraps": "functools.wraps(a)",
 }
 
 #: Sol's round-2 probes (`probe_scan_round2.py`): each must fail the scan.
@@ -452,6 +457,100 @@ DS_ROUND3 = {
 }
 
 
+#: Sol's round-4 probes (`r4_scan_probes.py`) and a variant: each must fail.
+SOL_ROUND4 = {
+    'r4_widened_class_callable': (
+        'from collections.abc import Callable\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(xs: Any) -> object:\n'
+        '    factory: Callable[[Any], object] = list\n'
+        '    return factory(xs)\n'
+    ),
+    'r4_widened_class_type': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(xs: Any) -> object:\n'
+        '    factory: type[object] = list\n'
+        '    return factory(xs)\n'
+    ),
+    'r4_class_alias': (
+        'from typing import Any\n'
+        '\n'
+        'Factory = list\n'
+        '\n'
+        '\n'
+        'def f(xs: Any) -> object:\n'
+        '    return Factory(xs)\n'
+    ),
+    'r4_generic_class_alias': (
+        'from typing import Any\n'
+        '\n'
+        'Factory = list[Any]\n'
+        '\n'
+        '\n'
+        'def f(xs: Any) -> object:\n'
+        '    return Factory(xs)\n'
+    ),
+    'r4_conditional_class': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(xs: Any, flag: bool) -> object:\n'
+        '    factory = list if flag else tuple\n'
+        '    return factory(xs)\n'
+    ),
+    'r4_json_unbound_mutator': (
+        'import json\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(text: str, other: Any) -> None:\n'
+        '    data = json.loads(text)\n'
+        "    dict.__setitem__(data, 'x', other)\n"
+        "    data['x'].danger()\n"
+    ),
+    'r4_json_operator_mutator': (
+        'import json\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(text: str, other: Any) -> None:\n'
+        '    data = json.loads(text)\n'
+        "    data |= {'x': other}\n"
+        "    data['x'].danger()\n"
+    ),
+    'r4_json_hook_alias': (
+        'import json\n'
+        'from collections.abc import Callable\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(text: str, hook: Callable[[dict[str, Any]], Any]) -> Any:\n'
+        '    decoder = json.loads\n'
+        '    return decoder(text, object_hook=hook)\n'
+    ),
+    'r4_dataclasses_fields_any': (
+        'import dataclasses\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(value: Any) -> object:\n'
+        '    return dataclasses.fields(value)\n'
+    ),
+    'r4_defaultdict_factory': (
+        'import collections\n'
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f() -> object:\n'
+        '    return collections.defaultdict(list)\n'
+    ),
+}
+
+
 #: Visible callbacks and harmless class values: these must not fail.
 ROUND3_CONTROLS = {
     "r3c_lambda_key": _H + "def f(rows: list[str]) -> list[str]:\n"
@@ -477,7 +576,7 @@ def classified(tmp_path_factory: pytest.TempPathFactory) -> list[Any]:
     directory = root / "scripts" / "probes"
     directory.mkdir(parents=True)
     (directory / "methods.py").write_text(_module(PROBES), encoding="utf-8")
-    extra = {**SOL_ROUND2, **SOL_ROUND3, **DS_ROUND3, **ROUND3_CONTROLS}
+    extra = {**SOL_ROUND2, **SOL_ROUND3, **DS_ROUND3, **SOL_ROUND4, **ROUND3_CONTROLS}
     for name, source in extra.items():
         (directory / f"{name}.py").write_text(source, encoding="utf-8")
     paths = ["scripts/probes/methods.py", *(f"scripts/probes/{n}.py" for n in extra)]
@@ -531,7 +630,7 @@ def test_an_unknown_operand_of_a_code_running_method_fails(
     assert failing, (target, [(c.status, c.site.target, c.site.detail) for c in rows])
 
 
-@pytest.mark.parametrize("probe", sorted({**SOL_ROUND3, **DS_ROUND3}))
+@pytest.mark.parametrize("probe", sorted({**SOL_ROUND3, **DS_ROUND3, **SOL_ROUND4}))
 def test_a_code_running_callable_reached_through_a_value_fails(
     classified: list[Any], probe: str
 ) -> None:

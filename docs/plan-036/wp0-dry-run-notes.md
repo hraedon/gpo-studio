@@ -110,6 +110,13 @@ python scripts/plan-033/wp0-live-closure.py write-records --target <F> \
   file with its digest. With `--bank-branch` the tool makes `B` itself: `F`
   plus the staged files, the successor record and the pin, in one commit
   whose sole parent is `F`. Without it, it prints the exact commands.
+- **Nothing may still be selected.** By step 7 every lane D-9 selected has
+  been re-run at `F`, so the final selection must be empty. `write-records`
+  refuses to write records while any lane is still selected. The gate
+  rejects a successor record that marks a lane selected or lists one in
+  `option2`, and it re-derives D-9 at `F` itself, failing if that selects
+  anything (review round 4, Sol B1: a stale verdict was banked and passed
+  both checks).
 - **The check at `B`.** The gate (and `check-bank`) holds `B` to exactly that.
   The parent must be `F` alone. The changed paths must be exactly the listed
   evidence plus the two records, each listed file with its recorded bytes.
@@ -259,3 +266,24 @@ WP-0 re-run at `F` happens on the estate, so no offline run can show it.
     lanes, never pass a stale verdict. No live lane starts a shell on the
     controller today. The exemption should be added only together with a
     declaration that names the exact argument list.
+12. **Known limitation: values typed only `object`.** A truth test, an equality
+    or order comparison, or a comparison of `sorted(..., key=...)` results on
+    a value whose static type is plain `object` passes the scan without a site.
+    At run time such a value can belong to any class, whose `__bool__`,
+    `__len__`, `__eq__` or ordering methods run code. The coordinator accepted
+    this in review round 4, pending the owner's decision. The reasons:
+    covering it adds about 400 sites to declare across the live closure
+    (measured in round 3), and in these lanes such values come from repository
+    code (scanned where it is defined) or from decoded JSON and in-memory
+    containers. Where the container rules inspect elements (set operations,
+    `json.dumps` values, `any`/`all`/`sum` of a comprehension), an element
+    typed `object` already fails. Sol confirmed the residual is real and found
+    no present lane where it alone turns a verdict stale. The scan module's
+    docstring and the successor record's design notes record it too.
+13. **Wrappers and child processes.** A process started through a wrapper
+    (`env`, `nice`, `timeout`, `nohup`, `uv`, `xargs` and similar) makes the
+    trace incomplete, because the program the wrapper starts is not traced.
+    So does any non-Python child whose arguments name a Python interpreter or
+    a Python source file. Every repository file a child process is handed is
+    in the selection domain (review round 4, Sol B2). This is stricter than
+    the plan's wording. No live lane starts such a process on the controller.

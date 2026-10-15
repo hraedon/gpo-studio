@@ -1923,7 +1923,7 @@
    "targets": {
     "<Any>.__bool__": 33,
     "<Any>.__contains__": 1,
-    "<Any>.__dataclass_fields__": 3,
+    "<Any>.__dataclass_fields__": 6,
     "<Any>.__eq__": 25,
     "<Any>.__format__": 6,
     "<Any>.__getitem__": 9,
@@ -2941,6 +2941,33 @@
    "targets": {
     "<object>.__eq__": 1,
     "<object>.__hash__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/firewall_policy.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the classes bool, int, str and tuple passed to _require_type, which only tests type(value) is not kind and reads kind.__name__ (it never calls the class)"
+   },
+   "reason": "callbacks: a callable that runs other objects' code, or a callback value the scan cannot see, called back on the values named under 'what'; reviewed at its site (review round 3)",
+   "targets": {
+    "<value of builtins.bool>": 3,
+    "<value of builtins.int>": 6,
+    "<value of builtins.str>": 5,
+    "<value of builtins.tuple>": 4
+   }
+  },
+  {
+   "module": "src/gpo_studio/xml_safety.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "ValueError as the default of an error_class: type[Exception] parameter; a call through it gets the exception constructor rule (its arguments __str__/__repr__) at the call"
+   },
+   "reason": "callbacks: a callable that runs other objects' code, or a callback value the scan cannot see, called back on the values named under 'what'; reviewed at its site (review round 3)",
+   "targets": {
+    "<value of builtins.ValueError>": 2
    }
   }
  ]

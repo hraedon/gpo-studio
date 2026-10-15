@@ -79,8 +79,14 @@
     "builtins.staticmethod",
     "contextlib.contextmanager",
     "dataclasses.dataclass",
-    "functools.wraps",
     "typing.runtime_checkable"
+   ]
+  },
+  {
+   "reason": "Decorators and class machinery that define, not run, code. These read an argument's attributes or format it, running its attribute protocol or __repr__: scan.py resolves each at every call (METHOD_PROTOCOLS), so an unknown operand is an unresolvable site (review round 4 audit)",
+   "runs_code_of_others": true,
+   "names": [
+    "functools.wraps"
    ]
   },
   {
@@ -106,15 +112,27 @@
   {
    "reason": "Typing helpers that are identity functions or introspection at run time",
    "names": [
+    "typing.cast"
+   ]
+  },
+  {
+   "reason": "Typing helpers that are identity functions or introspection at run time. These read an argument's attributes or format it, running its attribute protocol or __repr__: scan.py resolves each at every call (METHOD_PROTOCOLS), so an unknown operand is an unresolvable site (review round 4 audit)",
+   "runs_code_of_others": true,
+   "names": [
     "typing.assert_never",
-    "typing.cast",
     "typing.get_args"
    ]
   },
   {
    "reason": "Dataclass helpers: copy and introspect in memory",
    "names": [
-    "dataclasses._DefaultFactory.__call__",
+    "dataclasses._DefaultFactory.__call__"
+   ]
+  },
+  {
+   "reason": "Dataclass helpers: copy and introspect in memory. These read an argument's attributes or format it, running its attribute protocol or __repr__: scan.py resolves each at every call (METHOD_PROTOCOLS), so an unknown operand is an unresolvable site (review round 4 audit)",
+   "runs_code_of_others": true,
+   "names": [
     "dataclasses.fields"
    ]
   },

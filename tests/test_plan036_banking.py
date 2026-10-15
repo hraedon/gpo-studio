@@ -327,3 +327,34 @@ def test_staged_evidence_outside_the_evidence_paths_is_refused(
     assert _write_records(world, "w") == 2
     assert "outside" in capsys.readouterr().err
 
+
+
+def test_a_lane_d9_still_selects_cannot_be_banked(
+    world: dict[str, Any], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review round 4, Sol B1 (test_r4_banking_attacks.py): a freeze that changed and
+    executed the builder after the lane's verdict, with the old verdict kept live,
+    was banked and passed check-bank and check-pin. At step 7 every lane D-9
+    selected has been re-run at F, so a non-empty selection is refused."""
+    repo: Path = world["repo"]
+    builder = repo / "scripts" / "build.py"
+    builder.write_text(builder.read_text(encoding="utf-8") + "marker = 1\n", encoding="utf-8")
+    stale_freeze = _commit(repo, "F2: changed builder, no estate rerun")
+    world["freeze"] = stale_freeze
+    old_registry = json.loads((repo / REGISTRY).read_text(encoding="utf-8"))
+    (world["evidence"] / REGISTRY).write_text(json.dumps(old_registry), encoding="utf-8")
+    assert _write_records(world, "stale", "--bank-branch", "stale-bank") == 1
+    assert "D-9 still selects it at the freeze" in capsys.readouterr().err
+    assert not _git(repo, "branch", "--list", "stale-bank")
+
+
+def test_a_pin_for_another_freeze_is_rejected_by_the_gate(world: dict[str, Any]) -> None:
+    repo: Path = world["repo"]
+    assert _write_records(world, "normal", "--bank-branch", "normal-bank") == 0
+    bank = _git(repo, "rev-parse", "normal-bank")
+    _git(repo, "checkout", "-q", "normal-bank")
+    pin = json.loads((repo / record.PIN_RECORD).read_text(encoding="utf-8"))
+    assert pin["target_commit"] == world["freeze"]
+    parent = _git(repo, "rev-parse", f"{world['freeze']}^")
+    assert record.bank_problems(repo, parent, bank, pin)
+    assert record.history_problems(repo, {**pin, "target_commit": parent})

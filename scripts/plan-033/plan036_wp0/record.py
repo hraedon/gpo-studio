@@ -133,6 +133,10 @@ DESIGN_NOTES = (
     "at each verdict commit, and their environments) stay recorded attestations, "
     "bound to git and the committed packs. Fabricated historical attestations are "
     "outside the gate's threat model; the review at banking covers them.",
+    "Known scan limitation (accepted in review round 4, pending the owner): a truth "
+    "test or comparison on a value typed only object runs that value's methods "
+    "without a scan site; covering it adds about 400 sites, and in these lanes such "
+    "values come from repository code or decoded JSON (scan.py's module docstring).",
     "Every clone environment is built by replay.uv_environment: the commit's own "
     "lock synced without building anything, the build backend from that lock or, "
     "for a lock that locks none (before 547626b), from the tool tree's lock by "
@@ -505,8 +509,12 @@ def _select_all(
             path for path in changed_mod.opened_files(traces, clone_b.path)
             if path in tracked[target] or path in tracked[lane.commit]
         }
+        children = {
+            path for path in changed_mod.child_repository_files(traces, clone_b.path)
+            if path in tracked[target] or path in tracked[lane.commit]
+        }
         changes = {path: changed_mod.diff_file(repo, lane.commit, target, path)
-                   for path in sorted(set(dependency) | opened)}
+                   for path in sorted(set(dependency) | opened | children)}
         executed = changed_mod.executed_lines(traces, clone_b.path)
         incomplete = changed_mod.trace_incompleteness(
             traces, part1["toolchain"]["process_executables"]
@@ -519,7 +527,7 @@ def _select_all(
             changes,
             executed,
             opened,
-            changed_mod.child_repository_files(traces, clone_b.path),
+            children,
             incomplete,
             outcome["replay"]["identical"] if outcome["replay"]["applicable"] else None,
             outcome["regrade_equal"],
@@ -725,6 +733,13 @@ def refusals(result: dict[str, Any]) -> list[str]:
             problems.append(f"{name}: re-grade differs")
         if not outcome["fidelity_equal"]:
             problems.append(f"{name}: re-grade at the verdict's own commit differs")
+    # Review round 4 (Sol B1): at step 7 every lane D-9 selected has been re-run at
+    # F, so nothing may still be selected; a selected lane is a stale verdict.
+    for name, selection in sorted(result.get("selection", {}).items()):
+        if selection.get("selected"):
+            problems.append(f"{name}: D-9 still selects it at the freeze "
+                            f"({selection.get('reasons')}): re-run it on the estate at F "
+                            "(step 6) before banking")
     return problems
 
 
@@ -849,6 +864,11 @@ def successor_problems(successor: Any) -> list[str]:
             selected.append(name)
     if successor.get("option2") != selected:
         problems.append("successor option2 is not the lanes it marks selected")
+    if selected or successor.get("option2"):
+        # Review round 4 (Sol B1): a record whose D-9 selection is not empty
+        # certifies a verdict that must be re-run; it never qualifies.
+        stale = sorted(set(selected) | set(successor.get("option2") or []))
+        problems.append(f"D-9 still selects {stale} at the freeze: those verdicts are stale")
     return problems
 
 
@@ -1140,6 +1160,9 @@ def reexecute_target(
         if digest != recorded["regrade"]["at_target"].get("regraded_payload_sha256"):
             problems.append(f"{lane.name}: the re-graded payload is not the record's")
         selection = asdict(selections[lane.name])
+        if selection["selected"]:
+            problems.append(f"{lane.name}: D-9 re-derived here selects it "
+                            f"({selection['reasons'][:3]}): its verdict is stale")
         for mine, theirs in (("selected", "selected"), ("executed_changed",
                              "executed_changed_lines"), ("exempted", "exempted_lines"),
                              ("incomplete", "trace_incomplete"),

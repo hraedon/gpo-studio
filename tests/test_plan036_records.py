@@ -264,6 +264,9 @@ SUCCESSOR_DEFECTS = {
         sorted(s["lanes"]["wp2"]["closure"])[0]),
     "verdict-commit-edited": lambda s: s["lanes"]["wp2"].__setitem__("verdict_commit", "e" * 40),
     "scan-failing": lambda s: s["lanes"]["wp2"]["scan_counts"].__setitem__("unclassified", 1),
+    # Review round 4, Sol B1: a record whose D-9 selection is not empty.
+    "lane-selected": lambda s: (s["lanes"]["wp2"].__setitem__("selected", True),
+                                s.__setitem__("option2", ["wp2"])),
 }
 
 
