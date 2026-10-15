@@ -345,8 +345,8 @@ def trace_incompleteness(
                     # the program a wrapper starts is not traced.
                     reasons.append(f"a wrapper ({name}) starts another program untraced: {argv}")
                 elif any(_names_python(argument) for argument in argv[1:]):
-                    reasons.append(f"a child process hands Python code to another program, "
-                                   f"untraced: {argv}")
+                    reasons.append(f"a child process names a Python interpreter, which it "
+                                   f"may start untraced: {argv}")
     return reasons
 
 
@@ -361,9 +361,10 @@ _PYTHON_NAME = re.compile(r"^(python|pypy)(\d+(\.\d+)*)?w?(\.exe)?$", re.IGNOREC
 
 
 def _names_python(argument: str) -> bool:
-    """Does an argv item name a Python interpreter or a Python source file?"""
-    base = Path(argument).name
-    return bool(_PYTHON_NAME.match(base)) or base.lower().endswith((".py", ".pyw"))
+    """Does an argv item name a Python interpreter? (A `.py` path alone is data to
+    most programs, `git show :x.py` among them; a repository file a child is
+    handed is in the selection domain, `child_repository_files`.)"""
+    return bool(_PYTHON_NAME.match(Path(argument).name))
 
 
 @dataclass

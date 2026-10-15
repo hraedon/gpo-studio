@@ -283,7 +283,9 @@ WP-0 re-run at `F` happens on the estate, so no offline run can show it.
 13. **Wrappers and child processes.** A process started through a wrapper
     (`env`, `nice`, `timeout`, `nohup`, `uv`, `xargs` and similar) makes the
     trace incomplete, because the program the wrapper starts is not traced.
-    So does any non-Python child whose arguments name a Python interpreter or
-    a Python source file. Every repository file a child process is handed is
+    So does any non-Python child whose arguments name a Python interpreter.
+    A `.py` path on its own is data to most programs: the finalizers pass
+    `git show :scripts/...py` to hash bound files, and that must not count as
+    running code. Such a path is still caught by the domain rule below. Every repository file a child process is handed is
     in the selection domain (review round 4, Sol B2). This is stricter than
     the plan's wording. No live lane starts such a process on the controller.

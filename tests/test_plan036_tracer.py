@@ -219,3 +219,12 @@ def test_a_wrapped_python_child_makes_the_trace_incomplete_and_joins_the_domain(
             {}, set(), children, incomplete, True, True, [],
         )
         assert selection.selected and "child.py" in selection.considered
+
+
+def test_a_python_path_handed_to_git_as_data_keeps_the_trace_complete(tmp_path: Path) -> None:
+    """The finalizers hash bound files with `git show :scripts/x.py`: the path is data,
+    not code to run, so it must not make every lane's trace incomplete."""
+    trace = {"incomplete": [], "processes": [
+        {"kind": "process", "argv": ["git", "show", ":scripts/plan-033/build-x.py"]},
+    ]}
+    assert changed.trace_incompleteness([trace], ["git"]) == []
