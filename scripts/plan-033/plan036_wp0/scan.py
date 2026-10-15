@@ -47,18 +47,20 @@ language or to the code cannot pass by being invisible.
   `METHOD_PROTOCOLS` and the iteration and conversion rules, and fails closed
   when taken as a value instead of called (reviews rounds 2 to 4).
 
-**Known limitation: values typed only `object`** (accepted by the coordinator in
-review round 4, pending the owner). A truth test, an equality or order
-comparison, or a comparison of `sorted(..., key=...)` results on a value whose
-static type is plain `object` passes without a site, although at run time the
-value can be an instance of any class whose `__bool__`, `__len__`, `__eq__` or
-ordering methods run code. Treating every such use as unknown, as `Any` is
-treated, adds about 400 sites across the live closure (measured in round 3).
-In these lanes such values come from repository code (scanned in the
-repository) or from decoded JSON and in-memory containers. Where the container
-rules look at elements (set operations, `json.dumps` values, `any`/`all`/`sum`
-of a comprehension), an element typed `object` already fails. The residual
-bounds any reuse of this scanner beyond these lanes.
+**Known limitation: truth tests and comparisons of values typed only `object`**
+(accepted by the coordinator in review round 4, pending the owner). Exactly
+these pass without a site: a truth test (`__bool__`, `__len__`), and an
+equality or order comparison (`__eq__`, `__ne__`, `__lt__`, `__le__`, `__gt__`,
+`__ge__`, including those `sorted(..., key=...)` makes of key results) of a
+value whose static type is plain `object` (`_OBJECT_RESIDUAL`). At run time
+such a value can belong to a class whose methods run code. Every other
+protocol method of an `object` value fails: a call `o()` (`<object>()`),
+`str`/`repr`/`format` and f-strings, hashing, iteration, copying and the like
+(`<object>.<dunder>`), declared where the live closure does them (review
+round 4, DeepSeek N2). Closing the residual adds about 400 sites (measured in
+round 3). In these lanes such values come from repository code or from decoded
+JSON and in-memory containers. It bounds any reuse of this scanner beyond
+these lanes.
 """
 
 from __future__ import annotations
@@ -267,6 +269,14 @@ def _protocols() -> dict[str, Protocol]:
             "symmetric_difference_update",
         )], Protocol(args=((0, ("__iter__",)),), elements=_HASH_EQ, arg_elements=_HASH_EQ))
     add(["builtins.str.translate"], Protocol(args=((0, ("__getitem__",)),)))
+    # Round 4 (DeepSeek N3, from typeshed signatures): start/end/count/maxsplit
+    # are SupportsIndex; a value of unknown type there runs its __index__.
+    add([f"builtins.str.{m}" for m in ("count", "endswith", "index", "replace", "rsplit",
+                                       "split", "startswith", "find", "rfind", "rindex")]
+        + ["builtins.bytes.hex"], Protocol(args=(("*", ("?__index__",)),)))
+    add(["builtins.bytes.fromhex"], Protocol(args=((0, ("?__buffer__",)),)))
+    add(["xml.etree.ElementTree.TreeBuilder.start"],
+        Protocol(args=((0, ("?__str__",)), (1, ("keys", "__getitem__")))))
     add([f"builtins.{kind}.{m}" for kind in ("str", "bytes")
          for m in ("__getitem__", "__mul__", "__rmul__")], Protocol(args=((0, _INDEX),)))
     add(["builtins.str.format_map"], Protocol(arg_values=("__format__", "__str__",
@@ -314,6 +324,8 @@ def _protocols() -> dict[str, Protocol]:
         Protocol(args=(("*", ("__str__", "__contains__")),)))
     add(["xml.etree.ElementTree.XMLParser"], Protocol(args=(("target", _CALL),)))
     add(["xml.etree.ElementTree.tostring"], Protocol(args=((0, ("?iter",)),)))
+    add(["xml.etree.ElementTree.XML"], Protocol(args=((0, ("?__buffer__",)),
+                                                      ("parser", ("?feed",)))))
     add(["xml.sax.saxutils.quoteattr"], Protocol(args=((0, ("?replace",)),
                                                        (1, ("items",)), ("entities", ("items",)))))
     add(["re.compile", "re.escape"], Protocol(args=((0, ("?__buffer__",)),)))
@@ -444,6 +456,10 @@ _OPAQUE_BUILTINS = frozenset(
 _OPAQUE_REASON = {
     "builtins.open": "file I/O",
 }
+#: The accepted residual for values typed only `object` (see the module docstring):
+#: truth tests and comparisons. Every other protocol method of such a value fails.
+_OBJECT_RESIDUAL = frozenset({"__bool__", "__len__", "__eq__", "__ne__", "__lt__", "__le__",
+                              "__gt__", "__ge__"})
 #: Classes whose instance methods are all special-cased elsewhere.
 _OBJECT = "builtins.object"
 #: Read-only protocols: an implicit dunder on a receiver typed only by one of
@@ -1215,6 +1231,14 @@ class Scanner:
                 f"<Any>.{dunder}", line, f"{what} on a value of unknown type", subject, "implicit"
             )
             return
+        if infos and all(info.fullname == _OBJECT for info in infos) and (
+            dunder not in _OBJECT_RESIDUAL
+        ):
+            # A value typed only `object` can be any class at run time; only the
+            # documented residual (truth tests and comparisons) passes (review
+            # round 4, DeepSeek N2).
+            self.unresolved(f"<object>.{dunder}", line, f"{what} on a value typed object")
+            return
         for info in infos:
             found = _lookup(info, dunder)
             if found is None:
@@ -1632,13 +1656,39 @@ class Scanner:
     def _Decorator(self, node: Decorator) -> None:
         for decorator in node.original_decorators:
             self.visit(decorator)
-            if isinstance(decorator, RefExpr):
-                self.call_target_of_ref(decorator, decorator.line, "decorator")
-            else:
-                typ = self.type_of(decorator)
-                if typ is None or isinstance(get_proper_type(typ), AnyType):
-                    self.unresolved("<decorator>", decorator.line, "decorator of unknown type")
+            self.decorator_call(decorator, "decorator")
         self.visit(node.func)
+
+    def decorator_call(self, decorator: Expression, detail: str) -> None:
+        """A decorator is called with the function or class (DeepSeek round 4, B1)."""
+        if isinstance(decorator, RefExpr) and isinstance(
+            decorator.node, (FuncBase, Decorator, TypeInfo, TypeAlias)
+        ):
+            self.call_target_of_ref(decorator, decorator.line, detail)
+            return
+        if isinstance(decorator, CallExpr) and isinstance(decorator.callee, RefExpr) and (
+            isinstance(decorator.callee.node, (FuncBase, Decorator, TypeInfo))
+        ):
+            return  # `@dataclass(frozen=True)`: the factory call is classified itself
+        if isinstance(decorator, MemberExpr) and decorator.node is None:
+            receiver = self.type_of(decorator.expr)
+            infos = _infos(receiver)
+            if infos is not None:
+                # `@name.setter`: a method of a typed value, resolved and classified.
+                for info in infos:
+                    found = _lookup(info, decorator.name)
+                    if found is not None and isinstance(found[1], (FuncBase, Decorator)):
+                        self.target("call", f"{found[0].fullname}.{decorator.name}",
+                                    decorator.line, detail)
+                    else:
+                        self.unresolved(f"{info.fullname}.{decorator.name}", decorator.line,
+                                        f"{detail} the scan cannot resolve")
+                return
+        typ = self.type_of(decorator)
+        if typ is None or isinstance(get_proper_type(typ), AnyType):
+            self.unresolved("<decorator>", decorator.line, f"{detail} of unknown type")
+            return
+        self.indirect(decorator, decorator.line, detail)
 
     def _OverloadedFuncDef(self, node: OverloadedFuncDef) -> None:
         self.visit_all(node.items)
@@ -1647,8 +1697,7 @@ class Scanner:
     def _ClassDef(self, node: Any) -> None:
         for decorator in node.decorators:
             self.visit(decorator)
-            if isinstance(decorator, RefExpr):
-                self.call_target_of_ref(decorator, decorator.line, "class decorator")
+            self.decorator_call(decorator, "class decorator")
         for base in [*node.base_type_exprs, *node.removed_base_type_exprs]:
             self.type_test(base)
         for value in node.keywords.values():
@@ -2219,12 +2268,51 @@ class Scanner:
                                     "called through a value")
                     return
                 self.construct(info, line, "class held in a variable")
+                return
+            # Review round 4 (DeepSeek B1): a callable value that is not a class.
+            definition = (proper.definition if isinstance(proper, CallableType)
+                          else proper.items[0].definition if proper.items else None)
+            if isinstance(definition, LambdaExpr):
+                return  # a lambda bound in this scope: its body is scanned where it stands
+            if definition is not None and (
+                id(definition) in self.repo_definitions
+                or self.is_repo_target(definition.fullname)
+            ):
+                return  # a repository function: its body is in the closure
+            if definition is not None and definition.fullname:
+                # A known function reached through a value (`f = helper_from_stdlib`):
+                # classified as a call of it, with its protocol rule.
+                if definition.fullname in RUNS_OTHER_CODE and not (
+                    call is not None and definition.fullname in METHOD_PROTOCOLS
+                ):
+                    self.unresolved(f"<value of {definition.fullname}>", line,
+                                    f"{definition.fullname}, which runs other objects' code, "
+                                    "called through a value")
+                    return
+                self.target("call", definition.fullname, line, "call through a value")
+                if call is not None:
+                    self.protocols([definition.fullname], None, _call_arguments(call), line)
+                return
+            # `cb: Callable[...]` (a parameter, an attribute): nothing says which
+            # function it holds, so the call fails closed.
+            self.unresolved("<callable value>()", line,
+                            f"{what or 'call'} of a callable value the scan cannot resolve")
             return
         if isinstance(proper, TypeType) and isinstance(proper.item, Instance):
             self.construct(proper.item.type, line, "type[] value called")
             return
         if isinstance(proper, AnyType):
             self.unresolved("<Any>()", line, f"{what or 'call'} of a value of unknown type")
+            return
+        infos = _infos(typ)
+        if infos is not None and not any(
+            (found := _lookup(info, "__call__")) is not None and found[0].fullname != _OBJECT
+            for info in infos
+        ):
+            # Calling a value whose static type has no __call__ (`o: object; o()`):
+            # it runs whatever its run-time class defines (DeepSeek round 4, N2).
+            self.unresolved("<object>()", line,
+                            f"{what or 'call'} of a value whose type defines no __call__")
             return
         self.implicit(typ, "__call__", line, what or "call of an object")
 

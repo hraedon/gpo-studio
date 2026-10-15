@@ -395,9 +395,15 @@
     "builtins.bytes.__len__",
     "builtins.bytes.__ne__",
     "builtins.bytes.decode",
-    "builtins.bytes.fromhex",
-    "builtins.bytes.hex",
     "builtins.bytes.lower"
+   ]
+  },
+  {
+   "reason": "builtins.bytes, methods that take an argument typeshed types as a protocol (SupportsIndex, Buffer) or store values a later step stringifies: scan.py resolves each at every call (METHOD_PROTOCOLS), so an unknown operand is an unresolvable site (review round 4, from typeshed signatures)",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.bytes.fromhex",
+    "builtins.bytes.hex"
    ]
   },
   {
@@ -607,10 +613,7 @@
     "builtins.str.__ne__",
     "builtins.str.capitalize",
     "builtins.str.casefold",
-    "builtins.str.count",
     "builtins.str.encode",
-    "builtins.str.endswith",
-    "builtins.str.index",
     "builtins.str.isalpha",
     "builtins.str.isdecimal",
     "builtins.str.isdigit",
@@ -618,16 +621,25 @@
     "builtins.str.lstrip",
     "builtins.str.partition",
     "builtins.str.removeprefix",
-    "builtins.str.replace",
     "builtins.str.rpartition",
-    "builtins.str.rsplit",
     "builtins.str.rstrip",
-    "builtins.str.split",
     "builtins.str.splitlines",
-    "builtins.str.startswith",
     "builtins.str.strip",
     "builtins.str.title",
     "builtins.str.upper"
+   ]
+  },
+  {
+   "reason": "builtins.str, methods that take an argument typeshed types as a protocol (SupportsIndex, Buffer) or store values a later step stringifies: scan.py resolves each at every call (METHOD_PROTOCOLS), so an unknown operand is an unresolvable site (review round 4, from typeshed signatures)",
+   "runs_code_of_others": true,
+   "names": [
+    "builtins.str.count",
+    "builtins.str.endswith",
+    "builtins.str.index",
+    "builtins.str.replace",
+    "builtins.str.rsplit",
+    "builtins.str.split",
+    "builtins.str.startswith"
    ]
   },
   {
@@ -791,7 +803,13 @@
    "reason": "xml.etree.ElementTree.TreeBuilder, methods that run no code of other objects: events fed to a builder whose element factory was resolved where the builder was constructed",
    "names": [
     "xml.etree.ElementTree.TreeBuilder.data",
-    "xml.etree.ElementTree.TreeBuilder.end",
+    "xml.etree.ElementTree.TreeBuilder.end"
+   ]
+  },
+  {
+   "reason": "xml.etree.ElementTree.TreeBuilder, methods that take an argument typeshed types as a protocol (SupportsIndex, Buffer) or store values a later step stringifies: scan.py resolves each at every call (METHOD_PROTOCOLS), so an unknown operand is an unresolvable site (review round 4, from typeshed signatures)",
+   "runs_code_of_others": true,
+   "names": [
     "xml.etree.ElementTree.TreeBuilder.start"
    ]
   },
@@ -800,6 +818,13 @@
    "runs_code_of_others": true,
    "names": [
     "xml.etree.ElementTree.TreeBuilder.__init__"
+   ]
+  },
+  {
+   "reason": "xml.etree.ElementTree.XML (ET.fromstring): parses in-memory text with the default parser, or with a parser whose construction is classified (XMLParser's target= is a callback rule); an unknown text or parser is a site (review round 4, DeepSeek B1: ET.fromstring is an alias reached through a module attribute)",
+   "runs_code_of_others": true,
+   "names": [
+    "xml.etree.ElementTree.XML"
    ]
   }
  ]

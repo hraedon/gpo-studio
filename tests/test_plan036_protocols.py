@@ -214,6 +214,18 @@ PROBES = {
     "xml.etree.ElementTree.SubElement": "ET.SubElement(e, 't', a)",
     "xml.etree.ElementTree.XMLParser": "ET.XMLParser(target=a)",
     "xml.etree.ElementTree.tostring": "ET.tostring(a)",
+    "xml.etree.ElementTree.XML": "ET.fromstring(a)",
+    # Round 4 (DeepSeek N3): typeshed types these arguments as protocols.
+    "builtins.str.count": "s.count(s, a)",
+    "builtins.str.endswith": "s.endswith(s, a)",
+    "builtins.str.index": "s.index(s, a)",
+    "builtins.str.replace": "s.replace(s, s, a)",
+    "builtins.str.rsplit": "s.rsplit(s, a)",
+    "builtins.str.split": "s.split(s, a)",
+    "builtins.str.startswith": "s.startswith(s, a)",
+    "builtins.bytes.hex": "b.hex(s, a)",
+    "builtins.bytes.fromhex": "bytes.fromhex(a)",
+    "xml.etree.ElementTree.TreeBuilder.start": "ET.TreeBuilder().start(a, {})",
     "xml.sax.saxutils.quoteattr": "xml.sax.saxutils.quoteattr(a)",
     "zipfile.ZipInfo": "zipfile.ZipInfo(a)",
     # Round 4 audit (Sol B4): attribute protocol and __repr__ of an argument.
@@ -551,6 +563,72 @@ SOL_ROUND4 = {
 }
 
 
+#: DeepSeek's round-4 probes (cb_call.py, deco_cb.py, obj_call.py, ...): each must fail.
+DS_ROUND4 = {
+    'ds4_object_str': ('def f(o: object) -> str:\n' '    return str(o)\n'),
+    'ds4_object_fstring': ('def f(o: object) -> str:\n' '    return f"{o}"\n'),
+    'ds4_object_hash': ('def f(o: object) -> int:\n' '    return hash(o)\n'),
+    'ds4_cb_call': (
+        'from typing import Any, Callable\n'
+        '\n'
+        '\n'
+        'def f(cb: Callable[[Any], Any], x: Any) -> None:\n'
+        '    cb(x)\n'
+    ),
+    'ds4_deco_cb': (
+        'from typing import Any, Callable\n'
+        '\n'
+        '\n'
+        'def f(dec: Callable[[Any], Any]) -> None:\n'
+        '    @dec\n'
+        '    def g() -> None:\n'
+        '        pass\n'
+    ),
+    'ds4_deco_class_cb': (
+        'from typing import Any, Callable\n'
+        '\n'
+        '\n'
+        'def f(dec: Callable[[Any], Any]) -> None:\n'
+        '    @dec\n'
+        '    class C:\n'
+        '        pass\n'
+    ),
+    'ds4_deco_any': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(dec: Any) -> None:\n'
+        '    @dec\n'
+        '    def g() -> None:\n'
+        '        pass\n'
+    ),
+    'ds4_deco_class_any': (
+        'from typing import Any\n'
+        '\n'
+        '\n'
+        'def f(dec: Any) -> None:\n'
+        '    @dec\n'
+        '    class C:\n'
+        '        pass\n'
+    ),
+    'ds4_obj_call': (
+        'def f(o: object, x: object) -> None:\n'
+        '    o()  # type: ignore[operator]\n'
+    ),
+    'ds4_attribute_callable': (
+        'from typing import Any, Callable\n'
+        '\n'
+        '\n'
+        'class Holder:\n'
+        '    hook: Callable[[Any], Any]\n'
+        '\n'
+        '\n'
+        'def f(h: Holder, x: Any) -> None:\n'
+        '    h.hook(x)\n'
+    ),
+}
+
+
 #: Visible callbacks and harmless class values: these must not fail.
 ROUND3_CONTROLS = {
     "r3c_lambda_key": _H + "def f(rows: list[str]) -> list[str]:\n"
@@ -560,6 +638,40 @@ ROUND3_CONTROLS = {
     "r3c_default_factory": "import dataclasses\n\n\n@dataclasses.dataclass\nclass C:\n"
     "    items: tuple[str, ...] = dataclasses.field(default_factory=tuple)\n",
     "r3c_type_identity": _H + "def f(value: object) -> bool:\n    return type(value) is int\n",
+    # The accepted residual (scan.py's docstring): truth tests and comparisons only.
+    "r4c_object_residual": (
+        "def f(a: object, b: object) -> bool:\n    return bool(a == b) if a else False\n"
+    ),
+    'r4c_decorators': (
+        'import dataclasses\n'
+        'import functools\n'
+        'from typing import Any, Callable\n'
+        '\n'
+        '\n'
+        '@dataclasses.dataclass(frozen=True)\n'
+        'class C:\n'
+        '    x: int = 0\n'
+        '\n'
+        '    @property\n'
+        '    def y(self) -> int:\n'
+        '        return self.x\n'
+        '\n'
+        '\n'
+        'def wrap(fn: Callable[..., Any]) -> Callable[..., Any]:\n'
+        '    @functools.wraps(fn)\n'
+        '    def inner(*args: Any) -> Any:\n'
+        '        return None\n'
+        '    return inner\n'
+    ),
+    'r4c_repo_function_value': (
+        'def helper(x: int) -> int:\n'
+        '    return x + 1\n'
+        '\n'
+        '\n'
+        'def f() -> int:\n'
+        '    g = helper\n'
+        '    return g(1)\n'
+    ),
 }
 
 
@@ -576,7 +688,8 @@ def classified(tmp_path_factory: pytest.TempPathFactory) -> list[Any]:
     directory = root / "scripts" / "probes"
     directory.mkdir(parents=True)
     (directory / "methods.py").write_text(_module(PROBES), encoding="utf-8")
-    extra = {**SOL_ROUND2, **SOL_ROUND3, **DS_ROUND3, **SOL_ROUND4, **ROUND3_CONTROLS}
+    extra = {**SOL_ROUND2, **SOL_ROUND3, **DS_ROUND3, **SOL_ROUND4, **DS_ROUND4,
+             **ROUND3_CONTROLS}
     for name, source in extra.items():
         (directory / f"{name}.py").write_text(source, encoding="utf-8")
     paths = ["scripts/probes/methods.py", *(f"scripts/probes/{n}.py" for n in extra)]
@@ -630,7 +743,8 @@ def test_an_unknown_operand_of_a_code_running_method_fails(
     assert failing, (target, [(c.status, c.site.target, c.site.detail) for c in rows])
 
 
-@pytest.mark.parametrize("probe", sorted({**SOL_ROUND3, **DS_ROUND3, **SOL_ROUND4}))
+@pytest.mark.parametrize("probe", sorted({**SOL_ROUND3, **DS_ROUND3, **SOL_ROUND4,
+                                          **DS_ROUND4}))
 def test_a_code_running_callable_reached_through_a_value_fails(
     classified: list[Any], probe: str
 ) -> None:
@@ -661,3 +775,133 @@ def test_sols_round_2_probes_fail(classified: list[Any], probe: str) -> None:
 def test_the_probe_module_is_valid_python() -> None:
     compile(textwrap.dedent(_module(PROBES)), "methods.py", "exec")
     assert Path(PACKAGE / "lists" / "inert.json").is_file()
+
+
+# --- an independent check: what typeshed's signatures say (DeepSeek round 4, N3) -----------
+
+#: Entries whose typeshed signature takes a protocol, `object`, `Any` or a callable,
+#: reviewed as running none of that argument's code at the call, with the reason.
+#: Every other entry with such a signature must be flagged `runs_code_of_others`.
+REVIEWED_NO_CALL = {
+    "abc.ABCMeta": "class creation from a namespace of repository definitions",
+    "builtins.id": "returns the object's identity",
+    "builtins.property": "stores the function; access calls it, and that is scanned",
+    "builtins.staticmethod": "stores the function",
+    "contextlib.contextmanager": "wraps the generator function; its body is scanned",
+    "typing.cast": "returns its second argument unchanged",
+    "uuid.UUID.__eq__": "isinstance-guarded; any other operand returns NotImplemented",
+    "xml.etree.ElementTree.Element.__deepcopy__": "the memo dict the copy machinery passes",
+    "xml.etree.ElementTree.Element.append": "C Element checks the argument is an Element",
+    **{f"builtins.{kind}.{op}": "rich comparison in C: a foreign operand returns NotImplemented"
+       for kind in ("bytes", "float", "int", "str") for op in ("__eq__", "__ne__")},
+}
+
+
+def _signature_takes_code(root: Path, names: list[str]) -> dict[str, bool | None]:
+    """{name: does a parameter's typeshed type admit caller code?} (None: unresolved)."""
+    import importlib.util
+
+    from mypy.nodes import Decorator, FuncDef, OverloadedFuncDef, TypeInfo
+    from mypy.types import (
+        AnyType,
+        CallableType,
+        Instance,
+        Overloaded,
+        TupleType,
+        TypeVarType,
+        UnionType,
+        get_proper_type,
+    )
+
+    def prefixes(name: str) -> list[tuple[str, list[str]]]:
+        parts = name.split(".")
+        return [(".".join(parts[:i]), parts[i:]) for i in range(len(parts) - 1, 0, -1)]
+
+    def is_module(name: str) -> bool:
+        try:
+            return all(p.isidentifier() for p in name.split(".")) and (
+                importlib.util.find_spec(name) is not None)
+        except (ImportError, ValueError):
+            return False
+
+    modules = sorted({m for n in names for m, _ in prefixes(n) if is_module(m)})
+    directory = root / "scripts" / "probes"
+    directory.mkdir(parents=True)
+    (directory / "signatures.py").write_text("".join(f"import {m}\n" for m in modules), "utf-8")
+    graph = scan.analyse(root, ["scripts/probes/signatures.py"], "3.14").graph
+
+    def lookup(name: str) -> Any:
+        for module, rest in prefixes(name):
+            state = graph.get(module)
+            if state is None or state.tree is None or rest[0] not in state.tree.names:
+                continue
+            node = state.tree.names[rest[0]].node
+            for part in rest[1:]:
+                node = next((b.names[part].node for b in node.mro if part in b.names), None) \
+                    if isinstance(node, TypeInfo) else None
+            if node is not None:
+                return node
+        return None
+
+    def signatures(node: Any) -> list[Any]:
+        if isinstance(node, Decorator):
+            node = node.func
+        if isinstance(node, FuncDef):
+            return [node.type] if node.type is not None else []
+        if isinstance(node, OverloadedFuncDef):
+            return [(i.func if isinstance(i, Decorator) else i).type for i in node.items]
+        if isinstance(node, TypeInfo):
+            for method in ("__init__", "__new__"):
+                for base in node.mro:
+                    if method in base.names and base.fullname != "builtins.object":
+                        return signatures(base.names[method].node)
+        return []
+
+    def takes(t: Any, depth: int = 0) -> bool:
+        t = get_proper_type(t)
+        if depth > 4:
+            return False
+        if isinstance(t, (AnyType, CallableType, Overloaded)):
+            return True
+        if isinstance(t, UnionType):
+            return any(takes(i, depth + 1) for i in t.items)
+        if isinstance(t, TypeVarType):
+            return t.id.is_meta_var() and takes(t.upper_bound, depth + 1)
+        if isinstance(t, Instance):
+            return t.type.fullname == "builtins.object" or t.type.is_protocol or any(
+                takes(x, depth + 1) for x in t.args)
+        if isinstance(t, TupleType):
+            return any(takes(i, depth + 1) for i in t.items)
+        return False
+
+    result: dict[str, bool | None] = {}
+    for name in names:
+        node = lookup(name)
+        if node is None:
+            result[name] = None
+            continue
+        owner = lookup(name.rsplit(".", 1)[0]) if "." in name else None
+        skip_first = isinstance(owner, TypeInfo) or isinstance(node, TypeInfo)
+        result[name] = any(
+            takes(arg) for t in signatures(node) if t is not None
+            for arg in list(get_proper_type(t).arg_types)[1 if skip_first else 0:]
+        )
+    return result
+
+
+def test_typeshed_signatures_agree_with_the_flags(tmp_path: Path) -> None:
+    """Independent of the flags and the rules: an inert entry whose typeshed signature
+    takes a protocol, `object`, `Any` or a callable must be flagged (with a rule and a
+    probe, above) or reviewed in REVIEWED_NO_CALL. The other direction is not
+    checked: a flag also covers element protocols no signature shows."""
+    groups = _inert()["targets"]
+    flagged = {n for g in groups if g.get("runs_code_of_others") for n in g["names"]}
+    names = sorted(n for g in groups for n in g["names"])
+    derived = _signature_takes_code(tmp_path, names)
+    unresolved = sorted(n for n, v in derived.items() if v is None)
+    assert unresolved == ["typing.<type alias construction>"], unresolved
+    unflagged = sorted(n for n, v in derived.items() if v and n not in flagged)
+    assert set(unflagged) == set(REVIEWED_NO_CALL), (
+        sorted(set(unflagged) - set(REVIEWED_NO_CALL)),
+        sorted(set(REVIEWED_NO_CALL) - set(unflagged)),
+    )

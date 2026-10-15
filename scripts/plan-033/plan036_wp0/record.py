@@ -133,10 +133,12 @@ DESIGN_NOTES = (
     "at each verdict commit, and their environments) stay recorded attestations, "
     "bound to git and the committed packs. Fabricated historical attestations are "
     "outside the gate's threat model; the review at banking covers them.",
-    "Known scan limitation (accepted in review round 4, pending the owner): a truth "
-    "test or comparison on a value typed only object runs that value's methods "
-    "without a scan site; covering it adds about 400 sites, and in these lanes such "
-    "values come from repository code or decoded JSON (scan.py's module docstring).",
+    "Known scan limitation (accepted in review round 4, pending the owner): truth "
+    "tests and comparisons of a value typed only object, and nothing else, run that "
+    "value's methods without a scan site (any other protocol method of such a value, "
+    "a call among them, fails); covering them adds about 400 sites, and in these "
+    "lanes such values come from repository code or decoded JSON (scan.py's module "
+    "docstring).",
     "Every clone environment is built by replay.uv_environment: the commit's own "
     "lock synced without building anything, the build backend from that lock or, "
     "for a lock that locks none (before 547626b), from the tool tree's lock by "
@@ -1081,7 +1083,7 @@ def verify_pin(root: Path, pin: dict[str, Any], workdir: Path | None = None) -> 
     part1 = derive_part1(root, pin["analysis"]["python_version"], lists)
     problems = compare_pin(root, pin, part1, lists)
     problems.extend(history_problems(root, pin))
-    successor = json.loads((root / pin["successor_record"]).read_bytes())
+    successor = json.loads((root / SUCCESSOR_RECORD).read_bytes())
     if problems or successor_problems(successor):
         return problems
     if workdir is None:
@@ -1178,9 +1180,14 @@ def compare_pin(
 ) -> list[str]:
     """`verify_pin` against an already derived part 1 (the tests reuse one derivation)."""
     problems: list[str] = []
-    successor_path = root / pin["successor_record"]
+    if pin.get("successor_record") != SUCCESSOR_RECORD:
+        # Review round 4 (DeepSeek N1): the pin names the one standard successor
+        # record; a pin naming another file would gate that file instead.
+        return [f"the pin names successor record {pin.get('successor_record')!r}, not "
+                f"{SUCCESSOR_RECORD}"]
+    successor_path = root / SUCCESSOR_RECORD
     if not successor_path.is_file():
-        return [f"the successor record {pin['successor_record']} is missing"]
+        return [f"the successor record {SUCCESSOR_RECORD} is missing"]
     successor_bytes = successor_path.read_bytes()
     if sha256_bytes(successor_bytes) != pin.get("successor_sha256"):
         problems.append(
@@ -1194,9 +1201,7 @@ def compare_pin(
     incomplete = successor_problems(successor)
     problems.extend(f"successor record: {p}" for p in incomplete)
     if not incomplete:
-        if pin != _pin_of(successor, successor_bytes) | {
-            "successor_record": pin.get("successor_record")
-        }:
+        if pin != _pin_of(successor, successor_bytes):
             problems.append("the pin is not the one its successor record determines "
                             "(a pin is never edited by hand)")
         problems.extend(_successor_against(successor, part1, lists))
@@ -1366,7 +1371,7 @@ def history_problems(root: Path, pin: dict[str, Any]) -> list[str]:
         git(root, "log", "-m", "--format=%H", "--diff-filter=A", "--", PIN_RECORD).split()
     ))
     evidence: dict[str, str] | None = None
-    successor_path = root / str(pin.get("successor_record", SUCCESSOR_RECORD))
+    successor_path = root / SUCCESSOR_RECORD
     if successor_path.is_file():
         try:
             listed = json.loads(successor_path.read_bytes()).get("evidence")

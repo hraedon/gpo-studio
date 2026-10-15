@@ -109,6 +109,13 @@ def _round1_forgery(part1: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+@pytest.fixture(autouse=True)
+def _standard_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The pin must name record.SUCCESSOR_RECORD (DeepSeek round 4, N1); these tests
+    point that one standard path at a scratch file (absolute, so root / it is it)."""
+    monkeypatch.setattr(record, "SUCCESSOR_RECORD", str(tmp_path / "successor.json"))
+
+
 def _write(successor: dict[str, Any], tmp_path: Path) -> tuple[bytes, Path]:
     data = record._dump(successor)
     path = tmp_path / "successor.json"
@@ -126,7 +133,6 @@ def complete(derived: tuple[dict[str, Any], Any]) -> dict[str, Any]:
 def pinned(complete: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
     data, path = _write(complete, tmp_path)
     pin = record.pin_from(complete, data)
-    pin["successor_record"] = str(path)  # absolute: compare_pin reads root / it
     return pin
 
 
@@ -158,7 +164,6 @@ def test_round_1s_complete_forgery_now_fails(
     with pytest.raises(record.Wp0Error):
         record.pin_from(forged, data)
     pin = record._pin_of(forged, data)
-    pin["successor_record"] = str(path)
     problems = _compare(pin, derived)
     assert any("does not name the target commit" in p for p in problems), problems
     assert any("payload digests" in p for p in problems), problems
@@ -184,7 +189,6 @@ def test_a_record_that_disagrees_with_git_or_the_packs_is_refused(
         mutate(successor)
         data, path = _write(successor, tmp_path)
         pin = record._pin_of(successor, data)
-        pin["successor_record"] = str(path)
         problems = _compare(pin, derived)
         assert any(expected in p for p in problems), (expected, problems)
 
@@ -229,7 +233,7 @@ def test_a_fabricated_pin_with_no_part_2_evidence_is_refused(
     with pytest.raises(record.Wp0Error):
         record.pin_from(successor, data)
     part1, _lists = derived
-    pin = {"schema": 1, "successor_record": str(path),
+    pin = {"schema": 1, "successor_record": record.SUCCESSOR_RECORD,
            "successor_sha256": record.sha256_bytes(data), "target_commit": "0" * 40,
            "analysis": successor["analysis"], "lists_sha256": part1["lists_sha256"],
            "exemptions_sha256": part1["exemptions_sha256"], "toolchain": part1["toolchain"],
@@ -283,7 +287,6 @@ def test_a_pin_over_an_incomplete_or_unequal_successor_is_refused(
     SUCCESSOR_DEFECTS[defect](successor)
     data, path = _write(successor, tmp_path)
     pin = record._pin_of(successor, data)
-    pin["successor_record"] = str(path)
     assert _compare(pin, derived), defect
     if not defect.endswith("-edited") and defect != "lane-dropped":
         with pytest.raises(record.Wp0Error):
@@ -308,7 +311,7 @@ def test_the_toolchain_names_every_declared_process_executable(derived: Any) -> 
 def test_a_pin_not_derived_from_the_committed_successor_record_is_refused(
     pinned: dict[str, Any], derived: Any
 ) -> None:
-    Path(pinned["successor_record"]).write_bytes(b'{"edited": true}\n')
+    Path(record.SUCCESSOR_RECORD).write_bytes(b'{"edited": true}\n')
     assert any("successor record" in p for p in _compare(pinned, derived))
 
 
@@ -472,3 +475,14 @@ def test_the_gate_holds_the_pin_to_the_gated_history(tmp_path: Path) -> None:
     git("commit", "-q", "-m", "B': the pin and a dependency")
     problems = record.history_problems(root, pin)
     assert any(p.startswith("step 8:") and "dep.py" in p for p in problems), problems
+
+
+def test_a_pin_naming_another_successor_record_is_refused(
+    pinned: dict[str, Any], derived: Any, tmp_path: Path
+) -> None:
+    """DeepSeek round 4, N1: a hand-written pin pointing the gate at an alternate
+    successor record (while the standard one goes unverified) fails."""
+    alternate = tmp_path / "alternate.json"
+    alternate.write_bytes(Path(record.SUCCESSOR_RECORD).read_bytes())
+    pin = {**pinned, "successor_record": str(alternate)}
+    assert any("names successor record" in p for p in _compare(pin, derived))

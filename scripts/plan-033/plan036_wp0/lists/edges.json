@@ -903,7 +903,7 @@
    "targets": {
     "<Any>.__add__": 3,
     "<Any>.__bool__": 16,
-    "<Any>.__buffer__": 3,
+    "<Any>.__buffer__": 4,
     "<Any>.__eq__": 57,
     "<Any>.__format__": 1,
     "<Any>.__getitem__": 31,
@@ -2751,11 +2751,11 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 329, 331"
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 215, 260, 329, 331"
    },
    "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
    "targets": {
-    "<object>.__iter__": 2,
+    "<object>.__iter__": 4,
     "<object>.items": 2
    }
   },
@@ -2803,13 +2803,16 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 388; elements typed object that set operations hash and compare at line(s) 317, 318"
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 388; elements typed object that set operations hash and compare at line(s) 317, 318; values typed object converted to text (str(), str.format, repr) at line(s) 362"
    },
    "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
    "targets": {
     "<object>.__eq__": 2,
+    "<object>.__format__": 2,
     "<object>.__hash__": 2,
     "<object>.__iter__": 1,
+    "<object>.__repr__": 2,
+    "<object>.__str__": 2,
     "<object>.items": 1
    }
   },
@@ -2844,12 +2847,14 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "elements typed object that set operations hash and compare at line(s) 409, 410"
+    "what": "elements typed object that set operations hash and compare at line(s) 409, 410; values typed object deep-copied by dataclasses.asdict at line(s) 144"
    },
    "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
    "targets": {
+    "<object>.__deepcopy__": 1,
     "<object>.__eq__": 2,
-    "<object>.__hash__": 2
+    "<object>.__hash__": 2,
+    "<object>.__reduce_ex__": 1
    }
   },
   {
@@ -2909,11 +2914,15 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 2075"
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 2075; elements typed object that set operations hash and compare at line(s) 441, 521, 584; values typed object converted to text (str(), str.format, repr) at line(s) 442, 522, 585, 815, 816, 817, 818, 819, 820, 821, 824, 1248"
    },
    "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
    "targets": {
+    "<object>.__format__": 5,
+    "<object>.__hash__": 3,
     "<object>.__iter__": 1,
+    "<object>.__repr__": 13,
+    "<object>.__str__": 13,
     "<object>.items": 1
    }
   },
@@ -2935,12 +2944,15 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "elements typed object that set operations hash and compare at line(s) 494"
+    "what": "elements typed object that set operations hash and compare at line(s) 494; values typed object converted to text (str(), str.format, repr) at line(s) 85, 255, 291, 292, 293"
    },
    "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
    "targets": {
     "<object>.__eq__": 1,
-    "<object>.__hash__": 1
+    "<object>.__format__": 2,
+    "<object>.__hash__": 1,
+    "<object>.__repr__": 6,
+    "<object>.__str__": 6
    }
   },
   {
@@ -2968,6 +2980,183 @@
    "reason": "callbacks: a callable that runs other objects' code, or a callback value the scan cannot see, called back on the values named under 'what'; reviewed at its site (review round 3)",
    "targets": {
     "<value of builtins.ValueError>": 2
+   }
+  },
+  {
+   "module": "scripts/plan-033/build-wp1b-candidates.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the candidate factories of CANDIDATES (repository functions of this module)"
+   },
+   "reason": "callable values: a call through a Callable-typed parameter, field or table entry; nothing in the call says which function it holds, so it is declared rather than resolved (review round 4, DeepSeek B1)",
+   "targets": {
+    "<callable value>()": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/gpp.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "item renderers and parsers from _item_renderer/_item_parser (repository functions and a lambda over serialize_adapter_item) and the parse functions of gpp_adapters.ROOT_PARSE_FUNCTIONS (repository functions)"
+   },
+   "reason": "callable values: a call through a Callable-typed parameter, field or table entry; nothing in the call says which function it holds, so it is declared rather than resolved (review round 4, DeepSeek B1)",
+   "targets": {
+    "<callable value>()": 11
+   }
+  },
+  {
+   "module": "src/gpo_studio/gpp_adapters.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the item parser _retains_native wraps (the adapter item parsers of this module) and the serializers of _ITEM_SERIALIZE_FUNCTIONS (repository functions)"
+   },
+   "reason": "callable values: a call through a Callable-typed parameter, field or table entry; nothing in the call says which function it holds, so it is declared rather than resolved (review round 4, DeepSeek B1)",
+   "targets": {
+    "<callable value>()": 3
+   }
+  },
+  {
+   "module": "src/gpo_studio/gpp_native.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the is_modeled predicate its callers in this module pass (a lambda or repository function)"
+   },
+   "reason": "callable values: a call through a Callable-typed parameter, field or table entry; nothing in the call says which function it holds, so it is declared rather than resolved (review round 4, DeepSeek B1)",
+   "targets": {
+    "<callable value>()": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/report_parity.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the matches predicate of a reviewed-divergence record (a Callable field set by this module)"
+   },
+   "reason": "callable values: a call through a Callable-typed parameter, field or table entry; nothing in the call says which function it holds, so it is declared rather than resolved (review round 4, DeepSeek B1)",
+   "targets": {
+    "<callable value>()": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/snapshot_documents.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the lookup callable its repository callers pass to rehydrate digests"
+   },
+   "reason": "callable values: a call through a Callable-typed parameter, field or table entry; nothing in the call says which function it holds, so it is declared rather than resolved (review round 4, DeepSeek B1)",
+   "targets": {
+    "<callable value>()": 2
+   }
+  },
+  {
+   "module": "src/gpo_studio/store.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "the GPO mutation callable WorkspaceStore callers pass"
+   },
+   "reason": "callable values: a call through a Callable-typed parameter, field or table entry; nothing in the call says which function it holds, so it is declared rather than resolved (review round 4, DeepSeek B1)",
+   "targets": {
+    "<callable value>()": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_endpoint_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "values typed object converted to text (str(), str.format, repr) at line(s) 346"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__format__": 1,
+    "<object>.__repr__": 1,
+    "<object>.__str__": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_fdeploy_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "values typed object converted to text (str(), str.format, repr) at line(s) 182"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__repr__": 1,
+    "<object>.__str__": 1
+   }
+  },
+  {
+   "module": "scripts/windows-oracle/finalize_report_parity_run.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "values typed object converted to text (str(), str.format, repr) at line(s) 169"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__repr__": 1,
+    "<object>.__str__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/backup_inventory.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "values typed object converted to text (str(), str.format, repr) at line(s) 127"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__format__": 1,
+    "<object>.__repr__": 1,
+    "<object>.__str__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/gpp.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "values typed object converted to text (str(), str.format, repr) at line(s) 1046"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__repr__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/ilt.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "values typed object converted to text (str(), str.format, repr) at line(s) 358"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__repr__": 1,
+    "<object>.__str__": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/report_parity.py",
+   "scopes": "*",
+   "kind": "unresolved",
+   "reaches": {
+    "what": "values typed object converted to text (str(), str.format, repr) at line(s) 306"
+   },
+   "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
+   "targets": {
+    "<object>.__format__": 1,
+    "<object>.__repr__": 1,
+    "<object>.__str__": 1
    }
   }
  ]

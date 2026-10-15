@@ -193,9 +193,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"no pin at {record.PIN_RECORD}: B must carry it")
                 return 1
             pin = json.loads(pin_path.read_text("utf-8"))
-            successor = REPO_ROOT / pin.get("successor_record", record.SUCCESSOR_RECORD)
-            listed = (json.loads(successor.read_text("utf-8")).get("evidence")
-                      if successor.is_file() else None)
+            successor_file = REPO_ROOT / record.SUCCESSOR_RECORD
+            listed = (json.loads(successor_file.read_text("utf-8")).get("evidence")
+                      if successor_file.is_file() else None)
             problems = record.bank_problems(REPO_ROOT, args.freeze, args.bank, pin,
                                             listed if isinstance(listed, dict) else None)
             for problem in problems:
