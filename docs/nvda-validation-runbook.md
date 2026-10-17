@@ -17,8 +17,10 @@ that this gate evaluates.
 what 1.1 added to the interface (sections 7 to 12): sidebar navigation, dark
 theme switching, the RSOP prediction, Security template and Folder
 Redirection panels, and the sticky row actions of wide tables. The 1.0.0
-session covered none of the 1.1 additions. For 1.1.0 this session is required
-before final approval, against a `v1.1.0-rc.N` candidate.
+session covered none of the 1.1 additions. For 1.1.0 this session was required
+before final approval, against a `v1.1.0-rc.N` candidate; on 2026-10-17 the
+owner waived it for 1.1.0, and the release evidence records it as not run.
+The runbook stands for the next release that runs it.
 
 ## Scope and pass rule
 

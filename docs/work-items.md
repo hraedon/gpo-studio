@@ -34,8 +34,8 @@ Update this list in the same change as any status line;
 
 **5 open.**
 
-- [WI-083](#wi-083--live-verdicts-are-fresh-only-for-a-hand-written-subset-of-what-they-execute) - **blocks 1.1.0 final** (accepted by the owner 2026-10-13): derive every live lane's dependency closure, replay and re-grade, bank the result, requalify per D-9 (Plan 036 WP-0).
-- [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0.
+- [WI-083](#wi-083--live-verdicts-are-fresh-only-for-a-hand-written-subset-of-what-they-execute) - **blocks 1.1.0 final**; for 1.1.0 it closes by construction (owner decision 2026-10-17): every live lane requalified at the freeze commit F, banked in an evidence-only child of F, tagged on a records-only approval, which the release gate checks. WP-0 moved to WI-084.
+- [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
@@ -3827,7 +3827,10 @@ these fail except the add.
 **Opened:** 2026-10-13 (measuring change cost for [Plan 036](../plans/036-change-cost.md)).
 **Status:** open. **Blocks the 1.1.0 final tag**: accepted as a blocker by the
 owner on 2026-10-13, with Plan 036 ("Your recommendations are fine: no qualms
-about the plan detailed in 106").
+about the plan detailed in 106"). On 2026-10-17 the owner, on the
+coordinator's recommendation, changed how it closes for 1.1.0: by construction
+(every lane requalified at the freeze commit), not by Plan 036's WP-0, which
+moves to WI-084 (Plan 036, the D-9 addendum).
 
 **What is wrong.** Every lane verdict binds the files its finalizer's
 `DEPLOYED_FILES` and `LOCAL_FILES` tables name, and
@@ -3850,19 +3853,53 @@ wp2, lifecycle, report-parity and wp1b (definition lines run at import); the
 grading half has not yet been traced at line level. Nothing measured says 1.1.0
 behaves wrongly; the defect is in what the freshness claim covers.
 
-**Closes when:** Plan 036's WP-0 lands: at the final freeze commit every live
-lane's derived closure, replay and full re-grade are banked as a successor
-record; the lanes D-9 selects (and any whose replay or re-grade differs) have
-passed on the estate at that commit; a release-only test re-derives every
-live lane's dependency closure and fails on any added, removed or changed edge;
-and Plan 034, Plan 035 and
-`release-evidence-1.1.0.md` state the limitation and its disposition.
+**Closes when** (rewritten 2026-10-17; the WP-0 condition it replaces is in
+Plan 036's history and in WI-084): all 26 live lanes have passed on the estate
+at one freeze commit `F` (the full batch, `scripts/plan-033/run-requal-batch.sh`),
+with a clean post-batch directory check; the runs are banked in one commit `B`
+whose parent is `F` and which changes only evidence and records; every earlier
+live verdict is retired, so every live verdict and the WP-0 manifest name `F`;
+the release evidence report records `F` and the batch manifest (`freeze`); and
+`check_release_manifest.py` accepts the final tag on the records-only approval
+commit after `B`. That check refuses a final tag whose tree differs from `F`
+outside the batch's banked files and the release records, or any live verdict
+not earned at `F` (`tests/test_release_freeze_gate.py`). It closes the defect
+for 1.1.0 only: a release that does not re-run every lane meets the
+hand-written binding again, which is WI-084's (WP-0 and R4b).
 
 ## WI-084 — a bound-file change costs more than it needs to
 
 **Opened:** 2026-10-13 ([Plan 036](../plans/036-change-cost.md)).
 **Status:** open. An accepted programme: the owner accepted Plan 036 and all of
 its recommendations on 2026-10-13.
+
+**WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
+closing condition, and is not a 1.1.0 blocker any more). No deadline. It
+restarts from branch `wp0/live-closure` at `432c751` (pushed), with these
+open, from Sol's round-7 review:
+
+- **B1.** The tracer writes the trace from an `atexit` handler, and repository
+  code can still run after it (a `__del__`, a weakref callback, extension
+  cleanup during interpreter shutdown), so D-9 misses an executed changed line
+  and a file opened there. Checking for live threads does not cover it.
+- **B2.** An external class's `__class_getitem__` is classified as inert type
+  alias construction; the scan must tell reviewed typing constructs from an
+  arbitrary class subscription and classify the hook.
+- **B3.** The git contract recognises a child as git by `argv[0]`'s basename,
+  so a `git` shim first on the clone venv's PATH (a console script from
+  `pyproject.toml`, for one) runs untraced. Resolve and pin the real git binary
+  by path and digest, outside clone-controlled directories.
+- **B4.** The clone audit refuses the local `gc.auto=0` that the pinned
+  `actions/checkout` v5 writes, so a real CI checkout fails before any lane;
+  allow exactly that value and add a fixture with every key v5 writes.
+- **Part B v2** (observe at the release commit), assessed adopt-with-changes.
+  Open question for the owner: narrow the claim to "these offline executions
+  reproduced the banked results under recorded inputs", or add evidence tying
+  the estate run's path to the offline re-grade. Its other conditions (inputs
+  frozen or recorded at consumption, shutdown coverage, git authentication,
+  per-API contracts for allowed C extensions, the static scan authoritative
+  until then) are in the round-7 report, archived outside the repository
+  (`sibling-review-20261009/reports/wp0-r7/`).
 
 **What is wrong.** Re-earning evidence binds whole files by hand-written
 tables, so an edit to a shared bound file (the transport, the evidence

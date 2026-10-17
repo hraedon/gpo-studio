@@ -11,6 +11,15 @@ disposition of each finding is under
 **1.1.0 final blocker** (WI-083), because the measurement found that the live
 evidence's freshness check does not cover what the lanes execute.
 
+**Addendum, 2026-10-17 (owner decision, on the coordinator's recommendation):**
+WP-0 is no longer the 1.1.0 blocker. For 1.1.0, WI-083 is closed by
+construction instead: every live lane is requalified at the freeze commit `F`
+and the tag differs from `F` only in evidence and records (the
+D-9 addendum (under [Owner decisions](#owner-decisions)) and
+[the 1.1.0 order](#addendum-2026-10-17-the-110-order-without-wp-0)). WP-0
+becomes post-1.1.0 work under WI-084. The sections below are kept as written;
+each one this changes carries a dated note.
+
 Scope: the cost of changing code that Windows evidence binds, the cost of
 changing CI workflows, and the CI failures reviewers do not see. The aim is to
 make the next bound-file edit, and the one after it, cheap and honest.
@@ -460,6 +469,12 @@ is not true as stated, and that has to be settled before the final tag, not
 after. WI-083 makes WP-0 a final-tag blocker; the owner accepted that on
 2026-10-13.
 
+> **Superseded for 1.1.0 on 2026-10-17.** WP-0 is not the 1.1.0 blocker any
+> more; the D-9 addendum (under [Owner decisions](#owner-decisions)) settles the claim for
+> 1.1.0 by requalifying every lane at `F`. This section is WP-0's design as
+> reviewed, and is where the post-1.1.0 work under WI-084 starts
+> ([WP-0 below](#wp-0--the-110-final-blocker-wi-083)).
+
 ### What WP-0 edits
 
 WP-0 is not edit-free. It adds new tooling, two generated records (the
@@ -537,6 +552,51 @@ and are covered by the closure gate below.
 
 If anything in any lane's dependency set changes after `F`, the closure gate
 goes red and WP-0 restarts from step 3.
+
+#### Addendum, 2026-10-17: the 1.1.0 order without WP-0
+
+Decided by the owner on 2026-10-17 (the D-9 addendum (under [Owner decisions](#owner-decisions))).
+For 1.1.0 this order replaces steps 1 to 9 above. There is no selection, no
+closure gate and no pin:
+
+1. **Freeze, `F`.** The commit intended for release: every product change done,
+   `__version__ = "1.1.0"`, `SECURITY.md` for the `1.1.x` line, and the
+   preparation the gate below needs (see step 6). Nothing in it is evidence of
+   the batch that follows.
+2. **The full batch at `F`.** All 26 live lanes run on the estate from a clean
+   clone at `F`, as one batch, with `scripts/plan-033/run-requal-batch.sh` and
+   its per-lane watchdog (about 41 minutes on the 1.1.0 batch's durations), then
+   the post-batch directory check.
+3. **Bank, `B`.** One commit whose parent is `F`, made with
+   `scripts/plan-033/bank-requal-batch.py`: the packs, the batch manifest and
+   its note, the post-batch directory check, the registry's verdict tables
+   (every earlier live verdict retired), the records that cite the runs, and the
+   report's `freeze` (the commit `F` and the batch manifest).
+4. **Approve, `A`.** A records-only commit after `B`: the JSON report's
+   `status` and `version` and line 5 of `release-evidence-1.1.0.md`. The
+   owner's NVDA acceptance is waived for 1.1.0 (owner decision, 2026-10-17)
+   and recorded as not run, so approval does not wait for it.
+5. **Tag `v1.1.0` on `A`**, on `main`.
+6. **What makes it hold.** For a final tag, `scripts/check_release_manifest.py`
+   refuses unless `F` is an ancestor of the tagged commit; `git diff F` touches
+   only the batch's banked files (added) and a closed list of release records
+   (modified), so `src/`, `scripts/`, `pyproject.toml`, `uv.lock`, `.github/`,
+   `.gitattributes` and every test but the registry's verdict tables are
+   byte-identical to `F`; and every live verdict, WP-0's manifest included, is
+   the batch's run of its lane, earned at `F` from a clean tree, covering every
+   lane live at `F`. The release workflow checks out full history for it. Three
+   things therefore have to be in `F`, because nothing after `F` may change
+   them: a `.gitattributes` rule for the batch's pack label; the tests that
+   read the batch (written against the batch manifest the report's `freeze`
+   names, not a fixed file name, because the batch tests are code); and
+   whatever `src/gpo_studio/api.py` cites as a lane's certifying run (today it
+   names the 1.1.0rc1 lifecycle and firewall runs, which the batch at `F` will
+   retire).
+
+Every 1.1.0 live verdict is then earned by the tree that ships. The residual is
+the one every batch has: inputs outside the tree (the controller's toolchain
+and the estate) are what they were during the batch, and are not pinned by the
+tag.
 
 ### The four parts
 
@@ -1979,6 +2039,41 @@ in 106"); each decision is recorded below.
   their costs, for the record. What the reruns add is
   stated in [WP-0](#what-the-reruns-add-and-what-they-do-not): a clean binding
   record and a fresh estate observation, not a test of new candidate content.
+
+  **D-9 addendum, 2026-10-17. For 1.1.0, every lane is requalified at the
+  freeze commit, and WP-0 is not the blocker.** Decided by the owner on 2026-10-17, on the coordinator's
+  recommendation. It supersedes, for 1.1.0 only, the option-2 selection above
+  and WP-0's closure gate as the 1.1.0 blocker. All 26 live lanes run at `F`
+  (the full batch), are banked in an evidence-only `B` whose parent is `F`,
+  approved in a records-only `A`, and `v1.1.0` is tagged on `A`
+  ([the order](#addendum-2026-10-17-the-110-order-without-wp-0)). Every live
+  verdict then binds the shipping tree by construction: no file any lane could
+  read, bound or not, differs between its verdict's commit and the tag, so the
+  question WI-083 asks of a hand-written binding does not arise for 1.1.0.
+  `scripts/check_release_manifest.py` checks that mechanically for a final tag.
+
+  Why. WP-0 (branch `wp0/live-closure`, `432c751`, pushed) went through seven
+  two-lineage review rounds, and each round found a new class of escape: in
+  round 6, ordinary class creation running caller descriptors with no scan
+  site, and a declared `git status` starting a helper from git configuration;
+  in round 7, repository `__del__` code running after the trace was written, an
+  external class's `__class_getitem__` classified as inert, a `git` shim
+  authenticated only by its name, and the audit refusing the `gc.auto=0` that
+  the pinned `actions/checkout` writes. Sol's round-7 assessment of the Part B
+  v2 redesign (observe at the release commit) found that even a complete trace
+  proves that offline executions reproduce the banked results under recorded
+  inputs, not that the estate run took the same path; adopting it needs either
+  a narrower claim or path-equivalence evidence. The full batch costs about 41
+  minutes of estate time and answers the 1.1.0 question directly. The reports
+  are in the review archive (`sibling-review-20261009/reports/wp0-r6/` and
+  `wp0-r7/`, the Part B sections), outside the repository.
+
+  What it does not settle. The mechanism WI-083 describes (hand-written
+  bindings that miss dependencies) is unchanged, and matters again for the
+  first release that does not re-run every lane. WP-0 moves to post-1.1.0 work
+  under WI-084, with no deadline (see [WP-0](#wp-0--the-110-final-blocker-wi-083)).
+  Options 1 to 3 and the option-2 definition above stay as the analysis for
+  that case.
 - **D-10. Where a requalification banks (R2).** (a) Into the bound-file PR
   itself, before merge, so `main` is never stale. (b) After merge, with a
   short-lived "debt" state on `main` that release gates refuse.
@@ -1987,9 +2082,27 @@ in 106"); each decision is recorded below.
 ## Work packages
 
 Each package says whether it edits a bound file and whether it may land before
-1.1.0 final. Only WP-0 may.
+1.1.0 final. Only WP-0 may. (2026-10-17: none does now. WP-0 is post-1.1.0
+work under WI-084; see its note below.)
 
 ### WP-0 — The 1.1.0 final blocker (WI-083)
+
+> **Moved, 2026-10-17 (owner decision): post-1.1.0 work under WI-084, no
+> deadline.** It is no longer the 1.1.0 blocker (the
+> D-9 addendum (under [Owner decisions](#owner-decisions))). It restarts from branch
+> `wp0/live-closure` at `432c751`, with the round-7 findings open:
+> Sol r7 B1 (repository `__del__` and other interpreter-shutdown code runs
+> after the `atexit` write of the trace, so D-9 misses executed changed lines
+> and file opens); B2 (an external class's `__class_getitem__` is classified
+> as inert type-alias construction); B3 (the git contract authenticates the
+> child only by `argv[0]`'s basename, so a `git` shim on the clone venv's PATH
+> runs untraced); B4 (the clone audit refuses the `gc.auto=0` local key that
+> the pinned `actions/checkout` v5 writes); and Part B v2, assessed
+> adopt-with-changes, with its open question: narrow the claim to offline
+> reproduction at `R`, or add evidence that ties the estate run's path to the
+> offline re-grade. Its exit below is unchanged except that it no longer gates
+> 1.1.0, and `F`, `B` and the release named in it are those of the first
+> release WP-0 is used for.
 
 Before the final tag. Adds tooling, two generated records (the successor
 record and the pin) and a test, and edits the bound finalizer of each lane
@@ -2124,9 +2237,13 @@ itself because the release ships it and reviewers read it as policy.
 ## Sequencing
 
 1.1.0 final is due 2026-10-31. `v1.1.0-rc.1` is published and the owner's NVDA
-acceptance is pending.
+acceptance is pending. (2026-10-17: the owner waived it for 1.1.0; it is
+recorded as not run.)
 
-**Before 1.1.0 final: WP-0 only.** It is the blocker, so it must land;
+**Before 1.1.0 final: WP-0 only.** (2026-10-17: superseded. Before 1.1.0
+final: the freeze-commit gate in `check_release_manifest.py`, then the
+[1.1.0 order](#addendum-2026-10-17-the-110-order-without-wp-0); WP-0 follows
+1.1.0 under WI-084.) It is the blocker, so it must land;
 it adds a release gate on purpose, so it is reviewed as gate code and lands
 before `F0`. Its bound edits are confined to the finalizers of the lanes it
 re-runs, and its estate part is a successor batch at `F`, the kind of change
@@ -2182,6 +2299,10 @@ of scope does not close its risk.
 | Workflow shell needs a lexer, and its logic is untested | R1 (manifest, pins, capabilities, scripts) | WP-3's exit |
 | CI fails for reasons reviewers cannot see | R6 (local checks, Windows leg) | WP-1's exit |
 | Review loops repeat the same class of finding | R6 (tiers, three-rounds rule) | WP-7's exit |
+
+For 1.1.0 only, the first risk is met by requalifying every lane at `F` and the
+final-tag freeze check (the D-9 addendum (under [Owner decisions](#owner-decisions))); that
+does not exit it, because the next release need not re-run every lane.
 
 ## How the numbers were measured
 

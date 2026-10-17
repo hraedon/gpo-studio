@@ -126,6 +126,28 @@ Operator-facing:
 
 ### Changed
 
+- **Release process: 1.1.0 final is tagged on a records-only descendant of its
+  freeze commit, and the release gate checks it** (owner decision, 2026-10-17;
+  Plan 036, the D-9 addendum). Every live lane is requalified at one freeze
+  commit F (the full batch), banked in a commit whose parent is F that changes
+  only evidence and records, approved in a records-only commit after it, and
+  `v1.1.0` goes on that approval commit. This closes WI-083 for 1.1.0 by
+  construction instead of through Plan 036's WP-0, which moves to post-1.1.0
+  work under WI-084. The release evidence report gains `freeze` (the commit F
+  and its batch manifest; report schema 3), which an approved report must
+  carry. For a final tag only, `scripts/check_release_manifest.py` now
+  refuses unless F is an ancestor of the tagged commit, the tagged tree differs
+  from F only in the batch's banked files and a closed list of release records
+  (so `src/`, `scripts/`, `pyproject.toml`, `uv.lock`, `.github/`,
+  `.gitattributes` and every test but the verdict tables are byte-identical to
+  F), and every live verdict and the WP-0 manifest were earned at F by the
+  batch, covering every lane live at F. It needs full history, so the release
+  `publish` job now checks out with `fetch-depth: 0` as `release-identity`
+  already did; a shallow clone is refused. Release candidate tags are checked
+  as before. `tests/test_release_freeze_gate.py` holds each refusal against
+  temporary git repositories. The owner's hands-on NVDA acceptance is waived
+  for 1.1.0 and recorded as not run. `release-evidence-1.1.0.md` now gives one
+  approval sequence, which agrees with Plan 036.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no
