@@ -2,13 +2,17 @@
 
 `POST /api/lifecycle/restore-plan` returns `lifecycle.generate_restore_plan`'s
 plan for a workspace GPO imported from a Windows backup. Each survival cell
-is marked measured and cites the certifying run. That citation is honest only
-if the cells are the ones the banked verdict observed, so the first tests
-check the cells and the citation against the committed verdict, not against
-constants restated here.
+is marked measured and cites the lane and the release evidence document, which
+names the lane's certifying run (never a run id in shipped code: every release
+requalifies the lane). That citation is honest only if the cells are the ones
+the current run's verdict observed and the document names that run, so the
+first tests check both against the committed evidence, not against constants
+restated here.
 
-The cited run is the lane's current certification, read from the batch
-manifest (`docs/plan-033/release110-batch.json`). The GPO under test is the
+The current run is read from `tests/current_qualification.py` (the release
+evidence report's freeze batch once one is banked, the release 1.1.0rc1
+batches until then), so banking a new batch changes nothing here. The GPO
+under test is the
 import of the `Backup-GPO` tree the lane's first certified run produced
 (`docs/plan-033/wp7-evidence/lifecycle/backup`): a fixture, kept stable so the
 identities below do not move with each batch. The WMI association the plan
@@ -19,12 +23,14 @@ from a hand-built model.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+import current_qualification
 import pytest
 from fastapi.testclient import TestClient
 
@@ -37,15 +43,8 @@ from gpo_studio.store import WorkspaceStore
 ROOT = Path(__file__).resolve().parents[1]
 #: The fixture: the Backup-GPO tree of the lane's first certified run.
 PACK = ROOT / "docs/plan-033/wp7-evidence/lifecycle"
-#: The citation: the lane's current certification, as the batch manifest records it.
-CITED_VERDICT = next(
-    run["verdict"]
-    for run in json.loads(
-        (ROOT / "docs/plan-033/release110-batch.json").read_text(encoding="utf-8")
-    )["runs"]
-    if run["name"] == "lifecycle"
-)
-CITED = ROOT / "docs/plan-033" / CITED_VERDICT
+#: The lane's current certification.
+CITED = current_qualification.verdict_path("lifecycle")
 ROUTE = "/api/lifecycle/restore-plan"
 
 SOURCE_GUID = "deca063b-39dd-431f-b5cd-fab1896dd62f"
@@ -147,12 +146,27 @@ def _codes(response: Any) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_the_cited_run_is_the_banked_verdict() -> None:
+def test_the_citation_names_the_current_run_through_the_release_evidence() -> None:
+    """The response cites the lane and the release document; the document names the run."""
     verdict = _verdict()
-    assert verdict["run_id"] == api.LIFECYCLE_VERDICT_RUN_ID
-    assert verdict["source"]["commit"] == api.LIFECYCLE_VERDICT_COMMIT
-    assert (ROOT / api.LIFECYCLE_VERDICT_PATH).resolve() == CITED.resolve()
     assert verdict["passed"] is True and verdict["predictions_agree"] is True
+    assert api.LIFECYCLE_LANE == "lifecycle-same-domain"
+    document = (ROOT / api.RELEASE_EVIDENCE).read_text(encoding="utf-8")
+    assert verdict["run_id"] in document
+    platforms = json.loads(
+        (ROOT / "tests/fixtures/scenarios/platforms.json").read_text(encoding="utf-8")
+    )
+    lane = next(lane for lane in platforms["lanes"] if lane["lane_id"] == api.LIFECYCLE_LANE)
+    assert verdict["run_id"] in lane["notes"]
+
+
+def test_shipped_code_names_no_lifecycle_or_firewall_run() -> None:
+    """A run id in api.py would be retired by the next batch while the file ships."""
+    source = (ROOT / "src/gpo_studio/api.py").read_text(encoding="utf-8")
+    for name in ("lifecycle", "firewall"):
+        run_id = current_qualification.run(name)["run_id"]
+        assert run_id not in source, name
+        assert not re.search(rf"\b{name}-20\d{{6}}\d{{6}}-\d+", source), name
 
 
 @pytest.mark.parametrize("operation", WINDOWS_OPERATIONS)
@@ -172,9 +186,7 @@ def test_every_cell_returned_is_the_cell_windows_was_measured_to_produce(
     assert all(cell["unmeasured_reason"] is None for cell in body["survival"])
     assert body["evidence"] == {
         "lane": "lifecycle-same-domain",
-        "run_id": _verdict()["run_id"],
-        "commit": _verdict()["source"]["commit"],
-        "verdict": f"docs/plan-033/{CITED_VERDICT}",
+        "release_evidence": api.RELEASE_EVIDENCE,
         "cells_measured": 30,
         "cells_agreeing": 30,
     }

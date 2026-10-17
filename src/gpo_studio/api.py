@@ -255,6 +255,21 @@ from .xml_safety import unwritable_text
 STATIC = Path(__file__).with_name("static")
 
 
+def _release_evidence(version: str) -> str:
+    """The release evidence document for ``version`` (``X.Y.Z`` or ``X.Y.ZrcN``)."""
+    match = re.match(r"\d+\.\d+\.\d+", version)
+    if match is None:
+        raise ValueError(f"not a release version: {version!r}")
+    return f"docs/release-evidence-{match.group(0)}.md"
+
+
+#: The document that names each lane's certifying run and commit for this
+#: version. Surfaces cite it, and the lane, instead of a run id: every release
+#: requalifies the lanes, so a run named in shipped code would be retired by the
+#: next batch (Plan 036, the D-9 addendum).
+RELEASE_EVIDENCE = _release_evidence(__version__)
+
+
 class StudioStaticFiles(StaticFiles):
     """Serve browser modules with a MIME type independent of the host registry."""
 
@@ -6210,10 +6225,12 @@ def publication_plan_preview(
 # --------------------------------------------------------------------------
 # Plan 034: the firewall surface (WI-076).
 #
-# `firewall_policy.py` is bound by the firewall lane's verdict
-# (`firewall-20261009080610-2829523`, 36/36 at 9940561, the release 1.1.0
-# successor batch; first certified by `firewall-20261008094055-2092337`), as are the builder and
-# the export chain, so the composition lives here, in a file no lane binds.
+# `firewall_policy.py` is bound by the firewall lane's live verdict (lane
+# `firewall-policy-gpmc`; the release evidence document names its certifying
+# run and commit), as are the builder and the export chain, so the composition
+# lives here, in a file no lane binds. This file names no run: every release
+# requalifies the lane, and shipped code must not cite a run the next batch
+# retires.
 # The render endpoint emits exactly what `to_registry_settings` emits, in the
 # shape `POST /api/gpos/{guid}/settings` accepts; it never writes a GPO.
 # `tests/test_firewall_surface.py` holds its output for the certified request
@@ -6399,7 +6416,6 @@ class FirewallPolicyDecodeResponse(BaseModel):
     limitations: list[FirewallLimitation]
 
 
-_FIREWALL_RUN_ID = "firewall-20261009080610-2829523"
 _FIREWALL_RENDER_GPO_GUID = "00000000-0000-4000-8000-000000000f1e"
 _FIREWALL_RULES_KEY = (FIREWALL_KEY + "\\FirewallRules").casefold()
 
@@ -6410,7 +6426,8 @@ def _firewall_limitations(*, unmodeled_tokens: bool = False) -> list[dict[str, s
         {
             "code": "policy_store_readback_not_application",
             "message": (
-                f"The certification behind this surface ({_FIREWALL_RUN_ID}) "
+                "The certification behind this surface (the firewall-policy-gpmc "
+                f"lane, whose certifying run {RELEASE_EVIDENCE} names) "
                 "reads policy back from the GPO: Windows' Registry.pol, the "
                 "NetSecurity cmdlets against -PolicyStore, and Get-GPOReport. "
                 "Nothing was linked and no endpoint processed the policy, so "
@@ -6662,12 +6679,11 @@ _ROUTE_LIMITATIONS["/api/gpos/{guid}/firewall-policy"] = _firewall_limitations
 # scope. That last part is `lifecycle.SCOPE_SURVIVAL`. The module's own
 # docstring still calls the table "predictions", because `lifecycle.py` is
 # bound by the lane and cannot be edited without expiring it. The lane has
-# since measured every cell: `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
-# agreed with all 30 (docs/plan-033/lifecycle-results.md), the release 1.1.0
-# batch's `lifecycle-20261009001644-6217-f2f5047fed814807` agreed again, and
-# `tests/test_lifecycle_verdict.py` holds the table equal to what the current
-# run observed. That is why each cell this endpoint returns is marked measured and
-# cites the run.
+# since measured every cell, in every batch that ran it
+# (docs/plan-033/lifecycle-results.md), and `tests/test_lifecycle_verdict.py`
+# holds the table equal to what the current run observed. That is why each cell
+# this endpoint returns is marked measured and cites the lane and the release
+# evidence document, which names the lane's certifying run and commit.
 #
 # The lane measured operations over a backup Windows wrote with `Backup-GPO`,
 # so the plan is built only for a workspace GPO that IS such a backup's
@@ -6696,13 +6712,14 @@ _ROUTE_LIMITATIONS["/api/gpos/{guid}/firewall-policy"] = _firewall_limitations
 # offline, and the operator runs the cmdlet.
 # --------------------------------------------------------------------------
 
-#: The certifying run the survival cells are cited from. Held equal to the
-#: banked verdict by `tests/test_lifecycle_restore_plan_surface.py`.
-LIFECYCLE_VERDICT_RUN_ID = "lifecycle-20261009001644-6217-f2f5047fed814807"
-LIFECYCLE_VERDICT_COMMIT = "de9736ed3a4148b91cf2267fbe4640e260cc232f"
-LIFECYCLE_VERDICT_PATH = (
-    "docs/plan-033/wp7-evidence/release110-20261009/lifecycle/verification.json"
-)
+#: The lane the survival cells are cited from (its `lane_id` in
+#: `tests/fixtures/scenarios/platforms.json`). The response cites the lane and
+#: RELEASE_EVIDENCE, never a run id: every release requalifies the lane, and a
+#: run named here would be retired by the next batch while this file ships
+#: (Plan 036, the D-9 addendum). `tests/test_lifecycle_restore_plan_surface.py`
+#: holds the cells equal to the current run's verdict, and that the release
+#: evidence document names that run.
+LIFECYCLE_LANE = "lifecycle-same-domain"
 
 #: The provenance line `import_gpmc_backup` writes into an imported GPO's
 #: description. Archived imports are immutable, so it is still the backup's id.
@@ -6749,9 +6766,8 @@ class LifecycleSurvivalCell(BaseModel):
 
 class LifecycleEvidence(BaseModel):
     lane: str
-    run_id: str
-    commit: str
-    verdict: str
+    #: The release evidence document that names the lane's certifying run.
+    release_evidence: str
     cells_measured: int
     cells_agreeing: int
 
@@ -7008,10 +7024,8 @@ def lifecycle_restore_plan(
         "warnings": warnings,
         "survival": survival,
         "evidence": {
-            "lane": "lifecycle-same-domain",
-            "run_id": LIFECYCLE_VERDICT_RUN_ID,
-            "commit": LIFECYCLE_VERDICT_COMMIT,
-            "verdict": LIFECYCLE_VERDICT_PATH,
+            "lane": LIFECYCLE_LANE,
+            "release_evidence": RELEASE_EVIDENCE,
             "cells_measured": cells,
             "cells_agreeing": cells,
         },
