@@ -395,11 +395,12 @@ def _live_runs() -> dict[str, tuple[str, str]]:
 
 
 #: The only files `retarget` may rewrite: records that state the CURRENT
-#: qualification and nothing else. Results docs, the capability matrix and the
+#: qualification and nothing else. README.md was one until 2026-10-17: it is the
+#: wheel's long description, so it is frozen at a release's freeze commit and
+#: names no run (final-r1 B2). Results docs, the capability matrix and the
 #: environment spec mix current claims with history, so they are edited by hand.
 RETARGETABLE = frozenset({
     "tests/fixtures/scenarios/platforms.json",
-    "README.md",
 })
 #: Never retargetable, named so the refusal says why: evidence, batch manifests,
 #: the work-item register, the changelog and results/history prose.

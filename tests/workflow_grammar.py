@@ -2250,6 +2250,20 @@ REVIEWED_TOOL: dict[str, Any] = {
                         "dist/",
                         "dist-repro/",
                         "build/",
+                        # Post-freeze records and evidence (final-r1 B2).
+                        "/docs/plan-033/*-evidence/",
+                        "/docs/plan-033/*-cleanup/",
+                        "/docs/plan-033/*-batch.json",
+                        "/docs/plan-033/*-batch.md",
+                        "/docs/plan-033/*-results.md",
+                        "/docs/plan-033/environment-spec.md",
+                        "/docs/plan-033/bound-source-cost.md",
+                        "/docs/plan-033/verdict-registry.json",
+                        "/docs/capability-matrix.md",
+                        "/docs/work-items.md",
+                        "/docs/release-evidence-*.md",
+                        "/docs/release-evidence-report-*.json",
+                        "/tests/fixtures/scenarios/platforms.json",
                     ]
                 },
             }

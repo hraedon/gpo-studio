@@ -299,6 +299,8 @@ def test_stage_refuses_a_lane_the_driver_does_not_run(
         "docs/plan-033/wp4-evidence/fdeploy/verification.json",
         "docs/work-items.md",
         "CHANGELOG.md",
+        # Final-r1 B2: the wheel's long description, frozen at the freeze commit.
+        "README.md",
         "docs/plan-033/report-parity-results.md",
         "docs/capability-matrix.md",
         "docs/plan-033/environment-spec.md",
@@ -310,13 +312,13 @@ def test_retarget_refuses_every_file_off_its_allowlist(relative: str) -> None:
     before = target.read_bytes()
     args = argparse.Namespace(
         manifest=str(ROOT / "docs/plan-033/release110-batch.json"),
-        files=["README.md", str(target)],
+        files=["tests/fixtures/scenarios/platforms.json", str(target)],
     )
-    readme = (ROOT / "README.md").read_bytes()
+    platforms = (ROOT / "tests/fixtures/scenarios/platforms.json").read_bytes()
     with pytest.raises(SystemExit, match="REFUSE"):
         TOOL["retarget"](args)
     assert target.read_bytes() == before
-    assert (ROOT / "README.md").read_bytes() == readme
+    assert (ROOT / "tests/fixtures/scenarios/platforms.json").read_bytes() == platforms
 
 
 def test_retarget_refuses_a_file_outside_the_repository(tmp_path: Path) -> None:
