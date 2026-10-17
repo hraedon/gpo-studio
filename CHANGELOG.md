@@ -148,6 +148,28 @@ Operator-facing:
   temporary git repositories. The owner's hands-on NVDA acceptance is waived
   for 1.1.0 and recorded as not run. `release-evidence-1.1.0.md` now gives one
   approval sequence, which agrees with Plan 036.
+- **The restore plan and the firewall surface cite the lane and the release
+  evidence document instead of a run id.** `POST /api/lifecycle/restore-plan`'s
+  `evidence` object loses `run_id`, `commit` and `verdict` and gains
+  `release_evidence` (`docs/release-evidence-X.Y.Z.md` for the running
+  version, which names the lane's certifying run and commit); `lane`,
+  `cells_measured` and `cells_agreeing` are unchanged, as is every survival
+  cell. The firewall endpoints' `policy_store_readback_not_application`
+  limitation names the `firewall-policy-gpmc` lane and that document instead
+  of a run id; its code is unchanged. Shipped code named runs that the next
+  batch retires, and the final-tag gate forbids editing `src/` after the freeze
+  commit to re-point them. No frontend reads these fields.
+- Preparing the freeze commit: banked batches keep their bytes by a
+  `.gitattributes` pattern instead of a rule per batch label (no tracked file's
+  attributes change); the evidence tests read "the current batch" from the
+  release evidence report's `freeze` (`tests/current_qualification.py`), so
+  banking a new batch needs no test edit, and new tests check a freeze batch
+  once one exists; a verdict that still matches the tree may be retired only
+  when its lane's freeze-batch run replaced it; the capability matrix header no
+  longer names `1.1.0` in prose (its test now ignores link destinations); and
+  `bank-requal-batch.py manifest` refuses to run without `--cleanup` (the
+  post-batch directory check the gate requires) unless told
+  `--without-cleanup`.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

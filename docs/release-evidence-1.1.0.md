@@ -38,10 +38,18 @@ commit or action, in this order:
    41 minutes on the release candidate batch's durations), followed by the
    post-batch directory check.
 3. **Bank, commit B, whose parent is F.** `scripts/plan-033/bank-requal-batch.py`
-   stages the packs and writes the batch manifest; the commit also retires
-   every earlier live verdict in the registry's verdict tables, updates the
-   records that cite the runs (this file among them), and sets the JSON
-   report's `freeze` to F's full commit and the batch manifest's path.
+   stages the packs (`stage`) and writes the batch manifest (`manifest`, which
+   refuses to run without `--cleanup` naming the post-batch directory check,
+   because the gate requires one). Then, in this order: `retarget` points
+   `platforms.json` and `README.md` at the new runs (it swaps the runs that are
+   live, so it runs before the registry changes); the registry's verdict tables
+   register the new verdicts, retire every earlier live one and point
+   `WP0_MANIFEST` at the new WP-0 manifest; the records that cite runs are
+   edited by hand (this file, the JSON report's evidence, the environment spec,
+   the capability matrix, the lane results documents, the changelog), and
+   `report-bound-source-cost.py --write` regenerates the cost table; and the
+   JSON report's `freeze` is set to F's full commit and the batch manifest's
+   path. No test changes: the tests read the current batch from `freeze`.
 4. **Approve, commit A, after B.** Records only: in the JSON report, set
    `"version"` to `1.1.0` and `"status"` to `"approved"`, and replace line 5 of
    this file with the line `STATUS_LINES` in `scripts/check_release_manifest.py`
@@ -64,20 +72,29 @@ records one commit, and Plan 036's WP-0 order, which put the version bump in a
 first freeze and approval after a partial requalification. Both are kept in
 Plan 036's history.
 
-**Preparation that must be in F**, because the gate refuses any later change to
-it:
+**Preparation that had to land before F**, because the gate refuses any later
+change to it, is done (2026-10-17, on the branch that added the gate):
 
-- a `.gitattributes` rule that keeps the batch's pack label byte-exact (each
-  release candidate batch added one when it was banked);
-- the tests that check the new batch, reading it from the batch manifest the
-  report's `freeze` names rather than from a fixed file name, and tests that
-  name a release candidate batch as the current one made to accept a later
-  batch;
-- the lane citations in `src/gpo_studio/api.py`: it names the release
-  candidate's lifecycle and firewall runs as the certifying runs, and the batch
-  at F retires them. Either the citation stops naming a run in shipped code, or
-  it keeps naming the release candidate runs, which stay banked and true as
-  history, and its test is changed in F to read them so.
+- `.gitattributes` keeps any batch's packs and post-batch check byte-exact by
+  pattern (`docs/plan-033/*-evidence/*/*/**` and `docs/plan-033/*-cleanup/**`),
+  so a new label needs no rule; it changed the attributes of no tracked file
+  (`tests/test_evidence_pack_attributes.py`);
+- the tests read the current batch from the report's `freeze`
+  (`tests/current_qualification.py`): the release candidate batches until a
+  freeze batch is banked, that batch after, which `tests/test_current_qualification.py`
+  checks the way the release candidate batch tests check theirs. Retiring a
+  verdict that still matches the tree is accepted only for a lane the freeze
+  batch re-ran;
+- `src/gpo_studio/api.py` names no run: the restore plan's `evidence` and the
+  firewall limitation cite the lane and this document, which names its
+  certifying run.
+
+So the freeze commit itself changes only `__version__`, `CHANGELOG.md`,
+`SECURITY.md` and the release text in this file and the JSON report. A dry run
+of the whole sequence in a scratch clone (a synthetic batch in the bank tool's
+layout, banked with its `manifest` and `retarget`) passed the gate on A and the
+full suite at F, and the gate refused the same A with one line added to a file
+under `src/` in B.
 
 **A release candidate** is still approved with two edits in one commit: in the
 JSON report, `"status"` set to `"candidate"` and `"version"` to the exact

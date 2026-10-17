@@ -637,7 +637,8 @@ REGISTRY = "tests/test_committed_evidence.py"
 #: ``{base}`` is the version being released. Deliberately left
 #: out, although that banking touched them: ``.gitattributes`` (it decides the
 #: bytes every checkout writes, src/ included, so the pack label's rule must be
-#: in F); ``src/gpo_studio/api.py`` (it cites run ids, but it ships); every test
+#: in F; a pattern covers every batch since 2026-10-17); ``src/gpo_studio/api.py``
+#: (it ships; it cites the lane and the release evidence, never a run id); every test
 #: but the registry's verdict tables (they are code CI runs on the tag); the
 #: bank and driver tools under scripts/. Packs, the batch manifest and its note,
 #: and the post-batch directory check are not listed: they are derived from the

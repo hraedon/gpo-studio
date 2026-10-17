@@ -585,13 +585,14 @@ closure gate and no pin:
    byte-identical to `F`; and every live verdict, WP-0's manifest included, is
    the batch's run of its lane, earned at `F` from a clean tree, covering every
    lane live at `F`. The release workflow checks out full history for it. Three
-   things therefore have to be in `F`, because nothing after `F` may change
-   them: a `.gitattributes` rule for the batch's pack label; the tests that
-   read the batch (written against the batch manifest the report's `freeze`
-   names, not a fixed file name, because the batch tests are code); and
-   whatever `src/gpo_studio/api.py` cites as a lane's certifying run (today it
-   names the 1.1.0rc1 lifecycle and firewall runs, which the batch at `F` will
-   retire).
+   things therefore had to be in place before `F`, because nothing after `F`
+   may change them, and all three landed with the gate (2026-10-17): a
+   `.gitattributes` pattern that covers any batch's packs; tests that read the
+   current batch from the report's `freeze` (`tests/current_qualification.py`)
+   instead of a fixed file name; and `src/gpo_studio/api.py` citing the lane
+   and the release evidence document instead of a 1.1.0rc1 run id. `F` itself
+   then changes only the version, `CHANGELOG.md`, `SECURITY.md` and the release
+   text.
 
 Every 1.1.0 live verdict is then earned by the tree that ships. The residual is
 the one every batch has: inputs outside the tree (the controller's toolchain
