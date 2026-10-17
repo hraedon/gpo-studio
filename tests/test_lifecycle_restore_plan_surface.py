@@ -151,13 +151,43 @@ def test_the_citation_names_the_current_run_through_the_release_evidence() -> No
     verdict = _verdict()
     assert verdict["passed"] is True and verdict["predictions_agree"] is True
     assert api.LIFECYCLE_LANE == "lifecycle-same-domain"
-    document = (ROOT / api.RELEASE_EVIDENCE).read_text(encoding="utf-8")
+    document = (ROOT / _release_evidence_path()).read_text(encoding="utf-8")
     assert verdict["run_id"] in document
     platforms = json.loads(
         (ROOT / "tests/fixtures/scenarios/platforms.json").read_text(encoding="utf-8")
     )
     lane = next(lane for lane in platforms["lanes"] if lane["lane_id"] == api.LIFECYCLE_LANE)
     assert verdict["run_id"] in lane["notes"]
+
+
+def _release_evidence_path() -> str:
+    """The repository path the API's release-evidence URL serves at its tag."""
+    match = re.fullmatch(
+        r"https://github\.com/hraedon/gpo-studio/blob/(v[0-9.]+(?:-rc\.[1-9][0-9]*)?)/"
+        r"(docs/release-evidence-[0-9.]+\.md)",
+        api.RELEASE_EVIDENCE,
+    )
+    assert match is not None, api.RELEASE_EVIDENCE
+    return match.group(2)
+
+
+@pytest.mark.parametrize(
+    ("version", "url"),
+    [
+        ("1.1.0", "https://github.com/hraedon/gpo-studio/blob/v1.1.0/docs/release-evidence-1.1.0.md"),
+        ("1.1.0rc1",
+         "https://github.com/hraedon/gpo-studio/blob/v1.1.0-rc.1/docs/release-evidence-1.1.0.md"),
+        ("1.2.3rc12",
+         "https://github.com/hraedon/gpo-studio/blob/v1.2.3-rc.12/docs/release-evidence-1.2.3.md"),
+    ],
+)
+def test_the_release_evidence_url_is_the_document_at_the_version_tag(
+    version: str, url: str
+) -> None:
+    """Final-r1 N1/N6: resolvable with only the installed wheel, at the release's tag."""
+    assert api._release_evidence(version) == url
+    with pytest.raises(ValueError):
+        api._release_evidence("1.1.0.dev1")
 
 
 def test_shipped_code_names_no_lifecycle_or_firewall_run() -> None:

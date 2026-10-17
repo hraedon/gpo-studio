@@ -255,12 +255,24 @@ from .xml_safety import unwritable_text
 STATIC = Path(__file__).with_name("static")
 
 
+#: Where the public repository serves a tagged file.
+_RELEASE_SOURCE = "https://github.com/hraedon/gpo-studio/blob"
+
+
 def _release_evidence(version: str) -> str:
-    """The release evidence document for ``version`` (``X.Y.Z`` or ``X.Y.ZrcN``)."""
-    match = re.match(r"\d+\.\d+\.\d+", version)
+    """The release evidence document for ``version``, at that version's tag.
+
+    ``X.Y.Z`` is tagged ``vX.Y.Z`` and ``X.Y.ZrcN`` ``vX.Y.Z-rc.N`` (the release
+    gate holds the tag to the version). A URL rather than a repository path, so
+    that someone with only the installed wheel can open it (final-r1 N1/N6): the
+    wheel does not carry ``docs/``.
+    """
+    match = re.fullmatch(r"(\d+\.\d+\.\d+)(?:rc([1-9]\d*))?", version)
     if match is None:
         raise ValueError(f"not a release version: {version!r}")
-    return f"docs/release-evidence-{match.group(0)}.md"
+    base, candidate = match.groups()
+    tag = f"v{base}" + (f"-rc.{candidate}" if candidate else "")
+    return f"{_RELEASE_SOURCE}/{tag}/docs/release-evidence-{base}.md"
 
 
 #: The document that names each lane's certifying run and commit for this
@@ -6766,7 +6778,8 @@ class LifecycleSurvivalCell(BaseModel):
 
 class LifecycleEvidence(BaseModel):
     lane: str
-    #: The release evidence document that names the lane's certifying run.
+    #: URL of the release evidence document, at this version's tag, that names the
+    #: lane's certifying run and commit.
     release_evidence: str
     cells_measured: int
     cells_agreeing: int
