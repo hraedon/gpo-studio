@@ -578,26 +578,35 @@ closure gate and no pin:
    and recorded as not run, so approval does not wait for it.
 5. **Tag `v1.1.0` on `A`**, on `main`.
 6. **What makes it hold.** For a final tag, `scripts/check_release_manifest.py`
-   refuses unless `F` is an ancestor of the tagged commit; `git diff F` touches
-   only the batch's banked files (added) and a closed list of release records
-   (modified), so `src/`, `scripts/`, `pyproject.toml`, `uv.lock`, `.github/`,
-   `.gitattributes` and every test but the registry's verdict tables are
-   byte-identical to `F`; and every live verdict, WP-0's manifest included, is
-   the batch's run of its lane, earned at `F` from a clean tree, covering every
-   lane live at `F`. The release workflow checks out full history for it. Three
-   things therefore had to be in place before `F`, because nothing after `F`
-   may change them, and all three landed with the gate (2026-10-17): a
-   `.gitattributes` pattern that covers any batch's packs; tests that read the
-   current batch from the report's `freeze` (`tests/current_qualification.py`)
-   instead of a fixed file name; and `src/gpo_studio/api.py` citing the lane
-   and the release evidence document instead of a 1.1.0rc1 run id. `F` itself
-   then changes only the version, `CHANGELOG.md`, `SECURITY.md` and the release
-   text.
+   refuses unless the history from `F` is linear and is `B` (banking, `F`'s
+   child), records-only commits and `A` (the approval, the tagged commit); the
+   tagged tree differs from `F` only in the batch's banked files (added) and a
+   closed list of release records (modified), so `src/`, `scripts/`,
+   `pyproject.toml`, `uv.lock`, `.github/`, `.gitattributes`, `README.md`,
+   `CHANGELOG.md` and every test are byte-identical to `F`; the verdict
+   registry (data, `docs/plan-033/verdict-registry.json`) only adds the batch's
+   verdicts with the finalizers their lanes had at `F`; and every live verdict,
+   WP-0's manifest included, is the batch's run of its lane, recorded at `F`
+   from a clean tree, with its `evidence/` tag at `F`, covering every lane live
+   at `F`. The release workflow checks out full history for it. What had to be
+   in place before `F`, because nothing after `F` may change it, landed with the
+   gate (2026-10-17; the first review round added the last three): a
+   `.gitattributes` pattern covering any batch's packs; tests that read the
+   current batch from the report's `freeze`; `src/gpo_studio/api.py` and
+   `README.md` naming no run; the verdict tables as data; and an sdist that
+   excludes every path that may change after `F`. `F` itself then changes only
+   the version, `CHANGELOG.md`, `SECURITY.md` and the release text.
 
-Every 1.1.0 live verdict is then earned by the tree that ships. The residual is
-the one every batch has: inputs outside the tree (the controller's toolchain
-and the estate) are what they were during the batch, and are not pinned by the
-tag.
+What the gate proves is that the tagged tree is `F` plus internally consistent
+evidence that records a run of every lane at `F`, reached in that order. It
+does not authenticate the estate runs: both final-r1 reviewers showed that a
+careful forgery of the banked files and tags passes, and that is inherent to a
+check over committed files. Estate provenance rests on the batch controller's
+transcripts (each pack's `controller.log`, and the batch directory on the
+controller) and the two-reviewer review of the banking PR (coordinator ruling,
+2026-10-17). The other residual is the one every batch has: inputs outside the
+tree (the controller's toolchain and the estate) are what they were during the
+batch, and are not pinned by the tag.
 
 ### The four parts
 
@@ -2048,10 +2057,12 @@ in 106"); each decision is recorded below.
   (the full batch), are banked in an evidence-only `B` whose parent is `F`,
   approved in a records-only `A`, and `v1.1.0` is tagged on `A`
   ([the order](#addendum-2026-10-17-the-110-order-without-wp-0)). Every live
-  verdict then binds the shipping tree by construction: no file any lane could
-  read, bound or not, differs between its verdict's commit and the tag, so the
-  question WI-083 asks of a hand-written binding does not arise for 1.1.0.
-  `scripts/check_release_manifest.py` checks that mechanically for a final tag.
+  verdict then records the shipping tree: no file any lane could read, bound or
+  not, differs between its verdict's commit and the tag, so the question WI-083
+  asks of a hand-written binding does not arise for 1.1.0.
+  `scripts/check_release_manifest.py` checks the tree, the order of the commits
+  and the evidence's consistency for a final tag; that the estate produced the
+  evidence rests on the controller transcripts and the banking review.
 
   Why. WP-0 (branch `wp0/live-closure`, `432c751`, pushed) went through seven
   two-lineage review rounds, and each round found a new class of escape: in

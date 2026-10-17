@@ -3861,11 +3861,16 @@ whose parent is `F` and which changes only evidence and records; every earlier
 live verdict is retired, so every live verdict and the WP-0 manifest name `F`;
 the release evidence report records `F` and the batch manifest (`freeze`); and
 `check_release_manifest.py` accepts the final tag on the records-only approval
-commit after `B`. That check refuses a final tag whose tree differs from `F`
-outside the batch's banked files and the release records, or any live verdict
-not earned at `F` (`tests/test_release_freeze_gate.py`). It closes the defect
-for 1.1.0 only: a release that does not re-run every lane meets the
-hand-written binding again, which is WI-084's (WP-0 and R4b).
+commit after `B`. That check refuses a final tag whose history from `F` is not
+`B`, records-only commits and `A`, whose tree differs from `F` outside the
+batch's banked files and the release records, or whose live verdicts are not
+the batch's runs recorded at `F` with their evidence tags
+(`tests/test_release_freeze_gate.py`). What the check proves is that the tree
+is `F` plus consistent evidence recorded at `F`; that the estate produced the
+evidence rests on the controller transcripts and the banking review (ruled
+2026-10-17 on the final-r1 reviews). It closes the defect for 1.1.0 only: a
+release that does not re-run every lane meets the hand-written binding again,
+which is WI-084's (WP-0 and R4b).
 
 ## WI-084 — a bound-file change costs more than it needs to
 

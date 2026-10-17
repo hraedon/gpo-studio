@@ -136,12 +136,18 @@ Operator-facing:
   work under WI-084. The release evidence report gains `freeze` (the commit F
   and its batch manifest; report schema 3), which an approved report must
   carry. For a final tag only, `scripts/check_release_manifest.py` now
-  refuses unless F is an ancestor of the tagged commit, the tagged tree differs
-  from F only in the batch's banked files and a closed list of release records
-  (so `src/`, `scripts/`, `pyproject.toml`, `uv.lock`, `.github/`,
-  `.gitattributes` and every test but the verdict tables are byte-identical to
-  F), and every live verdict and the WP-0 manifest were earned at F by the
-  batch, covering every lane live at F. It needs full history, so the release
+  refuses unless the history from F is linear and is the banking commit, any
+  records-only commits and the approval commit (the tagged one, changing only
+  the approval); the tagged tree differs from F only in the batch's banked
+  files and a closed list of release records (so `src/`, `scripts/`,
+  `pyproject.toml`, `uv.lock`, `.github/`, `.gitattributes`, `README.md`,
+  `CHANGELOG.md` and every test are byte-identical to F); the verdict registry
+  only adds the batch's verdicts with their lanes' finalizers at F; and every
+  live verdict and the WP-0 manifest is the batch's run, recorded at F, with
+  its `evidence/` tag at F, covering every lane live at F. It proves the tree
+  is F plus consistent evidence recorded at F, not that the estate produced
+  the evidence, which rests on the controller transcripts and the banking
+  review. It needs full history, so the release
   `publish` job now checks out with `fetch-depth: 0` as `release-identity`
   already did; a shallow clone is refused. Release candidate tags are checked
   as before. `tests/test_release_freeze_gate.py` holds each refusal against
@@ -151,12 +157,13 @@ Operator-facing:
 - **The restore plan and the firewall surface cite the lane and the release
   evidence document instead of a run id.** `POST /api/lifecycle/restore-plan`'s
   `evidence` object loses `run_id`, `commit` and `verdict` and gains
-  `release_evidence` (`docs/release-evidence-X.Y.Z.md` for the running
-  version, which names the lane's certifying run and commit); `lane`,
+  `release_evidence`, the URL of the release evidence document at the running
+  version's tag (`https://github.com/hraedon/gpo-studio/blob/vX.Y.Z/docs/release-evidence-X.Y.Z.md`),
+  which names the lane's certifying run and commit; `lane`,
   `cells_measured` and `cells_agreeing` are unchanged, as is every survival
   cell. The firewall endpoints' `policy_store_readback_not_application`
-  limitation names the `firewall-policy-gpmc` lane and that document instead
-  of a run id; its code is unchanged. Shipped code named runs that the next
+  limitation names the `firewall-policy-gpmc` lane and that URL instead of a
+  run id; its code is unchanged. Shipped code named runs that the next
   batch retires, and the final-tag gate forbids editing `src/` after the freeze
   commit to re-point them. No frontend reads these fields.
 - Preparing the freeze commit: banked batches keep their bytes by a
@@ -170,6 +177,18 @@ Operator-facing:
   `bank-requal-batch.py manifest` refuses to run without `--cleanup` (the
   post-batch directory check the gate requires) unless told
   `--without-cleanup`.
+- After the first review of that preparation (final-r1): the verdict tables
+  moved out of `tests/test_committed_evidence.py` into
+  `docs/plan-033/verdict-registry.json` (canonical ASCII JSON), so banking
+  edits data, never a Python file, and the module refuses to run a finalizer
+  that is not a bare `finalize_*.py` in `scripts/windows-oracle/`; the sdist
+  no longer carries the release records or any banked evidence (about 6,000
+  files), so the distributions built at a final tag are the ones built at its
+  freeze commit (`tests/test_release_artifacts_from_freeze.py`); `README.md`
+  names no run, and `retarget` no longer rewrites it (README is the wheel's
+  long description); the release gate refuses an approved release that still
+  lists an item as pending; and its remote-tag check accepts the annotated tag
+  object as well as the commit, for whichever `GITHUB_SHA` carries.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no
