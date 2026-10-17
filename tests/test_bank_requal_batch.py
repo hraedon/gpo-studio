@@ -56,7 +56,19 @@ def _progress(tmp_path: Path, rows: list[dict[str, Any]]) -> argparse.Namespace:
     )
     (tmp_path / "stage-report.json").write_text(json.dumps({"lanes": {}}), encoding="utf-8")
     return argparse.Namespace(scratch=str(tmp_path), out=str(tmp_path / "out.json"),
-                              superseded_attempt=None, cleanup=None)
+                              superseded_attempt=None, cleanup=None, without_cleanup=True)
+
+
+def test_a_batch_without_its_post_batch_check_is_refused(tmp_path: Path) -> None:
+    """The final-tag gate requires the check, so the tool asks for it by default."""
+    args = _progress(tmp_path, [_row("wp1b")])
+    args.without_cleanup = False
+    with pytest.raises(SystemExit, match="REFUSE: no --cleanup"):
+        TOOL["manifest"](args)
+    args.cleanup = "x-cleanup"
+    args.without_cleanup = True
+    with pytest.raises(SystemExit, match="together"):
+        TOOL["manifest"](args)
 
 
 def _row(name: str, commit: str = "a" * 40, **overrides: Any) -> dict[str, Any]:

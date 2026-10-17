@@ -37,7 +37,7 @@ which is RAM on the dev boxes).
         --label release110-20261009 --scratch ~/wt/scratch/release110b
     python scripts/plan-033/bank-requal-batch.py manifest \\
         --scratch ~/wt/scratch/release110b --out docs/plan-033/release110-batch.json \\
-        [--superseded-attempt attempt.json] [--cleanup release110-cleanup]
+        --cleanup release110-cleanup [--superseded-attempt attempt.json]
     python scripts/plan-033/bank-requal-batch.py retarget \\
         --manifest docs/plan-033/release110-batch.json tests/fixtures/scenarios/platforms.json
 """
@@ -292,6 +292,20 @@ def stage(args: argparse.Namespace) -> int:
 
 
 def manifest(args: argparse.Namespace) -> int:
+    # The post-batch directory check is part of a batch, not an option on it: the
+    # final-tag release gate (scripts/check_release_manifest.py) refuses a batch
+    # manifest without one. Leaving it out takes an explicit --without-cleanup,
+    # and such a manifest can never back a final release.
+    if not args.cleanup and not getattr(args, "without_cleanup", False):
+        raise SystemExit(
+            "REFUSE: no --cleanup. A batch manifest records its post-batch directory "
+            "check (docs/plan-033/LABEL-cleanup/ with collector.ps1 and directory.json), "
+            "and the final-tag release gate refuses a batch without one. Run the "
+            "collector, bank its capture, and pass --cleanup LABEL-cleanup; "
+            "--without-cleanup is for a batch no final release will cite"
+        )
+    if args.cleanup and getattr(args, "without_cleanup", False):
+        raise SystemExit("REFUSE: --cleanup and --without-cleanup together")
     scratch = Path(args.scratch).expanduser().resolve()
     report = json.loads((scratch / "stage-report.json").read_text(encoding="utf-8"))
     rows = [json.loads(line) for line in
@@ -474,6 +488,10 @@ def main() -> int:
     p_manifest.add_argument("--out", required=True)
     p_manifest.add_argument("--superseded-attempt")
     p_manifest.add_argument("--cleanup", help="docs/plan-033 subdirectory of the post-batch check")
+    p_manifest.add_argument(
+        "--without-cleanup", action="store_true",
+        help="bank without a post-batch directory check (never for a final release's batch)",
+    )
     p_manifest.set_defaults(func=manifest)
     p_retarget = sub.add_parser("retarget", help="point current-qualification records at the batch")
     p_retarget.add_argument("--manifest", required=True)
