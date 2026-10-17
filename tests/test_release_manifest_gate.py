@@ -48,6 +48,7 @@ gate = _load_gate()
 #: A well-formed freeze record. An approved report must carry one; the commit is
 #: checked against git only by ``verify_freeze`` (tests/test_release_freeze_gate.py).
 FREEZE = {"commit": "1" * 40, "batch_manifest": "docs/plan-033/final-batch.json"}
+CLOSED_ITEM = "Done; the owner's hands-on NVDA acceptance is waived for 1.1.0 and not run."
 
 
 def _root(tmp_path: Path, version: str) -> Path:
@@ -135,11 +136,15 @@ def _approve(manifest: Path, report: Path, status: str, version: str) -> None:
     For a final release the banking commit has already recorded ``freeze``.
     """
     data = json.loads(report.read_text(encoding="utf-8"))
+    lines = manifest.read_text(encoding="utf-8").split("\n")
     if status == "approved":
         data["freeze"] = FREEZE
+        # A closes every remaining item: done, or waived and recorded as not run.
+        data["evidence"]["remaining_before_approval"] = [CLOSED_ITEM]
+        start, end = gate._remaining_section(lines)
+        lines[start + 1 : end] = ["", f"1. {CLOSED_ITEM}", ""]
     data["status"], data["version"] = status, version
     report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
-    lines = manifest.read_text(encoding="utf-8").split("\n")
     lines[4] = gate.STATUS_LINES[status]
     manifest.write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
@@ -224,6 +229,27 @@ def test_approving_only_one_of_the_two_files_is_refused(tmp_path: Path) -> None:
         gate.check(root, "v1.1.0")
     _release(root, "1.1.0", "draft", line5=gate.APPROVED)
     with pytest.raises(gate.ReleaseGateError, match="status is 'draft'"):
+        gate.check(root, "v1.1.0")
+
+
+def test_an_approved_release_lists_nothing_as_pending(tmp_path: Path) -> None:
+    """DeepSeek final-r1 N7: approval closes every remaining item in both records."""
+    root = _root(tmp_path, "1.1.0")
+    manifest, report = _committed(root)
+    _approve(manifest, report, "approved", "1.1.0")
+    gate.check(root, "v1.1.0")
+    data = json.loads(report.read_text(encoding="utf-8"))
+    data["evidence"]["remaining_before_approval"].append("final approval (pending)")
+    report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+    with pytest.raises(gate.ReleaseGateError, match="still lists items as pending"):
+        gate.check(root, "v1.1.0")
+    data["evidence"]["remaining_before_approval"].pop()
+    report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+    text = manifest.read_text(encoding="utf-8").replace(
+        f"1. {CLOSED_ITEM}", f"1. {CLOSED_ITEM}\n2. **Pending.** The tag."
+    )
+    manifest.write_text(text, encoding="utf-8", newline="\n")
+    with pytest.raises(gate.ReleaseGateError, match="still lists items as pending"):
         gate.check(root, "v1.1.0")
 
 
@@ -870,6 +896,30 @@ def test_the_remote_tag_must_peel_to_the_built_commit(
     with pytest.raises(gate.ReleaseGateError, match="tag moved"):
         gate.verify_remote_tag(work, "origin", "v1.1.0", first)
     gate.verify_remote_tag(work, "origin", "v1.1.0", second)
+
+
+def test_the_remote_tag_check_accepts_the_tag_object_or_its_commit(
+    tagged_remote: tuple[Path, str, str],
+) -> None:
+    """DeepSeek final-r1 N8: whichever GITHUB_SHA carries for an annotated tag.
+
+    For a pushed tag, GITHUB_SHA may be the commit or, for an annotated tag, the
+    tag object; this was not verified against GitHub here. The check accepts
+    either while the tag still names the built commit, and a moved tag matches
+    neither.
+    """
+    work, first, second = tagged_remote
+    _git(work, "tag", "-a", "-m", "release", "v1.1.0", first)
+    _git(work, "push", "-q", "origin", "refs/tags/v1.1.0")
+    tag_object = _git(work, "rev-parse", "refs/tags/v1.1.0")
+    assert tag_object != first
+    gate.verify_remote_tag(work, "origin", "v1.1.0", first)
+    gate.verify_remote_tag(work, "origin", "v1.1.0", tag_object)
+    _git(work, "tag", "-f", "-a", "-m", "moved", "v1.1.0", second)
+    _git(work, "push", "-q", "-f", "origin", "refs/tags/v1.1.0")
+    for stale in (first, tag_object):
+        with pytest.raises(gate.ReleaseGateError, match="tag moved"):
+            gate.verify_remote_tag(work, "origin", "v1.1.0", stale)
 
 
 def test_a_missing_remote_tag_or_unreadable_remote_fails_closed(

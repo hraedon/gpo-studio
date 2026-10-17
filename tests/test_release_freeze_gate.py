@@ -103,8 +103,14 @@ def _commit(root: Path, files: dict[str, str | bytes | None], message: str) -> s
     return _git(root, "rev-parse", "HEAD")
 
 
+
 def _json(data: object) -> str:
     return json.dumps(data, indent=2) + "\n"
+
+
+def _registry_json(data: dict[str, Any]) -> str:
+    """The registry's canonical form (the gate refuses any other)."""
+    return json.dumps(data, indent=2, ensure_ascii=True) + "\n"
 
 
 # --- the history: R (an earlier batch) -> F -> B -> A ------------------------
@@ -117,6 +123,15 @@ LANES = {
 FINALIZERS = {"endpoint": "finalize_endpoint_run.py", "loopback-merge": "finalize_rsop_user_run.py"}
 LABEL = "final-20261020"
 BATCH = "docs/plan-033/final-batch.json"
+REGISTRY = "docs/plan-033/verdict-registry.json"
+REPORT = "docs/release-evidence-report-1.1.0.json"
+MANIFEST = "docs/release-evidence-1.1.0.md"
+CLOSED = "Done; the owner's hands-on NVDA acceptance is waived for 1.1.0 and not run."
+#: The registry module the tests run: identical in every commit, as the gate requires.
+REGISTRY_MODULE = (
+    '"""Loads docs/plan-033/verdict-registry.json."""\n\nimport json\n\n'
+    'DATA = json.load(open("docs/plan-033/verdict-registry.json"))\n'
+)
 
 
 def _verdict_path(lane: str, label: str) -> str:
@@ -143,45 +158,6 @@ def _verdict(lane: str, commit: str, run_id: str) -> dict[str, Any]:
     }
 
 
-#: Everything here but the registry's tables is identical in F and B, which is
-#: what lets the tables-only rule pass.
-_REGISTRY_TEMPLATE = '''"""A verdict registry shaped like tests/test_committed_evidence.py."""
-
-from __future__ import annotations
-
-LANE_VERDICTS = {{
-{lanes}}}
-RETIRED_VERDICTS: set[str] = set()
-{updates}
-PENDING_REQUALIFICATION: set[str] = set()
-
-#: The live WP-0 manifest.
-WP0_MANIFEST = "{wp0}"
-
-LIVE_VERDICTS = {{
-    relative: finalizer
-    for relative, finalizer in LANE_VERDICTS.items()
-    if relative not in RETIRED_VERDICTS
-    and relative not in PENDING_REQUALIFICATION
-}}
-
-
-def test_the_live_set_is_not_empty() -> None:
-    assert sorted(LIVE_VERDICTS.items())
-    assert len(set(LANE_VERDICTS)) >= len(RETIRED_VERDICTS)
-'''
-
-
-def _registry(updates: str, wp0_label: str) -> str:
-    lanes = "".join(
-        f"    '{_verdict_path(lane, 'rc')}': '{finalizer}',\n"
-        for lane, finalizer in FINALIZERS.items()
-    )
-    return _REGISTRY_TEMPLATE.format(
-        lanes=lanes, updates=updates, wp0=_verdict_path("wp0", wp0_label)
-    )
-
-
 @dataclass
 class Plan:
     """How to bank the batch at F. Each test changes one thing from the passing plan."""
@@ -190,9 +166,14 @@ class Plan:
     retire: tuple[str, ...] = tuple(FINALIZERS)
     verdict: Callable[[str, dict[str, Any], str, str], None] | None = None
     batch: Callable[[dict[str, Any], str], None] | None = None
+    registry: Callable[[dict[str, Any]], None] | None = None
+    #: Files written into B as well (None deletes); applied last.
     extra_banked: dict[str, str | bytes | None] = field(default_factory=dict)
     #: Lanes whose controller.log is already committed in F, byte for byte.
     carry_into_freeze: tuple[str, ...] = ()
+    #: lane -> commit its evidence tag names, or None for no tag; default F.
+    tags: dict[str, str | None] = field(default_factory=dict)
+    lightweight_tags: bool = False
 
 
 @dataclass
@@ -204,14 +185,49 @@ class History:
     approved: str
 
 
+def _approve_files(root: Path) -> dict[str, str | bytes | None]:
+    """The documented A: status, version, line 5 and the remaining items closed."""
+    report = json.loads((root / REPORT).read_text("utf-8"))
+    report["status"], report["version"] = "approved", "1.1.0"
+    report["evidence"]["remaining_before_approval"] = [CLOSED]
+    lines = (root / MANIFEST).read_text("utf-8").split("\n")
+    lines[4] = gate.APPROVED
+    start, end = gate._remaining_section(lines)
+    lines[start + 1 : end] = ["", f"1. {CLOSED}", ""]
+    return {REPORT: _json(report), MANIFEST: "\n".join(lines)}
+
+
+def _candidate_records() -> tuple[dict[str, Any], str]:
+    """The committed report and manifest, put back to a candidate's state.
+
+    The fixture copies the real files so the gate meets their real shape, but the
+    committed files move through the release (at A they are approved), so their
+    stage is set here: candidate, no freeze, one item still pending.
+    """
+    report = json.loads((REPO_ROOT / REPORT).read_text("utf-8"))
+    report.update(status="candidate", version="1.1.0rc1", freeze=None)
+    report["evidence"]["remaining_before_approval"] = ["final approval (pending)"]
+    lines = (REPO_ROOT / MANIFEST).read_text("utf-8").split("\n")
+    lines[4] = gate.CANDIDATE
+    start, end = gate._remaining_section(lines)
+    assert start < len(lines), "the manifest has no Remaining before approval section"
+    lines[start + 1 : end] = ["", "1. **Pending.** Final approval.", ""]
+    return report, "\n".join(lines)
+
+
 def _build(tmp_path: Path, plan: Plan | None = None) -> History:
     plan = plan or Plan()
     root = tmp_path / "repo"
     root.mkdir()
     _git(root, "init", "-q")
-    report = json.loads(
-        (REPO_ROOT / "docs" / "release-evidence-report-1.1.0.json").read_text("utf-8")
-    )
+    report, manifest_text = _candidate_records()
+    rc_registry: dict[str, Any] = {
+        "schema_version": 1,
+        "lane_verdicts": {_verdict_path(lane, "rc"): fin for lane, fin in FINALIZERS.items()},
+        "retired_verdicts": [],
+        "pending_requalification": [],
+        "wp0_manifest": _verdict_path("wp0", "rc"),
+    }
     common: dict[str, str | bytes | None] = {
         "src/gpo_studio/__init__.py": '"""GPO Studio."""\n\n__version__ = "1.1.0rc1"\n',
         "src/gpo_studio/core.py": "VALUE = 1\n",
@@ -230,11 +246,10 @@ def _build(tmp_path: Path, plan: Plan | None = None) -> History:
         "docs/plan-033/firewall-results.md": "# Firewall results\n",
         "tests/fixtures/scenarios/platforms.json": _json({"runs": ["rc"]}),
         "tests/test_other.py": "def test_other() -> None:\n    assert True\n",
-        "docs/release-evidence-1.1.0.md": (
-            REPO_ROOT / "docs" / "release-evidence-1.1.0.md"
-        ).read_bytes(),
-        "docs/release-evidence-report-1.1.0.json": _json(report),
-        "tests/test_committed_evidence.py": _registry("", "rc"),
+        "tests/test_committed_evidence.py": REGISTRY_MODULE,
+        MANIFEST: manifest_text,
+        REPORT: _json(report),
+        REGISTRY: _registry_json(rc_registry),
     }
     earlier = _commit(root, common, "R: an earlier batch's tree")
     rc_verdicts: dict[str, str | bytes | None] = {
@@ -294,35 +309,31 @@ def _build(tmp_path: Path, plan: Plan | None = None) -> History:
     banked |= {f"docs/plan-033/{name}": data for name, data in cleanup.items()}
     banked[BATCH] = _json(batch)
     banked["docs/plan-033/final-batch.md"] = "# The final batch\n"
-    lanes = "".join(
-        f"    '{_verdict_path(lane, LABEL)}': '{FINALIZERS[lane]}',\n"
-        for lane in plan.lanes
-        if lane != "wp0"
-    )
-    retired = "".join(f"    '{_verdict_path(lane, 'rc')}',\n" for lane in plan.retire)
-    updates = f"LANE_VERDICTS.update({{\n{lanes}}})\n"
-    if retired:
-        updates += f"RETIRED_VERDICTS.update({{\n{retired}}})\n"
-    banked["tests/test_committed_evidence.py"] = _registry(updates, LABEL)
+    registry = json.loads(json.dumps(rc_registry))
+    registry["lane_verdicts"].update({
+        _verdict_path(lane, LABEL): FINALIZERS[lane] for lane in plan.lanes if lane != "wp0"
+    })
+    registry["retired_verdicts"] = sorted(_verdict_path(lane, "rc") for lane in plan.retire)
+    registry["wp0_manifest"] = _verdict_path("wp0", LABEL)
+    if plan.registry is not None:
+        plan.registry(registry)
+    banked[REGISTRY] = _registry_json(registry)
     report["freeze"] = {"commit": freeze, "batch_manifest": BATCH}
-    banked["docs/release-evidence-report-1.1.0.json"] = _json(report)
-    banked["CHANGELOG.md"] = "# Changelog\n\nThe final batch, at F.\n"
+    banked[REPORT] = _json(report)
     banked["tests/fixtures/scenarios/platforms.json"] = _json({"runs": ["final"]})
     banked["docs/plan-033/firewall-results.md"] = "# Firewall results\n\nfirewall-final\n"
     banked |= plan.extra_banked
     banked_commit = _commit(root, banked, "B: bank the batch at F")
-
-    report["status"], report["version"] = "approved", "1.1.0"
-    manifest = (root / "docs" / "release-evidence-1.1.0.md").read_text("utf-8").split("\n")
-    manifest[4] = gate.APPROVED
-    approved = _commit(
-        root,
-        {
-            "docs/release-evidence-report-1.1.0.json": _json(report),
-            "docs/release-evidence-1.1.0.md": "\n".join(manifest),
-        },
-        "A: approve 1.1.0",
-    )
+    for run in runs:
+        target = plan.tags.get(run["name"], freeze)
+        if target is None or not all(c.isalnum() or c == "-" for c in run["run_id"]):
+            continue
+        name = f"evidence/{run['run_id']}"
+        if plan.lightweight_tags:
+            _git(root, "tag", name, target)
+        else:
+            _git(root, "tag", "-a", "-m", f"Source tree for {run['run_id']}", name, target)
+    approved = _commit(root, _approve_files(root), "A: approve 1.1.0")
     return History(root, earlier, freeze, banked_commit, approved)
 
 
@@ -330,6 +341,26 @@ def _verify(history: History) -> str:
     result = gate.check(history.root, "v1.1.0")
     summary: str = gate.verify_freeze(history.root, result)
     return summary
+
+
+def _rebuild_on(history: History, base: str, commits: list[dict[str, str | bytes | None]]) -> None:
+    """Reset to ``base`` and commit each change set in turn (a new history for the tag)."""
+    _git(history.root, "reset", "-q", "--hard", base)
+    for index, files in enumerate(commits):
+        _commit(history.root, files, f"step {index}")
+
+
+def _files_of(history: History, commit: str) -> dict[str, str | bytes | None]:
+    """The paths a commit changed, with their contents after it (None: deleted)."""
+    out = _git(history.root, "diff", "--name-status", "--no-renames", f"{commit}^", commit)
+    files: dict[str, str | bytes | None] = {}
+    for line in out.splitlines():
+        status, path = line.split("\t", 1)
+        files[path] = None if status == "D" else subprocess.run(
+            ["git", "show", f"{commit}:{path}"], cwd=history.root, env={**os.environ, **_GIT_ENV},
+            capture_output=True, check=True,
+        ).stdout
+    return files
 
 
 @pytest.fixture
@@ -345,18 +376,22 @@ def test_an_evidence_only_descendant_of_the_freeze_passes(
 ) -> None:
     """The control: every refusal below changes one thing from this history."""
     summary = _verify(history)
-    assert f"freeze {history.freeze[:12]}: 3 lanes earned at F" in summary
+    assert f"freeze {history.freeze[:12]}: the tagged tree is F plus" in summary
+    assert "records 3 runs at F, each with its evidence tag" in summary
+    assert "does not authenticate the estate runs" in summary
     assert gate.main(["--tag", "v1.1.0", "--root", str(history.root)]) == 0
-    assert "lanes earned at F" in capsys.readouterr().out
+    assert "does not authenticate the estate runs" in capsys.readouterr().out
 
 
-def test_records_may_change_again_after_the_approval(history: History) -> None:
-    """Rule by tree, not by commit: a later records-only commit still passes."""
-    _commit(history.root, {"docs/work-items.md": "# Work items\n\nWI-083 closed.\n"}, "records")
+def test_a_records_only_commit_between_banking_and_approval_passes(history: History) -> None:
+    approval = _files_of(history, history.approved)
+    _rebuild_on(history, history.banked, [
+        {"docs/work-items.md": "# Work items\n\nWI-083 closed.\n"}, approval,
+    ])
     _verify(history)
 
 
-# --- anything but evidence and records ----------------------------------------
+# --- the tree: anything but evidence and records -------------------------------
 
 
 @pytest.mark.parametrize(
@@ -370,28 +405,32 @@ def test_records_may_change_again_after_the_approval(history: History) -> None:
         (".github/workflows/release.yml", "name: changed\n"),
         (".gitattributes", "* -text\n"),
         ("SECURITY.md", "# Security, changed\n"),
+        # Sol final-r1 B2: README is the wheel's long description; CHANGELOG ships.
+        ("README.md", "# GPO Studio\n\nPOST-FREEZE-ALLOWLIST-PROBE\n"),
+        ("CHANGELOG.md", "# Changelog\n\nThe final batch, at F.\n"),
         ("tests/test_other.py", "def test_other() -> None:\n    pass\n"),
         ("tests/test_planted.py", "def test_planted() -> None:\n    pass\n"),
+        ("tests/test_committed_evidence.py", REGISTRY_MODULE + "# a comment\n"),
         ("docs/plan-033/wp6-evidence/rc/endpoint/verification.json", "{}\n"),
         ("docs/plan-033/wp6-evidence/rc/endpoint/extra.json", "{}\n"),
         ("docs/plan-033/other-batch.json", "{}\n"),
         ("docs/plan-033/new-results.md", "# A results document F did not have\n"),
-        ("README.md", None),
+        ("docs/work-items.md", None),
     ],
 )
-def test_a_change_outside_evidence_and_records_after_the_freeze_is_refused(
-    history: History, path: str, content: str | None
+def test_a_change_outside_evidence_and_records_in_the_banking_commit_is_refused(
+    tmp_path: Path, path: str, content: str | None
 ) -> None:
-    _commit(history.root, {path: content}, f"plant {path}")
+    history = _build(tmp_path, Plan(extra_banked={path: content}))
     with pytest.raises(gate.ReleaseGateError, match="differs from the freeze commit") as caught:
         _verify(history)
     assert path in str(caught.value)
 
 
 def test_a_planted_change_under_src_fails_the_cli(
-    history: History, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _commit(history.root, {"src/gpo_studio/core.py": "VALUE = 2\n"}, "plant")
+    history = _build(tmp_path, Plan(extra_banked={"src/gpo_studio/core.py": "VALUE = 2\n"}))
     assert gate.main(["--tag", "v1.1.0", "--root", str(history.root)]) == 1
     error = capsys.readouterr().err
     assert error.startswith("release gate: FAIL: ") and "M src/gpo_studio/core.py" in error
@@ -399,30 +438,32 @@ def test_a_planted_change_under_src_fails_the_cli(
 
 
 def test_an_executable_evidence_file_is_refused(history: History) -> None:
+    approval = _files_of(history, history.approved)
+    _git(history.root, "reset", "-q", "--hard", history.banked)
     path = f"docs/plan-033/{LANES['endpoint']}/{LABEL}/endpoint/run.sh"
     _write(history.root, path, "#!/bin/sh\n")
     os.chmod(history.root.joinpath(*path.split("/")), 0o755)
     _git(history.root, "add", "--", path)
     _git(history.root, "update-index", "--chmod=+x", "--", path)
     _git(history.root, "commit", "-q", "-m", "an executable in a pack")
+    _commit(history.root, approval, "A")
     with pytest.raises(gate.ReleaseGateError, match=r"run\.sh \(mode 100755\)"):
         _verify(history)
 
 
-def test_the_registry_may_change_only_in_its_verdict_tables(history: History) -> None:
-    registry = history.root / "tests" / "test_committed_evidence.py"
-    text = registry.read_text("utf-8")
-    _commit(
-        history.root,
-        {"tests/test_committed_evidence.py": text + "# A comment is not a statement.\n"},
-        "comment only",
-    )
-    _verify(history)
-    weakened = text.replace("assert sorted(LIVE_VERDICTS.items())", "assert True")
-    assert weakened != text
-    _commit(history.root, {"tests/test_committed_evidence.py": weakened}, "weaken a test")
-    with pytest.raises(gate.ReleaseGateError, match="outside its verdict tables"):
-        _verify(history)
+def test_a_file_python_could_load_in_a_pack_is_refused(tmp_path: Path) -> None:
+    """Sol final-r1 B3 / DeepSeek probe 4: a hashed conftest.py added to a pack."""
+    payload = "raise RuntimeError('arbitrary post-freeze Python payload')\n"
+
+    def add_hash(batch: dict[str, Any], earlier: str) -> None:
+        run = next(row for row in batch["runs"] if row["name"] == "endpoint")
+        run["files"]["conftest.py"] = hashlib.sha256(payload.encode()).hexdigest()
+
+    plan = Plan(batch=add_hash, extra_banked={
+        f"docs/plan-033/{LANES['endpoint']}/{LABEL}/endpoint/conftest.py": payload,
+    })
+    with pytest.raises(gate.ReleaseGateError, match="Python could load: \\['conftest.py'\\]"):
+        _verify(_build(tmp_path, plan))
 
 
 def test_a_dirty_checkout_is_refused(history: History) -> None:
@@ -431,14 +472,196 @@ def test_a_dirty_checkout_is_refused(history: History) -> None:
         _verify(history)
 
 
+# --- one reading of every changed record (Sol final-r1 B1, DeepSeek N4) ----------
+
+
+def test_a_coding_declaration_in_the_registry_module_is_refused(tmp_path: Path) -> None:
+    """Sol's probe: a raw_unicode_escape cookie hid a statement from a UTF-8 reader.
+
+    The registry module is a test, so it must be byte-identical to F; the probe's
+    edit is refused before anything parses it.
+    """
+    planted = "# coding: raw_unicode_escape\n" + REGISTRY_MODULE.replace(
+        "import json\n", 'import json\n# harmless\\u000aprint("REGISTRY_HIDDEN_CODE_EXECUTED")\n'
+    )
+    history = _build(tmp_path, Plan(extra_banked={"tests/test_committed_evidence.py": planted}))
+    with pytest.raises(gate.ReleaseGateError, match="M tests/test_committed_evidence.py"):
+        _verify(history)
+
+
+@pytest.mark.parametrize(
+    ("path", "content"),
+    [
+        ("docs/work-items.md", "# -*- coding: latin-1 -*-\n# Work items\n"),
+        ("docs/work-items.md", "\n# vim: set fileencoding=utf-16 :\n"),
+        ("docs/work-items.md", b"\xef\xbb\xbf# Work items\n"),
+        ("tests/fixtures/scenarios/platforms.json", b"\xff\xfe{\x00}\x00"),
+        ("docs/plan-033/firewall-results.md", b"# Firewall \xe9\n"),
+    ],
+)
+def test_a_record_with_a_second_reading_is_refused(
+    tmp_path: Path, path: str, content: str | bytes
+) -> None:
+    history = _build(tmp_path, Plan(extra_banked={path: content}))
+    with pytest.raises(gate.ReleaseGateError, match="byte-order mark|coding declaration|UTF-8"):
+        _verify(history)
+
+
+# --- the verdict tables are data (Sol B1, DeepSeek B1) ----------------------------
+
+
+def _set_finalizer(value: str) -> Callable[[dict[str, Any]], None]:
+    def change(registry: dict[str, Any]) -> None:
+        registry["lane_verdicts"][_verdict_path("endpoint", LABEL)] = value
+    return change
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        # DeepSeek probe 6: a finalizer path into a pack.
+        (_set_finalizer(f"../../docs/plan-033/wp6-evidence/{LABEL}/endpoint/evil.py"),
+         "bare finalize_\\*.py names"),
+        # A real finalizer, but not the lane's at F.
+        (_set_finalizer("finalize_rsop_user_run.py"), "lane's finalizer at F"),
+        (lambda r: r["lane_verdicts"].update(
+            {_verdict_path("endpoint", "rc"): "finalize_rsop_run.py"}),
+         "entries present at F were changed"),
+        (lambda r: r["lane_verdicts"].pop(_verdict_path("loopback-merge", "rc")),
+         "entries present at F were changed or removed"),
+        (lambda r: r["retired_verdicts"].append(_verdict_path("endpoint", LABEL)),
+         "only verdicts registered at F may be retired"),
+        (lambda r: r["lane_verdicts"].update({"wp6-evidence/x/endpoint/verification.json":
+                                               "finalize_endpoint_run.py"}),
+         "added but not run"),
+        (lambda r: r["pending_requalification"].append(_verdict_path("endpoint", LABEL)),
+         "pending_requalification is not empty"),
+        (lambda r: r.update(wp0_manifest=_verdict_path("wp0", "rc")),
+         "wp0_manifest is not the batch's WP-0 run"),
+        (lambda r: r.update(extra=1), "keys must be exactly"),
+    ],
+)
+def test_a_registry_change_beyond_the_batch_is_refused(
+    tmp_path: Path, change: Callable[[dict[str, Any]], None], message: str
+) -> None:
+    with pytest.raises(gate.ReleaseGateError, match=message):
+        _verify(_build(tmp_path, Plan(registry=change)))
+
+
+def test_a_registry_not_in_canonical_form_is_refused(history: History) -> None:
+    approval = _files_of(history, history.approved)
+    data = json.loads((history.root / REGISTRY).read_text("utf-8"))
+    _rebuild_on(history, history.freeze, [
+        {**_files_of(history, history.banked), REGISTRY: json.dumps(data) + "\n"}, approval,
+    ])
+    with pytest.raises(gate.ReleaseGateError, match="canonical form"):
+        _verify(history)
+
+
+# --- the commits: F -> B -> (records) -> A (Sol B4, DeepSeek N2) -----------------
+
+
+def test_banking_and_approval_in_one_commit_are_refused(history: History) -> None:
+    """Sol's probe: B and A squashed into one child of F."""
+    _git(history.root, "reset", "-q", "--soft", history.freeze)
+    _git(history.root, "commit", "-q", "-m", "combined bank and approval")
+    with pytest.raises(gate.ReleaseGateError, match="needs a banking commit B and a later"):
+        _verify(history)
+
+
+def test_code_changed_and_reverted_after_the_freeze_is_refused(history: History) -> None:
+    """DeepSeek probe 2: the tree is F's again, but a commit after F changed code."""
+    approval = _files_of(history, history.approved)
+    _rebuild_on(history, history.banked, [
+        {"src/gpo_studio/core.py": "VALUE = 999\n"},
+        {"src/gpo_studio/core.py": "VALUE = 1\n"},
+        approval,
+    ])
+    with pytest.raises(gate.ReleaseGateError, match="records-only commit .* changes what it may"):
+        _verify(history)
+
+
+def test_a_banked_file_edited_in_a_later_commit_is_refused(history: History) -> None:
+    """DeepSeek probe 3: a pack file and its recorded hash changed after B."""
+    approval = _files_of(history, history.approved)
+    log = f"docs/plan-033/{LANES['endpoint']}/{LABEL}/endpoint/controller.log"
+    batch = json.loads((history.root / BATCH).read_text("utf-8"))
+    forged = b"fabricated after the run\r\n"
+    batch["runs"][1]["files"]["controller.log"] = hashlib.sha256(forged).hexdigest()
+    _rebuild_on(history, history.banked, [{log: forged, BATCH: _json(batch)}, approval])
+    with pytest.raises(gate.ReleaseGateError, match="records-only commit .* changes what it may"):
+        _verify(history)
+
+
+def test_a_merge_after_the_freeze_is_refused(history: History) -> None:
+    approval = _files_of(history, history.approved)
+    _git(history.root, "reset", "-q", "--hard", history.banked)
+    _git(history.root, "checkout", "-q", "-b", "side", history.banked)
+    _commit(history.root, {"docs/work-items.md": "# Work items\n\nside\n"}, "side")
+    _git(history.root, "checkout", "-q", "-")
+    _commit(history.root, {"docs/capability-matrix.md": "# Matrix\n\nmain\n"}, "main")
+    _git(history.root, "merge", "-q", "--no-edit", "side")
+    _commit(history.root, approval, "A")
+    with pytest.raises(gate.ReleaseGateError, match="not a single-parent child"):
+        _verify(history)
+
+
+def test_a_records_commit_after_the_approval_is_refused(history: History) -> None:
+    """The tag goes on A: a later commit, even of records, is not the approval."""
+    _commit(history.root, {"docs/work-items.md": "# Work items\n\nlater\n"}, "after A")
+    with pytest.raises(gate.ReleaseGateError, match="approves before the tagged commit"):
+        _verify(history)
+
+
+def test_approving_in_the_banking_commit_is_refused(history: History) -> None:
+    approval = _files_of(history, history.approved)
+    banked = _files_of(history, history.banked)
+    _rebuild_on(history, history.freeze, [
+        {**banked, **approval}, {"docs/work-items.md": "# Work items\n\nlater\n"},
+    ])
+    with pytest.raises(gate.ReleaseGateError, match="approves before the tagged commit|"
+                                                     "must be the approval commit"):
+        _verify(history)
+
+
+@pytest.mark.parametrize("what", ["other-file", "report-key", "report-evidence", "manifest"])
+def test_an_approval_that_changes_more_than_the_approval_is_refused(
+    history: History, what: str
+) -> None:
+    approval = _files_of(history, history.approved)
+    report = json.loads(approval[REPORT])  # type: ignore[arg-type]
+    if what == "other-file":
+        approval["docs/work-items.md"] = "# Work items\n\nalso in A\n"
+        message = "changes more than the approval records"
+    elif what == "report-key":
+        report["workspace_schema_version"] = 5
+        approval[REPORT] = _json(report)
+        message = "beyond status, version"
+    elif what == "report-evidence":
+        report["evidence"]["lane_verdicts"] = "rewritten at approval"
+        approval[REPORT] = _json(report)
+        message = "beyond status, version"
+    else:
+        text = approval[MANIFEST]
+        assert isinstance(text, (str, bytes))
+        lines = (text.decode() if isinstance(text, bytes) else text).split("\n")
+        lines[10] = lines[10] + " Edited at approval."
+        approval[MANIFEST] = "\n".join(lines)
+        message = "beyond line 5"
+    _rebuild_on(history, history.banked, [approval])
+    with pytest.raises(gate.ReleaseGateError, match=message):
+        _verify(history)
+
+
 # --- the freeze commit itself -------------------------------------------------
 
 
 def _record_freeze(history: History, commit: str) -> None:
-    path = history.root / "docs" / "release-evidence-report-1.1.0.json"
-    report = json.loads(path.read_text("utf-8"))
+    report = json.loads((history.root / REPORT).read_text("utf-8"))
     report["freeze"]["commit"] = commit
-    _commit(history.root, {"docs/release-evidence-report-1.1.0.json": _json(report)}, "re-point")
+    approval = _files_of(history, history.approved)
+    approval[REPORT] = _json(report)
+    _rebuild_on(history, history.banked, [approval])
 
 
 def test_a_freeze_commit_missing_from_the_clone_is_refused(history: History) -> None:
@@ -457,7 +680,7 @@ def test_a_shallow_clone_is_refused(history: History, tmp_path: Path) -> None:
 def test_a_freeze_commit_that_is_not_an_ancestor_is_refused(history: History) -> None:
     _git(history.root, "checkout", "-q", "-b", "side", history.earlier)
     side = _commit(history.root, {"src/gpo_studio/core.py": "VALUE = 9\n"}, "a sibling of F")
-    _git(history.root, "checkout", "-q", "main")
+    _git(history.root, "checkout", "-q", "-")
     _record_freeze(history, side)
     with pytest.raises(gate.ReleaseGateError, match="is not an ancestor of the tagged commit"):
         _verify(history)
@@ -470,8 +693,8 @@ def test_the_tag_cannot_be_the_freeze_commit_itself(history: History) -> None:
         version="1.1.0",
         base_version="1.1.0",
         is_candidate=False,
-        manifest="docs/release-evidence-1.1.0.md",
-        report="docs/release-evidence-report-1.1.0.json",
+        manifest=MANIFEST,
+        report=REPORT,
         freeze_commit=history.freeze,
         batch_manifest=BATCH,
     )
@@ -480,25 +703,24 @@ def test_the_tag_cannot_be_the_freeze_commit_itself(history: History) -> None:
 
 
 def test_an_approved_report_without_a_freeze_is_refused(history: History) -> None:
-    path = history.root / "docs" / "release-evidence-report-1.1.0.json"
-    report = json.loads(path.read_text("utf-8"))
+    report = json.loads((history.root / REPORT).read_text("utf-8"))
     report["freeze"] = None
-    _commit(history.root, {"docs/release-evidence-report-1.1.0.json": _json(report)}, "drop")
+    _commit(history.root, {REPORT: _json(report)}, "drop")
     with pytest.raises(gate.ReleaseGateError, match="an approved report must record its freeze"):
         gate.check(history.root, "v1.1.0")
 
 
-# --- every live verdict earned at F -------------------------------------------
+# --- every live verdict recorded at F -------------------------------------------
 
 
 @pytest.mark.parametrize("lane", ["endpoint", "wp0"])
-def test_a_verdict_earned_at_another_commit_is_refused(tmp_path: Path, lane: str) -> None:
+def test_a_verdict_recorded_at_another_commit_is_refused(tmp_path: Path, lane: str) -> None:
     def earlier_commit(name: str, verdict: dict[str, Any], freeze: str, earlier: str) -> None:
         if name == lane:
             verdict["source"]["commit"] = earlier
 
     history = _build(tmp_path, Plan(verdict=earlier_commit))
-    with pytest.raises(gate.ReleaseGateError, match=f"lane '{lane}'.*earned at '") as caught:
+    with pytest.raises(gate.ReleaseGateError, match=f"lane '{lane}'.*recorded at '") as caught:
         _verify(history)
     assert history.earlier in str(caught.value)
 
@@ -511,18 +733,55 @@ def test_a_batch_run_recorded_at_another_commit_is_refused(tmp_path: Path) -> No
         _verify(_build(tmp_path, Plan(batch=moved)))
 
 
-def test_a_batch_that_ran_elsewhere_is_refused(tmp_path: Path) -> None:
-    def moved(batch: dict[str, Any], earlier: str) -> None:
-        batch["source_commit"] = earlier
-
-    with pytest.raises(gate.ReleaseGateError, match="the batch ran at"):
-        _verify(_build(tmp_path, Plan(batch=moved)))
+def _drop(key: str) -> Callable[[dict[str, Any], str], None]:
+    return lambda batch, earlier: batch.pop(key)
 
 
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        (lambda v: v["source"].update(dirty=True), "not earned from a clean tree"),
+        (lambda b, e: b.update(source_commit=e), "the batch ran at"),
+        (lambda b, e: b.update(not_passed=[{"name": "x"}]), "not every lane passed"),
+        (lambda b, e: b.update(successors=[{"name": "x"}]), "successor runs"),
+        (lambda b, e: b.update(runs={}), "lanes_started passing runs"),
+        (lambda b, e: b.update(lanes_started=2), "lanes_started passing runs"),
+        (lambda b, e: b.update(lanes_started=True), "lanes_started passing runs"),
+        (lambda b, e: b.update(post_batch_cleanup=None), "post-batch directory check"),
+        (lambda b, e: b.update(post_batch_cleanup={"x/collector.ps1": "0" * 64}),
+         "post-batch directory check"),
+        (_drop("successors"), "a batch manifest must have"),
+        (lambda b, e: b["runs"][2].update(name="endpoint"), "distinct lane name"),
+        (lambda b, e: b["runs"][1].update(verdict="wp6-evidence/x/other/verification.json"),
+         "not where the bank tool banks it"),
+        (lambda b, e: b["runs"][1].update(verdict=f"wp6-evidence/{LABEL}/endpoint/manifest.json"),
+         "not where the bank tool banks it"),
+        (lambda b, e: b["runs"][1].update(run_id="../x"), "is not a run id"),
+        (lambda b, e: b["runs"][1].update(files=[]), "does not hash its pack"),
+        (lambda b, e: b["runs"][1]["files"].update({"../x": "0" * 64}), "does not hash its pack"),
+        (lambda b, e: b["runs"][1]["files"].update({"x.bin": "zz"}), "does not hash its pack"),
+        (lambda b, e: b["runs"][1]["files"].pop("verification.json"), "does not hash its pack"),
+    ],
+)
+def test_a_malformed_batch_manifest_is_refused(
+    tmp_path: Path, change: Callable[[dict[str, Any], str], None], message: str
+) -> None:
+    """DeepSeek final-r1 N5: every shape branch of the batch manifest."""
+    with pytest.raises(gate.ReleaseGateError, match=message):
+        _verify(_build(tmp_path, Plan(batch=change)))
+
+
+def test_two_labels_in_one_batch_are_refused(tmp_path: Path) -> None:
+    def relabel(batch: dict[str, Any], earlier: str) -> None:
+        batch["runs"][2]["verdict"] = batch["runs"][2]["verdict"].replace(LABEL, "other-label")
+
+    with pytest.raises(gate.ReleaseGateError, match="one batch banks under one label"):
+        _verify(_build(tmp_path, Plan(batch=relabel)))
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda v: v["source"].update(dirty=True), "not recorded from a clean tree"),
         (lambda v: v.update(passed=False), "not a pass"),
         (lambda v: v.update(run_id="another-run"), "run_id is not the batch's"),
     ],
@@ -552,10 +811,18 @@ def test_a_live_verdict_from_before_the_freeze_is_refused(tmp_path: Path) -> Non
         _verify(_build(tmp_path, plan))
 
 
-def test_a_banked_file_that_differs_from_the_batch_hash_is_refused(history: History) -> None:
-    path = f"docs/plan-033/{LANES['endpoint']}/{LABEL}/endpoint/controller.log"
-    _commit(history.root, {path: "edited after banking\n"}, "edit a banked file")
+def test_a_banked_file_that_differs_from_the_batch_hash_is_refused(tmp_path: Path) -> None:
+    log = f"docs/plan-033/{LANES['endpoint']}/{LABEL}/endpoint/controller.log"
+    history = _build(tmp_path, Plan(extra_banked={log: b"edited before banking\n"}))
     with pytest.raises(gate.ReleaseGateError, match="not what the batch banked"):
+        _verify(history)
+
+
+def test_a_post_batch_check_that_differs_from_its_hash_is_refused(tmp_path: Path) -> None:
+    """DeepSeek final-r1 N5: the cleanup hash branch."""
+    path = "docs/plan-033/final-cleanup/directory.json"
+    history = _build(tmp_path, Plan(extra_banked={path: _json({"result": "dirty"})}))
+    with pytest.raises(gate.ReleaseGateError, match="directory.json is not what the batch hashed"):
         _verify(history)
 
 
@@ -565,15 +832,49 @@ def test_evidence_present_at_the_freeze_is_not_banked_by_it(tmp_path: Path) -> N
         _verify(_build(tmp_path, Plan(carry_into_freeze=("endpoint",))))
 
 
-def test_pending_requalification_refuses_a_final_tag(history: History) -> None:
-    registry = history.root / "tests" / "test_committed_evidence.py"
-    text = registry.read_text("utf-8").replace(
-        "PENDING_REQUALIFICATION: set[str] = set()",
-        f"PENDING_REQUALIFICATION: set[str] = {{'{_verdict_path('endpoint', 'rc')}'}}",
-    )
-    _commit(history.root, {"tests/test_committed_evidence.py": text}, "park a verdict")
-    with pytest.raises(gate.ReleaseGateError, match="PENDING_REQUALIFICATION is not empty"):
+# --- the evidence tags, and what the gate does not prove (Sol B3, DeepSeek N3) --
+
+
+@pytest.mark.parametrize(
+    ("plan", "message"),
+    [
+        (Plan(tags={"endpoint": None}), "no annotated tag refs/tags/evidence/endpoint-final"),
+        (Plan(lightweight_tags=True), "no annotated tag"),
+        (Plan(tags={"wp0": "EARLIER"}), "does not peel to the freeze commit"),
+    ],
+)
+def test_a_run_without_its_evidence_tag_at_the_freeze_is_refused(
+    tmp_path: Path, plan: Plan, message: str
+) -> None:
+    if plan.tags.get("wp0") == "EARLIER":
+        history = _build(tmp_path, Plan(tags={"wp0": None}))
+        _git(history.root, "tag", "-a", "-m", "elsewhere", "evidence/wp0-final", history.earlier)
+    else:
+        history = _build(tmp_path, plan)
+    with pytest.raises(gate.ReleaseGateError, match=message):
         _verify(history)
+
+
+def test_a_consistent_forgery_with_its_tags_passes_which_is_the_stated_limit(
+    tmp_path: Path,
+) -> None:
+    """DeepSeek probe 5: a hand-written verdict, hashed and tagged, passes.
+
+    Nothing in the tree can tell a careful forgery from the estate's bytes. The
+    gate's claim is therefore the narrow one (the tagged tree is F plus
+    internally consistent evidence recorded at F); estate provenance rests on
+    the controller transcripts and the banking review. If this test starts
+    failing because the gate learned to authenticate runs, widen the claim.
+    """
+
+    def forge(name: str, verdict: dict[str, Any], freeze: str, earlier: str) -> None:
+        if name == "endpoint":
+            verdict.clear()
+            verdict.update(run_id="endpoint-final", passed=True, transport="psdirect",
+                           source={"commit": freeze, "dirty": False, "files": {}})
+
+    summary = _verify(_build(tmp_path, Plan(verdict=forge)))
+    assert "does not authenticate the estate runs" in summary
 
 
 # --- release candidates are not subject to it ---------------------------------
@@ -606,74 +907,19 @@ def test_an_rc_tag_is_not_subject_to_the_freeze_check(
     assert gate.main(["--tag", "v1.1.0-rc.1", "--root", str(root)]) == 0
 
 
-# --- the registry is read, never run ------------------------------------------
+# --- the gate reads the registry the tests run ------------------------------------
 
 
-def test_the_committed_registry_reads_as_pytest_reads_it() -> None:
-    """The gate's static reading of the real registry equals what pytest computes."""
-    path = REPO_ROOT / "tests" / "test_committed_evidence.py"
-    registry = gate.parse_registry(path.read_text("utf-8"), "registry")
-    executed = runpy.run_path(str(path))
-    assert registry.live == executed["LIVE_VERDICTS"]
-    assert registry.lane_verdicts == executed["LANE_VERDICTS"]
-    assert registry.retired == executed["RETIRED_VERDICTS"]
-    assert registry.pending == executed["PENDING_REQUALIFICATION"]
-    assert registry.wp0_manifest == executed["WP0_MANIFEST"]
-
-
-_LIVE = (
-    "LIVE_VERDICTS = {\n    relative: finalizer\n"
-    "    for relative, finalizer in LANE_VERDICTS.items()\n"
-    "    if relative not in RETIRED_VERDICTS\n"
-    "    and relative not in PENDING_REQUALIFICATION\n}\n"
-)
-_TABLES = (
-    "LANE_VERDICTS = {'a/x/verification.json': 'f.py'}\n"
-    "RETIRED_VERDICTS = set()\n"
-    "PENDING_REQUALIFICATION: set[str] = set()\n"
-    "WP0_MANIFEST = 'w/x/manifest.json'\n"
-)
-
-
-@pytest.mark.parametrize(
-    "planted",
-    [
-        "LANE_VERDICTS['b/y/verification.json'] = 'g.py'\n",
-        "del RETIRED_VERDICTS\n",
-        "RETIRED_VERDICTS.discard('a/x/verification.json')\n",
-        "RETIRED_VERDICTS |= {'a/x/verification.json'}\n",
-        "LANE_VERDICTS.update(dict(b='c'))\n",
-        "LANE_VERDICTS.update({'b': name})\n",
-        "RETIRED_VERDICTS.update(set(['a']))\n",
-        "LANE_VERDICTS = {}\n",
-        "globals()['LANE_VERDICTS'] = {}\n",
-        "mutate(LANE_VERDICTS)\n",
-        "def f():\n    global RETIRED_VERDICTS\n    RETIRED_VERDICTS = set()\n",
-        "import sys\nsys.modules[__name__].__dict__['WP0_MANIFEST'] = 'x'\n",
-        "for LANE_VERDICTS in []:\n    pass\n",
-        "alias = RETIRED_VERDICTS\nalias.clear()\n",
-        "pair = (LANE_VERDICTS, 1)\n",
-        "def f():\n    return LANE_VERDICTS\n",
-        "import this_module\nthis_module.LANE_VERDICTS.clear()\n",
-    ],
-)
-def test_a_table_written_any_other_way_is_refused(planted: str) -> None:
-    with pytest.raises(gate.ReleaseGateError):
-        gate.parse_registry(_TABLES + planted + _LIVE, "planted")
-
-
-def test_a_table_changed_after_the_live_set_is_computed_is_refused() -> None:
-    late = "RETIRED_VERDICTS.update({'a/x/verification.json'})\n"
-    with pytest.raises(gate.ReleaseGateError, match="after LIVE_VERDICTS is computed"):
-        gate.parse_registry(_TABLES + _LIVE + late, "late")
-
-
-def test_live_verdicts_must_be_the_plain_subtraction() -> None:
-    altered = _LIVE.replace("    and relative not in PENDING_REQUALIFICATION\n", "")
-    with pytest.raises(gate.ReleaseGateError, match="LIVE_VERDICTS must be assigned once"):
-        gate.parse_registry(_TABLES + altered, "altered")
-    registry = gate.parse_registry(_TABLES + _LIVE, "plain")
-    assert registry.live == {"a/x/verification.json": "f.py"}
+def test_the_gate_reads_the_committed_registry_as_the_tests_do() -> None:
+    """The gate's reading of the JSON registry equals what the evidence tests load."""
+    registry = gate._load_registry_blob(
+        (REPO_ROOT / REGISTRY).read_bytes(), "the committed registry"
+    )
+    executed = runpy.run_path(str(REPO_ROOT / "tests" / "test_committed_evidence.py"))
+    assert gate._live(registry) == executed["LIVE_VERDICTS"]
+    assert registry["lane_verdicts"] == executed["LANE_VERDICTS"]
+    assert set(registry["retired_verdicts"]) == executed["RETIRED_VERDICTS"]
+    assert registry["wp0_manifest"] == executed["WP0_MANIFEST"]
 
 
 # --- the workflow gives the gate the history it needs ----------------------------

@@ -48,23 +48,39 @@ commit; ``--github-output`` writes the resolved paths for later steps.
 commit ``F`` every lane was requalified at and the batch manifest that banked
 the runs; an ``approved`` report must carry it. For a final tag ``vX.Y.Z``,
 and only then, ``main`` runs :func:`verify_freeze` on the checkout, which
-needs full history (``fetch-depth: 0``):
+needs full history and tags (``fetch-depth: 0``):
 
-* ``F`` is in the clone and is an ancestor of the tagged commit (``HEAD``),
+* ``F`` is in the clone, a strict ancestor of the tagged commit (``HEAD``),
   and the clone is not shallow;
-* ``git diff F HEAD`` touches only :data:`FREEZE_RECORDS` (modified, never
-  added or deleted) and the files the batch manifest banks (added, never
-  modified): its packs, its post-batch directory check, the manifest and its
-  note. Everything else (``src/``, ``scripts/``, ``pyproject.toml``,
-  ``uv.lock``, ``.github/``, ``.gitattributes``, every other test) must be
-  byte-identical to ``F``, and every changed path must be a regular file
-  (mode 100644);
-* ``tests/test_committed_evidence.py`` may differ from ``F`` only in its
-  verdict tables (:data:`REGISTRY_TABLES`), compared by AST;
-* every live verdict that registry names, and the WP-0 manifest, was earned
-  at ``F`` exactly (``source.commit``, a clean tree, a pass), is a run of the
-  batch, whose files hash to what the batch manifest recorded; and the batch
-  covers every lane live at ``F``, with no lane left out.
+* the history ``F..HEAD`` is linear: the banking commit ``B`` (child of ``F``)
+  adds the batch (its packs, post-batch directory check, manifest and note)
+  and modifies only :data:`FREEZE_RECORDS`; any later commit modifies only
+  those records; ``HEAD`` is the approval commit ``A``, the only commit whose
+  report is ``approved``, and it changes only the report's status, version and
+  remaining items and the manifest's line 5 and remaining section. Every
+  refusal names the commit;
+* the tagged tree is ``F``'s except for those files: ``src/``, ``scripts/``,
+  ``pyproject.toml``, ``uv.lock``, ``.github/``, ``.gitattributes``,
+  ``README.md``, ``CHANGELOG.md`` and every test are byte-identical to ``F``.
+  Every changed path is a regular file (mode 100644); no pack banks a file
+  Python could load; every changed record is UTF-8 with no byte-order mark or
+  coding declaration;
+* the verdict tables are data (:data:`REGISTRY`): ``F``'s entries unchanged,
+  the batch's verdicts added with the finalizer the lane had at ``F``, nothing
+  pending;
+* every live verdict and the WP-0 manifest is the batch's run of its lane,
+  recorded at ``F`` (``source.commit``, a clean tree, a pass, its run id), its
+  pack hashing to the batch manifest, the batch covering every lane live at
+  ``F``; and each run has its annotated ``evidence/<run_id>`` tag peeling to
+  ``F``.
+
+**What that proves:** the tagged tree is ``F`` plus internally consistent
+banked evidence that records runs at ``F``, reached in the order the process
+sets. **What it does not:** that the Windows estate produced the evidence.
+Every byte it reads was committed, and the tags pushed, after ``F``; estate
+provenance rests on the controller's transcripts (each pack's
+``controller.log``, and the batch directory on the controller) and the review
+of the banking PR.
 
 Release candidate tags are not subject to it.
 """
@@ -552,6 +568,8 @@ def check(root: Path, tag: str) -> ReleaseManifest:
     problems = manifest_problems(manifest_path.read_bytes(), base, report["status"])
     if problems:
         raise ReleaseGateError(f"{manifest_rel}: " + "; ".join(problems))
+    if report["status"] == "approved":
+        _refuse_pending(report, manifest_path.read_bytes().decode("ascii"), report_rel)
 
     freeze = report["freeze"]
     return ReleaseManifest(
@@ -565,10 +583,35 @@ def check(root: Path, tag: str) -> ReleaseManifest:
     )
 
 
+def _refuse_pending(report: dict[str, Any], manifest: str, report_rel: str) -> None:
+    """An approved release lists nothing as still pending (DeepSeek final-r1 N7).
+
+    The approval commit closes the remaining items: each is done, or, like the
+    owner's NVDA acceptance for 1.1.0, waived and recorded as not run.
+    """
+    remaining = report["evidence"].get("remaining_before_approval", [])
+    if not isinstance(remaining, list) or not all(type(item) is str for item in remaining):
+        raise ReleaseGateError(f"{report_rel}: remaining_before_approval must list strings")
+    pending = [item for item in remaining if re.search(r"\bpending\b", item, re.I)]
+    lines = manifest.split("\n")
+    start, end = _remaining_section(lines)
+    pending += [line for line in lines[start:end] if re.search(r"\bpending\b", line, re.I)]
+    if pending:
+        raise ReleaseGateError(
+            "an approved release still lists items as pending: "
+            + "; ".join(item.strip() for item in pending[:5])
+            + ". Close each in the approval commit (done, or waived and recorded as not run)"
+        )
+
+
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 def remote_tag_commit(root: Path, remote: str, tag: str) -> str:
+    return remote_tag_names(root, remote, tag)[0]
+
+
+def remote_tag_names(root: Path, remote: str, tag: str) -> tuple[str, str]:
     """The commit the remote's ``refs/tags/<tag>`` peels to, read with ls-remote.
 
     An annotated tag is reported twice: the tag object, and ``^{}`` for the
@@ -590,11 +633,12 @@ def remote_tag_commit(root: Path, remote: str, tag: str) -> str:
         sha, _, name = line.partition("\t")
         refs[name] = sha
     peeled = refs.get(f"{ref}^{{}}") or refs.get(ref)
-    if peeled is None:
+    named = refs.get(ref)
+    if peeled is None or named is None:
         raise ReleaseGateError(f"{remote} has no {ref}")
-    if not _SHA.match(peeled):
+    if not _SHA.match(peeled) or not _SHA.match(named):
         raise ReleaseGateError(f"{remote} reported an unreadable object name for {ref}: {peeled!r}")
-    return peeled
+    return peeled, named
 
 
 def verify_remote_tag(root: Path, remote: str, tag: str, expected_sha: str) -> None:
@@ -606,8 +650,11 @@ def verify_remote_tag(root: Path, remote: str, tag: str, expected_sha: str) -> N
     """
     if not _SHA.match(expected_sha):
         raise ReleaseGateError(f"expected commit {expected_sha!r} is not a full SHA-1")
-    actual = remote_tag_commit(root, remote, tag)
-    if actual != expected_sha:
+    actual, tag_object = remote_tag_names(root, remote, tag)
+    # Accept the commit the tag peels to, or the annotated tag object itself:
+    # whichever GITHUB_SHA carries for the tag type pushed (DeepSeek final-r1 N8;
+    # not verified against GitHub's documentation here), a moved tag matches neither.
+    if expected_sha not in {actual, tag_object}:
         raise ReleaseGateError(
             f"{remote} refs/tags/{tag} now names {actual}, but this run built {expected_sha}; "
             "the tag moved after the run started"
@@ -616,45 +663,61 @@ def verify_remote_tag(root: Path, remote: str, tag: str, expected_sha: str) -> N
 
 # --- a final tag and its freeze commit ------------------------------------------
 #
-# Owner decision 2026-10-17 (plans/036-change-cost.md, the D-9 addendum; WI-083):
+# Owner decisions 2026-10-17 (plans/036-change-cost.md, the D-9 addendum; WI-083):
 # every lane is requalified on the estate at the freeze commit F, the runs are
 # banked in an evidence-only commit B whose parent is F, the approval is a
-# records-only commit A, and the tag goes on A. What makes that true by
-# construction is the word "only", and this section checks it: the tag differs
-# from F in evidence and records alone, and every live verdict names F.
+# records-only commit A, and the tag goes on A.
+#
+# WHAT THIS PROVES, AND WHAT IT DOES NOT (coordinator ruling on final-r1 B3/N3).
+# It proves that the tagged tree is F's tree plus a banked batch that is
+# internally consistent and records every lane's run at F, each run with its
+# `evidence/<run_id>` tag peeling to F, reached through B and A as the process
+# says. It does NOT prove that the estate produced those bytes: everything it
+# reads was committed after F by whoever banked the batch, and a careful forgery
+# (packs, manifest, verdicts, and tags pushed by someone who can push) passes.
+# Estate provenance rests on the batch controller's transcripts -- each pack's
+# `controller.log`, banked verbatim and hashed by the batch manifest, and the
+# controller's batch directory (`progress.jsonl` and `logs/`) on mvmcc02 -- and on
+# the two-reviewer review of the banking PR.
 
 EVIDENCE_ROOT = "docs/plan-033"
-REGISTRY = "tests/test_committed_evidence.py"
+#: The verdict tables, as data (final-r1 B1): the only post-F change to what the
+#: tests read about live verdicts. `tests/test_committed_evidence.py` loads it and
+#: stays byte-identical to F, like every test.
+REGISTRY = f"{EVIDENCE_ROOT}/verdict-registry.json"
+REGISTRY_KEYS = frozenset(
+    {"schema_version", "lane_verdicts", "retired_verdicts", "pending_requalification",
+     "wp0_manifest"}
+)
+_FINALIZER_NAME = re.compile(r"^finalize_[a-z0-9_]+\.py$")
 
-#: Files the banking and approval commits may MODIFY after F (never add, delete
-#: or change the mode of). The list is closed and reviewed: anything else that
-#: differs from F refuses the tag. It was read off what banking the 1.1.0rc1
-#: batches touched (PR #99's c16bc9f, PR #103's 1db00fa and 7a97458) and what
-#: approval edits, keeping only records: none of these is imported, executed or
-#: packaged as code, and no lane's builder, finalizer or runner reads any of them
-#: (checked 2026-10-17 over scripts/windows-oracle/, scripts/plan-033/ and src/;
-#: the bank tool, which is not a lane, retargets two of them).
-#: ``{base}`` is the version being released. Deliberately left
-#: out, although that banking touched them: ``.gitattributes`` (it decides the
-#: bytes every checkout writes, src/ included, so the pack label's rule must be
-#: in F; a pattern covers every batch since 2026-10-17); ``src/gpo_studio/api.py``
-#: (it ships; it cites the lane and the release evidence, never a run id); every test
-#: but the registry's verdict tables (they are code CI runs on the tag); the
-#: bank and driver tools under scripts/. Packs, the batch manifest and its note,
-#: and the post-batch directory check are not listed: they are derived from the
-#: batch manifest the report names and may only be ADDED (see _check_changes).
+#: Files the banking commit (and records-only commits after it) may MODIFY after
+#: F; never add, delete or change the mode of. The list is closed and reviewed:
+#: anything else that differs from F refuses the tag. It was read off what banking
+#: the 1.1.0rc1 batches touched (PR #99's c16bc9f, PR #103's 1db00fa and 7a97458),
+#: keeping only records that reach neither distribution: none is imported,
+#: executed or packaged in the wheel, every one is excluded from the sdist
+#: (pyproject.toml; tests/test_release_artifacts_from_freeze.py builds both from a
+#: tree and from the same tree with each record changed, and requires identical
+#: bytes), and no lane's builder, finalizer or runner reads any of them (checked
+#: 2026-10-17 over scripts/windows-oracle/, scripts/plan-033/ and src/).
+#: ``{base}`` is the version being released. Deliberately left out: README.md
+#: and CHANGELOG.md (README is the wheel's METADATA long description and both are
+#: required sdist members, so they are frozen at F and name no run: final-r1 B2);
+#: ``.gitattributes`` (it decides every checkout's bytes; a pattern covers any
+#: batch); ``src/gpo_studio/api.py`` (it ships; it cites the lane and the release
+#: evidence URL, never a run id); every test, the registry module included; the
+#: bank and driver tools.
 FREEZE_RECORDS: dict[str, str] = {
-    # The user-visible record of the banked batch and of the release itself.
-    "CHANGELOG.md": "changelog",
-    # Names the current qualification runs; a RETARGETABLE file of the bank tool.
-    "README.md": "readme",
     # Cites each capability's certifying run.
     "docs/capability-matrix.md": "capability matrix",
     # The register: an item the batch closes changes its status line.
     "docs/work-items.md": "work-item register",
-    # The release manifest: the batch's citations, and line 5 at approval.
+    # The release manifest: the batch's citations in B; line 5 and the remaining
+    # items in A.
     "docs/release-evidence-{base}.md": "release manifest",
-    # The report: `freeze` in the banking commit, `status`/`version` at approval.
+    # The report: `freeze` and the evidence in B; status, version and the remaining
+    # items in A.
     "docs/release-evidence-report-{base}.json": "release report",
     # The estate registry; names the runs that qualified each environment.
     "docs/plan-033/environment-spec.md": "environment spec",
@@ -663,12 +726,14 @@ FREEZE_RECORDS: dict[str, str] = {
     # Platform registry data the bank tool retargets to the new run ids. Data, not
     # code: the tests that read it are byte-identical to F.
     "tests/fixtures/scenarios/platforms.json": "platform registry",
-    # Only its verdict tables (REGISTRY_TABLES) may differ, compared by AST.
+    # The verdict tables, as data; held entry by entry below (_check_registry).
     REGISTRY: "verdict registry",
 }
 #: A lane's results document (``fdeploy-results.md`` and the like) names its
 #: certifying run in its header. Modified only, like FREEZE_RECORDS.
 _RESULTS_RECORD = re.compile(r"^docs/plan-033/[a-z0-9][a-z0-9-]*-results\.md$")
+#: The approval commit A changes only these, and in them only the approval.
+APPROVAL_RECORDS = ("docs/release-evidence-{base}.md", "docs/release-evidence-report-{base}.json")
 #: A run's verdict inside its pack, as ``bank-requal-batch.py`` writes it:
 #: ``<family>-evidence/<label>/<lane>/verification.json`` (``manifest.json``
 #: for WP-0), relative to docs/plan-033.
@@ -676,240 +741,19 @@ _PACK_VERDICT = re.compile(
     r"^(?:wp0|wp1b|wp2|wp3|wp4|wp6|wp7|wp9)-evidence/(?P<label>[a-z0-9][a-z0-9.-]*)/"
     r"(?P<lane>[a-z0-9][a-z0-9-]*)/(?P<file>verification|manifest)\.json$"
 )
+#: Python could load these; no manifest-form pack banks one (the pre-manifest
+#: packs that banked source copies are history), so a new pack never may.
+_LOADABLE = re.compile(r"\.(?:py|pyc|pyo|pyd|pyw|pth|so)$", re.IGNORECASE)
 #: The post-batch directory check's two files, relative to docs/plan-033.
 _CLEANUP_FILE = re.compile(r"^[a-z0-9][a-z0-9.-]*-cleanup/(?:collector\.ps1|directory\.json)$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_RUN_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _BATCH_KEYS = (
     "source_commit", "lanes_started", "runs", "not_passed", "successors", "post_batch_cleanup",
 )
-
-#: The module-level statements of the registry that are its verdict tables. In
-#: ``tests/test_committed_evidence.py`` these, and nothing else, may change after F.
-REGISTRY_TABLES = ("LANE_VERDICTS", "RETIRED_VERDICTS", "PENDING_REQUALIFICATION", "WP0_MANIFEST")
-#: How pytest derives the live set. The gate computes the same subtraction, so the
-#: registry must still say exactly this, after every table statement.
-_LIVE_VERDICTS_SOURCE = """\
-LIVE_VERDICTS = {
-    relative: finalizer
-    for relative, finalizer in LANE_VERDICTS.items()
-    if relative not in RETIRED_VERDICTS
-    and relative not in PENDING_REQUALIFICATION
-}
-"""
-_TABLE_READS = frozenset({"items", "keys", "values", "get"})
-_PURE_CALLS = frozenset({"set", "frozenset", "sorted", "len", "list", "tuple"})
-_REFLECTION = frozenset(
-    {"globals", "vars", "locals", "exec", "eval", "compile", "setattr", "delattr",
-     "__import__", "__builtins__"}
-)
-
-
-@dataclass(frozen=True)
-class Registry:
-    """The verdict tables of ``tests/test_committed_evidence.py``, read statically."""
-
-    lane_verdicts: dict[str, str]
-    retired: frozenset[str]
-    pending: frozenset[str]
-    wp0_manifest: str
-
-    @property
-    def live(self) -> dict[str, str]:
-        return {
-            relative: finalizer
-            for relative, finalizer in self.lane_verdicts.items()
-            if relative not in self.retired and relative not in self.pending
-        }
-
-
-def _table_statement(node: ast.stmt) -> str | None:
-    """The table a module-level statement assigns or updates, if it is one."""
-    if (
-        isinstance(node, ast.Assign)
-        and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Name)
-        and node.targets[0].id in REGISTRY_TABLES
-    ):
-        return node.targets[0].id
-    if (
-        isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.target.id in REGISTRY_TABLES
-    ):
-        return node.target.id
-    if (
-        isinstance(node, ast.Expr)
-        and isinstance(node.value, ast.Call)
-        and isinstance(node.value.func, ast.Attribute)
-        and node.value.func.attr == "update"
-        and isinstance(node.value.func.value, ast.Name)
-        and node.value.func.value.id in REGISTRY_TABLES
-    ):
-        return node.value.func.value.id
-    return None
-
-
-def _string(node: ast.expr | None, where: str) -> str:
-    if isinstance(node, ast.Constant) and type(node.value) is str:
-        return node.value
-    raise ReleaseGateError(f"{where}: expected a string literal in a verdict table")
-
-
-def _string_set(node: ast.expr | None, where: str) -> set[str]:
-    if isinstance(node, ast.Set):
-        return {_string(element, where) for element in node.elts}
-    if (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "set"
-        and not node.args
-        and not node.keywords
-    ):
-        return set()
-    raise ReleaseGateError(f"{where}: expected a set literal of strings or set()")
-
-
-def _string_dict(node: ast.expr | None, where: str) -> dict[str, str]:
-    if not isinstance(node, ast.Dict) or any(key is None for key in node.keys):
-        raise ReleaseGateError(f"{where}: expected a dict literal of strings")
-    pairs = zip(node.keys, node.values, strict=True)
-    return {_string(key, where): _string(value, where) for key, value in pairs}
-
-
-def parse_registry(source: str, where: str) -> Registry:
-    """Read the verdict tables without running the test module, refusing ambiguity.
-
-    The gate cannot import the registry (it is a pytest module, and the release
-    identity job has no dependencies), so it reads the tables from the AST and
-    refuses every form it would have to guess at: a table bound other than by a
-    literal, updated other than by ``.update(<literal>)`` at module level,
-    rebound, deleted, subscript-assigned, passed to a call that could mutate it,
-    touched through reflection, or updated after ``LIVE_VERDICTS`` is computed;
-    and a ``LIVE_VERDICTS`` that is not :data:`_LIVE_VERDICTS_SOURCE`.
-    """
-    try:
-        tree = ast.parse(source, filename=where)
-    except (SyntaxError, ValueError) as error:
-        raise ReleaseGateError(f"{where}: cannot parse: {error}") from error
-    lanes: dict[str, str] | None = None
-    retired: set[str] | None = None
-    pending: set[str] | None = None
-    wp0: str | None = None
-    allowed: set[int] = set()
-    live_seen = False
-    canonical = ast.dump(ast.parse(_LIVE_VERDICTS_SOURCE).body[0])
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and any(isinstance(t, ast.Name) and t.id == "LIVE_VERDICTS" for t in node.targets)
-        ):
-            if live_seen or ast.dump(node) != canonical:
-                raise ReleaseGateError(
-                    f"{where} line {node.lineno}: LIVE_VERDICTS must be assigned once, as "
-                    "LANE_VERDICTS minus RETIRED_VERDICTS and PENDING_REQUALIFICATION"
-                )
-            live_seen = True
-            allowed.add(id(node.targets[0]))
-            continue
-        table = _table_statement(node)
-        if table is None:
-            continue
-        here = f"{where} line {node.lineno}"
-        if table != "WP0_MANIFEST" and live_seen:
-            raise ReleaseGateError(f"{here}: {table} changes after LIVE_VERDICTS is computed")
-        if isinstance(node, ast.Expr):
-            call = node.value
-            assert isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
-            if len(call.args) != 1 or call.keywords or table == "WP0_MANIFEST":
-                raise ReleaseGateError(f"{here}: {table}.update takes one literal")
-            if table == "LANE_VERDICTS" and lanes is not None:
-                lanes.update(_string_dict(call.args[0], here))
-            elif table == "RETIRED_VERDICTS" and retired is not None:
-                retired |= _string_set(call.args[0], here)
-            elif table == "PENDING_REQUALIFICATION" and pending is not None:
-                pending |= _string_set(call.args[0], here)
-            else:
-                raise ReleaseGateError(f"{here}: {table} is updated before it is assigned")
-            allowed.add(id(call.func.value))
-            continue
-        assert isinstance(node, (ast.Assign, ast.AnnAssign))
-        target = node.targets[0] if isinstance(node, ast.Assign) else node.target
-        already = {"LANE_VERDICTS": lanes, "RETIRED_VERDICTS": retired,
-                   "PENDING_REQUALIFICATION": pending, "WP0_MANIFEST": wp0}[table]
-        if already is not None:
-            raise ReleaseGateError(f"{here}: {table} is assigned twice")
-        if table == "LANE_VERDICTS":
-            lanes = _string_dict(node.value, here)
-        elif table == "RETIRED_VERDICTS":
-            retired = _string_set(node.value, here)
-        elif table == "PENDING_REQUALIFICATION":
-            pending = _string_set(node.value, here)
-        else:
-            wp0 = _string(node.value, here)
-        allowed.add(id(target))
-    if lanes is None or retired is None or pending is None or wp0 is None or not live_seen:
-        raise ReleaseGateError(
-            f"{where}: must assign LANE_VERDICTS, RETIRED_VERDICTS, PENDING_REQUALIFICATION, "
-            "WP0_MANIFEST and LIVE_VERDICTS at module level"
-        )
-    _refuse_other_table_writes(tree, where, allowed)
-    return Registry(lanes, frozenset(retired), frozenset(pending), wp0)
-
-
-def _reads_only(node: ast.Name, parent: ast.AST | None, grandparent: ast.AST | None) -> bool:
-    """Whether this use of a mutable table can only read it.
-
-    A closed list of contexts, everything else refused: an alias (``x = TABLE``),
-    a return, a container display or an arbitrary call could hand the object to
-    code that mutates it before pytest computes the live set.
-    """
-    if isinstance(parent, ast.Attribute) and parent.value is node:
-        return parent.attr in _TABLE_READS
-    if isinstance(parent, ast.Subscript) and parent.value is node:
-        return isinstance(parent.ctx, ast.Load)
-    if isinstance(parent, ast.Call) and node in parent.args:
-        return isinstance(parent.func, ast.Name) and parent.func.id in _PURE_CALLS
-    if isinstance(parent, ast.Compare):
-        return True
-    if isinstance(parent, (ast.comprehension, ast.For)) and parent.iter is node:
-        return True
-    return isinstance(parent, (ast.BinOp, ast.FormattedValue)) and grandparent is not None
-
-
-def _refuse_other_table_writes(tree: ast.Module, where: str, allowed: set[int]) -> None:
-    parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
-    names = {*REGISTRY_TABLES, "LIVE_VERDICTS"}
-    for node in ast.walk(tree):
-        line = getattr(node, "lineno", "?")
-        if isinstance(node, (ast.Global, ast.Nonlocal)) and names & set(node.names):
-            raise ReleaseGateError(f"{where} line {line}: a verdict table is declared global")
-        if isinstance(node, ast.Name) and node.id in _REFLECTION:
-            raise ReleaseGateError(f"{where} line {line}: {node.id} could rewrite a verdict table")
-        if isinstance(node, ast.Attribute) and (node.attr == "__dict__" or node.attr in names):
-            raise ReleaseGateError(
-                f"{where} line {line}: .{node.attr} could rewrite a verdict table"
-            )
-        if not isinstance(node, ast.Name) or node.id not in names or id(node) in allowed:
-            continue
-        parent = parents.get(id(node))
-        grandparent = parents.get(id(parent)) if parent is not None else None
-        if not isinstance(node.ctx, ast.Load) or (
-            # WP0_MANIFEST is a string: no read of it can change it.
-            node.id != "WP0_MANIFEST" and not _reads_only(node, parent, grandparent)
-        ):
-            raise ReleaseGateError(
-                f"{where} line {line}: {node.id} is written, aliased or passed where it could "
-                "be changed, outside its module-level literal and .update(<literal>) statements"
-            )
-
-
-def _without_tables(source: str, where: str) -> str:
-    try:
-        tree = ast.parse(source, filename=where)
-    except (SyntaxError, ValueError) as error:
-        raise ReleaseGateError(f"{where}: cannot parse: {error}") from error
-    body = [node for node in tree.body if _table_statement(node) is None]
-    return ast.dump(ast.Module(body=body, type_ignores=[]))
+#: PEP 263: Python honours a coding declaration on either of the first two lines.
+_CODING_COOKIE = re.compile(rb"^[ \t\f]*#.*?coding[:=][ \t]*[-\w.]+", re.MULTILINE)
+_BOMS = (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff")
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
@@ -930,19 +774,31 @@ def _git_out(root: Path, *args: str) -> bytes:
     return result.stdout
 
 
+def _blob(root: Path, commit: str, relative: str) -> bytes:
+    return _git_out(root, "cat-file", "blob", f"{commit}:{relative}")
+
+
 def _repo_file(root: Path, relative: str) -> Path:
     return root.joinpath(*relative.split("/"))
 
 
-def _json_file(path: Path, where: str, *, bom: bool = False) -> Any:
+def _json_bytes(data: bytes, where: str, *, bom: bool = False) -> Any:
     try:
         return json.loads(
-            path.read_bytes().decode("utf-8-sig" if bom else "utf-8"),
+            data.decode("utf-8-sig" if bom else "utf-8"),
             object_pairs_hook=_no_duplicates,
             parse_constant=_reject_constant,
         )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (UnicodeDecodeError, json.JSONDecodeError, ReleaseGateError) as error:
         raise ReleaseGateError(f"{where}: cannot read it as JSON: {error}") from error
+
+
+def _json_file(path: Path, where: str, *, bom: bool = False) -> Any:
+    try:
+        data = path.read_bytes()
+    except OSError as error:
+        raise ReleaseGateError(f"{where}: cannot read it: {error}") from error
+    return _json_bytes(data, where, bom=bom)
 
 
 def _safe_relative(relative: object) -> bool:
@@ -962,6 +818,14 @@ class _Batch:
         """The lane's pack directory, relative to the repository root."""
         return f"{EVIDENCE_ROOT}/{PurePosixPath(self.runs[lane]['verdict']).parent}"
 
+    def files(self) -> set[str]:
+        """Every file the batch banks, relative to the repository root."""
+        banked = {self.path, self.path.removesuffix(".json") + ".md"}
+        banked |= {f"{EVIDENCE_ROOT}/{path}" for path in self.cleanup}
+        for lane, run in self.runs.items():
+            banked |= {f"{self.pack(lane)}/{name}" for name in run["files"]}
+        return banked
+
 
 def _batch(root: Path, relative: str, freeze: str) -> _Batch:
     """The batch manifest the report names, held to one passing run per lane at F."""
@@ -980,8 +844,11 @@ def _batch(root: Path, relative: str, freeze: str) -> _Batch:
             f"{relative}: records successor runs, so its verdicts span more than one commit"
         )
     runs = batch["runs"]
-    if not isinstance(runs, list) or not runs or batch["lanes_started"] != len(runs) or (
-        type(batch["lanes_started"]) is not int
+    if (
+        not isinstance(runs, list)
+        or not runs
+        or type(batch["lanes_started"]) is not int
+        or batch["lanes_started"] != len(runs)
     ):
         raise ReleaseGateError(f"{relative}: runs must be the lanes_started passing runs")
     cleanup = batch["post_batch_cleanup"]
@@ -1011,13 +878,16 @@ def _batch(root: Path, relative: str, freeze: str) -> _Batch:
             raise ReleaseGateError(
                 f"lane {name!r}: {verdict!r} is not where the bank tool banks it"
             )
+        assert type(verdict) is str
         if run.get("commit") != freeze:
             raise ReleaseGateError(
                 f"lane {name!r}: the batch records its run at {run.get('commit')!r}, not at the "
                 f"freeze commit {freeze}"
             )
+        run_id = run.get("run_id")
+        if type(run_id) is not str or _RUN_ID.match(run_id) is None:
+            raise ReleaseGateError(f"lane {name!r}: run_id {run_id!r} is not a run id")
         files = run.get("files")
-        assert type(verdict) is str
         if (
             not isinstance(files, dict)
             or PurePosixPath(verdict).name not in files
@@ -1025,6 +895,11 @@ def _batch(root: Path, relative: str, freeze: str) -> _Batch:
             or not all(type(v) is str and _SHA256.match(v) for v in files.values())
         ):
             raise ReleaseGateError(f"lane {name!r}: the batch does not hash its pack's files")
+        loadable = sorted(k for k in files if _LOADABLE.search(k))
+        if loadable:
+            raise ReleaseGateError(
+                f"lane {name!r}: the pack banks files Python could load: {loadable}"
+            )
         labels.add(match["label"])
         by_lane[name] = run
     if len(labels) != 1:
@@ -1034,11 +909,11 @@ def _batch(root: Path, relative: str, freeze: str) -> _Batch:
     return _Batch(relative, by_lane, cleanup)
 
 
-def _changes(root: Path, freeze: str, tagged: str) -> list[tuple[str, str, str]]:
-    """``(status, new mode, path)`` for every path that differs between F and the tag."""
+def _changes(root: Path, before: str, after: str) -> list[tuple[str, str, str]]:
+    """``(status, new mode, path)`` for every path that differs between two commits."""
     raw = _git_out(
         root, "diff", "--raw", "-z", "--no-renames", "--no-ext-diff", "--abbrev=40",
-        "--ignore-submodules=none", freeze, tagged,
+        "--ignore-submodules=none", before, after,
     )
     tokens = raw.split(b"\0")
     if tokens and tokens[-1] == b"":
@@ -1054,58 +929,278 @@ def _changes(root: Path, freeze: str, tagged: str) -> list[tuple[str, str, str]]
     return changes
 
 
-def _check_changes(
-    root: Path, base: str, freeze: str, tagged: str, batch: _Batch
-) -> list[tuple[str, str, str]]:
-    """Refuse any difference from F that is not evidence the batch banks or a record."""
-    changes = _changes(root, freeze, tagged)
-    records = {path.format(base=base) for path in FREEZE_RECORDS}
-    packs = tuple(batch.pack(lane) + "/" for lane in batch.runs)
-    added_files = {
-        batch.path,
-        batch.path.removesuffix(".json") + ".md",
-        *(f"{EVIDENCE_ROOT}/{path}" for path in batch.cleanup),
-    }
-    refused = []
-    for status, mode, path in changes:
-        banked = status == "A" and (path in added_files or path.startswith(packs))
-        recorded = status == "M" and (path in records or bool(_RESULTS_RECORD.match(path)))
-        if not (banked or recorded) or mode != "100644":
-            refused.append(f"{status} {path} (mode {mode})")
+def _records(base: str) -> set[str]:
+    return {path.format(base=base) for path in FREEZE_RECORDS}
+
+
+def _is_record(path: str, base: str) -> bool:
+    return path in _records(base) or bool(_RESULTS_RECORD.match(path))
+
+
+def _refuse_paths(where: str, refused: list[str]) -> None:
     if refused:
         raise ReleaseGateError(
-            f"the tagged commit {tagged} differs from the freeze commit {freeze} outside the "
-            "batch's evidence and the release records: " + "; ".join(refused[:20])
+            f"{where}: " + "; ".join(refused[:20])
             + (f"; and {len(refused) - 20} more" if len(refused) > 20 else "")
-            + ". Only the batch's packs, manifest, note and post-batch check may be added, "
-            "and only FREEZE_RECORDS modified; src/, scripts/, pyproject.toml, uv.lock, "
-            ".github/, .gitattributes and every other test must be byte-identical to F"
+            + ". Only the batch's packs, manifest, note and post-batch check may be added "
+            "(in B), and only the release records (FREEZE_RECORDS) modified; src/, scripts/, "
+            "pyproject.toml, uv.lock, .github/, .gitattributes, README.md, CHANGELOG.md and "
+            "every test must be byte-identical to F"
         )
-    added = {path for status, _, path in changes if status == "A"}
-    owed = [
-        f"{EVIDENCE_ROOT}/{path}" for path in batch.cleanup
-        if f"{EVIDENCE_ROOT}/{path}" not in added
+
+
+def _check_tree(
+    root: Path, base: str, freeze: str, tagged: str, batch: _Batch
+) -> list[tuple[str, str, str]]:
+    """The tagged tree is F's plus the batch's added files plus modified records."""
+    changes = _changes(root, freeze, tagged)
+    banked = batch.files()
+    refused = [
+        f"{status} {path} (mode {mode})"
+        for status, mode, path in changes
+        if mode != "100644"
+        or not (
+            (status == "A" and path in banked)
+            or (status == "M" and _is_record(path, base))
+        )
     ]
-    owed += [batch.path] if batch.path not in added else []
-    for lane, run in batch.runs.items():
-        owed += [
-            f"{batch.pack(lane)}/{name}" for name in run["files"]
-            if f"{batch.pack(lane)}/{name}" not in added
-        ]
+    _refuse_paths(
+        f"the tagged commit {tagged} differs from the freeze commit {freeze} outside the "
+        "batch's evidence and the release records",
+        refused,
+    )
+    added = {path for status, _, path in changes if status == "A"}
+    owed = sorted(banked - added)
     if owed:
         raise ReleaseGateError(
             "the batch's evidence must be added after the freeze commit, never carried from "
             f"it or before it: {owed[:10]}"
         )
-    if any(path == REGISTRY for _, _, path in changes):
-        before = _git_out(root, "cat-file", "blob", f"{freeze}:{REGISTRY}").decode("utf-8")
-        after = _git_out(root, "cat-file", "blob", f"{tagged}:{REGISTRY}").decode("utf-8")
-        if _without_tables(before, f"{REGISTRY} at F") != _without_tables(after, REGISTRY):
-            raise ReleaseGateError(
-                f"{REGISTRY} differs from the freeze commit outside its verdict tables "
-                f"{list(REGISTRY_TABLES)}; only those may change after F"
-            )
     return changes
+
+
+def _check_text(root: Path, commit: str, path: str) -> None:
+    """A record has one reading: UTF-8, no byte-order mark, no coding declaration."""
+    data = _blob(root, commit, path)
+    head = b"\n".join(data.split(b"\n")[:2])
+    if data.startswith(_BOMS) or _CODING_COOKIE.search(head):
+        raise ReleaseGateError(
+            f"{path} at {commit[:12]} starts with a byte-order mark or a coding "
+            "declaration; records changed after F are plain UTF-8"
+        )
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ReleaseGateError(f"{path} at {commit[:12]} is not UTF-8: {error}") from error
+
+
+def _report_at(root: Path, commit: str, base: str) -> dict[str, Any]:
+    relative = f"docs/release-evidence-report-{base}.json"
+    report = _json_bytes(_blob(root, commit, relative), f"{relative} at {commit[:12]}")
+    if not isinstance(report, dict):
+        raise ReleaseGateError(f"{relative} at {commit[:12]} is not a JSON object")
+    return report
+
+
+def _remaining_section(lines: list[str]) -> tuple[int, int]:
+    """The line range of the manifest's "Remaining before approval" section."""
+    try:
+        start = lines.index("## Remaining before approval")
+    except ValueError:
+        return len(lines), len(lines)
+    end = next(
+        (i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines)
+    )
+    return start, end
+
+
+def _check_approval(root: Path, base: str, parent: str, approval: str) -> None:
+    """A changes only the approval: status, version, line 5 and the remaining items."""
+    changes = _changes(root, parent, approval)
+    allowed = {path.format(base=base) for path in APPROVAL_RECORDS}
+    _refuse_paths(
+        f"the approval commit {approval} changes more than the approval records",
+        [
+            f"{status} {path} (mode {mode})"
+            for status, mode, path in changes
+            if status != "M" or mode != "100644" or path not in allowed
+        ],
+    )
+    before, after = _report_at(root, parent, base), _report_at(root, approval, base)
+    if before.get("status") == "approved" or after.get("status") != "approved":
+        raise ReleaseGateError(
+            f"the tagged commit {approval} must be the approval commit: its parent's report "
+            f"is {before.get('status')!r} and its own {after.get('status')!r}; the tag goes "
+            "on the commit that approves, after the banking commit"
+        )
+    old_evidence, new_evidence = before.get("evidence"), after.get("evidence")
+    if not isinstance(old_evidence, dict) or not isinstance(new_evidence, dict):
+        raise ReleaseGateError(f"the report's evidence is not an object around {approval}")
+    if {k for k in before.keys() | after.keys() if before.get(k) != after.get(k)} - {
+        "status", "version", "evidence"
+    } or {
+        k
+        for k in old_evidence.keys() | new_evidence.keys()
+        if old_evidence.get(k) != new_evidence.get(k)
+    } - {"remaining_before_approval"}:
+        raise ReleaseGateError(
+            f"the approval commit {approval} changes the report beyond status, version and "
+            "evidence.remaining_before_approval"
+        )
+    manifest = f"docs/release-evidence-{base}.md"
+    old = _blob(root, parent, manifest).decode("utf-8").split("\n")
+    new = _blob(root, approval, manifest).decode("utf-8").split("\n")
+    old_start, old_end = _remaining_section(old)
+    new_start, new_end = _remaining_section(new)
+    old_rest = old[:old_start] + old[old_end:]
+    new_rest = new[:new_start] + new[new_end:]
+    if len(old_rest) > STATUS_LINE_INDEX and len(new_rest) > STATUS_LINE_INDEX:
+        old_rest[STATUS_LINE_INDEX] = new_rest[STATUS_LINE_INDEX]
+    if old_rest != new_rest:
+        raise ReleaseGateError(
+            f"the approval commit {approval} changes {manifest} beyond line 5 and the "
+            "Remaining before approval section"
+        )
+
+
+def _check_history(
+    root: Path, base: str, freeze: str, tagged: str, batch: _Batch
+) -> list[str]:
+    """F -> B -> ... -> A, linear; B banks; the others are records; A approves."""
+    lines = _git_out(root, "rev-list", "--reverse", "--topo-order", "--parents",
+                     f"{freeze}..{tagged}").decode("ascii").splitlines()
+    commits: list[str] = []
+    previous = freeze
+    for line in lines:
+        commit, *parents = line.split()
+        if parents != [previous]:
+            raise ReleaseGateError(
+                f"commit {commit} is not a single-parent child of {previous}: the history from "
+                "the freeze commit to the tag must be linear (F, the banking commit B, any "
+                "records-only commits, the approval commit A)"
+            )
+        commits.append(commit)
+        previous = commit
+    if len(commits) < 2:
+        raise ReleaseGateError(
+            f"the tagged commit needs a banking commit B and a later approval commit A after "
+            f"the freeze commit {freeze}; found {len(commits)} commit(s)"
+        )
+    banking, approval = commits[0], commits[-1]
+    banked = batch.files()
+    for index, commit in enumerate(commits):
+        parent = freeze if index == 0 else commits[index - 1]
+        refused = []
+        for status, mode, path in _changes(root, parent, commit):
+            if mode != "100644":
+                refused.append(f"{status} {path} (mode {mode})")
+            elif index == 0 and status == "A" and path in banked:
+                continue
+            elif status == "M" and _is_record(path, base):
+                _check_text(root, commit, path)
+            else:
+                refused.append(f"{status} {path}")
+        what = "the banking commit" if index == 0 else (
+            "the approval commit" if commit == approval else "a records-only commit"
+        )
+        _refuse_paths(f"{what} {commit} changes what it may not", refused)
+        if commit != approval and _report_at(root, commit, base).get("status") == "approved":
+            raise ReleaseGateError(
+                f"commit {commit} approves before the tagged commit; approval is the last "
+                "commit, A, and only A"
+            )
+    for path in (batch.path, batch.path.removesuffix(".json") + ".md"):
+        if _git(root, "cat-file", "-e", f"{banking}:{path}").returncode == 0:
+            _check_text(root, banking, path)
+    _check_approval(root, base, commits[-2], approval)
+    return commits
+
+
+def _load_registry_blob(data: bytes, where: str) -> dict[str, Any]:
+    if data.startswith(_BOMS):
+        raise ReleaseGateError(f"{where}: starts with a byte-order mark")
+    registry = _json_bytes(data, where)
+    if not isinstance(registry, dict) or set(registry) != REGISTRY_KEYS:
+        raise ReleaseGateError(f"{where}: keys must be exactly {sorted(REGISTRY_KEYS)}")
+    canonical = json.dumps(registry, indent=2, ensure_ascii=True) + "\n"
+    if data != canonical.encode("ascii"):
+        raise ReleaseGateError(f"{where}: not in canonical form (2-space JSON, ASCII, LF)")
+    lanes, retired = registry["lane_verdicts"], registry["retired_verdicts"]
+    pending, wp0 = registry["pending_requalification"], registry["wp0_manifest"]
+    if (
+        registry["schema_version"] != 1
+        or not isinstance(lanes, dict)
+        or not all(_safe_relative(k) and type(v) is str for k, v in lanes.items())
+        or not isinstance(retired, list)
+        or not all(type(v) is str for v in retired)
+        or not isinstance(pending, list)
+        or not all(type(v) is str for v in pending)
+        or not _safe_relative(wp0)
+    ):
+        raise ReleaseGateError(f"{where}: does not match the registry schema")
+    bad = sorted({v for v in lanes.values() if _FINALIZER_NAME.match(v) is None})
+    if bad:
+        raise ReleaseGateError(f"{where}: finalizers must be bare finalize_*.py names: {bad}")
+    return registry
+
+
+def _live(registry: dict[str, Any]) -> dict[str, str]:
+    retired = set(registry["retired_verdicts"]) | set(registry["pending_requalification"])
+    return {k: v for k, v in registry["lane_verdicts"].items() if k not in retired}
+
+
+def _lane(relative: str) -> str:
+    return PurePosixPath(relative).parent.name
+
+
+def _check_registry(
+    root: Path, freeze: str, tagged: str, batch: _Batch
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The registry after F: F's entries kept, the batch's added, code names unchanged."""
+    at_freeze = _load_registry_blob(_blob(root, freeze, REGISTRY), f"{REGISTRY} at F")
+    at_tag = _load_registry_blob(_blob(root, tagged, REGISTRY), REGISTRY)
+    if _repo_file(root, REGISTRY).read_bytes() != _blob(root, tagged, REGISTRY):
+        raise ReleaseGateError(f"{REGISTRY} differs from the tagged commit's")
+    before, after = at_freeze["lane_verdicts"], at_tag["lane_verdicts"]
+    changed = sorted(k for k in before if after.get(k) != before[k])
+    if changed:
+        raise ReleaseGateError(
+            f"{REGISTRY}: entries present at F were changed or removed: {changed[:10]}"
+        )
+    if not set(at_freeze["retired_verdicts"]) <= set(at_tag["retired_verdicts"]):
+        raise ReleaseGateError(f"{REGISTRY}: a verdict retired at F is no longer retired")
+    newly_retired = set(at_tag["retired_verdicts"]) - set(at_freeze["retired_verdicts"])
+    if not newly_retired <= set(before):
+        raise ReleaseGateError(
+            f"{REGISTRY}: only verdicts registered at F may be retired after it: "
+            f"{sorted(newly_retired - set(before))[:10]}"
+        )
+    if at_tag["pending_requalification"]:
+        raise ReleaseGateError(
+            f"{REGISTRY}: pending_requalification is not empty "
+            f"({sorted(at_tag['pending_requalification'])}); a final release owes no "
+            "requalification"
+        )
+    cited = {run["verdict"]: lane for lane, run in batch.runs.items() if lane != "wp0"}
+    added = set(after) - set(before)
+    if added != set(cited):
+        raise ReleaseGateError(
+            f"{REGISTRY}: the verdicts added after F must be exactly the batch's runs; "
+            f"added but not run: {sorted(added - set(cited))[:5]}; "
+            f"run but not added: {sorted(set(cited) - added)[:5]}"
+        )
+    # The finalizer is code the tests run on each verdict: it may not move after F.
+    finalizer_at_freeze = {_lane(k): v for k, v in _live(at_freeze).items()}
+    for relative in sorted(added):
+        lane = cited[relative]
+        if after[relative] != finalizer_at_freeze.get(lane):
+            raise ReleaseGateError(
+                f"lane {lane!r}: {REGISTRY} names finalizer {after[relative]!r} for the new "
+                f"verdict, but the lane's finalizer at F is {finalizer_at_freeze.get(lane)!r}"
+            )
+    if at_tag["wp0_manifest"] != batch.runs.get("wp0", {}).get("verdict"):
+        raise ReleaseGateError(f"{REGISTRY}: wp0_manifest is not the batch's WP-0 run")
+    return at_freeze, at_tag
 
 
 def _tree_digests(directory: Path, where: str) -> dict[str, str]:
@@ -1124,31 +1219,16 @@ def _tree_digests(directory: Path, where: str) -> dict[str, str]:
     return digests
 
 
-def _lane(relative: str) -> str:
-    return PurePosixPath(relative).parent.name
-
-
-def _check_live_verdicts(root: Path, freeze: str, batch: _Batch) -> None:
-    """Every live verdict is the batch's run of its lane, earned at F; no lane is missing."""
-    try:
-        at_tag = parse_registry(_repo_file(root, REGISTRY).read_text(encoding="utf-8"), REGISTRY)
-    except (OSError, UnicodeDecodeError) as error:
-        raise ReleaseGateError(f"{REGISTRY}: cannot read it: {error}") from error
-    at_freeze = parse_registry(
-        _git_out(root, "cat-file", "blob", f"{freeze}:{REGISTRY}").decode("utf-8"),
-        f"{REGISTRY} at F",
-    )
-    if at_tag.pending:
-        raise ReleaseGateError(
-            f"{REGISTRY}: PENDING_REQUALIFICATION is not empty ({sorted(at_tag.pending)}); "
-            "a final release owes no requalification"
-        )
-    live = {*at_tag.live, at_tag.wp0_manifest}
+def _check_live_verdicts(
+    root: Path, freeze: str, batch: _Batch, at_freeze: dict[str, Any], at_tag: dict[str, Any]
+) -> None:
+    """Every live verdict is the batch's run of its lane, recorded at F; no lane is missing."""
+    live = {*_live(at_tag), at_tag["wp0_manifest"]}
     lanes = [_lane(relative) for relative in live]
     doubled = sorted({lane for lane in lanes if lanes.count(lane) > 1})
     if doubled:
         raise ReleaseGateError(f"{REGISTRY}: more than one live verdict for lanes {doubled}")
-    expected = {_lane(relative) for relative in (*at_freeze.live, at_freeze.wp0_manifest)}
+    expected = {_lane(relative) for relative in (*_live(at_freeze), at_freeze["wp0_manifest"])}
     missing = sorted(expected - set(batch.runs))
     extra = sorted(set(batch.runs) - expected)
     if missing or extra:
@@ -1161,13 +1241,7 @@ def _check_live_verdicts(root: Path, freeze: str, batch: _Batch) -> None:
     if stale:
         raise ReleaseGateError(
             f"lane {_lane(stale[0])!r}: the live verdict {stale[0]} is not this batch's run, so "
-            f"it was not earned at the freeze commit {freeze}; retire it in {REGISTRY}"
-        )
-    unregistered = sorted(set(cited) - live)
-    if unregistered:
-        raise ReleaseGateError(
-            f"lane {cited[unregistered[0]]!r}: the batch's verdict {unregistered[0]} is not "
-            f"live in {REGISTRY}"
+            f"it was not recorded at the freeze commit {freeze}; retire it in {REGISTRY}"
         )
     for lane, run in sorted(batch.runs.items()):
         where = f"lane {lane!r} ({EVIDENCE_ROOT}/{run['verdict']})"
@@ -1176,11 +1250,11 @@ def _check_live_verdicts(root: Path, freeze: str, batch: _Batch) -> None:
         if not isinstance(source, dict) or source.get("commit") != freeze:
             earned = source.get("commit") if isinstance(source, dict) else None
             raise ReleaseGateError(
-                f"{where}: earned at {earned!r}, not at the freeze commit {freeze}"
+                f"{where}: recorded at {earned!r}, not at the freeze commit {freeze}"
             )
         assert isinstance(verdict, dict)
         if source.get("dirty") is not False:
-            raise ReleaseGateError(f"{where}: not earned from a clean tree (source.dirty)")
+            raise ReleaseGateError(f"{where}: not recorded from a clean tree (source.dirty)")
         if lane == "wp0":
             capability = verdict.get("capability")
             passed = isinstance(capability, dict) and capability.get("evidence_state") == "pass"
@@ -1190,8 +1264,7 @@ def _check_live_verdicts(root: Path, freeze: str, batch: _Batch) -> None:
             raise ReleaseGateError(f"{where}: not a pass")
         if verdict.get("run_id") != run.get("run_id"):
             raise ReleaseGateError(f"{where}: run_id is not the batch's {run.get('run_id')!r}")
-        pack = batch.pack(lane)
-        if _tree_digests(_repo_file(root, pack), where) != run["files"]:
+        if _tree_digests(_repo_file(root, batch.pack(lane)), where) != run["files"]:
             raise ReleaseGateError(f"{where}: the pack's files are not what the batch banked")
     for relative, digest in sorted(batch.cleanup.items()):
         path = _repo_file(root, f"{EVIDENCE_ROOT}/{relative}")
@@ -1199,8 +1272,31 @@ def _check_live_verdicts(root: Path, freeze: str, batch: _Batch) -> None:
             raise ReleaseGateError(f"{batch.path}: {relative} is not what the batch hashed")
 
 
+def _check_evidence_tags(root: Path, freeze: str, batch: _Batch) -> None:
+    """Each run's ``evidence/<run_id>`` tag exists, is annotated and peels to F.
+
+    The finalizers create these tags on the controller for every passing run
+    (issue #22) and they are pushed with the batch; every run of both 1.1.0rc1
+    batches has one, peeling to its commit. They are records outside the banked
+    tree, not authentication: anyone who can push can make one.
+    """
+    for lane, run in sorted(batch.runs.items()):
+        ref = f"refs/tags/evidence/{run['run_id']}"
+        kind = _git(root, "cat-file", "-t", ref)
+        peeled = _git(root, "rev-parse", "-q", "--verify", f"{ref}^{{commit}}")
+        if kind.returncode or kind.stdout.strip() != b"tag":
+            raise ReleaseGateError(
+                f"lane {lane!r}: no annotated tag {ref} in this clone (the finalizer tags every "
+                "passing run; fetch tags, fetch-depth: 0)"
+            )
+        if peeled.returncode or peeled.stdout.decode("ascii").strip() != freeze:
+            raise ReleaseGateError(
+                f"lane {lane!r}: {ref} does not peel to the freeze commit {freeze}"
+            )
+
+
 def verify_freeze(root: Path, result: ReleaseManifest) -> str:
-    """Hold a final tag to its freeze commit F (see the module docstring)."""
+    """Hold a final tag to its freeze commit F (see the comment above for the claim)."""
     freeze, batch_path = result.freeze_commit, result.batch_manifest
     if freeze is None or batch_path is None:
         raise ReleaseGateError(f"{result.report}: a final tag needs the report's freeze")
@@ -1239,11 +1335,17 @@ def verify_freeze(root: Path, result: ReleaseManifest) -> str:
             "tagged commit, so it runs on a clean checkout"
         )
     batch = _batch(root, batch_path, freeze)
-    changes = _check_changes(root, result.base_version, freeze, tagged, batch)
-    _check_live_verdicts(root, freeze, batch)
+    changes = _check_tree(root, result.base_version, freeze, tagged, batch)
+    commits = _check_history(root, result.base_version, freeze, tagged, batch)
+    at_freeze, at_tag = _check_registry(root, freeze, tagged, batch)
+    _check_live_verdicts(root, freeze, batch, at_freeze, at_tag)
+    _check_evidence_tags(root, freeze, batch)
     return (
-        f"freeze {freeze[:12]}: {len(batch.runs)} lanes earned at F ({batch_path}); "
-        f"{len(changes)} paths changed since F, all the batch's evidence or release records"
+        f"freeze {freeze[:12]}: the tagged tree is F plus {len(changes)} added evidence or "
+        f"changed record paths, reached F -> B {commits[0][:12]} -> A {commits[-1][:12]} "
+        f"({len(commits)} commits); the batch ({batch_path}) records {len(batch.runs)} runs "
+        "at F, each with its evidence tag. This does not authenticate the estate runs: "
+        "that rests on the controller transcripts and the banking review"
     )
 
 
