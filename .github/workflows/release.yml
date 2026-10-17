@@ -13,7 +13,11 @@ permissions:
 # Nothing is published unless, for the exact tagged commit:
 #   release-identity  the tag, __version__ and that version's own evidence
 #                     manifest agree, and the manifest is approved (or marked
-#                     as a candidate for an -rc tag); the commit is on main;
+#                     as a candidate for an -rc tag); for a final tag, the
+#                     commit differs from the report's freeze commit only in
+#                     the batch's evidence and the release records, and every
+#                     live verdict was earned at that freeze commit; the
+#                     commit is on main;
 #   ci                every ci.yml job passes, including test-windows;
 #   identifier-gate   the committed-identifier gate passes;
 #   verify            the release gates below pass.
@@ -112,7 +116,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Full history: for a final tag every check_release_manifest.py run below
+      # holds the tagged commit to its freeze commit, which it must be able to
+      # read (it refuses a shallow clone).
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:

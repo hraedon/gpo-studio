@@ -1,6 +1,6 @@
 {
   "report_type": "GPO Studio release evidence report",
-  "report_version": 2,
+  "report_version": 3,
   "version": "1.1.0rc1",
   "status": "candidate",
   "manifest": "docs/release-evidence-1.1.0.md",
@@ -10,6 +10,7 @@
     "sdist_sha256": "resolved by the tagged release workflow",
     "sbom_sha256": "resolved by the tagged release workflow"
   },
+  "freeze": null,
   "evidence": {
     "requalification": {
       "note": "docs/plan-033/release110-batch.md",

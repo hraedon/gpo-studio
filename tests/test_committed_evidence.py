@@ -1165,6 +1165,13 @@ RETIRED_VERDICTS.update({
 #: mechanism.
 PENDING_REQUALIFICATION: set[str] = set()
 
+#: The live WP-0 manifest. WP-0 binds by commit, not by file hashes, so it is not
+#: in LANE_VERDICTS; `test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit`
+#: checks it here, and the release gate (`scripts/check_release_manifest.py`)
+#: reads it as one of the registry's verdict tables: a final tag requires it to
+#: be the freeze batch's WP-0 run, earned at the freeze commit.
+WP0_MANIFEST = "wp0-evidence/release110-20261009/wp0/manifest.json"
+
 LIVE_VERDICTS = {
     relative: finalizer
     for relative, finalizer in LANE_VERDICTS.items()
@@ -2044,7 +2051,7 @@ def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
     (any developer clone, and any CI job that deepens its checkout) the
     property is enforced for real.
     """
-    manifest = _verdict("wp0-evidence/release110-20261009/wp0/manifest.json")
+    manifest = _verdict(WP0_MANIFEST)
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
     assert "files" not in manifest["source"], (
