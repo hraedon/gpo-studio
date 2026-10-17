@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from plan036_support import load
+from plan036_support import git_env, load
 
 cli = load("cli")
 record = load("record")
@@ -161,7 +161,8 @@ def _tree(tmp_path: Path, name: str, lock: str, *, commit: bool = False) -> Path
     if commit:  # the tool tree: its lock must be committed for the record to name it
         for args in (("init", "-q"), ("config", "user.email", "t@example.invalid"),
                      ("config", "user.name", "t"), ("add", "-A"), ("commit", "-q", "-m", "t")):
-            subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True,
+                           env=git_env())
     return path
 
 
@@ -233,7 +234,7 @@ def test_a_uv_clone_carries_its_environment_record(stub_uv: Path, tmp_path: Path
     root.mkdir()
 
     def git(*args: str) -> str:
-        return subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, env=git_env(),
                               check=True).stdout.decode("utf-8").strip()
 
     git("init", "-q")

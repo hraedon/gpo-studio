@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
-from plan036_support import load
+from plan036_support import git_env, load
 
 changed = load("changed")
 repo_mod = load("repo")
@@ -24,7 +25,8 @@ VERSION = "src/gpo_studio/__init__.py"
 
 
 def _git(root: Path, *args: str) -> str:
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True)
+    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True,
+                            env=git_env())
     return result.stdout.decode("utf-8").strip()
 
 
@@ -157,17 +159,77 @@ def test_a_non_python_child_running_a_changed_file_executes_all_of_it(
     assert selection.selected and selection.executed_changed == {"new.py": [1, 2]}
 
 
+def _git_child(*argv: str, **facts: Any) -> dict[str, Any]:
+    """A git child as the tracer records one under the hermetic run environment."""
+    return {"kind": "process", "argv": ["git", *argv], "route": "subprocess",
+            "cwd": "/clone", "env_changed": [], **facts}
+
+
+HERMETIC = {"environ": {**repo_mod.git_environment({}), **repo_mod.LANE_GIT_IDENTITY}}
+
+
 def test_shells_and_undeclared_children_make_the_trace_incomplete() -> None:
-    traces = [{"incomplete": [], "processes": [
-        {"kind": "process", "argv": ["git", "rev-parse"]},
+    traces = [{"incomplete": [], **HERMETIC, "processes": [
+        _git_child("rev-parse", "HEAD"),
         {"kind": "shell", "argv": ["sh", "-c", "true"]},
         {"kind": "process", "argv": ["/usr/bin/curl", "x"]},
     ]}]
     reasons = changed.trace_incompleteness(traces, ["git"])
-    assert len(reasons) == 2
     assert any("shell" in r for r in reasons) and any("curl" in r for r in reasons)
-    assert changed.trace_incompleteness([{"incomplete": [], "processes": [
-        {"kind": "process", "argv": ["git"]}]}], ["git"]) == []
+    assert not any("rev-parse" in r for r in reasons), reasons
+    assert changed.trace_incompleteness([{"incomplete": [], **HERMETIC, "processes": [
+        _git_child("rev-parse", "HEAD")]}], ["git"], Path("/clone")) == []
+
+
+def test_a_declared_program_without_a_hermetic_contract_is_incomplete() -> None:
+    """Review round 6, Sol B2: declaring an executable is not enough; what a
+    non-Python child reads beyond its argv must be pinned by a reviewed contract
+    (git alone has one), or the trace is incomplete."""
+    trace = {"incomplete": [], **HERMETIC, "processes": [
+        {"kind": "process", "argv": ["ls", "-l"], "route": "subprocess", "cwd": "/clone",
+         "env_changed": []}]}
+    reasons = changed.trace_incompleteness([trace], ["ls"], Path("/clone"))
+    assert any("no hermetic contract" in r for r in reasons), reasons
+
+
+@pytest.mark.parametrize(("child", "expected"), [
+    (_git_child("status", "--porcelain", cwd="/elsewhere"), "not the clone's root"),
+    (_git_child("-C", "/elsewhere", "rev-parse", "HEAD"), "not the clone's root"),
+    (_git_child("-C", "sub/..", "rev-parse", "HEAD"), None),
+    (_git_child("rev-parse", "HEAD", env_changed=["GIT_DIR"]), "differ from the run's"),
+    (_git_child("rev-parse", "HEAD", route="os.posix_spawn"), "outside the wrapped"),
+    (_git_child("diff", "HEAD"), "outside the reviewed contract"),
+    (_git_child("--git-dir=/x", "status"), "global option"),
+    (_git_child("show", "--textconv", "HEAD:x"), "may start a helper"),
+    (_git_child("show", "--ext-diff", "HEAD"), "may start a helper"),
+    (_git_child("show", "--show-signature", "HEAD"), "may start a helper"),
+    (_git_child("tag", "-s", "-m", "x", "t"), "gpg or an editor"),
+    (_git_child("tag", "-a", "t"), "gpg or an editor"),
+    (_git_child("tag", "-a", "t", "HEAD", "-m", "x"), None),
+    (_git_child("show", "HEAD:scripts/x.py"), None),
+    (_git_child("var", "GIT_COMMITTER_IDENT"), None),
+])
+def test_git_children_are_held_to_the_reviewed_contract(
+    child: dict[str, Any], expected: str | None
+) -> None:
+    trace = {"incomplete": [], **HERMETIC, "processes": [child]}
+    reasons = changed.trace_incompleteness([trace], ["git"], Path("/clone"))
+    if expected is None:
+        assert reasons == []
+    else:
+        assert any(expected in r for r in reasons), reasons
+
+
+@pytest.mark.parametrize("environ", [
+    {},
+    {**HERMETIC["environ"], "GIT_CONFIG_GLOBAL": "/home/someone/.gitconfig"},
+    {**HERMETIC["environ"], "GIT_DIR": "/elsewhere/.git"},
+    {k: v for k, v in HERMETIC["environ"].items() if k != "GIT_CONFIG_COUNT"},
+])
+def test_a_git_child_outside_the_pinned_environment_is_incomplete(environ: dict[str, str]) -> None:
+    trace = {"incomplete": [], "environ": environ, "processes": [_git_child("status")]}
+    reasons = changed.trace_incompleteness([trace], ["git"], Path("/clone"))
+    assert any("pinned hermetic environment" in r for r in reasons), reasons
 
 
 def test_the_convergence_rule() -> None:

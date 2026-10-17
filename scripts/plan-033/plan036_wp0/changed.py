@@ -52,13 +52,14 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .repo import LISTS_DIR, Wp0Error, git, show
+from .repo import LISTS_DIR, Wp0Error, git, git_pins_hold, show
 
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
@@ -324,16 +325,22 @@ def child_repository_files(
 
 
 def trace_incompleteness(
-    traces: Iterable[dict[str, Any] | None], declared_executables: Iterable[str]
+    traces: Iterable[dict[str, Any] | None],
+    declared_executables: Iterable[str],
+    clone_root: Path | None = None,
 ) -> list[str]:
     """Why the traces of one lane are incomplete (empty: complete).
 
     The tracer's own reasons (a Python child it could not follow, a fork, a
-    shell started outside subprocess), plus the harness's two rules: a shell
-    child is incomplete (no declaration today says a shell runs no
-    interpreter, so none is accepted), and a non-Python child whose executable
-    no declared process edge names means the declarations have fallen behind
-    what ran.
+    shell started outside subprocess, a preexec_fn), plus the harness's rules:
+    a shell child is incomplete (no declaration today says a shell runs no
+    interpreter, so none is accepted); a non-Python child whose executable no
+    declared process edge names means the declarations have fallen behind what
+    ran; and (review round 6, Sol B2) a non-Python child is complete only under
+    a reviewed hermetic contract (`CHILD_CONTRACTS`; git alone has one), which
+    it must meet in full: the pinned environment, no variable changed for it,
+    started through the wrapped `subprocess`, run in the clone's root
+    (*clone_root*, when given), and only the reviewed subcommands and options.
     """
     allowed = {name.lower() for name in declared_executables}
     reasons: list[str] = []
@@ -349,6 +356,12 @@ def trace_incompleteness(
                 name = Path(argv[0]).name.lower().removesuffix(".exe")
                 if name not in allowed:
                     reasons.append(f"a child process no declared edge names: {argv[0]}")
+                contract = CHILD_CONTRACTS.get(name)
+                if contract is None:
+                    reasons.append(f"a non-Python child no hermetic contract covers, so what it "
+                                   f"reads and starts is unrecorded: {argv}")
+                else:
+                    reasons.extend(contract(trace, process, argv, clone_root))
                 if name in WRAPPERS:
                     # Review round 4 (Sol B2): `env python child.py`, `timeout 5 x`:
                     # the program a wrapper starts is not traced.
@@ -391,6 +404,76 @@ _COMMAND_OPTIONS = frozenset({
 _COMMAND_CONFIG = ("alias.", "core.sshcommand", "core.pager", "core.editor", "core.fsmonitor",
                    "core.hookspath", "credential.helper", "filter.", "diff.external",
                    "gpg.program", "sequence.editor", "pager.", "uploadpack.packobjectshook")
+
+
+#: git's reviewed contract (review round 6, Sol B2): the subcommands the finalizers
+#: are declared to run, and options that would start a helper (an external diff
+#: or textconv, gpg, an editor) or point git at another repository.
+GIT_SUBCOMMANDS = frozenset({"rev-parse", "status", "show", "var", "tag"})
+_GIT_FORBIDDEN = ("--textconv", "--ext-diff", "--show-signature", "--filters", "--git-dir",
+                  "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env",
+                  "--output", "--open-files-in-pager", "--paginate")
+_GIT_TAG_FORBIDDEN = frozenset({"-s", "--sign", "-u", "--local-user", "-e", "--edit", "-v",
+                                "--verify"})
+_GIT_TAG_MESSAGE = ("-m", "--message", "-F", "--file")
+
+
+def _git_contract(
+    trace: dict[str, Any], process: dict[str, Any], argv: list[str], clone_root: Path | None
+) -> list[str]:
+    reasons: list[str] = []
+    environ = trace.get("environ")
+    if not isinstance(environ, dict):
+        reasons.append(f"git ran from a trace that recorded no environment: {argv}")
+    else:
+        drift = git_pins_hold(environ)
+        if drift:
+            reasons.append(f"git ran without the pinned hermetic environment ({drift[:3]}): "
+                           f"{argv}")
+    if process.get("route") != "subprocess":
+        reasons.append(f"git started outside the wrapped subprocess, so its environment and "
+                       f"directory are unrecorded: {argv}")
+    if process.get("env_changed") != []:
+        reasons.append(f"git was given environment variables that differ from the run's "
+                       f"({process.get('env_changed')}): {argv}")
+    directory = process.get("cwd")
+    index = 1
+    while index < len(argv) and argv[index].startswith("-"):
+        option = argv[index]
+        if option == "-C" and index + 1 < len(argv):
+            directory = os.path.join(str(directory), argv[index + 1]) if directory else None
+            index += 2
+            continue
+        reasons.append(f"git global option {option} is outside the reviewed contract: {argv}")
+        index += 1
+    subcommand = argv[index] if index < len(argv) else ""
+    rest = argv[index + 1:]
+    if subcommand not in GIT_SUBCOMMANDS:
+        reasons.append(f"git {subcommand or '(no subcommand)'} is outside the reviewed contract "
+                       f"({sorted(GIT_SUBCOMMANDS)}): {argv}")
+    if any(token == forbidden or token.startswith(forbidden + "=")
+           for token in rest for forbidden in _GIT_FORBIDDEN):
+        reasons.append(f"git is given an option that may start a helper: {argv}")
+    if subcommand == "tag" and (
+        _GIT_TAG_FORBIDDEN & set(rest)
+        or not any(token in _GIT_TAG_MESSAGE or token.startswith(("--message=", "--file="))
+                   for token in rest)
+    ):
+        reasons.append(f"git tag may start gpg or an editor: {argv}")
+    if clone_root is not None:
+        try:
+            same = directory is not None and Path(str(directory)).resolve() == clone_root.resolve()
+        except OSError:
+            same = False
+        if not same:
+            reasons.append(f"git ran in {directory}, not the clone's root, so it may read "
+                           f"another repository's configuration: {argv}")
+    return reasons
+
+
+#: Non-Python programs whose children can be complete: each maps to the check of
+#: its reviewed hermetic contract. Every other non-Python child is incomplete.
+CHILD_CONTRACTS = {"git": _git_contract}
 
 
 def _embeds_command(argument: str) -> bool:

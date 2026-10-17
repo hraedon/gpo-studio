@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
-from plan036_support import REPO_ROOT, load
+from plan036_support import REPO_ROOT, git_env, load
 
 record = load("record")
 scan = load("scan")
@@ -202,6 +204,14 @@ def test_the_gate_re_executes_target_claims_and_refuses_a_false_one(
     refuses to finalize at any commit but the one its harness inputs name, so
     the gate's offline re-execution must find the claim false."""
     part1, _lists = derived
+    common = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "--path-format=absolute",
+                             "--git-common-dir"], capture_output=True, check=True,
+                            env=git_env()).stdout.decode("utf-8").strip()
+    if not os.access(common, os.W_OK):
+        # Review round 6, Sol N2: the gate makes git worktrees, which writes
+        # under the common git directory; a read-only one cannot host them.
+        pytest.skip(f"git metadata at {common} is read-only: the gate's clones need a "
+                    "writable repository (run from a writable clone)")
     problems = record.reexecute_target(REPO_ROOT, complete, part1, tmp_path / "gate",
                                        lanes_wanted={"wp0"})
     assert any(p.startswith("wp0: the re-grade at the target differs") for p in problems), \
@@ -403,7 +413,7 @@ def test_the_banking_commit_may_not_touch_a_dependency(tmp_path: Path) -> None:
     root.mkdir()
 
     def git(*args: str) -> str:
-        return subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, env=git_env(),
                               check=True).stdout.decode("utf-8").strip()
 
     git("init", "-q")
@@ -434,7 +444,7 @@ def test_the_gate_holds_the_pin_to_the_gated_history(tmp_path: Path) -> None:
     root.mkdir()
 
     def git(*args: str) -> str:
-        return subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, env=git_env(),
                               check=True).stdout.decode("utf-8").strip()
 
     git("init", "-q", "-b", "main")

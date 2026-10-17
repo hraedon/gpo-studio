@@ -12,8 +12,10 @@ the tool runs from. The finalizers' own `git rev-parse HEAD` and
 clone's root, no interpreter flags (`lanes.RUNNER_PYTHON_FLAGS`), the script
 spelt as the runner spells it, the interpreter the clone's environment
 provides, with `VIRTUAL_ENV` and `PATH` set as `uv run` sets them. The
-environment is reduced to `RUN_ENVIRONMENT` plus a private `TMPDIR`, and the
-values the run saw are recorded (filtered by the tracer's allowlist).
+environment is `run_environment` (review round 6: a fixed hash seed, locale and
+timezone, hermetic git, a fixed committer identity and a minimal PATH; nothing
+else is passed through on POSIX) plus a private `TMPDIR`, and the trace records
+every variable the run started with (checked against what was passed).
 
 **Builder replay** (lanes with a candidate): clone A runs the builder plainly
 (the real interpreter, not through the tracer), clone B runs it traced, and
@@ -59,10 +61,12 @@ from typing import Any
 
 from .lanes import RUNNER_PYTHON_FLAGS, Lane, render_argv, resolve_inputs, script_argument
 from .repo import (
+    LANE_GIT_IDENTITY,
     PACKAGE_DIR,
     Wp0Error,
     detached_worktree,
     git,
+    git_environment,
     is_clean,
     sha256_bytes,
     sha256_file,
@@ -70,11 +74,19 @@ from .repo import (
 )
 
 TRACER = PACKAGE_DIR / "tracer.py"
-#: Variables passed through from the tool's environment (everything else is dropped).
-RUN_ENVIRONMENT = (
-    "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
-    "SYSTEMROOT", "WINDIR", "USERPROFILE", "PATHEXT", "COMSPEC",
-)
+#: Variables passed through from the tool's environment (everything else is
+#: dropped). On the controller (POSIX) none is: PATH is pinned too (below).
+RUN_ENVIRONMENT = ("PATH", "SYSTEMROOT", "WINDIR", "USERPROFILE", "PATHEXT", "COMSPEC")
+#: Decision inputs fixed for every run (review round 6, Sol's Part B
+#: counterexample: two hash seeds gave the same output but executed different
+#: dependency files). With these, set and dict iteration over str keys, the
+#: locale's text encoding and collation, and local time are the same in every
+#: run, at F and in the gate. HOME and every git variable come from
+#: `repo.git_environment` (HOME names no directory), and the committer
+#: identity from `repo.LANE_GIT_IDENTITY`.
+RUN_PINNED: dict[str, str] = {
+    "PYTHONHASHSEED": "0", "LC_ALL": "C.UTF-8", "LANG": "C.UTF-8", "TZ": "UTC",
+}
 #: State fields the traced and observe runs must agree on.
 EQUIVALENCE_FIELDS = ("flags", "path_final", "cwd", "env", "modules")
 DEFAULT_TIMEOUT = 1800
@@ -210,23 +222,33 @@ def clone(
     successor record refuses an environment built this way).
     """
     with detached_worktree(repo, commit, parent, name) as path:
-        base = {k: os.environ[k] for k in RUN_ENVIRONMENT if k in os.environ}
         if launcher == "uv":
             python, environment = uv_environment(path, commit, tool_root or repo)
-            bindir = Path(python[0]).parent
-            env = {
-                **base,
-                "VIRTUAL_ENV": str(path / ".venv"),
-                "PATH": str(bindir) + os.pathsep + base.get("PATH", ""),
-            }
+            env = run_environment(Path(python[0]).parent, {"VIRTUAL_ENV": str(path / ".venv")})
         elif launcher == "current":
             python = [sys.executable]
-            env = {**base, "PYTHONPATH": str(path / "src")}
+            env = run_environment(None, {"PYTHONPATH": str(path / "src")})
             environment = {"method": "current-interpreter", "commit": commit,
                            "python": sys.version.split()[0]}
         else:
             raise Wp0Error(f"unknown launcher {launcher}")
         yield Clone(path=path, commit=commit, python=python, env=env, environment=environment)
+
+
+def run_environment(bindir: Path | None, extra: dict[str, str]) -> dict[str, str]:
+    """The whole environment of a lane run (review round 6): `RUN_PINNED`, the
+    hermetic git variables, the fixed committer identity, *extra*, and a PATH of
+    the environment's scripts directory and the directory git is found in (on
+    POSIX; Windows keeps the system PATH it needs to start a process at all)."""
+    base = {k: os.environ[k] for k in RUN_ENVIRONMENT if k in os.environ}
+    if os.name != "nt":
+        found = shutil.which("git")
+        if found is None:
+            raise Wp0Error("git is not on PATH; the lanes' finalizers run it")
+        base["PATH"] = os.path.dirname(found)
+    if bindir is not None:
+        base["PATH"] = str(bindir) + os.pathsep + base.get("PATH", "")
+    return {**git_environment(base), **LANE_GIT_IDENTITY, **RUN_PINNED, **extra}
 
 
 @dataclass
@@ -290,6 +312,11 @@ def run(
                 f"the tracer wrote no trace for {script_argv[0]}: {outcome.stderr[-400:]}"
             )
         outcome.trace = json.loads(trace_file.read_text(encoding="utf-8"))
+        if outcome.trace.get("environ") != env:
+            # Review round 6: the trace records every variable the run was
+            # given, and it must be exactly what the harness passed.
+            raise Wp0Error(f"the traced run of {script_argv[0]} did not start with the "
+                           "environment the harness passed")
         outcome.children = _child_traces(outcome.trace)
     return outcome
 

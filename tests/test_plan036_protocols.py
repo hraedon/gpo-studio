@@ -73,6 +73,7 @@ PROBES = {
     "builtins.frozenset.__sub__": "fss.__sub__(fs)",
     "builtins.list.__contains__": "ls.__contains__(a)",
     "builtins.list.__eq__": "ls.__eq__(xs)",
+    "builtins.list.__lt__": "ls.__lt__(xs)",
     "builtins.list.__getitem__": "ls.__getitem__(a)",
     "builtins.list.__iadd__": "ls.__iadd__(a)",
     "builtins.list.__mul__": "ls.__mul__(a)",

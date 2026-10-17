@@ -27,9 +27,12 @@ and checked by `tests/test_plan036_tracer.py` against the interpreter itself):
 **What it records** (`<out-dir>/trace.json`): every (file, line) a LINE event
 reported (`sys.monitoring`, each location disabled after its first event, so
 the cost is one callback per line); every file opened (audit `open` events);
-every child process; and, at exit, the state the equivalence check compares:
-`sys.flags`, the final `sys.path`, the working directory, the environment
-filtered by `ENV_ALLOWLIST`, and the file each imported module was loaded from.
+every child process (with its working directory, the environment variables it
+was given that differ from this run's, review round 6); the run's whole
+environment as it started (`environ`); and, at exit, the state the equivalence
+check compares: `sys.flags`, the final `sys.path`, the working directory, the
+environment filtered by `ENV_ALLOWLIST` (and every GIT_* variable), and the file
+each imported module was loaded from.
 
 **Children.** `subprocess.Popen` is wrapped. A child whose executable is a
 Python interpreter and whose arguments are interpreter flags followed by a
@@ -59,7 +62,7 @@ import sys
 import types
 
 ENV_ALLOWLIST = (
-    "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_NUMERIC", "LC_TIME",
+    "PATH", "HOME", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_NUMERIC", "LC_TIME",
     "TZ", "PYTHONHASHSEED", "PYTHONPATH", "PYTHONHOME", "PYTHONIOENCODING", "PYTHONUTF8",
     "PYTHONDONTWRITEBYTECODE", "PYTHONSAFEPATH", "PYTHONWARNINGS", "PYTHONDEVMODE",
     "PYTHONINTMAXSTRDIGITS", "SOURCE_DATE_EPOCH", "VIRTUAL_ENV", "GIT_DIR", "GIT_WORK_TREE",
@@ -75,6 +78,7 @@ _TOOL_NAME = "plan036-wp0"
 
 class _State:
     out_dir = ""
+    environ: dict[str, str] = {}
     lines: dict[str, set[int]] = {}
     opened: list[tuple[str, str]] = []
     processes: list[dict[str, object]] = []
@@ -197,7 +201,28 @@ def _wrap_popen() -> None:
     def text(value: Any) -> str:
         return os.fsdecode(os.fspath(value))
 
+    def launch_facts(pos: tuple[Any, ...], kw: dict[str, Any]) -> dict[str, object]:
+        """Review round 6, Sol B2: what the child sees besides its argv. The
+        effective working directory, every environment variable that differs
+        from this process's starting environment, and a preexec_fn (Python run
+        in the forked child before exec, which no trace records)."""
+        if len(pos) > 1:
+            _State.incomplete.append(
+                f"Popen with positional options the tracer does not model: {len(pos)}")
+        env = kw.get("env")
+        effective = dict(os.environ) if env is None else {
+            text(key): text(value) for key, value in env.items()}
+        changed = sorted(name for name in set(effective) | set(_State.environ)
+                         if effective.get(name) != _State.environ.get(name))
+        cwd = kw.get("cwd")
+        if kw.get("preexec_fn") is not None:
+            _State.incomplete.append("a child's preexec_fn runs Python in the forked child, "
+                                     "which no trace records")
+        return {"cwd": os.path.abspath(text(cwd)) if cwd is not None else os.getcwd(),
+                "env_changed": changed}
+
     def init(self: Any, args: Any, *pos: Any, **kw: Any) -> None:
+        facts = launch_facts(pos, kw)
         if kw.get("shell"):
             _record_child("shell", [str(args)], "subprocess shell=True")
             original_init(self, args, *pos, **kw)
@@ -212,7 +237,8 @@ def _wrap_popen() -> None:
             _State.children.append(child_out)
             tracer = os.path.abspath(__file__)
             relaunched = [program[0], *flags, tracer, child_out, "--", script, *rest]
-            _State.processes.append({"kind": "python-script", "argv": argv, "traced_as": child_out})
+            _State.processes.append({"kind": "python-script", "argv": argv, "traced_as": child_out,
+                                     **facts})
             _State.mid_launch = True
             try:
                 original_init(self, relaunched, *pos, **kw)
@@ -220,6 +246,7 @@ def _wrap_popen() -> None:
                 _State.mid_launch = False
             return
         _record_child(kind, argv, "subprocess")
+        _State.processes[-1].update(facts)
         _State.mid_launch = True
         try:
             original_init(self, args, *pos, **kw)
@@ -298,7 +325,9 @@ def _write() -> None:
         "flags": flags,
         "path_final": list(sys.path),
         "cwd": os.getcwd(),
-        "env": {name: os.environ[name] for name in ENV_ALLOWLIST if name in os.environ},
+        "env": {name: value for name, value in sorted(os.environ.items())
+                if name in ENV_ALLOWLIST or name.startswith("GIT_")},
+        "environ": dict(sorted(_State.environ.items())),
         "modules": _module_files(),
         "lines": {name: sorted(lines) for name, lines in sorted(_State.lines.items())},
         "opened": sorted(set(_State.opened)),
@@ -316,6 +345,8 @@ def _write() -> None:
 
 
 def main() -> None:
+    # Review round 6: every variable the run was given, before the script runs.
+    _State.environ = dict(os.environ)
     out_dir, observe, script, rest = _parse(sys.argv[1:])
     _State.out_dir = os.path.abspath(out_dir)
     _State.observe = observe

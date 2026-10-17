@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from plan036_support import load
+from plan036_support import git_env, load
 
 cli = load("cli")
 record = load("record")
@@ -117,7 +117,8 @@ REGISTRY = "docs/registry.json"
 
 
 def _git(root: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True,
+                          env=git_env()
                           ).stdout.decode("utf-8").strip()
 
 

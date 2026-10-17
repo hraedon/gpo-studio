@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from plan036_support import REPO_ROOT, load
+from plan036_support import REPO_ROOT, git_env, load
 
 lanes = load("lanes")
 replay = load("replay")
@@ -103,7 +103,8 @@ print("built")
 
 
 def _git(root: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True,
+                          env=git_env()
                           ).stdout.decode("utf-8").strip()
 
 
@@ -279,7 +280,7 @@ def test_a_tampered_pack_is_refused(synthetic: dict[str, Any], tmp_path: Path, t
     lane, root = synthetic["lane"], synthetic["root"]
     copy_root = tmp_path / "copy"
     subprocess.run(["git", "-C", str(root), "worktree", "add", "--detach", "-q", str(copy_root),
-                    synthetic["base"]], check=True, capture_output=True)
+                    synthetic["base"]], check=True, capture_output=True, env=git_env())
     try:
         import shutil
 
@@ -296,7 +297,7 @@ def test_a_tampered_pack_is_refused(synthetic: dict[str, Any], tmp_path: Path, t
             replay.reconstruct(copy_root, lane, tmp_path / "rebuilt")
     finally:
         subprocess.run(["git", "-C", str(root), "worktree", "remove", "--force", str(copy_root)],
-                       check=False, capture_output=True)
+                       check=False, capture_output=True, env=git_env())
 
 
 # --- the projection on the real banked verdicts (all four shapes) ---------------------------

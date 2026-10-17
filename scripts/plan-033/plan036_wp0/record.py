@@ -85,6 +85,7 @@ from .repo import (
     Wp0Error,
     detached_worktree,
     git,
+    git_environment,
     rev_parse,
     sha256_bytes,
     sha256_file,
@@ -139,13 +140,26 @@ DESIGN_NOTES = (
     "a call among them, fails); covering them adds about 400 sites, and in these "
     "lanes such values come from repository code or decoded JSON (scan.py's module "
     "docstring).",
-    "Design note (review round 5): the runtime trace at F records every executed "
-    "line, every audited open and every child process; the static scan's lasting "
-    "contribution is the input channels the trace does not record (directory "
-    "enumeration, C-level reads, environment, clock, network). The dry-run notes "
-    "propose making the trace the soundness basis once its domain and pin cover "
-    "every traced file and those channels are hooked or refused; until then the "
-    "scan stays release-blocking.",
+    "Design note, Part B v2 (review round 6; for the owner): the dry-run notes "
+    "propose that the gate observe the gated commit R itself (monitored "
+    "re-executions in two clones, D-9 computed at R) instead of inferring R from "
+    "F, so no claim depends on code that did not run, and that the trace's "
+    "completeness and determinism be enforced by refusals (enumeration results, "
+    "C channels and extension modules, startup code, threads, monitoring "
+    "integrity, hashed non-repository files). Until the owner adopts it and its "
+    "items land with adversarial tests, the static scan stays release-blocking.",
+    "Class machinery (review round 6): every value bound in a class namespace (a "
+    "class body, a 3-argument metaclass call, a class keyword) must be a "
+    "known-inert object by its syntax, or the site fails or is declared; a "
+    "dataclass's generated eq/repr/hash/order, and a container's repr, hash and "
+    "comparisons, are expanded field by field and element by element; typing "
+    "subscripts take only types and literals.",
+    "Run environment (review round 6): every lane run has PYTHONHASHSEED=0, "
+    "C.UTF-8, TZ=UTC, HOME naming no directory, a minimal PATH, hermetic git "
+    "(system and global configuration off, command-scope pins, an audited "
+    "clone) and a fixed committer identity; the trace records the whole starting "
+    "environment and the harness checks it is exactly what was passed. A "
+    "non-Python child is complete only under a reviewed contract (git alone).",
     "Every clone environment is built by replay.uv_environment: the commit's own "
     "lock synced without building anything, the build backend from that lock or, "
     "for a lock that locks none (before 547626b), from the tool tree's lock by "
@@ -476,14 +490,16 @@ def bank_commit(
         files[relative] = records / relative
     with tempfile.TemporaryDirectory(prefix="wp0-bank-") as scratch:
         path = Path(scratch) / "bank"
-        git(repo, "worktree", "add", "-q", "-b", branch, str(path), target)
+        # B is the owner's own commit: it runs with the owner's git configuration
+        # (identity, hooks), not the hermetic one the lanes and clones use.
+        git(repo, "worktree", "add", "-q", "-b", branch, str(path), target, hermetic=False)
         try:
             for relative, source in sorted(files.items()):
                 destination = path / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
-            git(path, "add", "-A")
-            git(path, "commit", "-q", "-m", message)
+            git(path, "add", "-A", hermetic=False)
+            git(path, "commit", "-q", "-m", message, hermetic=False)
             bank = git(path, "rev-parse", "HEAD").strip()
         finally:
             git(repo, "worktree", "remove", "--force", str(path))
@@ -526,7 +542,7 @@ def _select_all(
                    for path in sorted(set(dependency) | opened | children)}
         executed = changed_mod.executed_lines(traces, clone_b.path)
         incomplete = changed_mod.trace_incompleteness(
-            traces, part1["toolchain"]["process_executables"]
+            traces, part1["toolchain"]["process_executables"], clone_b.path
         )
         selection = changed_mod.select_lane(
             lane.name,
@@ -949,7 +965,7 @@ def eol_unpinned(root: Path, paths: list[str]) -> list[str]:
         return []
     out = subprocess.run(
         ["git", "check-attr", "text", "eol", "--", *paths],
-        cwd=root, capture_output=True, check=True,
+        cwd=root, capture_output=True, check=True, env=git_environment(),
     ).stdout.decode("utf-8")
     attributes: dict[str, dict[str, str]] = {}
     for line in out.splitlines():
@@ -1354,13 +1370,13 @@ def history_problems(root: Path, pin: dict[str, Any]) -> list[str]:
     target = str(pin.get("target_commit"))
     exists = subprocess.run(
         ["git", "-C", str(root), "cat-file", "-e", f"{target}^{{commit}}"],
-        capture_output=True, check=False,
+        capture_output=True, check=False, env=git_environment(),
     )
     if not _commit_id(target) or exists.returncode != 0:
         return [f"the pin's target commit {target[:12]} is not in this repository"]
     ancestor = subprocess.run(
         ["git", "-C", str(root), "merge-base", "--is-ancestor", target, "HEAD"],
-        capture_output=True, check=False,
+        capture_output=True, check=False, env=git_environment(),
     )
     if ancestor.returncode != 0:
         problems.append(f"the pin's target commit {target[:12]} is not the gated commit or an "

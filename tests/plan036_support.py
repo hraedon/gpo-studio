@@ -28,3 +28,12 @@ def load(submodule: str) -> ModuleType:
         sys.modules["plan036_wp0"] = package
         spec.loader.exec_module(package)
     return importlib.import_module(f"plan036_wp0.{submodule}")
+
+
+def git_env() -> dict[str, str]:
+    """The hermetic git environment (review round 6, Sol B2) for a test's own git
+    commands: no system or global configuration, no home directory, the
+    tooling's pinned command-scope settings. A test repository sets its own
+    identity in its local configuration."""
+    environment: dict[str, str] = load("repo").git_environment()
+    return environment

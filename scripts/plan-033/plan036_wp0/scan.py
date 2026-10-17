@@ -47,6 +47,12 @@ language or to the code cannot pass by being invisible.
   `METHOD_PROTOCOLS` and the iteration and conversion rules, and fails closed
   when taken as a value instead of called (reviews rounds 2 to 4).
 
+- **Class machinery** (review round 6). Every value bound in a class
+  namespace must be a known-inert object by its syntax (`known_inert_value`):
+  class creation runs its `__set_name__`, and a dataclass, `ABCMeta`, `Enum`,
+  `__slots__` or `NamedTuple` more. Generated dataclass methods and container
+  `repr`/`hash`/comparisons are expanded per field and element (`fieldwise`).
+
 **Known limitation: truth tests and comparisons of values typed only `object`**
 (accepted by the coordinator in review round 4, pending the owner). Exactly
 these pass without a site: a truth test (`if o`, `not o`, `bool(o)`, which run
@@ -85,6 +91,7 @@ from mypy.nodes import (
     ARG_STAR,
     ARG_STAR2,
     AssignmentExpr,
+    AssignmentStmt,
     Block,
     CallExpr,
     ComparisonExpr,
@@ -95,6 +102,7 @@ from mypy.nodes import (
     FuncDef,
     IfStmt,
     IndexExpr,
+    IntExpr,
     LambdaExpr,
     ListExpr,
     MemberExpr,
@@ -107,6 +115,7 @@ from mypy.nodes import (
     StarExpr,
     StrExpr,
     SymbolNode,
+    TempNode,
     TupleExpr,
     TypeAlias,
     TypeInfo,
@@ -475,6 +484,77 @@ _OBJECT_RESIDUAL = frozenset({"__bool__", "__eq__", "__ne__", "__lt__", "__le__"
                               "__ge__"})
 #: Classes whose instance methods are all special-cased elsewhere.
 _OBJECT = "builtins.object"
+
+# --- class machinery (review round 6, Sol B1) ------------------------------------
+#
+# Creating a class runs code of the objects in its namespace: `type.__new__`
+# calls each value's `__set_name__`; `abc.ABCMeta` reads each value's
+# `__isabstractmethod__` (its `__getattr__`); `@dataclass` reads each default
+# through its `__get__`, formats it with `repr` and reads its `__class__`;
+# `Enum` hashes and compares member values; `__slots__` is iterated. Later
+# attribute access runs a namespace value's `__get__`/`__set__`/`__delete__`.
+# A runtime probe with a hostile object showed each of these (tests:
+# test_plan036_classes.py). The rule closes the class, not the instances: every
+# value bound in a class namespace (a class body, the namespace of a 3-argument
+# metaclass call, a class keyword) must be, by its syntax, a known-inert object
+# (`Scanner.known_inert_value`); anything else is a failing site, or a declared
+# edge where the live closure has one.
+
+#: Method decorators whose result is a built-in (or `functools.cached_property`)
+#: descriptor over the decorated repository function: the descriptor's own code
+#: is the standard library's and runs only that function.
+_INERT_METHOD_DECORATORS = frozenset({
+    "builtins.property", "builtins.staticmethod", "builtins.classmethod",
+    "abc.abstractmethod", "typing.overload", "typing.override", "typing.final",
+    "typing_extensions.override", "typing_extensions.final", "functools.cached_property",
+})
+#: Metaclasses whose class objects define none of the dunders class creation and
+#: attribute access look up on a namespace value (`__set_name__`, `__get__`, ...).
+_PLAIN_METACLASSES = frozenset({
+    "builtins.type", "abc.ABCMeta", "typing._ProtocolMeta", "enum.EnumType", "enum.EnumMeta",
+})
+#: Special-form bases mypy removes from the base list (their `__mro_entries__`
+#: is typing's own and receives only the classes and type variables named).
+_SPECIAL_BASES = frozenset({
+    "typing.NamedTuple", "typing.Protocol", "typing.Generic", "typing.TypedDict",
+    "typing_extensions.Protocol", "typing_extensions.TypedDict",
+    "typing_extensions.NamedTuple",
+})
+#: Dunders of a dataclass (or NamedTuple) that the generated code (or the tuple
+#: it is) runs on every field: the dunder each field is then given.
+_FIELDWISE: dict[str, tuple[str, ...]] = {
+    "__repr__": ("__repr__",), "__eq__": ("__eq__",), "__ne__": ("__eq__",),
+    "__hash__": ("__hash__",), "__lt__": ("__eq__", "__lt__"), "__le__": ("__eq__", "__le__"),
+    "__gt__": ("__eq__", "__gt__"), "__ge__": ("__eq__", "__ge__"),
+}
+_ORDERING = ("__lt__", "__le__", "__gt__", "__ge__")
+#: Built-in containers, and what their `repr`, `hash` and comparisons run on
+#: their elements (and a dict's values): `repr([o])` runs `o.__repr__`, `t < u`
+#: of tuples runs the elements' `__eq__` and then `__lt__`. A dunder a container
+#: does not implement (a dict's `__lt__`, a list's `__hash__`) raises TypeError
+#: and runs nothing. Sets and dict keys compare by stored hash, then `__eq__`.
+_CONTAINER_FIELDWISE: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
+    "builtins.list": {
+        "__repr__": {"elements": ("__repr__",)}, "__eq__": {"elements": ("__eq__",)},
+        "__ne__": {"elements": ("__eq__",)},
+        **{op: {"elements": ("__eq__", op)} for op in _ORDERING},
+    },
+    "builtins.dict": {
+        "__repr__": {"elements": ("__repr__",), "values": ("__repr__",)},
+        **{op: {"elements": ("__eq__",), "values": ("__eq__",)} for op in ("__eq__", "__ne__")},
+    },
+    "builtins.set": {
+        "__repr__": {"elements": ("__repr__",)},
+        **{op: {"elements": ("__eq__",)} for op in ("__eq__", "__ne__", *_ORDERING)},
+    },
+}
+_CONTAINER_FIELDWISE["builtins.tuple"] = {
+    **_CONTAINER_FIELDWISE["builtins.list"], "__hash__": {"elements": ("__hash__",)},
+}
+_CONTAINER_FIELDWISE["builtins.frozenset"] = _CONTAINER_FIELDWISE["builtins.set"]
+_CONTAINERS = frozenset(_CONTAINER_FIELDWISE)
+#: object.__format__ calls str(self); object.__str__ calls repr(self).
+_OBJECT_FALLBACK = {"__format__": "__str__", "__str__": "__repr__"}
 #: Read-only protocols: an implicit dunder on a receiver typed only by one of
 #: these runs on a concrete object made by a call classified where it was made
 #: (a declared open covers reading the file it opened). Mutable protocols and
@@ -1120,7 +1200,6 @@ _CHILDREN: dict[str, tuple[str, ...]] = {
     "ConditionalExpr": ("if_expr", "else_expr"),
     "ListExpr": ("items",),
     "TupleExpr": ("items",),
-    "SetExpr": ("items",),
     "TypeApplication": ("expr",),
     "TemplateStrExpr": ("items",),
     "CastExpr": ("expr",),
@@ -1159,6 +1238,12 @@ class Scanner:
         self.consumed: set[int] = set()
         #: id() of decorator references: classified as calls by decorator_call.
         self.decorator_refs: set[int] = set()
+        #: The class whose namespace the statements being visited bind into
+        #: (None inside a function or lambda body): review round 6, Sol B1.
+        self.namespace: list[TypeInfo | None] = []
+        #: (class or container fullname, dunder) pairs being expanded field-wise,
+        #: so a recursive dataclass or container type is expanded once.
+        self.expanding: set[tuple[str, str]] = set()
         if path not in analysis.origins:
             analysis.origins[path] = JsonOrigins.for_file(
                 analysis.root / path, path, JsonParameters.of(analysis)
@@ -1269,14 +1354,82 @@ class Scanner:
             # round 4, DeepSeek N2).
             self.unresolved(f"<object>.{dunder}", line, f"{what} on a value typed object")
             return
+        finals: set[str] = set()
         for info in infos:
+            current = dunder
+            while True:
+                found = _lookup(info, current)
+                if found is not None and found[0].fullname != _OBJECT:
+                    self.target("implicit", f"{found[0].fullname}.{current}", line, what)
+                    finals.add(current)
+                    break
+                # Review round 6: object.__format__ runs str(self) and
+                # object.__str__ runs repr(self), so the chain continues.
+                fallback = _OBJECT_FALLBACK.get(current)
+                if fallback is None:
+                    finals.add(current)
+                    break
+                current = fallback
+        for final in sorted(finals):
+            self.fieldwise(typ, final, line, what)
+
+    def fieldwise(self, typ: Type | None, dunder: str, line: int, what: str) -> None:
+        """The dunder a dataclass's generated method, a NamedTuple or a built-in
+        container runs on every field or element (review round 6, Sol B1: the
+        generated `__repr__` of a dataclass runs `repr` of each field; `repr`
+        of a list runs each element's)."""
+        dunders = _FIELDWISE.get(dunder)
+        if not dunders or typ is None or self.guard is not None or self.type_unreachable:
+            return
+        key = (str(typ), dunder)
+        if key in self.expanding:
+            return
+        runs: list[tuple[Type, tuple[str, ...]]] = []
+        unknown: list[str] = []
+        for info in _infos(typ) or []:
             found = _lookup(info, dunder)
-            if found is None:
+            owner = found[0] if found is not None else None
+            container = next((b.fullname for b in info.mro if b.fullname in _CONTAINERS), None)
+            if container is not None and (
+                owner is None or owner.fullname == _OBJECT or owner.fullname in _CONTAINERS
+            ):
+                for which, run in _CONTAINER_FIELDWISE[container].get(dunder, {}).items():
+                    runs.extend((member, run) for member in _member_types(typ, which))
                 continue
-            owner, _node = found
-            if owner.fullname == _OBJECT:
-                continue
-            self.target("implicit", f"{owner.fullname}.{dunder}", line, what)
+            # A dataclass: @dataclass sets the generated method on the decorated
+            # class unless that class's own body defines it, whatever a base
+            # defines, so the MRO is walked as run-time lookup walks it. eq and
+            # repr are generated by default (hash is taken as generated too:
+            # unsafe_hash is not visible here); ordering only with order=True,
+            # whose methods mypy's plugin adds.
+            for base in info.mro:
+                symbol = base.names.get(dunder)
+                if symbol is not None and not symbol.plugin_generated:
+                    break  # written in that class's source (or the stdlib's)
+                if "dataclass" not in base.metadata:
+                    continue
+                if dunder in _ORDERING and symbol is None:
+                    continue  # no order=True here
+                for name in _dataclass_fields(base):
+                    field_found = _lookup(base, name)
+                    node = field_found[1] if field_found is not None else None
+                    if isinstance(node, Var) and node.type is not None:
+                        runs.append((node.type, dunders))
+                    else:
+                        unknown.append(f"{base.fullname}.{name}")
+                break
+        for name in unknown:
+            self.unresolved(f"<field {name}>.{dunder}", line,
+                            f"{what}: the generated {dunder} runs a field of unknown type")
+        if not runs:
+            return
+        self.expanding.add(key)
+        try:
+            for member, member_dunders in runs:
+                for name in member_dunders:
+                    self.implicit(member, name, line, f"{what}: {dunder} of a field or element")
+        finally:
+            self.expanding.discard(key)
 
     def truth(self, expr: Expression) -> None:
         typ = self.type_of(expr)
@@ -1368,7 +1521,9 @@ class Scanner:
                     if position == at:
                         self.member_protocols(expr, "values", dunders, line, what)
             if receiver is not None:
-                self.member_protocols(receiver, "elements", spec.elements, line, what)
+                keyed = name in _KEYED_ORDERING and any(kw == "key" for _a, _p, kw in args)
+                if not keyed:  # with key=, list.sort compares only the key's results
+                    self.member_protocols(receiver, "elements", spec.elements, line, what)
                 self.member_protocols(receiver, "values", spec.values, line, what)
 
     def callback_argument(
@@ -1517,6 +1672,9 @@ class Scanner:
         for statement in statements:
             if statement.line in self.unreachable_lines and self.guard is None:
                 self.type_unreachable = True
+            owner = self.namespace[-1] if self.namespace else None
+            if owner is not None:
+                self.namespace_statement(statement, owner)
             self.visit(statement)
             if (
                 isinstance(statement, IfStmt)
@@ -1631,6 +1789,8 @@ class Scanner:
             # `X = A | B`, `X = Literal[...]`: a type alias built by typing at
             # import (typing's __or__/__getitem__ on typing objects and classes).
             self.target("call", "typing.<type alias construction>", node.line, "type alias")
+            if not self.type_expression(node.rvalue):
+                self.type_argument_failure(node.line, "a type alias")
             return
         self.visit(node.rvalue)
         alias = _module_attribute(node.rvalue)
@@ -1678,11 +1838,13 @@ class Scanner:
             self.visit(argument.initializer)  # defaults run at definition time
         self.scope.append(node.name)
         self.function_stack.append(node)
+        self.namespace.append(None)
         saved_unreachable = self.type_unreachable
         self.block(node.body.body if not node.body.is_unreachable else [])
         if node.body.is_unreachable and self.guard is None:
             self.record("unresolved", "<unanalysed-block>", node.line, "a function mypy skipped")
         self.type_unreachable = saved_unreachable
+        self.namespace.pop()
         self.function_stack.pop()
         self.scope.pop()
 
@@ -1749,21 +1911,241 @@ class Scanner:
             self.decorator_call(decorator, "class decorator")
         for base in [*node.base_type_exprs, *node.removed_base_type_exprs]:
             self.type_test(base)
-        for value in node.keywords.values():
+            if not self.class_base(base):
+                # Review round 6: a base that is not a class runs its
+                # __mro_entries__ (and a value there anything else).
+                self.unresolved("<class base value>", node.line,
+                                f"class {node.name}: a base that is not a class or a typing "
+                                "form of classes")
+        for name, value in node.keywords.items():
             self.visit(value)
+            if not self.known_inert_value(value):
+                self.unresolved("<class keyword value>", node.line,
+                                f"class {node.name}: keyword {name} hands a value that is not "
+                                "a known-inert object to the metaclass and __init_subclass__")
         info: TypeInfo = node.info
         metaclass = info.metaclass_type
         if metaclass is not None and metaclass.type.fullname != "builtins.type":
             self.target("implicit", metaclass.type.fullname, node.line, "class creation")
-        for base in info.mro[1:]:
-            if "__init_subclass__" in base.names and base.fullname != _OBJECT:
-                self.target("implicit", f"{base.fullname}.__init_subclass__", node.line, "class")
-                break
+        self.init_subclass(info.mro[1:], node.line)
         self.scope.append(node.name)
         self.class_stack.append(info)
+        self.namespace.append(info)
         self.block(node.defs.body)
+        self.namespace.pop()
         self.class_stack.pop()
         self.scope.pop()
+
+    def init_subclass(self, bases: Sequence[TypeInfo], line: int) -> None:
+        for base in bases:
+            if "__init_subclass__" in base.names and base.fullname != _OBJECT:
+                self.target("implicit", f"{base.fullname}.__init_subclass__", line, "class")
+                return
+
+    # -- class machinery (review round 6, Sol B1) -----------------------------------
+
+    def namespace_statement(self, statement: Node, info: TypeInfo) -> None:
+        """One statement of a class body: what it binds in the class namespace must
+        be a known-inert object (see `_INERT_METHOD_DECORATORS` and the class
+        machinery note at the top of this module)."""
+        kind = type(statement).__name__
+        where = f"class {info.name}, line {statement.line}"
+        problem: str | None = None
+        if isinstance(statement, AssignmentStmt):
+            rvalue = statement.rvalue
+            if isinstance(rvalue, TempNode):
+                return  # an annotation alone binds nothing
+            if not all(isinstance(lvalue, NameExpr) for lvalue in statement.lvalues):
+                problem = "binds names by unpacking or stores elsewhere"
+            elif statement.is_alias_def:
+                if not self.type_expression(rvalue):
+                    problem = "a type alias whose arguments are not all types"
+            elif not self.known_inert_value(rvalue):
+                names = ", ".join(lv.name for lv in statement.lvalues if isinstance(lv, NameExpr))
+                problem = (f"binds {names} to a value that is not, by its syntax, a known-inert "
+                           "object (a literal, a display of them, a function, a plain class, a "
+                           "lambda or a field() of them)")
+        elif isinstance(statement, FuncDef) or kind in ("PassStmt", "IfStmt"):
+            return
+        elif isinstance(statement, (Decorator, OverloadedFuncDef)):
+            if not self.inert_decorated(statement, info):
+                problem = "a method whose decorator's result is not a known built-in descriptor"
+        elif kind == "ClassDef":
+            nested: TypeInfo = getattr(statement, "info")  # noqa: B009 - mypyc node
+            if not self.plain_class(nested):
+                problem = "a nested class whose metaclass may define descriptor methods"
+        elif isinstance(statement, Block):
+            return
+        elif kind == "ExpressionStmt":
+            expression = getattr(statement, "expr")  # noqa: B009 - mypyc node
+            if isinstance(expression, StrExpr) or type(expression).__name__ == "EllipsisExpr":
+                return  # a docstring or `...`
+            problem = "an expression statement (it may bind a name with :=)"
+        else:
+            problem = f"a {kind} binds names the scan does not model"
+        if problem is not None:
+            self.unresolved("<class namespace value>", statement.line,
+                            f"{where}: {problem}; class creation runs a namespace value's "
+                            "__set_name__ (a dataclass, ABCMeta or Enum more)")
+
+    def inert_decorated(self, statement: Decorator | OverloadedFuncDef, info: TypeInfo) -> bool:
+        if isinstance(statement, OverloadedFuncDef):
+            items: list[Node] = [*statement.items]
+            if statement.impl is not None:
+                items.append(statement.impl)
+            return all(not isinstance(item, Decorator) or self.inert_decorated(item, info)
+                       for item in items)
+        symbol = info.names.get(statement.name)
+        if symbol is not None and symbol.plugin_generated:
+            return True  # mypy's dataclass plugin (`__replace__`): not in the source
+        for decorator in statement.original_decorators:
+            if isinstance(decorator, RefExpr) and decorator.fullname in _INERT_METHOD_DECORATORS:
+                continue
+            if (
+                isinstance(decorator, MemberExpr)
+                and decorator.name in ("setter", "getter", "deleter")
+                and isinstance(decorator.expr, NameExpr)
+                and decorator.expr.name in info.names
+                and _is_property(info.names[decorator.expr.name].node)
+            ):
+                continue  # `@name.setter` of a property: the property's copy
+            return False
+        return True
+
+    def plain_class(self, info: TypeInfo) -> bool:
+        """A class object whose metaclass defines none of the dunders class
+        creation and attribute access look up on a namespace value."""
+        meta = info.metaclass_type
+        return meta is None or meta.type.fullname in _PLAIN_METACLASSES or self.is_repo_target(
+            meta.type.fullname
+        )
+
+    def known_inert_value(self, expr: Expression | None) -> bool:
+        """Is *expr*, by its syntax, an object whose class is known exactly and
+        runs no code of others when class machinery looks it up (`__set_name__`,
+        `__get__`, `__getattr__`, `repr`, `hash`)? Literals and displays of such
+        values, functions, plain classes, typing aliases, lambdas, `field()` of
+        them and `enum.auto()`. A name or attribute bound to some other value,
+        and a call result, are not: their run-time class may be any subclass."""
+        if expr is None:
+            return False
+        if isinstance(expr, (StrExpr, IntExpr)) or type(expr).__name__ in (
+            "BytesExpr", "FloatExpr", "ComplexExpr", "EllipsisExpr"
+        ):
+            return True
+        if isinstance(expr, UnaryExpr) and expr.op in ("-", "+", "~") and (
+            isinstance(expr.expr, IntExpr)
+            or type(expr.expr).__name__ in ("FloatExpr", "ComplexExpr")
+        ):
+            return True
+        if isinstance(expr, NameExpr) and expr.fullname in (
+            "builtins.None", "builtins.True", "builtins.False"
+        ):
+            return True
+        if isinstance(expr, (TupleExpr, ListExpr)) or type(expr).__name__ == "SetExpr":
+            items: list[Expression] = getattr(expr, "items")  # noqa: B009 - mypyc node
+            return all(not isinstance(item, StarExpr) and self.known_inert_value(item)
+                       for item in items)
+        if isinstance(expr, DictExpr):
+            return all(key is not None and self.known_inert_value(key)
+                       and self.known_inert_value(value) for key, value in expr.items)
+        if isinstance(expr, LambdaExpr):
+            return True
+        if isinstance(expr, RefExpr):
+            node = expr.node
+            if isinstance(node, (FuncDef, OverloadedFuncDef)):
+                return True
+            if isinstance(node, Decorator):
+                return all(isinstance(d, RefExpr) and d.fullname in _INERT_METHOD_DECORATORS
+                           for d in node.original_decorators)
+            if isinstance(node, TypeInfo):
+                return self.plain_class(node)
+            return isinstance(node, TypeAlias)
+        if isinstance(expr, IndexExpr):
+            return self.type_expression(expr)
+        if isinstance(expr, CallExpr) and isinstance(expr.callee, RefExpr):
+            if expr.callee.fullname == "enum.auto" and not expr.args:
+                return True
+            if expr.callee.fullname == "dataclasses.field":
+                for arg, kind, keyword in zip(expr.args, expr.arg_kinds, expr.arg_names,
+                                              strict=True):
+                    if kind not in (ARG_NAMED, ARG_NAMED_OPT):
+                        return False
+                    if keyword == "default_factory":
+                        if not (isinstance(arg, LambdaExpr) or isinstance(arg, RefExpr) and
+                                isinstance(arg.node, (FuncDef, OverloadedFuncDef, TypeInfo))):
+                            return False
+                    elif not self.known_inert_value(arg):
+                        return False
+                return True
+        return False
+
+    def type_expression(self, expr: Expression) -> bool:
+        """Is *expr* made only of classes, typing forms, type variables and
+        literals? Typing subscripts hash and compare their arguments at run time
+        (`Annotated[int, o]` runs `o.__hash__`; `Union[int, o]` its `__eq__`)."""
+        if isinstance(expr, (StrExpr, IntExpr)) or type(expr).__name__ in (
+            "BytesExpr", "EllipsisExpr"
+        ):
+            return True
+        if isinstance(expr, UnaryExpr) and expr.op == "-" and isinstance(expr.expr, IntExpr):
+            return True
+        if isinstance(expr, RefExpr):
+            node = expr.node
+            if expr.fullname in ("builtins.None", "builtins.True", "builtins.False"):
+                return True
+            if isinstance(node, (TypeInfo, TypeAlias)) or type(node).__name__ in (
+                "TypeVarExpr", "ParamSpecExpr", "TypeVarTupleExpr"
+            ):
+                return True
+            return isinstance(node, Var) and expr.fullname.startswith(
+                ("typing.", "typing_extensions.", "collections.abc.")
+            )
+        if isinstance(expr, IndexExpr):
+            return self.type_expression(expr.base) and self.type_expression(expr.index)
+        if isinstance(expr, (TupleExpr, ListExpr)):
+            return all(self.type_expression(item) for item in expr.items)
+        if isinstance(expr, OpExpr) and expr.op == "|":
+            return self.type_expression(expr.left) and self.type_expression(expr.right)
+        return False
+
+    def class_base(self, base: Expression) -> bool:
+        if isinstance(base, RefExpr) and (
+            isinstance(base.node, (TypeInfo, TypeAlias)) or base.fullname in _SPECIAL_BASES
+        ):
+            return True
+        return isinstance(base, IndexExpr) and self.type_expression(base)
+
+    def class_call(self, call: CallExpr, meta: TypeInfo) -> None:
+        """`type(name, bases, namespace)` and any other metaclass called with a
+        namespace: the namespace values get the class-body rule, and the bases
+        must be plain classes named directly (their __init_subclass__ runs, and a
+        base's metaclass would take over the call)."""
+        if len(call.args) == 1 and call.arg_kinds[0] == ARG_POS:
+            return  # type(x): the class of x
+        if len(call.args) != 3 or any(kind != ARG_POS for kind in call.arg_kinds):
+            self.unresolved("<class namespace value>", call.line,
+                            f"{meta.fullname} called with arguments the scan does not model")
+            return
+        _name, bases, namespace = call.args
+        if isinstance(bases, TupleExpr) and all(
+            isinstance(b, RefExpr) and isinstance(b.node, TypeInfo) and self.plain_class(b.node)
+            for b in bases.items
+        ):
+            infos = [b.node for b in bases.items if isinstance(b, RefExpr)
+                     and isinstance(b.node, TypeInfo)]
+            self.init_subclass([base for info in infos for base in info.mro], call.line)
+        else:
+            self.unresolved("<class base value>", call.line,
+                            f"{meta.fullname}(): bases that are not a tuple of plain classes "
+                            "named directly")
+        if not (isinstance(namespace, DictExpr) and all(
+            isinstance(key, StrExpr) and self.known_inert_value(value)
+            for key, value in namespace.items
+        )):
+            self.unresolved("<class namespace value>", call.line,
+                            f"{meta.fullname}(): a namespace that is not a display of known-inert "
+                            "values; class creation runs each value's __set_name__")
 
     def _MatchStmt(self, node: Any) -> None:
         self.visit(node.subject)
@@ -2084,6 +2466,12 @@ class Scanner:
                 # `Factory = list; Factory(xs)`: the rules of the class it names
                 # apply (review round 4, Sol B3).
                 fullname = aliased.type.fullname
+        if isinstance(callee, RefExpr) and isinstance(callee.node, TypeInfo) and any(
+            base.fullname == "builtins.type" for base in callee.node.mro
+        ) and self.guard is None:
+            # `type(name, bases, namespace)`, `abc.ABCMeta(...)`: class creation
+            # through a call (review round 6, Sol B1).
+            self.class_call(node, callee.node)
         type_test = fullname in _TYPE_TEST_CALLEES
         if fullname in METHOD_PROTOCOLS:
             spec = METHOD_PROTOCOLS[fullname]
@@ -2134,12 +2522,15 @@ class Scanner:
                         self.implicit(
                             self.type_of(arg), dunder, line, f"{fullname}() argument", arg
                         )
+        # With `key=`, sorted/min/max/list.sort compare the key's results
+        # (key_results), never the elements themselves.
+        keyed = fullname in _KEYED_ORDERING and any(kw == "key" for _a, _p, kw in arguments)
         if fullname in _ITERATING:
             for arg in positional[_ITERATING[fullname] :]:
                 self.iterate(arg, line, f"{fullname}() argument")
-                if fullname in _ELEMENT_OPS:
+                if fullname in _ELEMENT_OPS and not keyed:
                     self.element_ops(arg, _ELEMENT_OPS[fullname], line)
-        if fullname == "builtins.list.sort" and isinstance(callee, MemberExpr):
+        if fullname == "builtins.list.sort" and isinstance(callee, MemberExpr) and not keyed:
             self.element_ops(callee.expr, _ELEMENT_OPS[fullname], line)
         if fullname in _KEYED_ORDERING:
             # With `key=`, the key's results are what is compared (review round 3,
@@ -2487,6 +2878,16 @@ class Scanner:
                 or self.is_repo_target(definition.fullname)
             ):
                 self.target("implicit", definition.fullname, line, f"operator {op}")
+            dunder = _OPERATOR_DUNDER.get(op)
+            if dunder is not None and not any(
+                base.fullname in _CONTAINERS
+                for info in _infos(self.type_of(operand)) or [] for base in info.mro
+            ):
+                # `a == b` on a dataclass runs its generated __eq__ (mypy names
+                # object.__eq__, or a plugin-generated __lt__), which compares
+                # the fields (review round 6). Containers' element operations
+                # are the protocol rules' (method_type).
+                self.fieldwise(self.type_of(operand), f"__{dunder}__", line, f"operator {op}")
             return
         if self.type_unreachable:
             return
@@ -2537,11 +2938,19 @@ class Scanner:
     def _IndexExpr(self, node: IndexExpr) -> None:
         self.visit(node.base)
         self.visit(node.index)
-        if node.analyzed is not None:
-            return  # a generic alias at run time: list[int], dict[str, Any]
-        if _class_object_info(self.type_of(node.base)) is not None:
-            return  # Class[...]: __class_getitem__ of a typing construct
+        if node.analyzed is not None or _class_object_info(self.type_of(node.base)) is not None:
+            # A generic alias at run time (list[int], dict[str, Any]) or
+            # Class[...]: __class_getitem__ of a typing construct. Typing
+            # hashes and compares the arguments (review round 6).
+            if not self.type_expression(node.index):
+                self.type_argument_failure(node.line, "a subscript of a class or typing form")
+            return
         self.method_type(node.method_type, "[]", node.line, node.base, [node.index])
+
+    def type_argument_failure(self, line: int, what: str) -> None:
+        self.unresolved("<type argument value>", line,
+                        f"{what} with an argument that is not a class, typing form, type "
+                        "variable or literal: typing hashes and compares its arguments")
 
     def _StarExpr(self, node: StarExpr) -> None:
         self.visit(node.expr)
@@ -2555,6 +2964,16 @@ class Scanner:
                 continue
             self.visit(key)
             self.visit(value)
+            # A display hashes each key (review round 6).
+            self.implicit(self.type_of(key), "__hash__", node.line, "dict display key", key)
+
+    def _SetExpr(self, node: Any) -> None:
+        for item in node.items:
+            self.visit(item)
+            if isinstance(item, StarExpr):
+                self.element_ops(item.expr, ("__hash__",), node.line)
+                continue
+            self.implicit(self.type_of(item), "__hash__", node.line, "set display item", item)
 
     def _YieldFromExpr(self, node: Any) -> None:
         self.visit(node.expr)
@@ -2564,7 +2983,9 @@ class Scanner:
         for argument in node.arguments:
             self.visit(argument.initializer)
         self.scope.append("<lambda>")
+        self.namespace.append(None)
         self.block(node.body.body)
+        self.namespace.pop()
         self.scope.pop()
 
     def _comprehension(self, node: Any, outputs: Sequence[Expression]) -> None:
@@ -2588,9 +3009,13 @@ class Scanner:
 
     def _SetComprehension(self, node: Any) -> None:
         self._GeneratorExpr(node.generator)
+        output = node.generator.left_expr
+        self.implicit(self.type_of(output), "__hash__", node.line, "set comprehension", output)
 
     def _DictionaryComprehension(self, node: Any) -> None:
         self._comprehension(node, [node.key, node.value])
+        self.implicit(self.type_of(node.key), "__hash__", node.line, "dict comprehension key",
+                      node.key)
 
     def _ConditionalExpr(self, node: Any) -> None:
         self.visit(node.cond)
@@ -2631,6 +3056,17 @@ _OPERATOR_DUNDER = {
     "@": "matmul", "[]": "getitem", "==": "eq", "!=": "ne", "<": "lt", ">": "gt",
     "<=": "le", ">=": "ge", "in": "contains", "not in": "contains",
 }
+
+
+def _dataclass_fields(info: TypeInfo) -> list[str]:
+    """The field names of a dataclass, inherited ones first (mypy's metadata)."""
+    names: list[str] = []
+    for base in reversed(info.mro):
+        for attribute in base.metadata.get("dataclass", {}).get("attributes", []):
+            name = attribute.get("name")
+            if isinstance(name, str) and name not in names:
+                names.append(name)
+    return names
 
 
 def _lookup_metaclass(info: TypeInfo, name: str) -> tuple[TypeInfo, SymbolNode | None] | None:

@@ -399,6 +399,7 @@
     "builtins.bytes.__eq__",
     "builtins.bytes.__iter__",
     "builtins.bytes.__len__",
+    "builtins.bytes.__lt__",
     "builtins.bytes.__ne__",
     "builtins.bytes.decode",
     "builtins.bytes.lower"
@@ -548,6 +549,7 @@
     "builtins.list.__eq__",
     "builtins.list.__getitem__",
     "builtins.list.__iadd__",
+    "builtins.list.__lt__",
     "builtins.list.__mul__",
     "builtins.list.__setitem__",
     "builtins.list.count",

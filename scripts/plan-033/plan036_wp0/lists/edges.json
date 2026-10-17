@@ -658,7 +658,7 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values Round 6: also the field-wise and element-wise operations a dataclass's generated __eq__/__repr__/__hash__, a tuple key's hash and a container's repr or comparison run on these values, and dict-display, dict-comprehension and set keys hashed."
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
@@ -666,7 +666,7 @@
     "<Any>.__eq__": 33,
     "<Any>.__format__": 25,
     "<Any>.__getitem__": 1,
-    "<Any>.__hash__": 7,
+    "<Any>.__hash__": 9,
     "<Any>.__iter__": 4,
     "<Any>.__len__": 3,
     "<Any>.__ne__": 6,
@@ -790,20 +790,20 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values; and attributes and functions of the bound builder module the finalizer loads at run time (declared module-load; the builder's own code is in this lane's closure and is scanned)"
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values; and attributes and functions of the bound builder module the finalizer loads at run time (declared module-load; the builder's own code is in this lane's closure and is scanned) Round 6: also the field-wise and element-wise operations a dataclass's generated __eq__/__repr__/__hash__, a tuple key's hash and a container's repr or comparison run on these values, and dict-display, dict-comprehension and set keys hashed."
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.REQUIRED_CASE_IDS": 1,
     "<Any>.__bool__": 16,
-    "<Any>.__eq__": 61,
+    "<Any>.__eq__": 69,
     "<Any>.__format__": 2,
     "<Any>.__fspath__": 1,
     "<Any>.__getitem__": 1,
-    "<Any>.__hash__": 10,
+    "<Any>.__hash__": 13,
     "<Any>.__iter__": 7,
     "<Any>.__len__": 5,
-    "<Any>.__lt__": 1,
+    "<Any>.__lt__": 2,
     "<Any>.__name__": 3,
     "<Any>.__repr__": 7,
     "<Any>.__rtruediv__": 1,
@@ -897,22 +897,22 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values Round 6: also the field-wise and element-wise operations a dataclass's generated __eq__/__repr__/__hash__, a tuple key's hash and a container's repr or comparison run on these values, and dict-display, dict-comprehension and set keys hashed."
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__add__": 3,
     "<Any>.__bool__": 16,
     "<Any>.__buffer__": 4,
-    "<Any>.__eq__": 57,
+    "<Any>.__eq__": 85,
     "<Any>.__format__": 1,
     "<Any>.__getitem__": 31,
-    "<Any>.__hash__": 11,
+    "<Any>.__hash__": 17,
     "<Any>.__iand__": 1,
     "<Any>.__index__": 2,
     "<Any>.__iter__": 11,
     "<Any>.__len__": 6,
-    "<Any>.__lt__": 1,
+    "<Any>.__lt__": 3,
     "<Any>.__ne__": 4,
     "<Any>.__next__": 1,
     "<Any>.__radd__": 3,
@@ -995,24 +995,24 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values; and attributes and functions of the bound builder module the finalizer loads at run time (declared module-load; the builder's own code is in this lane's closure and is scanned)"
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values; and attributes and functions of the bound builder module the finalizer loads at run time (declared module-load; the builder's own code is in this lane's closure and is scanned) Round 6: also the field-wise and element-wise operations a dataclass's generated __eq__/__repr__/__hash__, a tuple key's hash and a container's repr or comparison run on these values, and dict-display, dict-comprehension and set keys hashed."
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>()": 1,
     "<Any>.__bool__": 25,
     "<Any>.__buffer__": 8,
-    "<Any>.__eq__": 69,
+    "<Any>.__eq__": 72,
     "<Any>.__format__": 22,
     "<Any>.__getitem__": 13,
-    "<Any>.__hash__": 17,
+    "<Any>.__hash__": 19,
     "<Any>.__iter__": 9,
     "<Any>.__len__": 4,
     "<Any>.__lt__": 2,
     "<Any>.__name__": 3,
     "<Any>.__ne__": 6,
     "<Any>.__next__": 1,
-    "<Any>.__repr__": 22,
+    "<Any>.__repr__": 25,
     "<Any>.__str__": 22,
     "<Any>.casefold": 1,
     "<Any>.get": 3,
@@ -1078,15 +1078,15 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values Round 6: also the field-wise and element-wise operations a dataclass's generated __eq__/__repr__/__hash__, a tuple key's hash and a container's repr or comparison run on these values, and dict-display, dict-comprehension and set keys hashed."
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
     "<Any>.__bool__": 12,
-    "<Any>.__eq__": 31,
+    "<Any>.__eq__": 43,
     "<Any>.__fspath__": 4,
     "<Any>.__getitem__": 7,
-    "<Any>.__hash__": 9,
+    "<Any>.__hash__": 21,
     "<Any>.__index__": 2,
     "<Any>.__int__": 2,
     "<Any>.__iter__": 2,
@@ -1300,7 +1300,7 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values; and attributes and functions of the bound builder module the finalizer loads at run time (declared module-load; the builder's own code is in this lane's closure and is scanned)"
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values; and attributes and functions of the bound builder module the finalizer loads at run time (declared module-load; the builder's own code is in this lane's closure and is scanned) Round 6: also the field-wise and element-wise operations a dataclass's generated __eq__/__repr__/__hash__, a tuple key's hash and a container's repr or comparison run on these values, and dict-display, dict-comprehension and set keys hashed."
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
@@ -1308,9 +1308,9 @@
     "<Any>.MUST_AGREE_CASE_IDS": 1,
     "<Any>.REQUIRED_CASE_IDS": 1,
     "<Any>.__bool__": 11,
-    "<Any>.__eq__": 32,
+    "<Any>.__eq__": 35,
     "<Any>.__getitem__": 1,
-    "<Any>.__hash__": 2,
+    "<Any>.__hash__": 4,
     "<Any>.__iter__": 7,
     "<Any>.__len__": 4,
     "<Any>.__lt__": 1,
@@ -1645,7 +1645,7 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values"
+    "what": "JSON values: the finalizer reads result/observation/expected JSON from the run directory and candidate root with json.loads, through helpers and dict[str, Any] fields the JSON proof (plan036_wp0/json_origin.py) does not follow; the operations are formatting, comparison, truth tests, hashing, iteration and indexing of those values Round 6: also the field-wise and element-wise operations a dataclass's generated __eq__/__repr__/__hash__, a tuple key's hash and a container's repr or comparison run on these values, and dict-display, dict-comprehension and set keys hashed."
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
@@ -1654,7 +1654,7 @@
     "<Any>.__format__": 9,
     "<Any>.__fspath__": 2,
     "<Any>.__getitem__": 17,
-    "<Any>.__hash__": 6,
+    "<Any>.__hash__": 7,
     "<Any>.__index__": 1,
     "<Any>.__int__": 1,
     "<Any>.__iter__": 10,
@@ -1846,7 +1846,7 @@
    "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
    "targets": {
     "<Any>.__iter__": 3,
-    "<Any>.__lt__": 2,
+    "<Any>.__lt__": 1,
     "<Any>.__name__": 1,
     "<Any>.encode": 1,
     "builtins.getattr(<computed name>)": 4
@@ -1917,7 +1917,7 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON values (gpp_collection_from_dict and its helpers reconstruct a collection from a plain dict), GPP items handled generically through getattr over the module's constant family names, the PEP 562 module __getattr__/__dir__ hooks, and adapter classes looked up in the module's registry and constructed"
+    "what": "JSON values (gpp_collection_from_dict and its helpers reconstruct a collection from a plain dict), GPP items handled generically through getattr over the module's constant family names, the PEP 562 module __getattr__/__dir__ hooks, and adapter classes looked up in the module's registry and constructed Round 6: without_native_records copies a JSON body's dict (an API body or an inline GPO reference), hashing its keys again in a dict comprehension."
    },
    "reason": "attributes read by name from the module's own dataclasses: the names come from the module's constant tuples of field and family names, and the values are in-memory model data",
    "targets": {
@@ -1927,6 +1927,7 @@
     "<Any>.__eq__": 25,
     "<Any>.__format__": 6,
     "<Any>.__getitem__": 9,
+    "<Any>.__hash__": 1,
     "<Any>.__index__": 3,
     "<Any>.__int__": 3,
     "<Any>.__iter__": 38,
@@ -2059,7 +2060,7 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON values (the raw manifest and harness-inputs record) compared and formatted"
+    "what": "JSON values (the raw manifest and harness-inputs record) compared and formatted Round 6: also the field-wise and element-wise operations a dataclass's generated __eq__/__repr__/__hash__, a tuple key's hash and a container's repr or comparison run on these values, and dict-display, dict-comprehension and set keys hashed."
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
@@ -2068,7 +2069,7 @@
     "<Any>.__hash__": 15,
     "<Any>.__iter__": 2,
     "<Any>.__lt__": 2,
-    "<Any>.__repr__": 2,
+    "<Any>.__repr__": 5,
     "<Any>.__str__": 2,
     "<Any>.items": 2
    }
@@ -2110,12 +2111,13 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON values of a stored inventory"
+    "what": "JSON values of a stored inventory Round 6: also the field-wise and element-wise operations a dataclass's generated __eq__/__repr__/__hash__, a tuple key's hash and a container's repr or comparison run on these values, and dict-display, dict-comprehension and set keys hashed. Round 6: sorted() of the stored inventory's ADMX (side, count) items compares the JSON counts when two sides tie."
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
-    "<Any>.__eq__": 13,
+    "<Any>.__eq__": 15,
     "<Any>.__iter__": 1,
+    "<Any>.__lt__": 2,
     "<Any>.__next__": 1
    }
   },
@@ -2221,7 +2223,6 @@
     "<Any>.__format__": 10,
     "<Any>.__gt__": 1,
     "<Any>.__iter__": 12,
-    "<Any>.__lt__": 1,
     "<Any>.__next__": 4,
     "<Any>.__repr__": 10,
     "<Any>.__str__": 10,
@@ -2291,7 +2292,7 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "JSON snapshots and rows from the workspace database (WorkspaceStore, which no lane constructs), and code mypy proves unreachable by types"
+    "what": "JSON snapshots and rows from the workspace database (WorkspaceStore, which no lane constructs), and code mypy proves unreachable by types Round 6: workspace_meta builds a dict keyed by sqlite3 row values (str from the meta table)."
    },
    "reason": "values typed Any that the scan cannot resolve",
    "targets": {
@@ -2299,6 +2300,7 @@
     "<Any>.__eq__": 3,
     "<Any>.__format__": 2,
     "<Any>.__getitem__": 23,
+    "<Any>.__hash__": 1,
     "<Any>.__index__": 6,
     "<Any>.__init__": 4,
     "<Any>.__int__": 6,
@@ -2444,7 +2446,7 @@
     "<Any>.__format__": 1,
     "<Any>.__hash__": 12,
     "<Any>.__iter__": 4,
-    "<Any>.__lt__": 2,
+    "<Any>.__lt__": 1,
     "<Any>.__repr__": 5,
     "<Any>.__str__": 4,
     "<Any>.account_disabled": 1,
@@ -2738,11 +2740,12 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 559"
+    "what": "dict values typed object that json.dumps serialises (it walks their items) at line(s) 559 Round 6: the reader-claim dicts (FdeployClaim.to_json(): str, bool and int values typed object) formatted into the ValueError messages at line(s) 445 and 509; repr of a list or dict runs its elements' repr."
    },
    "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
    "targets": {
     "<object>.__iter__": 1,
+    "<object>.__repr__": 9,
     "<object>.items": 1
    }
   },
@@ -2944,14 +2947,14 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "elements typed object that set operations hash and compare at line(s) 494; values typed object converted to text (str(), str.format, repr) at line(s) 85, 255, 291, 292, 293"
+    "what": "elements typed object that set operations hash and compare at line(s) 494; values typed object converted to text (str(), str.format, repr) at line(s) 85, 255, 291, 292, 293; round 6: repr() of the sorted (name, value) items of an entry dict whose values are typed object at line(s) 261 (repr of a list or tuple runs its elements' repr)"
    },
    "reason": "values typed object: a value mypy types only as object could be anything at run time, so the protocol methods an in-memory container or json.dumps runs on it are declared, not assumed (review round 3)",
    "targets": {
     "<object>.__eq__": 1,
     "<object>.__format__": 2,
     "<object>.__hash__": 1,
-    "<object>.__repr__": 6,
+    "<object>.__repr__": 7,
     "<object>.__str__": 6
    }
   },
@@ -3176,11 +3179,39 @@
    "scopes": "*",
    "kind": "unresolved",
    "reaches": {
-    "what": "the error_class parameter (type[Exception], default ValueError), raised with a message; its callers in this closure pass repository exception classes (BackupError, IltError, OracleEvidenceError, ReportParityError, WriterConformanceError)"
+    "what": "the error_class parameter (type[Exception], default ValueError), raised with a message; its callers in this closure pass seven repository exception classes, subclasses of ValueError or of model.StudioError (an Exception) (BackupError, FdeployParityError, GppError, IltError, OracleEvidenceError, ReportParityError, WriterConformanceError; review round 6, Sol N1)"
    },
    "reason": "callable values: a call through a Callable-typed parameter, field or table entry; nothing in the call says which function it holds, so it is declared rather than resolved (review round 4, DeepSeek B1)",
    "targets": {
     "<type[builtins.Exception] value>()": 7
+   }
+  },
+  {
+   "module": "src/gpo_studio/oracle_evidence.py",
+   "scopes": [
+    "XmlSemanticResult"
+   ],
+   "kind": "unresolved",
+   "reaches": {
+    "what": "NORMALIZER_VERSION, assigned once in this module to a str literal (oracle_evidence.py:32)"
+   },
+   "reason": "class namespace values (review round 6, Sol B1): a frozen dataclass default bound to a module constant: class creation runs the value's __set_name__, and @dataclass its __get__, repr and __class__",
+   "targets": {
+    "<class namespace value>": 1
+   }
+  },
+  {
+   "module": "src/gpo_studio/workspace_ops.py",
+   "scopes": [
+    "BackupMetadata"
+   ],
+   "kind": "unresolved",
+   "reaches": {
+    "what": "SCHEMA_VERSION (schema.py:12, an int literal) and gpo_studio.__version__ (__init__.py:3, a str literal), each assigned once"
+   },
+   "reason": "class namespace values (review round 6, Sol B1): a frozen dataclass default bound to a module constant: class creation runs the value's __set_name__, and @dataclass its __get__, repr and __class__",
+   "targets": {
+    "<class namespace value>": 2
    }
   }
  ]

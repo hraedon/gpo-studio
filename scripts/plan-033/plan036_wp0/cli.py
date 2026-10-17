@@ -21,9 +21,16 @@ def _python_version(value: str | None) -> str:
     return value or record.LANE_PYTHON
 
 
+#: The tool's own PATH and HOME name the operator's directories; the successor
+#: record is committed, so they stay out of it (the lanes' runs record their own,
+#: pinned values in their traces).
+_NOT_RECORDED = frozenset({"PATH", "HOME"})
+
+
 def _environment() -> dict[str, Any]:
     return {
-        "variables": {name: os.environ[name] for name in ENV_ALLOWLIST if name in os.environ},
+        "variables": {name: os.environ[name] for name in ENV_ALLOWLIST
+                      if name in os.environ and name not in _NOT_RECORDED},
         "locale": list(locale.getlocale()),
         "preferred_encoding": locale.getpreferredencoding(False),
         "tool_python": list(sys.version_info[:3]),
