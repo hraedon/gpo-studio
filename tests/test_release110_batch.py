@@ -24,6 +24,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import current_qualification as cq
 import pytest
 from batch_provenance import SCOPE_PROVENANCE_SCHEMA, scope_provenance_problems
 
@@ -209,6 +210,13 @@ def test_the_batch_is_the_live_set() -> None:
     registry = _registry()
     batch_verdicts = {r["verdict"] for r in BATCH["runs"] if r["name"] != "wp0"}
     assert len(batch_verdicts) == 25
+    if cq.freeze() is not None:
+        # History since a freeze batch was banked: every verdict of this batch and
+        # of its successor batch is retired, replaced by the freeze batch's run.
+        successors = {r["verdict"] for r in SUCCESSORS["runs"]}
+        assert batch_verdicts | successors <= set(registry["RETIRED_VERDICTS"])
+        assert not (batch_verdicts | successors) & set(registry["LIVE_VERDICTS"])
+        return
     assert batch_verdicts <= set(registry["LANE_VERDICTS"])
     assert set(registry["RETIRED_VERDICTS"]) >= RETIRED_BY_THE_BATCH
     assert set(registry["PENDING_REQUALIFICATION"]) == set()
@@ -393,9 +401,12 @@ def test_the_firewall_write_leg_registers_the_native_tool_guid() -> None:
 
 
 def test_platform_lane_records_name_the_current_qualification() -> None:
-    """platforms.json names the run and commit each lane is qualified by today."""
-    runs = {run["name"]: run for run in ALL_RUNS}
-    runs.update({run["name"]: run for run in SUCCESSORS["runs"]})
+    """platforms.json names the run and commit each lane is qualified by today.
+
+    Today's runs come from tests/current_qualification.py: this batch with its
+    successor runs until a freeze batch is banked, the freeze batch after.
+    """
+    runs = cq.current_runs()
     platforms = json.loads(
         (ROOT / "tests/fixtures/scenarios/platforms.json").read_text(encoding="utf-8")
     )
@@ -417,6 +428,6 @@ def test_platform_lane_records_name_the_current_qualification() -> None:
             assert runs[name]["commit"] in lanes[lane_id]["notes"], (lane_id, name)
             assert runs[name]["run_id"] in lanes[lane_id]["notes"], (lane_id, name)
     hosts = {host["host_id"]: host for host in platforms["hosts"]}
-    assert hosts["dc-ws2025"]["qualifying_run"] == _run("wp3-dc")["run_id"]
-    assert hosts["member-ws2025-disposable"]["qualifying_run"] == _run("wp3-member")["run_id"]
-    assert hosts["client-win11"]["qualifying_run"] == _run("endpoint")["run_id"]
+    assert hosts["dc-ws2025"]["qualifying_run"] == runs["wp3-dc"]["run_id"]
+    assert hosts["member-ws2025-disposable"]["qualifying_run"] == runs["wp3-member"]["run_id"]
+    assert hosts["client-win11"]["qualifying_run"] == runs["endpoint"]["run_id"]

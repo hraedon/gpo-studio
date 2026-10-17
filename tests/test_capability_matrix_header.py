@@ -39,7 +39,10 @@ def test_the_header_names_the_contract_version_and_no_package_version() -> None:
     assert match is not None, header
     contract = (int(match[1]), int(match[2]))
     assert f"GPO Studio {contract[0]}.{contract[1]} capability contract" in header
-    assert __version__ not in header, (
+    # Link destinations are paths, not statements: the release evidence document's
+    # file name carries X.Y.Z, which is the package version on a final release.
+    prose = re.sub(r"\]\([^)]*\)", "]", header)
+    assert __version__ not in prose, (
         "the header states the package version, which lives in src/gpo_studio/__init__.py"
     )
     package = tuple(int(part) for part in re.findall(r"\d+", __version__)[:2])

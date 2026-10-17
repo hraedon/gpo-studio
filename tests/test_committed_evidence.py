@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import runpy
 import subprocess
 from pathlib import Path
@@ -1831,6 +1832,24 @@ def test_a_live_verdict_still_binds_the_harness_that_ships(
     )
 
 
+def _release_freeze() -> dict[str, str] | None:
+    """The release evidence report's `freeze` for the package's version, or None.
+
+    Read here rather than from tests/current_qualification.py, because other tools
+    (the bank tool among them) load this registry with `runpy`, outside pytest's
+    import path.
+    """
+    init = (REPO_ROOT / "src" / "gpo_studio" / "__init__.py").read_text(encoding="utf-8")
+    match = re.search(r'^__version__ = "(\d+\.\d+\.\d+)', init, re.M)
+    assert match is not None
+    report = json.loads(
+        (REPO_ROOT / "docs" / f"release-evidence-report-{match.group(1)}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return cast("dict[str, str] | None", report["freeze"])
+
+
 def test_retired_verdicts_are_genuinely_stale() -> None:
     """The control, and the thing that stops `RETIRED_VERDICTS` being a hatch.
 
@@ -1848,11 +1867,32 @@ def test_retired_verdicts_are_genuinely_stale() -> None:
        out of a failing freshness check is to declare the verdict history. That
        only works if it really is history, because a retired verdict that still
        matches the tree fails right here.
+
+    One exception, and only one: a verdict **superseded by its own lane's run in
+    the freeze batch** (the batch the release evidence report's `freeze`
+    names). A release requalifies every lane at its freeze commit with no code
+    change, so the verdicts it replaces still match the tree; they are retired
+    because a newer run of the same lane is live, not to silence anything
+    (Plan 036, the D-9 addendum). With no freeze batch, nothing is exempt.
     """
+    frozen = _release_freeze()
+    superseded: set[str] = set()
+    if frozen is not None:
+        batch = json.loads((REPO_ROOT / frozen["batch_manifest"]).read_text(encoding="utf-8"))
+        # Lanes whose freeze-batch run is live: their earlier verdicts are superseded.
+        replaced = {
+            run["name"] for run in batch["runs"] if run["verdict"] in LIVE_VERDICTS
+        }
+        superseded = {
+            relative
+            for relative in RETIRED_VERDICTS
+            if Path(relative).parent.name in replaced
+        }
     not_stale = sorted(
         relative
         for relative in RETIRED_VERDICTS
-        if not _recorded_vs_tree(relative, LANE_VERDICTS[relative])
+        if relative not in superseded
+        and not _recorded_vs_tree(relative, LANE_VERDICTS[relative])
     )
     assert not not_stale, (
         "These verdicts are listed as retired history but still bind the "

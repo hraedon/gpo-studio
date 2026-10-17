@@ -593,8 +593,16 @@ def test_an_rc_tag_is_not_subject_to_the_freeze_check(
     (root / "docs").mkdir()
     for name in ("release-evidence-1.1.0.md", "release-evidence-report-1.1.0.json"):
         shutil.copyfile(REPO_ROOT / "docs" / name, root / "docs" / name)
-    report = json.loads((root / "docs" / "release-evidence-report-1.1.0.json").read_text("utf-8"))
-    assert report["status"] == "candidate" and report["freeze"] is None
+    # A candidate as the documented RC approval makes it, whatever the committed
+    # files say today: status, version and line 5, and no freeze.
+    report_path = root / "docs" / "release-evidence-report-1.1.0.json"
+    report = json.loads(report_path.read_text("utf-8"))
+    report.update(status="candidate", version="1.1.0rc1", freeze=None)
+    report_path.write_text(_json(report), encoding="utf-8", newline="\n")
+    manifest = root / "docs" / "release-evidence-1.1.0.md"
+    lines = manifest.read_text("utf-8").split("\n")
+    lines[4] = gate.CANDIDATE
+    manifest.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     assert gate.main(["--tag", "v1.1.0-rc.1", "--root", str(root)]) == 0
 
 
