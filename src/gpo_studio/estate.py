@@ -90,7 +90,7 @@ def parse_estate(data: dict[str, Any]) -> list[GPO]:
                 )
             ])
         original_guid = str(raw.get("guid", "")).strip()
-        if not original_guid or not _GUID_RE.match(original_guid):
+        if not original_guid or not _GUID_RE.fullmatch(original_guid):
             issues.append(
                 ValidationIssue(
                     severity="error",

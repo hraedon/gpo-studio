@@ -132,7 +132,7 @@ def parse_remote_owner(url: str) -> str | None:
     url = url.strip()
     # git@host:owner/repo.git  |  ssh://git@host/owner/repo.git
     # https://host/owner/repo(.git)
-    match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url)
+    match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?\Z", url)
     if not match:
         return None
     return match.group(1)
@@ -210,7 +210,7 @@ def remote_visibility(owner: str, repo: str) -> str | None:
 
 
 def parse_remote_repo(url: str) -> str | None:
-    match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url.strip())
+    match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?\Z", url.strip())
     if not match:
         return None
     return match.group(2)

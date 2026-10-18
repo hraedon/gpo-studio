@@ -125,7 +125,7 @@ def _str_list(data: dict[str, Any], name: str) -> tuple[str, ...]:
 
 
 def _validate_guid(value: str, path: str) -> None:
-    if not value or not _GUID_RE.match(value):
+    if not value or not _GUID_RE.fullmatch(value):
         raise ValidationError([
             ValidationIssue(
                 severity="error",
@@ -137,7 +137,7 @@ def _validate_guid(value: str, path: str) -> None:
 
 
 def _validate_sid(value: str, path: str) -> None:
-    if not value or not _SID_RE.match(value):
+    if not value or not _SID_RE.fullmatch(value):
         raise ValidationError([
             ValidationIssue(
                 severity="error",
@@ -149,7 +149,7 @@ def _validate_sid(value: str, path: str) -> None:
 
 
 def _validate_cidr(value: str, path: str) -> None:
-    if not value or not _CIDR_RE.match(value):
+    if not value or not _CIDR_RE.fullmatch(value):
         raise ValidationError([
             ValidationIssue(
                 severity="error",

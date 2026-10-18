@@ -963,6 +963,9 @@ def test_a_missing_remote_tag_or_unreadable_remote_fails_closed(
         gate.verify_remote_tag(work, "no-such-remote", "v1.1.0", first)
     with pytest.raises(gate.ReleaseGateError, match="not a full SHA-1"):
         gate.verify_remote_tag(work, "origin", "v1.1.0", first[:12])
+    # Sol final-r5 N1: `$` with match() accepted a trailing newline.
+    with pytest.raises(gate.ReleaseGateError, match="not a full SHA-1"):
+        gate.verify_remote_tag(work, "origin", "v1.1.0", first + "\n")
 
 
 def test_main_runs_the_remote_tag_check_when_asked(

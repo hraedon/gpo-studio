@@ -6927,11 +6927,11 @@ def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
             "lifecycle lane measured; a GPO authored in Studio is not one.",
             "gpo_guid",
         )
-    provenance = _IMPORT_PROVENANCE.match(first.description)
+    provenance = _IMPORT_PROVENANCE.fullmatch(first.description)
     if (
         first.status != "archived"
         or provenance is None
-        or not _BARE_GUID.match(first.source_guid)
+        or not _BARE_GUID.fullmatch(first.source_guid)
     ):
         raise _lifecycle_refusal(
             "fork_of_an_import",

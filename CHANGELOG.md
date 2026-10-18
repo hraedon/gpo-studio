@@ -219,6 +219,18 @@ Operator-facing:
   refuses if placeholder text is left anywhere in either published file; and
   a test pins that it runs before the published files are hashed, attested
   and released.
+- After the fifth review (final-r5), a sweep of whole-value validators: every
+  pattern ending in `$` called with `match()`/`search()` accepts a trailing
+  newline. The workflow grammar's action-input check (a YAML block scalar's
+  newline passed as the reviewed matrix expression), its pinned-action and
+  shell-parameter checks, the restore plan's provenance and GUID checks, the
+  AD discovery GUID/SID/CIDR checks, the estate GUID check, the firewall
+  thumbprint check, the lane-scope unit name and the publication plumbing's
+  remote parsing now match whole values. Lane-bound modules are left as they
+  are (an edit would expire live verdicts); `tests/test_whole_value_validators.py`
+  lists them, and fails on any new site. The release gate's path check now
+  refuses every Unicode control and format character (a bidirectional
+  override among them), not only ASCII ones.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

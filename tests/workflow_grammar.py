@@ -444,7 +444,7 @@ def split_commands(script: str, *, closed: bool = True) -> list[Command]:
                     continue
                 if script.startswith("${", index):
                     end = script.find("}", index)
-                    if end < 0 or not _PARAMETER.match(script[index : end + 1]):
+                    if end < 0 or not _PARAMETER.fullmatch(script[index : end + 1]):
                         shown = script[index : index + 40]
                         raise GrammarError(
                             f"parameter expansion this grammar cannot read: {shown!r}"
@@ -472,7 +472,7 @@ def split_commands(script: str, *, closed: bool = True) -> list[Command]:
             continue
         if script.startswith("${", index):
             end = script.find("}", index)
-            if end < 0 or not _PARAMETER.match(script[index : end + 1]):
+            if end < 0 or not _PARAMETER.fullmatch(script[index : end + 1]):
                 shown = script[index : index + 40]
                 raise GrammarError(f"parameter expansion this grammar cannot read: {shown!r}")
             begin()
@@ -643,7 +643,7 @@ def _unquoted_backslash(raw: str) -> bool:
 
 def _array_elements(token: str) -> list[str]:
     """The elements of ``NAME=(...)`` / ``NAME+=(...)``: bash globs and splits them."""
-    match = re.match(r"^[A-Za-z_][A-Za-z0-9_]*\+?=\((.*)\)$", token, re.S)
+    match = re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\+?=\((.*)\)", token, re.S)
     if match is None:
         return []
     return list(split_commands(match[1], closed=False)[-1].raw) if match[1].strip() else []
@@ -2287,7 +2287,7 @@ def _shadows(path: str) -> str | None:
             continue
         rest = path[len(directory) :]
         parts = rest.split("/")
-        if len(parts) == 1 and re.search(r"\.(py|pyc|pyw|so|pyd)$", rest):
+        if len(parts) == 1 and re.search(r"\.(py|pyc|pyw|so|pyd)\Z", rest):
             return rest.split(".", 1)[0]
         if len(parts) == 2 and parts[1] == "__init__.py":
             return parts[0]
@@ -2725,7 +2725,7 @@ def _action_violations(
     step: Any, where: str, matrix: dict[str, list[str]] | None = None
 ) -> Iterator[str]:
     uses = str(step["uses"])
-    if not _PINNED_ACTION.match(uses):
+    if not _PINNED_ACTION.fullmatch(uses):
         yield f"{where}: action {uses!r} is not a remote action pinned by SHA"
         return
     spec = ACTIONS.get(uses)
@@ -2749,7 +2749,10 @@ def _action_violations(
             continue
         if allowed is None:
             continue
-        expanded = _MATRIX_ONLY.match(str(value))
+        # fullmatch: `$` with match() let a YAML block scalar's trailing newline pass
+        # as the reviewed matrix expression (Sol final-r5 B1). The value checked is
+        # the value the action receives, byte for byte.
+        expanded = _MATRIX_ONLY.fullmatch(str(value))
         if str(value) in allowed:
             continue  # listed exactly, any reviewed expression in it included
         if expanded:

@@ -98,6 +98,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 from email.parser import BytesParser
@@ -815,7 +816,10 @@ def _json_file(path: Path, where: str, *, bom: bool = False) -> Any:
 def _safe_relative(relative: object) -> bool:
     if type(relative) is not str or not relative or "\\" in relative:
         return False
-    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in relative):
+    # Every control (Cc) and format (Cf) character, not only ASCII C0 and DEL: a
+    # bidirectional override such as U+202E makes a path read differently from
+    # what it is (DeepSeek final-r5 N2).
+    if any(unicodedata.category(character) in ("Cc", "Cf") for character in relative):
         return False
     parts = PurePosixPath(relative).parts
     return not relative.startswith("/") and all(p not in ("", ".", "..") for p in parts)

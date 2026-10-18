@@ -467,6 +467,17 @@ def test_a_file_python_could_load_in_a_pack_is_refused(tmp_path: Path) -> None:
         _verify(_build(tmp_path, plan))
 
 
+@pytest.mark.parametrize(
+    "path",
+    ["docs/plan-033/firewall-results.md\n", "docs/work-items.md\n",
+     "docs/plan-033/fire\u202ewall-results.md"],
+)
+def test_a_record_path_with_a_trailing_newline_is_not_a_record(path: str) -> None:
+    """Sol final-r5 N1: the results-record pattern and the record list are whole-value."""
+    assert gate._is_record(path.rstrip("\n").replace("\u202e", ""), "1.1.0")
+    assert not gate._is_record(path, "1.1.0")
+
+
 def test_a_dirty_checkout_is_refused(history: History) -> None:
     _write(history.root, "src/gpo_studio/core.py", "VALUE = 3\n")
     with pytest.raises(gate.ReleaseGateError, match="uncommitted changes to tracked files"):
@@ -540,6 +551,12 @@ def _set_finalizer(value: str) -> Callable[[dict[str, Any]], None]:
         (lambda r: r.update(wp0_manifest=_verdict_path("wp0", "rc")),
          "wp0_manifest is not the batch's WP-0 run"),
         (lambda r: r.update(extra=1), "keys must be exactly"),
+        # Sol final-r5 N1 / DeepSeek final-r5 N2.
+        (_set_finalizer("finalize_endpoint_run.py\n"), "bare finalize_\\*.py names"),
+        (lambda r: r.update(wp0_manifest=_verdict_path("wp0", LABEL).replace(
+            "manifest.json", "manifest\u202ejson")), "does not match the registry schema"),
+        (lambda r: r.update(wp0_manifest=_verdict_path("wp0", LABEL) + "\n"),
+         "does not match the registry schema"),
     ],
 )
 def test_a_registry_change_beyond_the_batch_is_refused(
@@ -791,6 +808,24 @@ def _drop(key: str) -> Callable[[dict[str, Any], str], None]:
         (lambda b, e: b["runs"][1]["files"].update({"../x": "0" * 64}), "does not hash its pack"),
         (lambda b, e: b["runs"][1]["files"].update({"x.bin": "zz"}), "does not hash its pack"),
         (lambda b, e: b["runs"][1]["files"].pop("verification.json"), "does not hash its pack"),
+        # Sol final-r5 N1: a trailing newline in every converted field.
+        (lambda b, e: b.update(post_batch_cleanup={
+            k + "\n": v for k, v in b["post_batch_cleanup"].items()}),
+         "post-batch directory check"),
+        (lambda b, e: b.update(post_batch_cleanup={
+            k: v + "\n" for k, v in b["post_batch_cleanup"].items()}),
+         "post-batch directory check"),
+        (lambda b, e: b["runs"][1]["files"].update(
+            {"controller.log": b["runs"][1]["files"]["controller.log"] + "\n"}),
+         "does not hash its pack"),
+        (lambda b, e: b["runs"][1].update(verdict=b["runs"][1]["verdict"] + "\n"),
+         "not where the bank tool banks it"),
+        (lambda b, e: b["runs"][1].update(run_id="endpoint-final\n"), "is not a run id"),
+        # DeepSeek final-r5 N2: control and format characters in a pack file name.
+        (lambda b, e: b["runs"][1]["files"].update({"evil\u202etxt.log": "0" * 64}),
+         "does not hash its pack"),
+        (lambda b, e: b["runs"][1]["files"].update({"x\u0085.log": "0" * 64}),
+         "does not hash its pack"),
     ],
 )
 def test_a_malformed_batch_manifest_is_refused(
