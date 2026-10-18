@@ -68,7 +68,10 @@ _EXCUSED = {
     ("POST", "/api/gpos"): "an empty new GPO",
     ("POST", "/api/starter-gpos"): "an empty new starter GPO",
     ("POST", "/api/starter-gpos/{guid}/derive"): "a new GPO of a starter's settings only",
-    ("POST", "/api/backups/import"): "a new GPO read from uploaded backup bytes",
+    ("POST", "/api/backups/import"): (
+        "a GPO read from backup bytes: a new one, or (replace_guid) an existing one's "
+        "content replaced whole by the fresh import"
+    ),
 }
 
 

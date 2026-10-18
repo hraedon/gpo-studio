@@ -437,6 +437,13 @@ remain historical records for their original revisions.
 - Symlink, path-traversal and entity-expansion guards are enforced.
 - An optional migration table can be applied to security filter SIDs and
   principals.
+- **Replace from a fresh import (1.1.0).** With `replace_guid` and
+  `expected_revision`, the import replaces an existing GPO's content whole, as
+  a new revision, instead of creating a GPO. Only a GPO imported from the same
+  source GPO can be replaced (`replace_source_mismatch` otherwise). It is a
+  recovery for a GPO whose stored values Studio cannot read, alongside
+  restoring a readable revision and `DELETE /api/gpos/{guid}` (which deletes
+  only such a GPO); earlier revisions are kept as they were.
 - **Source inventory.** Native imports keep the exact `Backup.xml` and optional
   `gpreport.xml` bytes, plus every payload file's path, size and hash.
   `GET /api/gpos/{guid}/report.txt` includes this inventory, including

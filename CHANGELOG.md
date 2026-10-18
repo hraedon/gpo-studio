@@ -620,6 +620,49 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- After the twentieth review (final-r20):
+  - **A GPO whose stored values cannot be read has a way out (Sol B1).** Its
+    message promised "re-import it, or restore a revision without it"; when
+    the value was already in revision 1, restoring revision 1 was refused
+    like the head and a re-import conflicted on the GPO's name, so the GPO
+    was frozen. The recoveries are now exactly three, and the message names
+    them (`stored_types.RECOVERIES`): restore a readable earlier revision;
+    replace the GPO's content from a fresh import of its source backup
+    (`POST /api/backups/import` with `replace_guid` and `expected_revision`:
+    a new revision whose content is wholly the import, with its freshly
+    minted provenance records; refused for a backup of another source GPO);
+    or delete it (`DELETE /api/gpos/{guid}`, which deletes only such a GPO,
+    logged). A test plants a named loader refusal -- the collection reads
+    empty -- in revision 1 and walks every artifact refusal, the refused
+    edit, fork, restore and plain re-import, then both recoveries.
+  - **The answer built before a commit is handed back through the request
+    (Sol B2).** It was kept in a process-global dictionary that failed
+    creations filled and that was cleared at 64 entries, so a committed
+    route could rebuild its answer after the commit and fail. The store now
+    hands each commit's answers back through a context variable scoped to
+    the request (`store.answer_scope`, opened per request), and answering a
+    GPO the request committed with anything but the committed object
+    raises. Tests run Sol's interleaving (failed creations before, after and
+    in another thread) with a builder that fails if called twice.
+  - **Legacy shapes read exactly as the loader they replaced read them
+    (DeepSeek B1).** A multi-value registry item with a `uid` on the entry
+    and among its first value's element attributes exported the value's uid
+    at 58b80aa and was refused after final-r19: the rewrite now makes the
+    old loader's promotions (an element `uid`, a value `default`) as it made
+    them, reads a bare targeting array's predicates by their three keys only,
+    and requires a stored predicate's `negate` and `value` as every loader
+    before did. A differential test loads the 58b80aa `gpp` and
+    `stored_types` from git as an oracle and, over 835 generated legacy cases
+    (uids at entry and value level, missing and extra keys, every legacy key
+    of the loader-key table), requires the same model and identical bytes
+    wherever the old loader accepted well-typed input, a refusal wherever it
+    refused, and a refusal of every ill-typed one. One difference is
+    declared, not matched: an `os` predicate in a bare array keeps its
+    version criterion (the old reading silently broadened it, WI-021).
+  - Performance (DeepSeek N2): building each answer before its commit makes
+    `create_gpo` about 2.5x slower at the store level for an empty GPO; a
+    request did the same work after the commit before, and the reviewers
+    measured no material change for a 200-GPO estate import.
 - After the nineteenth review (final-r19):
   - **An empty change makes the same checks as any other (Sol B1).**
     `copy-settings` from a source with no settings, or none on the requested
@@ -653,8 +696,9 @@ Operator-facing:
     the current shape only. A legacy value of the wrong type is a replaced
     value like any other -- `use_local: "false"` exported `skipLocal="1"`; it
     now blocks the GPO and its edits -- and a delay is scaled only when it is
-    a non-negative number. A test holds every key a loader reads to the
-    model's fields and the rewrites' keys, with a control.
+    a number (final-r20: of any sign, as the old loader scaled it). A test
+    holds every key a loader reads to the model's fields and the rewrites'
+    keys, with a control.
   - **Out-of-range stored values read, never refuse the read (DeepSeek N2).**
     A document position of -1 answered 422 on the detail read; it is now a
     replaced value (no slot), and a named loader refusal no tolerance covers

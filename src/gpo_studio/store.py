@@ -9,7 +9,8 @@ import sqlite3
 import threading
 import uuid
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -462,14 +463,71 @@ def register_answer_check(check: Callable[[GPO], object]) -> None:
         _ANSWER_CHECKS.append(check)
 
 
-def _before_commit(gpo: GPO) -> None:
-    # Validation is run either way: with no check registered (the store used
-    # on its own) it is the crash pre-flight; with one, the check's payload
-    # carries its result.
+#: What each check built for a GPO committed in THIS context, by guid:
+#: ``guid -> (the committed GPO object, {check: result})``. A context
+#: variable, never mutated in place (each change sets a new mapping), so what
+#: one request committed is visible to that request only (Sol final-r20 B2:
+#: it was a process-global dictionary any failed creation could evict from).
+_COMMITTED: ContextVar[Mapping[str, tuple[GPO, Mapping[Any, object]]] | None] = ContextVar(
+    "store_committed_answers", default=None
+)
+#: Commits remembered per context. A request commits one or two GPOs; the
+#: bound only keeps a long-lived context (a script driving the store
+#: directly) from holding every payload it ever built.
+_COMMITTED_MAX = 8
+
+
+def _before_commit(gpo: GPO) -> dict[Any, object]:
+    """Each registered check's result for *gpo*, built before its commit.
+
+    Validation is run either way: with no check registered (the store used
+    on its own) it is the crash pre-flight; with one, the check's payload
+    carries its result."""
     if not _ANSWER_CHECKS:
         validate_gpo(gpo)
-    for check in _ANSWER_CHECKS:
-        check(gpo)
+    return {check: check(gpo) for check in _ANSWER_CHECKS}
+
+
+def _after_commit(gpo: GPO, answers: dict[Any, object]) -> None:
+    current = dict(_COMMITTED.get() or {})
+    current.pop(gpo.guid, None)
+    while len(current) >= _COMMITTED_MAX:
+        current.pop(next(iter(current)))
+    current[gpo.guid] = (gpo, answers)
+    _COMMITTED.set(current)
+
+
+@contextlib.contextmanager
+def answer_scope() -> Iterator[None]:
+    """A scope of its own for the answers commits leave (`committed_answer`):
+    the API opens one per request, so a request sees only what it committed,
+    whatever context it was started from."""
+    token = _COMMITTED.set(None)
+    try:
+        yield
+    finally:
+        _COMMITTED.reset(token)
+
+
+def committed_answer(gpo: GPO, check: Callable[[GPO], object]) -> object | None:
+    """What *check* built for *gpo* before this context committed it, taken
+    (once), or ``None`` if this context committed no GPO with its guid.
+
+    A committed GPO answered with another object than the one committed is a
+    programming error -- the answer would be rebuilt after the commit, which
+    is what building it first exists to rule out -- and raises."""
+    current = _COMMITTED.get() or {}
+    entry = current.get(gpo.guid)
+    if entry is None:
+        return None
+    _COMMITTED.set({guid: value for guid, value in current.items() if guid != gpo.guid})
+    committed, answers = entry
+    if committed is not gpo or check not in answers:
+        raise RuntimeError(
+            f"GPO {gpo.guid} was committed in this request but is being answered "
+            "without the answer built before its commit"
+        )
+    return answers[check]
 
 
 def _replaced_on_read(gpo: GPO) -> list[ValidationIssue]:
@@ -479,29 +537,31 @@ def _replaced_on_read(gpo: GPO) -> list[ValidationIssue]:
     The typed load replaces each with its default, never coercing it; the
     GPO is blocked. Storing the GPO again would store the default in its
     place -- an edit, a fork, a derived GPO or a copy would turn "false" into
-    the default ``true`` and unblock it -- so each refuses such a GPO. A
-    restore of a revision without them, or a re-import, is the way out."""
+    the default ``true`` and unblock it -- so each refuses such a GPO. The
+    recoveries (`stored_types.RECOVERIES`, named in each issue) replace the
+    content whole: a revision restore, a replacement from a fresh import
+    (`replace_from_import`), or deleting the GPO (`delete_gpo`)."""
     from .validation import validate_gpo
 
-    replaced = bool(gpo.load_problems) or any(
+    if not _has_replaced(gpo):
+        return []
+    return [
+        issue
+        for issue in validate_gpo(gpo)
+        if issue.code == "stored_value_wrong_type" and issue.severity == "error"
+    ]
+
+
+def _has_replaced(gpo: GPO) -> bool:
+    return bool(gpo.load_problems) or any(
         message.startswith(STORED_WRONG_TYPE)
         for collection in gpo.gpp_collections
         for _severity, message in collection.load_problems
     )
-    if not replaced:
-        return []
-    return [
-        replace(
-            issue,
-            message=(
-                f"{issue.message} Studio will not store a change to this GPO -- it would "
-                "store the default in its place -- until it is re-imported or a revision "
-                "without it is restored."
-            ),
-        )
-        for issue in validate_gpo(gpo)
-        if issue.code == "stored_value_wrong_type" and issue.severity == "error"
-    ]
+
+
+def _plain_guid(value: str) -> str:
+    return value.strip().strip("{}").lower()
 
 
 def require_unreplaced(gpo: GPO) -> None:
@@ -1006,7 +1066,7 @@ class WorkspaceStore:
             created_at=timestamp,
             updated_at=timestamp,
         )
-        _before_commit(gpo)
+        answers = _before_commit(gpo)
         payload, documents = self._encode_snapshot_payload(gpo)
         with self._lock:
             self._require_healthy()
@@ -1028,6 +1088,7 @@ class WorkspaceStore:
                 with contextlib.suppress(sqlite3.Error):
                     self._connection.execute("ROLLBACK")
                 self._map_sqlite_error(error)
+        _after_commit(gpo, answers)
         return gpo
 
     def list_starter_gpos(self) -> list[GPO]:
@@ -1110,6 +1171,20 @@ class WorkspaceStore:
             status="draft",
         )
 
+    def delete_gpo(
+        self,
+        guid: str,
+        expected_revision: int,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> None:
+        """Delete a GPO whose read replaced a stored value -- one of its
+        recoveries (Sol final-r20 B1). Deleting persists nothing, so no default
+        is stored in a value's place; the deletion is logged. A readable GPO
+        is not deleted here: Studio has no general GPO deletion."""
+        self._delete(guid, expected_revision, identity=identity, reason=reason, starter=False)
+
     def delete_starter_gpo(
         self,
         guid: str,
@@ -1118,12 +1193,35 @@ class WorkspaceStore:
         identity: Identity | str,
         reason: str,
     ) -> None:
+        self._delete(guid, expected_revision, identity=identity, reason=reason, starter=True)
+
+    def _delete(
+        self,
+        guid: str,
+        expected_revision: int,
+        *,
+        identity: Identity | str,
+        reason: str,
+        starter: bool,
+    ) -> None:
         actor = _resolve_actor(identity)
         with self._lock:
             self._require_healthy()
             current = self.get_gpo(guid)
-            if not current.is_starter:
+            if starter and not current.is_starter:
                 raise NotFoundError(f"Starter GPO {guid} was not found")
+            if not starter and not _has_replaced(current):
+                raise ValidationError([
+                    ValidationIssue(
+                        severity="error",
+                        code="gpo_delete_not_a_recovery",
+                        message=(
+                            "Studio deletes a GPO only as the recovery for stored values it "
+                            "cannot read; this GPO has none."
+                        ),
+                        path="",
+                    )
+                ])
             if current.revision != expected_revision:
                 raise ConflictError(
                     f"Expected revision {expected_revision} but current is {current.revision}",
@@ -1349,7 +1447,7 @@ class WorkspaceStore:
                 # The answer is built before the commit (final-r18, r19 N3): a
                 # failure building it raises here and rolls the mutation back,
                 # so no durable revision is followed by a 500.
-                _before_commit(updated)
+                answers = _before_commit(updated)
                 payload, documents = self._encode_snapshot_payload(updated)
                 self._store_documents(current.guid, 0, documents)
                 self._store_documents(current.guid, updated.revision, documents)
@@ -1380,6 +1478,7 @@ class WorkspaceStore:
                 if isinstance(exc, sqlite3.Error):
                     self._map_sqlite_error(exc)
                 raise
+        _after_commit(updated, answers)
         return updated
 
     def update_metadata(
@@ -2481,6 +2580,69 @@ class WorkspaceStore:
 
         # The one change a GPO whose read replaced stored values may take: it
         # replaces everything, with a revision validated above.
+        return self._mutate(
+            guid,
+            expected_revision,
+            mutate,
+            identity=identity,
+            reason=reason,
+            grants=grants,
+            replaces_all=True,
+        )
+
+    def replace_from_import(
+        self,
+        guid: str,
+        expected_revision: int,
+        imported: GPO,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        """Replace a GPO's content whole with a fresh import of its source
+        backup, as a new revision (Sol final-r20 B1).
+
+        The recovery for a GPO whose stored values cannot be read, when no
+        earlier revision is readable either (an import's first revision): a
+        re-import as a new GPO conflicts on its name. *imported* is the GPO the
+        import built (its guid and revision are this GPO's); it must be of the
+        same source GPO, so an unrelated backup cannot overwrite this one. Its
+        preferences carry the import's freshly minted provenance records,
+        granted here as an import's are; nothing of the current content is
+        kept. Every earlier revision stays as it was."""
+        current = self.get_gpo(guid)
+        if _plain_guid(imported.source_guid) != _plain_guid(current.source_guid) or not (
+            current.source_guid
+        ):
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="replace_source_mismatch",
+                    message=(
+                        "A GPO is replaced only by an import of its own source GPO: this "
+                        f"backup holds {imported.source_guid or 'no GPO identity'}, the GPO "
+                        f"was imported from {current.source_guid or 'no backup'}."
+                    ),
+                    path="replace_guid",
+                )
+            ])
+        grants = _Grants()
+        for collection in imported.gpp_collections:
+            grants.grant(
+                collection.scope,
+                provenance.fragments(collection),
+                provenance.records(collection),
+            )
+
+        def mutate(existing: GPO) -> GPO:
+            return replace(
+                imported,
+                guid=existing.guid,
+                revision=existing.revision,
+                created_at=existing.created_at,
+                updated_at=existing.updated_at,
+            )
+
         return self._mutate(
             guid,
             expected_revision,

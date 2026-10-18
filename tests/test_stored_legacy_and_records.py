@@ -327,7 +327,9 @@ def test_a_legacy_use_local_is_a_boolean_or_refused(
     [
         ("reset_period_days", 2, "reset_fail_count_delay_seconds", 172800),
         ("reset_period_days", "abc", None, None),
-        ("reset_period_days", -1, None, None),
+        # A negative count is scaled as the legacy loader scaled it; its range
+        # is validation's (no less strict, and no stricter, than before).
+        ("reset_period_days", -1, "reset_fail_count_delay_seconds", -86400),
         ("reset_period_days", True, None, None),
         ("restart_delay_minutes", 3, "restart_service_delay_milliseconds", 180_000),
         ("restart_delay_minutes", ["x"], None, None),
@@ -368,13 +370,16 @@ def test_a_legacy_service_key_is_read_by_its_type_or_refused(
     ("predicates", "replaced"),
     [
         ([{"type": "ou", "negate": False, "value": "OU=A,DC=studio,DC=local"}], False),
-        ([{"type": "ou", "negate": True}], False),  # value: optional, ""
+        # value and negate: required, as every loader before required them
+        # (`stored_types.STORED_REQUIRED`; DeepSeek final-r20 B1, no less strict)
+        ([{"type": "ou", "negate": True}], True),
+        ([{"type": "ou", "value": "OU=A"}], True),
         ([{"negate": False, "value": "OU=A"}], True),  # type: required
         ([{"type": "ou", "negate": 1, "value": "OU=A"}], True),
         ([{"type": "ou", "negate": "false", "value": "OU=A"}], True),
         ([{"type": "ou", "negate": False, "value": ["OU=A"]}], True),
         ([{"type": ["ou"], "negate": False, "value": "OU=A"}], True),
-        (["not an object"], False),  # a raw predicate string: checked as one
+        (["not an object"], True),  # the legacy array held predicate objects only
         ({"predicates": [{"type": "ou", "negate": True, "value": "OU=A"}]}, False),
         ({"predicates": "x"}, True),
         ({"predicates": [], "unknown_predicates": {"x": 1}}, True),
@@ -393,7 +398,7 @@ def test_a_legacy_targeting_shape_is_type_checked(
         assert _blocked_and_frozen(gpo)
     group = _collection(gpo, path).groups[0]
     first_stored = predicates[0] if isinstance(predicates, list) and predicates else None
-    if isinstance(first_stored, dict) and first_stored.get("negate") is True:
+    if not replaced and isinstance(first_stored, dict) and first_stored.get("negate") is True:
         assert group.ilt_filter is not None
         first = group.ilt_filter.items[0]
         assert not isinstance(first, str) and first.negate is True
@@ -485,9 +490,15 @@ def test_an_unreadable_collection_is_read_empty_and_blocks_edits(native: Any) ->
     recorded as replaced; never fatal on read, never re-saved empty."""
     store_, guid, clean = native
     data = copy.deepcopy(clean)
-    data["gpp_collections"][0]["root_unknown_positions"] = "not a list"
+    # Well-typed (the typed load passes it), refused by the loader by name: a
+    # family the collection does not have (DeepSeek final-r20 N1 -- "not a
+    # list" never reached this branch).
+    data["gpp_collections"][0]["root_unknown_positions"] = [["Bogus", [0]]]
     gpo = gpo_from_dict(data)
     assert _blocked_and_frozen(gpo)
+    (problem,) = gpo.gpp_collections[0].load_problems
+    assert "unreadable" in problem[1]
+    assert all(not getattr(gpo.gpp_collections[0], key) for key in FAMILIES)
     revision = _plant_head(store_, guid, data)
     with pytest.raises(ValidationError):
         store_.update_metadata(guid, revision, {"name": "X"}, identity="t", reason="r19")

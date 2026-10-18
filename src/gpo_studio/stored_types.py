@@ -79,11 +79,11 @@ def _scaled(
     def rewrite(data: dict[str, Any], path: str, problems: list[Problem]) -> None:
         if new not in data and old in data:
             value = data.pop(old)
-            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-                data[new] = value * factor
+            if isinstance(value, int) and not isinstance(value, bool):
+                data[new] = value * factor  # the range is validation's, as before
             else:
                 problems.append(
-                    (f"{path}/{old}", f"{_json_name(value)} where a count of units belongs")
+                    (f"{path}/{old}", f"{_json_name(value)} where a number belongs")
                 )
         else:
             data.pop(old, None)
@@ -181,8 +181,54 @@ def _legacy_registry(data: dict[str, Any], path: str, problems: list[Problem]) -
                     item[key] = value[own]
                 elif first and key in entry:
                     item[key] = entry[key]
+            # The promotions the legacy loader made, exactly (DeepSeek final-r19
+            # B1 of round 20): a ``uid`` among the element's retained attributes
+            # IS the item's uid, over the entry's, and a ``default`` among the
+            # value's is its default flag -- each matched by local name ignoring
+            # case, removed only where the local name is exactly lower case.
+            uid = _promoted(item.get("unknown_attrs"), "uid")
+            if uid is not None:
+                item["uid"] = uid
+                item["unknown_attrs"] = _without(item["unknown_attrs"], "uid")
+            default = _promoted(item["value"].get("unknown_attrs"), "default")
+            if default is not None:
+                item["value"]["default"] = default == "1"
+                item["value"]["unknown_attrs"] = _without(
+                    item["value"]["unknown_attrs"], "default"
+                )
             out.append(item)
     data["registry"] = out
+
+
+def _attr_local_name(name: Any) -> str:
+    text = str(name)
+    return text.split("}", 1)[-1] if "}" in text else text
+
+
+def _attr_pairs(attrs: Any) -> list[Any] | None:
+    """*attrs* if it is a list of name/value pairs, else ``None`` (left for
+    the type check to judge)."""
+    if not isinstance(attrs, list) or not all(
+        isinstance(pair, (list, tuple)) and len(pair) == 2 for pair in attrs
+    ):
+        return None
+    return attrs
+
+
+def _promoted(attrs: Any, name: str) -> str | None:
+    pairs = _attr_pairs(attrs)
+    for key, value in pairs or ():
+        if _attr_local_name(key).lower() == name:
+            # Promoted only as text: anything else stays for the type check.
+            return value if isinstance(key, str) and isinstance(value, str) else None
+    return None
+
+
+def _without(attrs: Any, name: str) -> Any:
+    pairs = _attr_pairs(attrs)
+    if pairs is None:
+        return attrs
+    return [pair for pair in pairs if _attr_local_name(pair[0]) != name]
 
 
 #: Rewrites of each item's legacy keys, by the class it loads into.
@@ -199,6 +245,14 @@ LEGACY_REWRITES: dict[str, tuple[Callable[[dict[str, Any], str, list[Problem]], 
     ),
     "IltFilter": (_ilt_predicates,),
     "GppCollection": (_legacy_registry,),
+}
+
+#: Keys every stored object of a class has always carried, although the
+#: model gives them a default: the loaders required them (a missing one was a
+#: ``KeyError``), so a stored object without one is a problem, not a default
+#: (DeepSeek final-r20 B1: no less strict than the loader it replaced).
+STORED_REQUIRED: dict[str, frozenset[str]] = {
+    "IltPredicate": frozenset({"negate", "value"}),
 }
 
 #: Every key a rewrite reads.
@@ -223,6 +277,22 @@ LEGACY_KEYS: dict[str, frozenset[str]] = {
 #: Items an early release stored as a bare array: ``IltFilter`` as its
 #: predicates (``[{"type", "negate", "value"}, ...]``), read as ``items``.
 LEGACY_ARRAYS = frozenset({"IltFilter"})
+
+#: What the legacy loader read of each predicate of a bare array: these three
+#: keys, nothing else (DeepSeek final-r20 B1: read exactly as it read them).
+_LEGACY_PREDICATE_KEYS = ("type", "negate", "value")
+
+
+def _legacy_ilt_array(value: list[Any], path: str, problems: list[Problem]) -> dict[str, Any]:
+    items: list[Any] = []
+    for index, entry in enumerate(value):
+        if isinstance(entry, dict):
+            items.append({key: entry[key] for key in _LEGACY_PREDICATE_KEYS if key in entry})
+        else:
+            # The legacy loader read every entry as a predicate object; a raw
+            # predicate string is the current shape's, never this one's.
+            problems.append((f"{path}/{index}", f"{_json_name(entry)} where an object belongs"))
+    return {"items": items}
 
 
 def _json_name(value: Any) -> str:
@@ -341,7 +411,7 @@ def _check(annotation: Any, value: Any, path: str, problems: list[Problem]) -> A
                 return out if args else items
     elif dataclasses.is_dataclass(annotation) and isinstance(annotation, type):
         if isinstance(value, list) and annotation.__name__ in LEGACY_ARRAYS:
-            value = {"items": value}  # checked as the current shape
+            value = _legacy_ilt_array(value, path, problems)  # then checked as current
         if not isinstance(value, dict):
             ok = False
         else:
@@ -393,7 +463,7 @@ def check_stored(
         if name in skip:
             continue
         if name not in out:
-            if default is _MISSING:
+            if default is _MISSING or name in STORED_REQUIRED.get(cls.__name__, ()):
                 # A required field missing from a stored object: as wrong as a
                 # value of the wrong type, and a loader would fail on it.
                 what = f"nothing where {_expected(annotation)} belongs"
@@ -423,9 +493,19 @@ def stored_flag(value: Any, default: bool) -> bool:
 STORED_WRONG_TYPE = "stored value of the wrong type"
 
 
+#: The recoveries a GPO whose read replaced a stored value has -- every one
+#: that exists, and only those (Sol final-r20 B1). An edit is not one: it
+#: would store the default in the value's place.
+RECOVERIES = (
+    "restore an earlier revision that does not hold it, replace the GPO from a "
+    "fresh import of its source backup (the backup import with replace_guid and "
+    "expected_revision), or delete the GPO"
+)
+
+
 def problem_message(path: str, what: str) -> str:
     return (
         f"{STORED_WRONG_TYPE} at {path.lstrip('/') or 'the root'}: {what}. Studio read "
-        "the default in its place and will not export the GPO; re-import it, or restore "
-        "a revision without it"
+        "the default in its place, so it will neither export nor change the GPO; "
+        f"{RECOVERIES}"
     )

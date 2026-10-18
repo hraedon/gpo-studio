@@ -105,7 +105,7 @@ def route_problems(
 
 def test_every_route_is_declared() -> None:
     assert route_problems(list(app.routes), ROUTE_ARTIFACTS, NO_ARTIFACT_ROUTES) == []
-    assert len(ROUTE_ARTIFACTS) == 15 and len(NO_ARTIFACT_ROUTES) == 98
+    assert len(ROUTE_ARTIFACTS) == 15 and len(NO_ARTIFACT_ROUTES) == 99
 
 
 def test_every_artifact_format_has_a_validator() -> None:

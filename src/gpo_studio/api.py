@@ -259,6 +259,8 @@ from .som import (
 from .store import (
     WorkspaceStore,
     _now,
+    answer_scope,
+    committed_answer,
     gpo_from_dict,
     register_answer_check,
     require_unreplaced,
@@ -1652,6 +1654,18 @@ class BackupImportRequest(BaseModel):
     migration_table_path: str | None = Field(default=None, max_length=4096)
     actor: str = Field(default="local-operator", min_length=1, max_length=120)
     reason: str = Field(default="Import GPMC backup", min_length=1, max_length=500)
+    #: Replace this existing GPO's content whole with the import, as a new
+    #: revision, instead of creating a GPO (final-r20): the recovery for a GPO
+    #: whose stored values cannot be read. It must have been imported from the
+    #: same source GPO; ``expected_revision`` is required with it.
+    replace_guid: str | None = Field(default=None, min_length=1, max_length=64)
+    expected_revision: StrictInt | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _replace_needs_revision(self) -> BackupImportRequest:
+        if (self.replace_guid is None) != (self.expected_revision is None):
+            raise ValueError("replace_guid and expected_revision are given together")
+        return self
 
 
 class ImportAdmRequest(Audit):
@@ -1940,22 +1954,12 @@ def _digest(compute: Callable[[Any], str], gpo: Any) -> str | None:
         return None
 
 
-#: Payloads built before their GPO was committed (`_answer_check`), by the
-#: GPO object they answer for: the route that committed it answers with it.
-_PREBUILT: dict[int, tuple[Any, dict[str, Any]]] = {}
-_PREBUILT_LOCK = threading.Lock()
-
-
-def _answer_check(gpo: Any) -> None:
-    """Build the payload a mutation will answer with BEFORE it commits
-    (DeepSeek final-r19 B1/N3): a mutation whose answer cannot be built is
-    rolled back, never committed and then a 500. The payload is kept for the
-    route to answer with."""
-    payload = _build_gpo_payload(gpo)
-    with _PREBUILT_LOCK:
-        if len(_PREBUILT) >= 64:
-            _PREBUILT.clear()
-        _PREBUILT[id(gpo)] = (gpo, payload)
+def _answer_check(gpo: Any) -> dict[str, Any]:
+    """Build the payload a mutation or creation will answer with BEFORE it
+    commits (DeepSeek final-r19 B1/N3): one whose answer cannot be built is
+    rolled back, never committed and then a 500. The store hands it back to
+    the request that committed it (`store.committed_answer`)."""
+    return _build_gpo_payload(gpo)
 
 
 register_answer_check(_answer_check)
@@ -1965,11 +1969,27 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     if request is not None:
         request.state.gpo_guid = gpo.guid
         request.state.gpo_revision = gpo.revision
-    with _PREBUILT_LOCK:
-        prebuilt = _PREBUILT.pop(id(gpo), None)
-    if prebuilt is not None and prebuilt[0] is gpo:
-        return prebuilt[1]
+        # A GPO this request committed is answered with the payload built
+        # before its commit, never rebuilt after it (Sol final-r20 B2);
+        # answering it with another object raises. Any other GPO's payload --
+        # and any built outside a request -- is built here.
+        prebuilt = committed_answer(gpo, _answer_check)
+        if prebuilt is not None:
+            return cast(dict[str, Any], prebuilt)
     return _build_gpo_payload(gpo)
+
+
+class _AnswerScope:
+    """Each request gets its own scope for the answers its commits leave
+    (`store.answer_scope`): an ASGI wrapper, so the scope is open in the
+    request's own task, which the endpoint's worker thread copies."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        with answer_scope():
+            await self.app(scope, receive, send)
 
 
 def _build_gpo_payload(gpo: Any) -> dict[str, Any]:
@@ -2458,6 +2478,7 @@ app.add_middleware(OriginValidationMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(_AnswerScope)
 app.mount("/assets", StudioStaticFiles(directory=STATIC), name="assets")
 
 
@@ -2560,6 +2581,7 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/starter-gpos"): _GPO_PAYLOAD,
     ("POST", "/api/starter-gpos/{guid}/derive"): _GPO_PAYLOAD,
     ("DELETE", "/api/starter-gpos/{guid}"): _NO_CONTENT,
+    ("DELETE", "/api/gpos/{guid}"): _NO_CONTENT,
     ("GET", "/api/gpos/{guid}"): _GPO_PAYLOAD,
     ("PATCH", "/api/gpos/{guid}"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/settings"): _GPO_PAYLOAD,
@@ -3315,6 +3337,17 @@ def delete_starter_gpo(
         body.expected_revision,
         identity=_identity(body.actor),
         reason=body.reason,
+    )
+    return Response(status_code=204)
+
+
+@app.delete("/api/gpos/{guid}", status_code=204)
+def delete_gpo(request: Request, guid: str, body: DeleteMutation) -> Response:
+    """Delete a GPO whose stored values cannot be read: one of its recoveries
+    (final-r20). Any other GPO is refused (422); Studio has no general GPO
+    deletion."""
+    _store(request).delete_gpo(
+        guid, body.expected_revision, identity=_identity(body.actor), reason=body.reason
     )
     return Response(status_code=204)
 
@@ -4138,7 +4171,9 @@ def import_capabilities() -> dict[str, Any]:
 
 
 @app.post("/api/backups/import", status_code=201)
-def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]:
+def import_backup(
+    request: Request, response: Response, body: BackupImportRequest
+) -> dict[str, Any]:
     backup_dir = _validate_inbox_path(body.path)
 
     try:
@@ -4231,25 +4266,36 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
     if gpo_issues:
         raise ValidationError(gpo_issues)
 
-    gpo = _store(request).create_gpo(
-        name=backup_gpo.display_name or "Imported GPO",
-        description=f"Imported from GPMC backup {backup.backup_id}",
-        identity=_identity(body.actor),
-        reason=body.reason,
-        settings=all_settings,
-        source_guid=backup_gpo.guid,
-        cse_metadata=cse_metadata,
-        backup_inventory=backup_gpo.backup_inventory,
-        fdeploy=backup_gpo.fdeploy,
-        domain=backup_gpo.domain or "studio.local",
-        security_filters=security_filters,
-        wmi_filter=wmi_filter,
-        gpp_collections=gpp_collections,
-        computer_enabled=backup_gpo.computer_enabled,
-        user_enabled=backup_gpo.user_enabled,
+    imported: dict[str, Any] = {
+        "name": backup_gpo.display_name or "Imported GPO",
+        "description": f"Imported from GPMC backup {backup.backup_id}",
+        "settings": all_settings,
+        "source_guid": backup_gpo.guid,
+        "cse_metadata": cse_metadata,
+        "backup_inventory": backup_gpo.backup_inventory,
+        "fdeploy": backup_gpo.fdeploy,
+        "domain": backup_gpo.domain or "studio.local",
+        "security_filters": security_filters,
+        "wmi_filter": wmi_filter,
+        "gpp_collections": gpp_collections,
+        "computer_enabled": backup_gpo.computer_enabled,
+        "user_enabled": backup_gpo.user_enabled,
         # Imports are immutable evidence by default. Editing requires the
         # explicit fork endpoint so the source snapshot remains reviewable.
-        status="archived",
+        "status": "archived",
+    }
+    if body.replace_guid is not None and body.expected_revision is not None:
+        gpo = _store(request).replace_from_import(
+            body.replace_guid,
+            body.expected_revision,
+            GPO(guid=body.replace_guid, **imported),
+            identity=_identity(body.actor),
+            reason=body.reason,
+        )
+        response.status_code = 200
+        return _gpo_payload(gpo, request)
+    gpo = _store(request).create_gpo(
+        identity=_identity(body.actor), reason=body.reason, **imported
     )
     return _gpo_payload(gpo, request)
 
