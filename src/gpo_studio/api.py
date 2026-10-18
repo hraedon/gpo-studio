@@ -129,6 +129,7 @@ from .gpp import (
 )
 from .gpp_native import credential_local_name
 from .identity import ClaimedIdentity, claimed_identity
+from .identity_values import guid_problem
 from .ilt import (
     IltError,
     IltFilter,
@@ -6735,13 +6736,17 @@ LIFECYCLE_LANE = "lifecycle-same-domain"
 
 #: The provenance line `import_gpmc_backup` writes into an imported GPO's
 #: description. Archived imports are immutable, so it is still the backup's id.
-_IMPORT_PROVENANCE = re.compile(
-    r"^Imported from GPMC backup (\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}"
-    r"-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\})$"
-)
-_BARE_GUID = re.compile(
-    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
-)
+_IMPORT_PROVENANCE_PREFIX = "Imported from GPMC backup "
+
+
+def _import_provenance(description: str) -> str | None:
+    """The backup id the import's provenance line names, or None."""
+    if not description.startswith(_IMPORT_PROVENANCE_PREFIX):
+        return None
+    backup_id = description[len(_IMPORT_PROVENANCE_PREFIX) :]
+    return backup_id if guid_problem(backup_id, braces="required") is None else None
+
+
 #: `BackupManifest.created_at` must be non-empty, and the workspace import
 #: does not retain `BackupTime`. The value never reaches a response.
 _UNRECORDED_BACKUP_TIME = "unrecorded"
@@ -6927,11 +6932,11 @@ def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
             "lifecycle lane measured; a GPO authored in Studio is not one.",
             "gpo_guid",
         )
-    provenance = _IMPORT_PROVENANCE.fullmatch(first.description)
+    provenance = _import_provenance(first.description)
     if (
         first.status != "archived"
         or provenance is None
-        or not _BARE_GUID.fullmatch(first.source_guid)
+        or guid_problem(first.source_guid) is not None
     ):
         raise _lifecycle_refusal(
             "fork_of_an_import",
@@ -6951,7 +6956,7 @@ def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
         )
     return GpmcBackup(
         backup_time=_UNRECORDED_BACKUP_TIME,
-        backup_id=provenance.group(1),
+        backup_id=provenance,
         gpos=(
             BackupGpo(
                 guid=first.source_guid,

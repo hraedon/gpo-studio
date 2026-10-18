@@ -4,21 +4,37 @@ from __future__ import annotations
 
 import ipaddress
 import re
-import unicodedata
+from collections.abc import Callable
 from typing import assert_never
 
-from .gpp import GppCollection, GppGroup, GppGroupMember, GppRegistry, GppRegistryValue
-from .ilt import IltFilter, IltPredicate
+from .gpp import (
+    GppCollection,
+    GppError,
+    GppGroup,
+    GppGroupMember,
+    GppRegistry,
+    GppRegistryValue,
+    serialize_gpp,
+)
+from .identity_values import (
+    date_problem,
+    datetime_problem,
+    dn_problem,
+    name_problem,
+    principal_problem,
+    sid_problem,
+    time_problem,
+    unsafe_characters,
+)
+from .ilt import IltError, IltFilter, IltPredicate
 from .model import GPO, RegistrySetting, ValidationIssue
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
-from .xml_safety import unwritable_text, xml_char_forbidden
+from .xml_safety import parse_xml_bounded, unwritable_text, xml_char_forbidden
 
-_DN = re.compile(r"^(?:CN|OU|DC)=[^,=]+(?:,(?:CN|OU|DC)=[^,=]+)+$", re.IGNORECASE)
 _WQL_SELECT = re.compile(r"\bselect\b", re.IGNORECASE)
 _WQL_FROM = re.compile(r"\bfrom\b", re.IGNORECASE)
 _PRINCIPAL_DOMAIN_USER = re.compile(r"^[^\\\s]+\\[^\\\s]+$")
 _PRINCIPAL_UPN = re.compile(r"^[^@\s]+@[^@\s]+$")
-_PRINCIPAL_SID = re.compile(r"^S-\d+(?:-\d+)+$")
 _DOMAIN_FORMAT = re.compile(r"^[A-Za-z0-9.-]+$")
 
 _VALID_REGISTRY_TYPES = frozenset(
@@ -31,13 +47,24 @@ def _has_xml_unsafe_text(text: str) -> bool:
 
 
 def _control_or_format(text: str) -> bool:
-    """Any control (Cc) or format (Cf) character: LF, TAB, a bidi override.
+    """Any character no identity may hold (:func:`identity.unsafe_characters`).
 
-    An identity (a SID, a DN, a principal) carrying one is not the identity the
-    operator reviewed, even where XML can carry it: an LF in a group SID was
-    written into Groups.xml as ``&#10;`` (Sol final-r6 B2a).
+    Cc, Cf, Zl, Zp and every space but U+0020: an LF in a group SID was written
+    into Groups.xml as ``&#10;`` (Sol final-r6 B2a), NBSP and U+2028 slipped past
+    a Cc/Cf-only check (final-r7).
     """
-    return any(unicodedata.category(c) in ("Cc", "Cf") for c in text)
+    return bool(unsafe_characters(text))
+
+
+def _identity_issues(
+    value: str, problem: str | None, code: str, label: str, path: str
+) -> list[ValidationIssue]:
+    """One error for an invalid identity: ``control_character_<code>`` when the
+    value carries a refused character, ``invalid_<code>`` otherwise."""
+    if problem is None:
+        return []
+    kind = "control_character_in" if unsafe_characters(value) else "invalid"
+    return [ValidationIssue("error", f"{kind}_{code}", f"{label} {problem}.", path)]
 
 
 def text_issues(gpo: GPO) -> list[ValidationIssue]:
@@ -228,17 +255,16 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
     orders: set[tuple[str, int]] = set()
     for link in gpo.links:
         # The raw target, not a stripped copy: the stored value is what reaches the
-        # PowerShell plan (Sol final-r6 B2b), so it must itself be the DN.
-        if (
-            _control_or_format(link.target)
-            or link.target != link.target.strip()
-            or not _DN.fullmatch(link.target)
-        ):
+        # PowerShell plan (Sol final-r6 B2b), so it must itself be the DN, parsed
+        # per RFC 4514 (a dangling escape is not a DN: final-r7 B3).
+        target_problem = dn_problem(link.target)
+        if target_problem is not None:
             issues.append(
                 ValidationIssue(
                     "error",
                     "invalid_link_target",
-                    "Link target must be a domain or OU distinguished name.",
+                    "Link target must be a domain or OU distinguished name; this one "
+                    f"{target_problem}.",
                     f"links/{link.id}/target",
                 )
             )
@@ -348,7 +374,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
         if stripped and not (
             _PRINCIPAL_DOMAIN_USER.fullmatch(stripped)
             or _PRINCIPAL_UPN.fullmatch(stripped)
-            or _PRINCIPAL_SID.fullmatch(stripped)
+            or sid_problem(stripped) is None
         ):
             issues.append(
                 ValidationIssue(
@@ -360,6 +386,8 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
             )
         if sf.sid:
             sf_sid_path = f"security_filters/{sf.id}/sid"
+            # An error, not a warning: a malformed SID is a wrong identity in
+            # policy output (Sol final-r6 B2).
             if _control_or_format(sf.sid):
                 issues.append(
                     ValidationIssue(
@@ -369,9 +397,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                         sf_sid_path,
                     )
                 )
-            if not _PRINCIPAL_SID.fullmatch(sf.sid):
-                # An error, not a warning: a malformed SID is a wrong identity
-                # in policy output (Sol final-r6 B2).
+            elif sid_problem(sf.sid) is not None:
                 issues.append(
                     ValidationIssue(
                         "error",
@@ -457,6 +483,38 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
     return issues
 
 
+def _ilt_identity_issues(pred: IltPredicate, path: str) -> list[ValidationIssue]:
+    """The identity a targeting predicate names: an OU's DN, a group or user,
+    a computer or domain name, a date range (final-r7: one validator per kind)."""
+    if not pred.value:
+        return []
+    where = f"{path}/value"
+    match pred.type:
+        case "ou":
+            return _identity_issues(
+                pred.value, dn_problem(pred.value, min_rdns=1), "ilt_ou", "ILT OU", where
+            )
+        case "group":
+            return _identity_issues(
+                pred.value, principal_problem(pred.value), "ilt_group", "ILT group", where
+            )
+        case "user" | "computer_name" | "domain":
+            return _identity_issues(
+                pred.value, name_problem(pred.value), f"ilt_{pred.type}",
+                f"ILT {pred.type}", where,
+            )
+        case "date":
+            found: list[ValidationIssue] = []
+            for part in pred.value.split("|", 1):
+                if part:
+                    found += _identity_issues(
+                        part, date_problem(part), "ilt_date", "ILT date", where
+                    )
+            return found
+        case _:
+            return []
+
+
 def validate_ilt_predicate(pred: IltPredicate, path: str) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     if _has_xml_unsafe_text(pred.value):
@@ -468,6 +526,7 @@ def validate_ilt_predicate(pred: IltPredicate, path: str) -> list[ValidationIssu
                 f"{path}/value",
             )
         )
+    issues.extend(_ilt_identity_issues(pred, path))
     match pred.type:
         case "ou":
             if not pred.value.strip():
@@ -643,24 +702,18 @@ def validate_gpp_group_member(
                 f"{path}/sid",
             )
         )
-    if _has_xml_unsafe_text(member.sid) or _control_or_format(member.sid):
-        issues.append(
-            ValidationIssue(
-                "error",
-                "control_character_in_gpp_member_sid",
-                "GPP group member SID contains control characters.",
-                f"{path}/sid",
-            )
-        )
-    if _has_xml_unsafe_text(member.name):
-        issues.append(
-            ValidationIssue(
-                "error",
-                "control_character_in_gpp_member_name",
-                "GPP group member name contains control characters.",
-                f"{path}/name",
-            )
-        )
+    if member.sid:
+        # A full SID check, like the group's (final-r7 B1: only Cc/Cf was refused,
+        # so NBSP, a lowercase prefix or a junk suffix reached Groups.xml).
+        issues.extend(_identity_issues(
+            member.sid, sid_problem(member.sid), "gpp_member_sid",
+            "GPP group member SID", f"{path}/sid",
+        ))
+    if member.name:
+        issues.extend(_identity_issues(
+            member.name, name_problem(member.name), "gpp_member_name",
+            "GPP group member name", f"{path}/name",
+        ))
     if len(member.sid) > 255:
         issues.append(
             ValidationIssue(
@@ -699,15 +752,10 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
                 f"{path}/name",
             )
         )
-    if _has_xml_unsafe_text(name):
-        issues.append(
-            ValidationIssue(
-                "error",
-                "control_character_in_gpp_group_name",
-                "GPP group name contains control characters.",
-                f"{path}/name",
-            )
-        )
+    if name.strip():
+        issues.extend(_identity_issues(
+            name, name_problem(name), "gpp_group_name", "GPP group name", f"{path}/name"
+        ))
     if _has_xml_unsafe_text(group.description):
         issues.append(
             ValidationIssue(
@@ -724,31 +772,15 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
             assert_never(group.action)
     if group.sid:
         sid_path = f"{path}/sid"
-        if _has_xml_unsafe_text(group.sid) or _control_or_format(group.sid):
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "control_character_in_gpp_group_sid",
-                    "GPP group SID contains control characters.",
-                    sid_path,
-                )
-            )
+        issues.extend(_identity_issues(
+            group.sid, sid_problem(group.sid), "gpp_group_sid", "GPP group SID", sid_path
+        ))
         if len(group.sid) > 255:
             issues.append(
                 ValidationIssue(
                     "warning",
                     "invalid_gpp_group_sid",
                     "GPP group SID exceeds 255 characters.",
-                    sid_path,
-                )
-            )
-        if not _PRINCIPAL_SID.fullmatch(group.sid):
-            # An error, not a warning (Sol final-r6 B2a): the store refuses it.
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "invalid_gpp_group_sid",
-                    "GPP group SID does not match expected format (S-1-5-...).",
                     sid_path,
                 )
             )
@@ -1094,6 +1126,100 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
             )
         if reg.uid:
             seen_registry_uids.add(reg.uid)
+    issues.extend(serialized_identity_issues(collection))
+    return issues
+
+
+Problem = Callable[[str], "str | None"]
+
+
+def _ou_problem(value: str) -> str | None:
+    return dn_problem(value, min_rdns=1)
+
+
+#: (element, attribute) -> the validator for the identity it holds, in the XML
+#: Studio writes. Read off the native GPMC captures (every SID, account, group,
+#: user, OU, domain, time and date attribute in them) and Studio's writers.
+#: An empty value is not checked here; whether one is allowed is the typed
+#: validator's business.
+SERIALIZED_ATTRIBUTES: dict[tuple[str, str], Problem] = {
+    ("Member", "sid"): sid_problem,
+    ("Member", "name"): name_problem,
+    ("Properties", "groupSid"): sid_problem,
+    ("Properties", "groupName"): name_problem,
+    ("Properties", "newName"): name_problem,
+    ("Properties", "userName"): name_problem,
+    ("Properties", "username"): name_problem,
+    ("Properties", "accountName"): name_problem,
+    ("Properties", "runAs"): principal_problem,
+    ("Properties", "triggerTime"): time_problem,
+    ("FilterGroup", "sid"): sid_problem,
+    ("FilterGroup", "name"): name_problem,
+    ("FilterUser", "sid"): sid_problem,
+    ("FilterUser", "name"): name_problem,
+    ("FilterOrgUnit", "name"): _ou_problem,
+    ("FilterComputerName", "name"): name_problem,
+    ("FilterDomain", "name"): name_problem,
+    ("FilterDate", "startDate"): date_problem,
+    ("FilterDate", "endDate"): date_problem,
+}
+#: Element text that holds an identity: the Task Scheduler payload a TaskV2 or
+#: ImmediateTaskV2 carries (retained from an import or written by Studio).
+SERIALIZED_TEXT: dict[str, Problem] = {
+    "StartBoundary": datetime_problem,
+    "EndBoundary": datetime_problem,
+    "UserId": principal_problem,
+    "GroupId": principal_problem,
+}
+
+
+def serialized_identity_issues(collection: GppCollection) -> list[ValidationIssue]:
+    """Every identity in the XML this collection WILL write, checked as written.
+
+    The typed fields are a projection: an imported TaskV2's retained payload, a
+    v1 Task's ``triggerTime`` and a retained native element are written as they
+    are, not from the projection (Sol final-r7 B2). So the boundary validates
+    the serialized files themselves, attribute by attribute and payload element
+    by payload element, with the shared validators. Mutation (the store), both
+    imports and every export pass through it via :func:`validate_gpo`.
+    """
+    where = f"gpp_collections/{collection.scope}"
+    try:
+        files = serialize_gpp(collection)
+    except (GppError, IltError, ValueError) as error:
+        return [
+            ValidationIssue(
+                "error",
+                "unwritable_preferences",
+                f"Studio could not write these preferences: {error}",
+                where,
+            )
+        ]
+    issues: list[ValidationIssue] = []
+    for name, data in sorted(files.items()):
+        try:
+            root = parse_xml_bounded(data, max_size=max(len(data), 1))
+        except ValueError as error:
+            issues.append(ValidationIssue(
+                "error", "unwritable_preferences",
+                f"{name} does not read back: {error}", f"{where}/{name}",
+            ))
+            continue
+        for element in root.iter():
+            tag = element.tag.rsplit("}", 1)[-1]
+            for attribute, value in element.attrib.items():
+                check = SERIALIZED_ATTRIBUTES.get((tag, attribute))
+                if check is not None and value:
+                    issues.extend(_identity_issues(
+                        value, check(value), "preference_identity",
+                        f"{name} {tag} {attribute} {value!r}", f"{where}/{name}",
+                    ))
+            text_check = SERIALIZED_TEXT.get(tag)
+            if text_check is not None and element.text:
+                issues.extend(_identity_issues(
+                    element.text, text_check(element.text), "preference_identity",
+                    f"{name} {tag} {element.text!r}", f"{where}/{name}",
+                ))
     return issues
 
 

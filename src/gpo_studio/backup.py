@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
-import re
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -14,6 +13,7 @@ from typing import Literal
 from .backup_inventory import inventory_from_dict
 from .fdeploy import FDEPLOY_POLICY_PATH, FdeployDocument, FdeployError, read_fdeploy
 from .gpp import contains_cpassword
+from .identity_values import guid_problem
 from .model import BackupInventory, CseFileEntry, StudioError
 from .safe_io import (
     SafeOpenError,
@@ -34,9 +34,6 @@ _MAX_XML_TEXT_LENGTH = 1024 * 1024
 _MAX_XML_ATTR_LENGTH = 4096
 _ADMX_NS = "http://www.microsoft.com/GroupPolicy/Types"
 _REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
-_GUID_RE = re.compile(
-    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
-)
 
 
 class BackupError(StudioError):
@@ -592,7 +589,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
 
     enriched_gpos: list[BackupGpo] = []
     for gpo in backup.gpos:
-        if not _GUID_RE.fullmatch(gpo.guid):
+        if guid_problem(gpo.guid) is not None:
             raise BackupError(f"Invalid GPO GUID in manifest: {gpo.guid!r}")
 
         display_name = gpo.display_name
@@ -841,7 +838,7 @@ def read_cse_content(
     relative_path: str,
 ) -> bytes:
     """Read the raw bytes of a specific CSE file."""
-    if not _GUID_RE.fullmatch(gpo_guid):
+    if guid_problem(gpo_guid) is not None:
         raise BackupError(f"Invalid GPO GUID: {gpo_guid!r}")
     backup = read_backup(backup_dir)
     matching = [gpo for gpo in backup.gpos if gpo.guid == gpo_guid.casefold()]

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import sqlite3
 import threading
 import uuid
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -136,6 +138,11 @@ _IDENTITY_ERRORS = frozenset({
     "control_character_in_sid",
     "invalid_sid_format",
 })
+
+
+def _issue_key(issue: ValidationIssue) -> tuple[str, str, str]:
+    """An error's identity across an edit: item indices shift, the rest does not."""
+    return (issue.code, re.sub(r"/[0-9]+(?=/|$)", "/#", issue.path or ""), issue.message)
 
 
 def _refuse_identity_issues(gpo: GPO, prefix: str) -> None:
@@ -1413,14 +1420,48 @@ class WorkspaceStore:
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
-    def _validate_gpp(self, collection: GppCollection) -> None:
+    def _validate_gpp(
+        self,
+        collection: GppCollection,
+        before: tuple[int, GppCollection] | None = None,
+    ) -> None:
+        """Refuse a preference mutation that leaves an error it did not find.
+
+        Only NEW errors refuse it. A collection stored before a rule tightened
+        (two group SIDs a 1.1.0rc1 workspace accepted, say) would otherwise refuse
+        every edit and delete, including the one that repairs it (DeepSeek
+        final-r7 N4). Errors are compared as a multiset keyed by code, path
+        without item indices and message, so editing a bad item to a good one,
+        or deleting one, always passes, and adding or keeping-and-adding a bad
+        value does not.
+        """
         errors = [
             issue
             for issue in validate_gpp_collection(collection)
             if issue.severity == "error"
         ]
+        if before is not None:
+            known = Counter(
+                _issue_key(issue)
+                for issue in validate_gpp_collection(before[1])
+                if issue.severity == "error"
+            )
+            seen: Counter[tuple[str, str, str]] = Counter()
+            fresh = []
+            for issue in errors:
+                key = _issue_key(issue)
+                seen[key] += 1
+                if seen[key] > known[key]:
+                    fresh.append(issue)
+            errors = fresh
         if errors:
             raise ValidationError(errors)
+        if before is not None:
+            # A collection that did not write before may still not write after a
+            # repair of one item; what it must not do is stop writing because of
+            # this mutation. validate_gpp_collection reports that case
+            # (`unwritable_preferences`) as a new error above.
+            return
         # Nothing is committed that Studio cannot write. Validation and the
         # writer are separate code; where they disagreed (a padded CIDR, a raw
         # predicate that does not parse) the mutation committed and every later
@@ -1515,7 +1556,7 @@ class WorkspaceStore:
                     registry_by_id[item_id] for item_id in ordered_ids
                 )
                 new_collection = replace(existing, registry=reordered_registry)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(
                 gpo,
                 gpp_collections=self._replace_collection(gpo, idx, new_collection),
@@ -1569,7 +1610,7 @@ class WorkspaceStore:
                     groups_list.append(_with_common_edits(group, None, common_edits))
                 new_collection = replace(existing, groups=tuple(groups_list))
                 new_collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1609,7 +1650,7 @@ class WorkspaceStore:
                 raise NotFoundError(f"GPP group '{group_id}' was not found")
             groups = tuple(groups_list[:gi] + groups_list[gi + 1 :])
             new_collection = replace(existing, groups=groups)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             if (
                 not new_collection.groups
                 and not new_collection.registry
@@ -1672,7 +1713,7 @@ class WorkspaceStore:
                     items_list.append(_with_common_edits(registry, None, common_edits))
                 new_collection = replace(existing, registry=tuple(items_list))
                 new_collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1713,7 +1754,7 @@ class WorkspaceStore:
                 raise NotFoundError(f"GPP registry '{registry_id}' was not found")
             items = tuple(items_list[:ri] + items_list[ri + 1 :])
             new_collection = replace(existing, registry=items)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             if (
                 not new_collection.groups
                 and not new_collection.registry
@@ -1778,7 +1819,7 @@ class WorkspaceStore:
             )
             new_collection = replace(existing, groups=new_groups)
             new_collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1834,7 +1875,7 @@ class WorkspaceStore:
             )
             new_collection = replace(existing, groups=new_groups)
             new_collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1893,7 +1934,7 @@ class WorkspaceStore:
             )
             new_collection = replace(existing, registry=new_registries)
             new_collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1952,7 +1993,7 @@ class WorkspaceStore:
                 new_collections = tuple(
                     c for i, c in enumerate(gpo.gpp_collections) if i != idx
                 )
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)

@@ -252,6 +252,45 @@ Operator-facing:
   annotated, concatenated, f-string, imported, constant-name and chained
   patterns and keys inline sites by pattern; it leaves two sites, each a line
   or over-match by design.
+- After the seventh review (final-r7), identity validation in one place.
+  `src/gpo_studio/identity_values.py` holds one validator per kind -- SID,
+  distinguished name (RFC 4514: escapes, a dangling or incomplete `\`, an
+  unescaped leading or trailing space; an unescaped `=` in a value is refused
+  too, stricter than the RFC), GUID, trigger time, date-time, date, and
+  account/group name -- each judging the whole value and refusing control,
+  format, line and paragraph separator characters and every space but the
+  ASCII one (a non-breaking space among them). The store, the publication
+  preview, GPMC backup import, estate import, AD discovery, lifecycle,
+  migration and object security call these instead of their own patterns.
+  **What operators see:** besides the typed fields final-r6 covered, every
+  identity Studio writes into preference XML is now checked as written
+  (`preference_identity`, an error): group and member SIDs and names, a local
+  user's `userName`/`newName`, a service's `accountName`, a task's `runAs`
+  and v1 `triggerTime`, a TaskV2 payload's `UserId`, `GroupId`,
+  `StartBoundary` and `EndBoundary` (also when retained from an import), and
+  item-level targeting's group, user, OU, computer, domain and date values.
+  So a preference mutation or GPMC backup import that carries one malformed
+  is refused (422), as is an estate import whose GUID, link or security filter
+  does, and a lowercase `s-1-...` in a principal field is a malformed SID, not
+  a name. The release gate also
+  refuses a verdict registry whose retired and pending lists overlap or name
+  an unregistered verdict, at the freeze commit and at the tag.
+
+  **Existing workspaces:** they load unchanged and nothing is migrated. A GPO
+  stored before this release that holds a value these rules now refuse keeps
+  it, but its `export.zip`, `gpmc-backup` and `plan.ps1` answer 422 naming
+  the field, and it cannot move to ready, until it is corrected. Correct it
+  through the API as any edit: `PUT` the link, security filter or preference
+  item with the corrected value, or delete it. A preference edit is refused
+  only for an error it adds, so editing or deleting one bad item of several
+  succeeds while the rest remain, and an unrelated edit is not blocked; a
+  link or filter edit is checked for its own values only. A GPMC backup
+  holding such a value has to be corrected at its source (or in GPMC) before
+  it is imported again. `tests/test_identity_fields.py` feeds each hostile
+  shape through each field and route and holds the repair path;
+  `tests/test_whole_value_validators.py` now also follows `pattern=`,
+  `import re as ...`, `from re import compile/match/search`, walrus bindings
+  and a compiled pattern passed to `re.match`.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

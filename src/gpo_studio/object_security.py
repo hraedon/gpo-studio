@@ -31,6 +31,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal, assert_never
 
+from .identity_values import sid_problem
 from .model import ValidationIssue
 from .sddl import SddlError, SecurityDescriptor, format_sddl, parse_sddl
 from .security_template import InfSection, SecurityTemplate
@@ -250,9 +251,6 @@ def _parse_member_list(value: str) -> tuple[RestrictedGroupMember, ...]:
     return tuple(result)
 
 
-# re.ASCII: `\d` alone matches any Unicode digit, so a look-alike such as
-# "S-1-5-32-٥٤٤" would be starred as a SID on the wire (review N7).
-_SID_PRINCIPAL = re.compile(r"S-1-\d+(?:-\d+)+", re.IGNORECASE | re.ASCII)
 
 
 def _principal_wire(principal: str) -> str:
@@ -265,7 +263,9 @@ def _principal_wire(principal: str) -> str:
     ``Power Users__Members = Administrator`` -- so the reader keeps whichever
     it was given and this puts the star back only where it belongs.
     """
-    return f"*{principal}" if _SID_PRINCIPAL.fullmatch(principal) else principal
+    # The shared SID validator (ASCII digits only, so "S-1-5-32-٥٤٤" is a name:
+    # review N7; final-r7: one validator per identity kind).
+    return f"*{principal}" if sid_problem(principal) is None else principal
 
 
 def _format_member_list(members: tuple[RestrictedGroupMember, ...]) -> str:

@@ -156,8 +156,11 @@ def test_the_six_replace_exactly_the_verdicts_the_fix_expired() -> None:
     for relative in current - successors:
         paths = set(_load(EVIDENCE / relative)["source"]["paths"].values())
         assert not paths & changed, relative
-    # Pending only what this qualification still owes the next batch.
-    assert set(registry["PENDING_REQUALIFICATION"]) <= current
+    # Pending only registered, unretired verdicts (DeepSeek final-r7 N6: the
+    # earlier `PENDING <= LIVE | PENDING` was true by construction).
+    assert set(registry["PENDING_REQUALIFICATION"]) <= (
+        set(registry["LANE_VERDICTS"]) - set(registry["RETIRED_VERDICTS"])
+    )
 
 
 def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None:

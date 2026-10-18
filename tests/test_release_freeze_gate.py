@@ -177,6 +177,8 @@ class Plan:
     #: F's verdicts are pending requalification, not live (a bound file changed
     #: before F, as the final-r6 sweep did): the batch must still clear them.
     pending_at_freeze: bool = False
+    #: The endpoint lane's verdict is also RETIRED at F (DeepSeek final-r7 B2).
+    overlap_at_freeze: bool = False
 
 
 @dataclass
@@ -227,7 +229,9 @@ def _build(tmp_path: Path, plan: Plan | None = None) -> History:
     rc_registry: dict[str, Any] = {
         "schema_version": 1,
         "lane_verdicts": {_verdict_path(lane, "rc"): fin for lane, fin in FINALIZERS.items()},
-        "retired_verdicts": [],
+        "retired_verdicts": (
+            [_verdict_path("endpoint", "rc")] if plan.overlap_at_freeze else []
+        ),
         "pending_requalification": (
             sorted(_verdict_path(lane, "rc") for lane in FINALIZERS)
             if plan.pending_at_freeze else []
@@ -547,7 +551,7 @@ def _set_finalizer(value: str) -> Callable[[dict[str, Any]], None]:
             {_verdict_path("endpoint", "rc"): "finalize_rsop_run.py"}),
          "entries present at F were changed"),
         (lambda r: r["lane_verdicts"].pop(_verdict_path("loopback-merge", "rc")),
-         "entries present at F were changed or removed"),
+         "entries present at F were changed or removed|not registered"),
         (lambda r: r["retired_verdicts"].append(_verdict_path("endpoint", LABEL)),
          "only verdicts registered at F may be retired"),
         (lambda r: r["lane_verdicts"].update({"wp6-evidence/x/endpoint/verification.json":
@@ -884,6 +888,33 @@ def test_verdicts_pending_at_the_freeze_and_cleared_by_the_batch_pass(tmp_path: 
 def test_a_verdict_pending_at_the_freeze_must_be_retired_by_the_batch(tmp_path: Path) -> None:
     with pytest.raises(gate.ReleaseGateError, match="must be retired by the batch"):
         _verify(_build(tmp_path, Plan(pending_at_freeze=True, retire=("endpoint",))))
+
+
+def test_a_verdict_both_retired_and_pending_at_the_freeze_is_refused(tmp_path: Path) -> None:
+    """DeepSeek final-r7 B2, the reviewer's probe: endpoint both retired and
+    pending at F dropped out of the lanes the batch must re-run, so a batch
+    without it passed."""
+    plan = Plan(pending_at_freeze=True, overlap_at_freeze=True, lanes=("wp0", "loopback-merge"))
+    with pytest.raises(gate.ReleaseGateError, match="must be registered and disjoint"):
+        _verify(_build(tmp_path, plan))
+
+
+def test_a_verdict_both_retired_and_pending_at_the_tag_is_refused(tmp_path: Path) -> None:
+    endpoint_rc = _verdict_path("endpoint", "rc")
+
+    def overlap(registry: dict[str, Any]) -> None:
+        registry["pending_requalification"] = [endpoint_rc]
+
+    with pytest.raises(gate.ReleaseGateError, match="must be registered and disjoint"):
+        _verify(_build(tmp_path, Plan(registry=overlap)))
+
+
+def test_a_pending_path_that_is_not_a_registered_verdict_is_refused(tmp_path: Path) -> None:
+    def stray(registry: dict[str, Any]) -> None:
+        registry["pending_requalification"] = ["wp6-evidence/x/endpoint/verification.json"]
+
+    with pytest.raises(gate.ReleaseGateError, match="not registered"):
+        _verify(_build(tmp_path, Plan(registry=stray)))
 
 
 def test_a_lane_pending_at_the_freeze_but_not_re_run_is_refused(tmp_path: Path) -> None:

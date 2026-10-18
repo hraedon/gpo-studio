@@ -64,6 +64,13 @@ def _load_registry() -> dict[str, Any]:
     raw = REGISTRY_FILE.read_bytes()
     data = json.loads(raw.decode("utf-8"))
     assert set(data) == _REGISTRY_KEYS and data["schema_version"] == 1, sorted(data)
+    retired, pending = set(data["retired_verdicts"]), set(data["pending_requalification"])
+    # Disjoint and registered (DeepSeek final-r7 B2): a verdict both retired and
+    # pending would escape requalification.
+    assert not retired & pending, sorted(retired & pending)
+    assert retired | pending <= set(data["lane_verdicts"]), sorted(
+        (retired | pending) - set(data["lane_verdicts"])
+    )
     canonical = json.dumps(data, indent=2, ensure_ascii=True) + "\n"
     assert raw == canonical.encode("ascii"), (
         f"{REGISTRY_FILE.name} is not in canonical form (2-space JSON, ASCII, LF)"

@@ -1184,6 +1184,16 @@ def _load_registry_blob(data: bytes, where: str) -> dict[str, Any]:
     bad = sorted({v for v in lanes.values() if _FINALIZER_NAME.fullmatch(v) is None})
     if bad:
         raise ReleaseGateError(f"{where}: finalizers must be bare finalize_*.py names: {bad}")
+    # A verdict both retired and pending would drop out of the lanes the batch
+    # must re-run while never being requalified (DeepSeek final-r7 B2); a
+    # pending or retired path that is not a registered verdict names nothing.
+    overlap = sorted(set(retired) & set(pending))
+    unknown = sorted((set(retired) | set(pending)) - set(lanes))
+    if overlap or unknown:
+        raise ReleaseGateError(
+            f"{where}: retired and pending verdicts must be registered and disjoint; "
+            f"both: {overlap[:5]}; not registered: {unknown[:5]}"
+        )
     return registry
 
 

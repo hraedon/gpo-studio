@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, cast
 
+from .identity_values import guid_problem, sid_problem
 from .model import (
     DomainInfo,
     ForestInfo,
@@ -29,10 +30,6 @@ _MAX_GPO_RESULTS = 10000
 _MAX_SITE_RESULTS = 1000
 _MAX_SUBNET_RESULTS = 1000
 
-_GUID_RE = re.compile(
-    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
-)
-_SID_RE = re.compile(r"^S-1-5(-\d+)+$")
 _CIDR_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$")
 
 _DISCOVERY_KINDS = frozenset({
@@ -125,7 +122,7 @@ def _str_list(data: dict[str, Any], name: str) -> tuple[str, ...]:
 
 
 def _validate_guid(value: str, path: str) -> None:
-    if not value or not _GUID_RE.fullmatch(value):
+    if guid_problem(value) is not None:
         raise ValidationError([
             ValidationIssue(
                 severity="error",
@@ -137,7 +134,7 @@ def _validate_guid(value: str, path: str) -> None:
 
 
 def _validate_sid(value: str, path: str) -> None:
-    if not value or not _SID_RE.fullmatch(value):
+    if sid_problem(value) is not None or not value.startswith("S-1-5-"):
         raise ValidationError([
             ValidationIssue(
                 severity="error",

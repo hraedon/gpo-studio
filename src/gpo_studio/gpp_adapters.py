@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import functools
 import re
-import unicodedata
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -40,6 +39,7 @@ from .gpp import (
     _xml_declaration,
 )
 from .gpp_native import native_element_xml
+from .identity_values import time_problem
 from .ilt import IltFilter
 
 # CLSIDs from MS-GPPREF "Outer and Inner Element Names and CLSIDs" table
@@ -3277,14 +3277,12 @@ def _start_boundary(trigger_time: str) -> str:
         return _UNSPECIFIED_START_BOUNDARY
     # Refused, not passed through: "03:00\n" became `T03:00\n:00`, a StartBoundary
     # Windows rejects without a word, so the task is never created (Sol final-r6
-    # B2c). The store reports a GppError as `unwritable_preferences`.
-    if trigger_time != trigger_time.strip() or any(
-        unicodedata.category(c) in ("Cc", "Cf") for c in trigger_time
-    ):
-        raise GppError(
-            f"Scheduled task trigger time {trigger_time!r} has surrounding whitespace or "
-            "control characters"
-        )
+    # B2c); interior NBSP or a non-time did the same (DeepSeek final-r7 N1). Only a
+    # bare time, an ISO 8601 date-time or a GPP token is written; the store
+    # reports a GppError as `unwritable_preferences`.
+    problem = time_problem(trigger_time)
+    if problem is not None:
+        raise GppError(f"Scheduled task trigger time {trigger_time!r} {problem}")
     if _BARE_TIME_RE.fullmatch(trigger_time):
         padded = trigger_time if trigger_time.count(":") == 2 else f"{trigger_time}:00"
         hour, rest = padded.split(":", 1)

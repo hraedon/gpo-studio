@@ -57,7 +57,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, assert_never, get_args
 
-from .backup import _GUID_RE, BackupError, GpmcBackup, _local_name, _safe_parse
+from .backup import BackupError, GpmcBackup, _local_name, _safe_parse
+from .identity_values import guid_problem
 from .model import ValidationError, ValidationIssue
 
 GpoStatus = Literal[
@@ -290,7 +291,7 @@ class BackupManifest:
             issues.append(
                 ValidationIssue("error", "empty_gpo_guid", "GPO guid is empty.", "gpo_guid")
             )
-        elif not _GUID_RE.fullmatch(self.gpo_guid):
+        elif guid_problem(self.gpo_guid) is not None:
             issues.append(
                 ValidationIssue(
                     "error",
@@ -603,7 +604,7 @@ class RestorePlan:
                             "target_gpo_guid",
                         )
                     )
-                elif self.target_gpo_guid and not _GUID_RE.fullmatch(self.target_gpo_guid):
+                elif self.target_gpo_guid and guid_problem(self.target_gpo_guid) is not None:
                     issues.append(
                         ValidationIssue(
                             "error",

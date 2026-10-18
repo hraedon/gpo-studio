@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
+from .identity_values import guid_problem
 from .model import GPO, ValidationError, ValidationIssue
 from .store import gpo_from_dict, lf_line_breaks
 from .validation import validate_gpo
@@ -12,9 +12,6 @@ from .validation import validate_gpo
 MAX_ESTATE_GPO_COUNT = 1000
 _MAX_JSON_NESTING_DEPTH = 64
 _MAX_ESTATE_ITEM_COUNT = 10000
-_GUID_RE = re.compile(
-    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
-)
 
 
 def _check_nesting_depth(obj: Any, depth: int = 0, count: list[int] | None = None) -> None:
@@ -89,8 +86,9 @@ def parse_estate(data: dict[str, Any]) -> list[GPO]:
                     path="gpos",
                 )
             ])
-        original_guid = str(raw.get("guid", "")).strip()
-        if not original_guid or not _GUID_RE.fullmatch(original_guid):
+        # The raw value, not a stripped copy (final-r7: one GUID validator).
+        original_guid = str(raw.get("guid", ""))
+        if guid_problem(original_guid) is not None:
             issues.append(
                 ValidationIssue(
                     severity="error",
