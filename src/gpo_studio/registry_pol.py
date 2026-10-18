@@ -113,12 +113,14 @@ def _decode_data(registry_type: str, data: bytes) -> str | int | list[str]:
 def _record_problems(
     key: str, value_name: str, value: str | int | list[str]
 ) -> list[EmitProblem]:
-    """What a record would write that PReg cannot carry intact (final-r8).
+    """What a record would write that PReg cannot carry intact.
 
-    Key and value names are NUL-terminated and ``;``-separated, so they hold
-    one line and no ``;`` (:func:`emit_integrity.pol_name_problem`). String
-    data is length-prefixed, so every character is encoded except NUL, which
-    ends a registry string (a MULTI_SZ item would split in two).
+    Key and value names are NUL-terminated UTF-16 followed by ``;``, so a name
+    may hold any character but NUL (a ``;`` is data, MS-GPREG 2.2.1) or a lone
+    surrogate, which UTF-16 cannot encode. String data is length-prefixed and
+    NUL-terminated, so it refuses the same two. The one-line rule for names is
+    the store's (`validation.validate_setting`), because the plan writes names
+    as single-line literals (DeepSeek final-r10 N2).
     """
     found: list[EmitProblem] = []
     for name, text in (("key", key), ("value_name", value_name)):
@@ -183,6 +185,20 @@ def serialize(records: Iterable[RegistrySetting | PolRecord]) -> bytes:
         output.extend(data)
         output.extend(_CLOSE)
     return bytes(output)
+
+
+def _require_terminator(registry_type: str, data: bytes) -> None:
+    """String data carries its terminating NUL -- two for REG_MULTI_SZ -- as
+    MS-GPREG and every Windows writer lay it out. Data without one was decoded
+    and accepted (Sol final-r10 N1)."""
+    if registry_type in {"REG_SZ", "REG_EXPAND_SZ"} and not (
+        len(data) >= 2 and len(data) % 2 == 0 and data.endswith(b"\0\0")
+    ):
+        raise RegistryPolError(f"{registry_type} data is not NUL-terminated")
+    if registry_type == "REG_MULTI_SZ" and not (
+        len(data) >= 4 and len(data) % 2 == 0 and data.endswith(b"\0\0\0\0")
+    ):
+        raise RegistryPolError("REG_MULTI_SZ data does not end in two NULs")
 
 
 def _read_name(data: bytes, offset: int) -> tuple[bytes, int]:
@@ -262,6 +278,8 @@ def parse(data: bytes) -> list[PolRecord]:
         elif value_name.casefold().startswith("**del."):
             value_name = value_name[6:]
             action = "delete"
+        if action == "set":
+            _require_terminator(registry_type, raw_value)
         try:
             value = _decode_data(registry_type, raw_value)
         except UnicodeDecodeError as error:

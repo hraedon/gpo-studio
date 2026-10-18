@@ -389,18 +389,15 @@ Operator-facing:
   which Studio now refuses to write), and the conformance fixtures' synthetic
   item uids (`{synth-uid-0}`) are deterministic braced GUIDs.
 - After the ninth review (final-r9):
-  - **The writer list is discovered, not kept.** `emit_integrity.ARTIFACT_WRITERS`
-    names every function that writes artifact text and the check it runs;
-    `tests/test_writer_discovery.py` reads `src/` for every function that
-    builds PowerShell, INI/INF, serialized XML, `Registry.pol`, UTF-16 text or
-    `|`-delimited records, or defines a quoting helper, and fails on one not
-    registered or explained. It found the AD discovery scripts (see Security),
-    which now quote through `emit_integrity.ps_literal`, the one PowerShell
-    quoting function; a discovery value must also be of its kind (a domain a
-    name, a search base a DN, an object class a token), or the script route
-    answers 422. `tests/test_powershell_execution.py` runs the plan and each
-    discovery script under `pwsh` with every single-quote character and code
-    after it, and skips where `pwsh` is absent.
+  - **One PowerShell quoting function.** The AD discovery scripts (see
+    Security) now quote through `emit_integrity.ps_literal`, as the plan does;
+    a discovery value must also be of its kind (a domain a name, a search base
+    a DN, an object class a token), or the script route answers 422.
+    `tests/test_powershell_execution.py` runs the plan and each discovery
+    script under `pwsh` with every single-quote character and code after it,
+    and skips where `pwsh` is absent. (This round also added a static scan of
+    the source to find every writer; round 10 replaced it with egress
+    validation, below.)
   - **A `;` in a registry key or value name is valid again.** Round 8 refused
     it on the premise that `Registry.pol` separates names with `;`; MS-GPREG
     2.2.1 terminates each name with NUL and puts the separator after it, so a
@@ -434,6 +431,51 @@ Operator-facing:
     `unwritable_template_value`.
   - A UTC offset is at most 14:00 in total (`+14:59` is refused), and
     `emit_integrity`'s check table is exhaustive over its kinds.
+- After the tenth review (final-r10):
+  - **Egress is the boundary.** Every API route is declared: the 15 that
+    return or embed an artifact (`export.zip`, `plan.ps1`, `report.txt`, the
+    GPMC backups and their scripts preview, the six discovery scripts, the two
+    security-template renders, the firewall render) with the format their
+    result is validated against before the response leaves (`egress.py`), and
+    the other 94 with the reason they return none. `tests/test_egress.py`
+    enumerates the routes at run time and fails on one not declared, or an
+    artifact route not wrapped; for each artifact route it makes the writer
+    behind it emit something hostile and requires a 422
+    (`unwritable_artifact_value`). The validators work on the final form:
+    PowerShell is tokenized as PowerShell reads it and its structure compared
+    with what the writer produces from neutral input; `GptTmpl.inf` must parse
+    to exactly the sections the response declares, and `inf_base64` must be
+    its encoding; INI, XML and `Registry.pol` are re-read and held to their
+    tables (`Registry.pol` must re-serialize to the same bytes); a ZIP's members
+    must be safe names of known kinds, each validated by its format. This
+    replaces round 8's hand-kept writer list and round 9's static scan, both of
+    which ordinary Python bypassed; the per-writer checks stay as defence in
+    depth.
+  - **Characters above U+FFFF in the plan.** `[char]` is one UTF-16 unit, so
+    an astral format character (U+110BD, U+1D173, the U+E0000 tag block) in
+    registry data or a description was written as an invalid `[char]` cast,
+    and the plan stopped at that statement with earlier statements applied.
+    Such a character is now `[char]::ConvertFromUtf32(...)`; tests run it
+    under `pwsh`, with the U+FFFF/U+10000 boundary.
+  - **Lone surrogates.** `Registry.pol` refuses one with a clean error instead
+    of a `UnicodeEncodeError`; the report of a legacy GPO holding one renders,
+    saying why it has no digest, instead of failing; the report's escapes are
+    `\UXXXXXXXX` above U+FFFF.
+  - **`GptTmpl.inf`**: the lossless path returns the original text only when
+    every physical line passes the one-line rule and none lies outside a
+    section; otherwise the template is rebuilt (and checked). A fixed
+    section's key is checked by shape, so a valid Windows key (`EnableAdminAccount`,
+    `NewGuestName`, `LSAAnonymousNameLookup`, ...) is written, never refused;
+    the closed vocabulary is held by the completeness test to what Studio's
+    writers emit. A row is `"key",code,"descriptor"` with a descriptor (secedit
+    requires the three fields), a spaced row is a row, and the object-security
+    request models require the descriptor (and a service's startup mode).
+  - **`Registry.pol` string data must be NUL-terminated** (two NULs for
+    `REG_MULTI_SZ`) when read; every capture in the repository is.
+  - **Reads are cheaper.** The plan, bundle and backup refusals behind a GPO's
+    capabilities are cached by the GPO's content: on a GPO with 3,000 settings
+    and 300 groups a read took about 2.5 s every time; the first now does, and
+    later reads of the same revision take about 0.5 s.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

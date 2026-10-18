@@ -170,11 +170,21 @@ def _plan_gpo(text: str) -> GPO:
         description=f"About {text}",
         settings=(
             RegistrySetting(
-                "s1", "computer", "HKLM", "Software\\Example", f"Value {text}", "REG_SZ",
+                "s1",
+                "computer",
+                "HKLM",
+                "Software\\Example",
+                f"Value {text}",
+                "REG_SZ",
                 f"Data {text}",
             ),
             RegistrySetting(
-                "s2", "computer", "HKLM", "Software\\Example", "Multi", "REG_MULTI_SZ",
+                "s2",
+                "computer",
+                "HKLM",
+                "Software\\Example",
+                "Multi",
+                "REG_MULTI_SZ",
                 [f"one {text}", "two"],
             ),
         ),
@@ -199,8 +209,32 @@ def test_the_plan_runs_with_every_value_intact_and_nothing_injected(
 
 @pytest.mark.parametrize(
     "data",
-    ["Line one\r\nLine two", "Line one\nLine two", "Tab\there", "Zero​width", "Sep x"],
-    ids=["crlf", "lf", "tab", "zwsp", "line-separator"],
+    [
+        "Line one\r\nLine two",
+        "Line one\nLine two",
+        "Tab\there",
+        "Zero\u200bwidth",
+        "Sep\u2028x",
+        # Astral format characters: [char] is one UTF-16 unit, so these take
+        # [char]::ConvertFromUtf32 (Sol and DeepSeek final-r10 B1).
+        "Kaithi\U000110bdsign",
+        "Beam\U0001d173x",
+        "Tag\U000e0001x",
+        "Tags\U000e0020\U000e007fx",
+        "Smile\U0001f600x",  # astral, not a format character: written inline
+    ],
+    ids=[
+        "crlf",
+        "lf",
+        "tab",
+        "zwsp",
+        "line-separator",
+        "u110bd",
+        "u1d173",
+        "ue0001",
+        "tag-block",
+        "u1f600",
+    ],
 )
 def test_registry_data_and_a_comment_arrive_exactly(tmp_path: Path, data: str) -> None:
     """Sol final-r9 B3: valid registry data the store accepts is written by the
@@ -220,3 +254,22 @@ def test_registry_data_and_a_comment_arrive_exactly(tmp_path: Path, data: str) -
     output = _run(_runnable(plan), tmp_path)
     assert _decoded(output, "VALUE") == [data], output
     assert _decoded(output, "COMMENT") == [data.replace("\r", "")], output
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["\uffff", "a\uffffb", "\U00010000", "\U0010fffd", "\ufeff", "\U000e0001\U000110bd"],
+    ids=["ffff", "ffff-inside", "first-astral", "last-astral", "bom", "two-astral-cf"],
+)
+def test_a_literal_carries_every_boundary_code_point(tmp_path: Path, value: str) -> None:
+    """The quoting primitive alone, at the BMP/astral boundary, read back by pwsh."""
+    from gpo_studio.emit_integrity import ps_literal
+
+    literal = ps_literal(value, "Value")
+    script = (
+        f"$v = {literal}\n"
+        "[Console]::Out.WriteLine('V=' + [Convert]::ToBase64String("
+        "[Text.Encoding]::UTF8.GetBytes([string]$v)))\n"
+    )
+    output = _run(script, tmp_path)
+    assert _decoded(output, "V") == [value], (literal, output)

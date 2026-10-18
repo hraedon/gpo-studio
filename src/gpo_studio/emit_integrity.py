@@ -9,12 +9,13 @@ every name and value it emits as it emits it, against one table per format
 here, and refuses what does not fit. A refusal is an error everywhere: the
 store refuses the mutation, an export or render answers 422.
 
-The writers are :data:`ARTIFACT_WRITERS`, and that list is not kept by hand:
-``tests/test_writer_discovery.py`` reads the source for every function that
-builds PowerShell, INI/INF, serialized XML, Registry.pol, UTF-16 text or
-delimited records, or defines a quoting helper, and fails on one not
-registered (final-r9: the AD discovery scripts were a PowerShell writer a
-hand-kept list missed). In outline:
+These per-writer checks are defence in depth. The boundary is egress
+(:mod:`gpo_studio.egress`): every API route that returns an artifact is
+declared with its format and validates the artifact's final form before it
+responds, and ``tests/test_egress.py`` enumerates the routes at run time. A
+hand-kept list of writers (round 8) and a static scan of the source (round 9)
+were both bypassed by ordinary Python; the response is where they converge.
+In outline:
 
 * ``gpp.serialize_gpp`` -- GPP XML, typed and retained items and imported
   files alike: :data:`GPP_XML`;
@@ -84,65 +85,6 @@ from .xml_safety import parse_xml_bounded
 
 #: Categories no emitted value may hold (outside the documented encodings).
 _LINE_BREAKING = frozenset({"Cc", "Cf", "Zl", "Zp", "Cs"})
-
-#: Every function under ``src/gpo_studio`` that writes artifact text, and the
-#: check it runs. ``tests/test_writer_discovery.py`` finds writers by reading
-#: the source (PowerShell, INI/INF, XML serialization, Registry.pol, UTF-16
-#: text, delimited records, quoting helpers) and fails on any not listed here
-#: or in its own list of functions the scan flags that write nothing. Final-r9
-#: found a PowerShell writer (the AD discovery scripts) that a hand-kept list
-#: had missed; this makes "every writer" a property the tests hold.
-_GPP = "GPP XML, inside gpp.serialize_gpp, which checks every file against GPP_XML"
-_DISCOVERY = "PowerShell; every param() default through ps_literal (DISCOVERY_PARAMETERS)"
-ARTIFACT_WRITERS: Mapping[str, str] = {
-    "ad_discovery.discovery_script_forest": "PowerShell; constant text, no input",
-    "ad_discovery.discovery_script_sites": "PowerShell; constant text, no input",
-    "ad_discovery.discovery_script_domain": _DISCOVERY,
-    "ad_discovery.discovery_script_ous": _DISCOVERY,
-    "ad_discovery.discovery_script_gpos": _DISCOVERY,
-    "ad_discovery.discovery_script_principal_search": _DISCOVERY,
-    "emit_integrity.ps_literal": "the PowerShell quoting primitive",
-    "emit_integrity._ps_single_quoted": "ps_literal's single-quoting step",
-    "export.powershell_plan": (
-        "PowerShell plan; every argument through ps_literal (PS_PARAMETERS), "
-        "comments through escape_line"
-    ),
-    "export._native_ini_bytes": "scripts.ini / psscripts.ini; scripts_ini_problems",
-    "export._xml_to_bytes": "GPMC backup documents; check_xml(BACKUP_XML)",
-    "firewall_policy.to_registry_settings": "firewall rule strings; each field through _safe_text",
-    "gpp._serialize_gpp_file": _GPP,
-    "gpp.retained_rendering": _GPP,
-    "gpp_native.native_element_xml": _GPP,
-    "gpp_adapters._typed_task_payload": _GPP,
-    "gpp_adapters.serialize_gpp_environment": _GPP,
-    "gpp_adapters.serialize_gpp_ini_files": _GPP,
-    "gpp_adapters.serialize_gpp_regional_options": _GPP,
-    "gpp_adapters.serialize_gpp_power_options": _GPP,
-    "gpp_adapters.serialize_gpp_devices": _GPP,
-    "gpp_adapters.serialize_gpp_folder_options": _GPP,
-    "gpp_adapters.serialize_gpp_data_sources": _GPP,
-    "gpp_adapters.serialize_gpp_drives": _GPP,
-    "gpp_adapters.serialize_gpp_files": _GPP,
-    "gpp_adapters.serialize_gpp_folders": _GPP,
-    "gpp_adapters.serialize_gpp_network_shares": _GPP,
-    "gpp_adapters.serialize_gpp_printers": _GPP,
-    "gpp_adapters.serialize_gpp_shortcuts": _GPP,
-    "gpp_adapters.serialize_gpp_applications": _GPP,
-    "gpp_adapters.serialize_gpp_services": _GPP,
-    "gpp_adapters.serialize_gpp_local_users": _GPP,
-    "gpp_adapters.serialize_gpp_local_groups": _GPP,
-    "gpp_adapters.serialize_gpp_scheduled_tasks": _GPP,
-    "gpp_adapters.serialize_gpp_immediate_tasks": _GPP,
-    "registry_pol.serialize": "Registry.pol; _record_problems (NUL in a name or string)",
-    "report.policy_report": "report.txt; escape_line on every line",
-    "security_template.format_security_template": (
-        "GptTmpl.inf; template_problems before writing (the lossless path too), "
-        "then a read-back check"
-    ),
-    "security_template.encode_security_template": (
-        "GptTmpl.inf bytes of format_security_template's text"
-    ),
-}
 
 
 
@@ -587,10 +529,17 @@ INF_SECTIONS: Mapping[str, tuple[Field, Field]] = {
 INF_KEYS: Mapping[str, frozenset[str] | re.Pattern[str]] = {
     "unicode": frozenset({"Unicode"}),
     "version": frozenset({"signature", "Revision"}),
+    # The nine keys every Windows-written template in this repository carries,
+    # and the rest of the [System Access] vocabulary of Microsoft's security
+    # template reference (DeepSeek final-r10 N1): an unchanged native template
+    # carrying them is written, not refused.
     "system access": frozenset({
         "MinimumPasswordAge", "MaximumPasswordAge", "MinimumPasswordLength",
         "PasswordComplexity", "PasswordHistorySize", "LockoutBadCount",
         "ResetLockoutCount", "LockoutDuration", "ClearTextPassword",
+        "RequireLogonToChangePassword", "ForceLogoffWhenHourExpire",
+        "NewAdministratorName", "NewGuestName", "LSAAnonymousNameLookup",
+        "EnableAdminAccount", "EnableGuestAccount",
     }),
     "kerberos policy": frozenset({
         "MaxTicketAge", "MaxRenewAge", "MaxServiceAge", "MaxClockSkew",
@@ -610,23 +559,38 @@ INF_KEYS: Mapping[str, frozenset[str] | re.Pattern[str]] = {
 }
 
 
-def inf_key_problem(section: str, key: str) -> str | None:
-    """Why *key* is not a key of *section*, or ``None``."""
+_INF_SETTING = re.compile(r"[A-Za-z][A-Za-z0-9_]*", re.ASCII)
+
+
+def inf_key_problem(section: str, key: str, *, vocabulary: bool = False) -> str | None:
+    """Why *key* is not a key of *section*, or ``None``.
+
+    A pattern section (rights, paths, principals) is enforced as written. A
+    fixed-vocabulary section is enforced by shape -- a setting identifier --
+    so a valid Windows key this table does not list is written, never refused
+    (DeepSeek final-r10 N1); *vocabulary* holds a key to the listed names,
+    which the completeness test does for every key Studio's writers emit.
+    """
     allowed = INF_KEYS.get(section.casefold())
     if allowed is None:
         return f"is in [{section}], a section Studio does not write"
     if isinstance(allowed, frozenset):
+        if not _INF_SETTING.fullmatch(key):
+            return f"is not a [{section}] setting identifier"
         # INF keys are case-insensitive, as the reader treats them.
-        known = {name.casefold() for name in allowed}
-        return None if key.casefold() in known else f"is not a [{section}] setting"
+        if vocabulary and key.casefold() not in {name.casefold() for name in allowed}:
+            return f"is not a [{section}] setting"
+        return None
     return None if allowed.fullmatch(key) else f"is not a [{section}] key"
 
 
 #: ``[Registry Keys]`` and its kin: the value after the quoted key -- a code and
-#: a quoted descriptor, or a descriptor alone. Never empty (DeepSeek final-r9 N4).
-_ROW_VALUE = re.compile(r'(?:[0-9]+,)?"[^"]*"', re.ASCII)
+#: a quoted, non-empty descriptor. ``secedit /validate`` requires the three
+#: fields of ``"key",code,"descriptor"`` (R9), so neither a code alone nor a
+#: descriptor alone is a row (final-r9 N4, final-r10).
+_ROW_VALUE = re.compile(r'[0-9]+,"[^"]+"', re.ASCII)
 #: A preserved row line in those sections, as Windows writes it.
-_ROW_LINE = re.compile(r'"[^"]*",[0-9]+,"[^"]*"', re.ASCII)
+_ROW_LINE = re.compile(r'"[^"]*"\s*,\s*[0-9]+\s*,\s*"[^"]*"', re.ASCII)
 
 
 def inf_problems(sections: tuple[tuple[str, tuple[tuple[str, str], ...], tuple[str, ...]], ...],
@@ -692,6 +656,32 @@ def inf_problems(sections: tuple[tuple[str, tuple[tuple[str, str], ...], tuple[s
                 note(name, line, "is not a comment, and only row sections preserve rows")
             if stripped.endswith("\\"):
                 note(name, line, "ends in a line-continuation backslash")
+    return problems
+
+
+def inf_text_problems(text: str) -> list[EmitProblem]:
+    """What the parser would drop or strip from INF *text* without a check.
+
+    Every physical line is held to the one-line rule (a vertical tab in a
+    stripped margin, a format character in a comment outside any section), and
+    a non-comment line outside every section -- which the parser discards --
+    is refused. Used on the lossless path, where the original text is returned
+    rather than rebuilt (Sol final-r10 B3), and at egress.
+    """
+    problems: list[EmitProblem] = []
+    in_section = False
+    for number, line in enumerate(re.split(r"\r\n|\n", text), start=1):
+        body = line[:-1] if line.endswith("\r") else line
+        problem = line_problem(body)
+        if problem is not None:
+            problems.append(EmitProblem("GptTmpl.inf", f"line {number}", body, problem))
+        stripped = body.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_section = True
+        elif stripped and not in_section and not stripped.startswith(";"):
+            problems.append(
+                EmitProblem("GptTmpl.inf", f"line {number}", body, "is outside every section")
+            )
     return problems
 
 
@@ -782,6 +772,18 @@ def _ps_single_quoted(value: str) -> str:
     return "'" + "".join(c + c if c in PS_SINGLE_QUOTES else c for c in value) + "'"
 
 
+def _ps_char(character: str) -> str:
+    """One character as a PowerShell term. ``[char]`` is a single UTF-16 code
+    unit, so a character above U+FFFF (U+1D173, the U+E0000 tag block, ...)
+    cannot be one: ``[char]0x1D173`` fails at run time and the plan stopped at
+    that statement, part-applied (Sol and DeepSeek final-r10 B1). Above U+FFFF
+    the term is ``[char]::ConvertFromUtf32(...)``, which returns the string."""
+    code = ord(character)
+    if code > 0xFFFF:
+        return f"[char]::ConvertFromUtf32(0x{code:X})"
+    return f"[char]0x{code:04X}"
+
+
 def ps_literal(
     value: str,
     parameter: str,
@@ -803,6 +805,8 @@ def ps_literal(
     exactly whatever line endings the file is later given.
     """
     problem = ps_problem(parameter, value, table)
+    if problem is None and any(unicodedata.category(c) == "Cs" for c in value):
+        problem = "contains a lone surrogate, which is not a character"
     if problem is not None:
         raise EmitError([EmitProblem(where, f"-{parameter}", value, problem)])
     field = table[parameter]
@@ -817,7 +821,7 @@ def ps_literal(
             if run:
                 pieces.append(_ps_single_quoted("".join(run)))
                 run = []
-            pieces.append(f"[char]0x{ord(character):04X}")
+            pieces.append(_ps_char(character))
         else:
             run.append(character)
     if run:
@@ -849,6 +853,8 @@ def pol_name_problem(value: str) -> str | None:
     """
     if "\0" in value:
         return "contains NUL, which ends a Registry.pol name"
+    if any(unicodedata.category(c) == "Cs" for c in value):
+        return "contains a lone surrogate, which UTF-16 cannot encode"
     return None
 
 
@@ -856,6 +862,8 @@ def pol_data_problem(value: str) -> str | None:
     """Registry.pol string data: anything the length prefix encodes, but no NUL."""
     if "\0" in value:
         return "contains NUL, which ends a registry string"
+    if any(unicodedata.category(c) == "Cs" for c in value):
+        return "contains a lone surrogate, which UTF-16 cannot encode"
     return None
 
 
@@ -865,7 +873,12 @@ def pol_data_problem(value: str) -> str | None:
 
 
 def escape_line(value: str) -> str:
-    """*value* with every control, format or separator character as ``\\uXXXX``."""
+    """*value* with every control, format or separator character as ``\\uXXXX``,
+    or ``\\UXXXXXXXX`` above U+FFFF, so an escape always reads back as one code
+    point (DeepSeek final-r10 N4)."""
     return "".join(
-        f"\\u{ord(c):04x}" if unicodedata.category(c) in _LINE_BREAKING else c for c in value
+        (f"\\U{ord(c):08x}" if ord(c) > 0xFFFF else f"\\u{ord(c):04x}")
+        if unicodedata.category(c) in _LINE_BREAKING
+        else c
+        for c in value
     )

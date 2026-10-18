@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from .backup_inventory import inventory_report_lines
 from .canonical import policy_semantic_sha256, review_model_sha256
@@ -96,6 +96,16 @@ def _fdeploy_lines(document: FdeployDocument) -> list[str]:
     return lines
 
 
+def _digest(function: Callable[[GPO], str], gpo: GPO) -> str:
+    """A digest, or why a legacy GPO has none: a stored lone surrogate cannot
+    be encoded, so it cannot be hashed, and the report still renders and names
+    the field to repair (DeepSeek final-r10 N5)."""
+    try:
+        return function(gpo)
+    except UnicodeError:
+        return "(none: stored text cannot be encoded; see Validation)"
+
+
 def policy_report(gpo: GPO) -> str:
     """Return a stable plain-text summary suitable for a ticket or review."""
 
@@ -110,8 +120,8 @@ def policy_report(gpo: GPO) -> str:
         f"Domain: {gpo.domain}",
         f"Computer configuration: {'enabled' if gpo.computer_enabled else 'disabled'}",
         f"User configuration: {'enabled' if gpo.user_enabled else 'disabled'}",
-        f"Policy semantic SHA-256: {policy_semantic_sha256(gpo)}",
-        f"Review model SHA-256: {review_model_sha256(gpo)}",
+        f"Policy semantic SHA-256: {_digest(policy_semantic_sha256, gpo)}",
+        f"Review model SHA-256: {_digest(review_model_sha256, gpo)}",
         "",
     ]
     # A description is the one multi-line value: each of its lines is a line.

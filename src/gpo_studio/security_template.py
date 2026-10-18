@@ -15,7 +15,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Literal
 
-from .emit_integrity import EmitProblem, inf_problems
+from .emit_integrity import EmitProblem, inf_problems, inf_text_problems
 from .model import ValidationIssue
 
 _UTF16LE_BOM = b"\xff\xfe"
@@ -304,7 +304,10 @@ def format_security_template(template: SecurityTemplate) -> str:
             "Studio will not write this security template: "
             + "; ".join(str(problem) for problem in problems[:5])
         )
-    if template.raw_text:
+    if template.raw_text and not inf_text_problems(template.raw_text):
+        # Lossless only when every raw line passed too: the section check sees
+        # the parse, and the parse drops preamble lines and strips margins
+        # (Sol final-r10 B3). Otherwise the template is rebuilt, and checked.
         reparsed = parse_security_template(template.raw_text)
         if template.sections == reparsed.sections:
             return template.raw_text

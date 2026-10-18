@@ -37,6 +37,7 @@ import pytest
 from fastapi.testclient import TestClient
 from writer_corpus import baseline_collections, gpp_corpus, synthetic_collections
 
+from gpo_studio import api as api_module
 from gpo_studio import emit_integrity, export
 from gpo_studio.api import app
 from gpo_studio.emit_integrity import (
@@ -313,12 +314,15 @@ def test_every_inf_section_and_key_the_writer_emits_is_classified() -> None:
     assert {"privilege rights", "group membership", "service general setting"} <= seen
     keys = _inf_keys(_inf_corpus())
     assert len(keys) > 30
-    unclassified = sorted(k for k in keys if inf_key_problem(*k) is not None)
+    unclassified = sorted(k for k in keys if inf_key_problem(*k, vocabulary=True) is not None)
     assert not unclassified, unclassified
 
 
 def test_a_planted_inf_key_fails_the_inventory() -> None:
-    """Sol's plant: ``ReviewPlant = 1`` in a real corpus template."""
+    """Sol's plant: ``ReviewPlant = 1`` in a real corpus template fails the
+    vocabulary the writers' keys are held to. The writer itself checks a fixed
+    section's key by shape only, so a valid Windows key it does not list is
+    written (DeepSeek final-r10 N1)."""
     _source, template = next(_inf_corpus())
     planted = tuple(
         InfSection(s.name, (*s.entries, ("ReviewPlant", "1")), s.unknown_lines)
@@ -328,9 +332,40 @@ def test_a_planted_inf_key_fails_the_inventory() -> None:
     )
     keys = _inf_keys(iter([("planted", SecurityTemplate(sections=planted))]))
     assert ("System Access", "ReviewPlant") in keys
-    assert inf_key_problem("System Access", "ReviewPlant") is not None
-    with pytest.raises(SecurityTemplateError):
-        format_security_template(SecurityTemplate(sections=planted))
+    assert inf_key_problem("System Access", "ReviewPlant", vocabulary=True) is not None
+    assert inf_key_problem("System Access", "ReviewPlant") is None
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "EnableAdminAccount",
+        "EnableGuestAccount",
+        "NewAdministratorName",
+        "NewGuestName",
+        "LSAAnonymousNameLookup",
+        "RequireLogonToChangePassword",
+        "ForceLogoffWhenHourExpire",
+    ],
+)
+def test_a_documented_system_access_key_is_written(key: str) -> None:
+    """DeepSeek final-r10 N1: a secedit-shaped template re-emits, unchanged."""
+    text = (
+        "[Unicode]\nUnicode=yes\n[System Access]\nMinimumPasswordAge = 0\n"
+        f'{key} = 0\n[Version]\nsignature="$CHICAGO$"\nRevision=1\n'
+    )
+    template = parse_security_template(text)
+    assert format_security_template(template) == text
+    assert inf_key_problem("System Access", key, vocabulary=True) is None
+
+
+def test_a_spaced_row_line_is_a_row() -> None:
+    template = SecurityTemplate(
+        sections=(
+            InfSection("Registry Keys", (), ('"MACHINE\\Software\\X", 0, "D:(A;;KA;;;BA)"',)),
+        )
+    )
+    assert template_problems(template) == []
 
 
 def _script_policy() -> ScriptPolicy:
@@ -1126,6 +1161,8 @@ def test_any_writer_refusal_is_reported_by_the_read_not_raised(
         raise EmitError([emit_integrity.EmitProblem("probe", writer, "x", "refused by probe")])
 
     monkeypatch.setattr(export, writer, refuse)
+    # The refusals are cached by GPO content; the writer changed under it here.
+    monkeypatch.setattr(api_module, "_REFUSAL_CACHE", api_module.OrderedDict())
     payload = _gpo_payload(_plan_gpo())  # a valid GPO: only the writer refuses
     capabilities = payload["artifact_capabilities"]
     refused = [

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import binascii
+import functools
 import hashlib
+import inspect
 import io
 import json
 import logging
@@ -13,11 +15,12 @@ import re
 import time
 import uuid as uuid_module
 import zipfile
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Annotated, Any, Literal, assert_never, cast, get_args
+from typing import Annotated, Any, Literal, TypeVar, assert_never, cast, get_args
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Query, Request
@@ -64,7 +67,7 @@ from .admx import (
     find_policy,
 )
 from .backup import BackupError, BackupGpo, GpmcBackup, read_backup
-from .canonical import policy_semantic_sha256, review_model_sha256
+from .canonical import canonical_json_bytes, policy_semantic_sha256, review_model_sha256
 from .delegation import (
     EffectiveRights,
     LockoutRisk,
@@ -74,6 +77,8 @@ from .delegation import (
     reconcile_principal,
 )
 from .diff import diff_gpos, three_way_diff
+from .egress import Format as EgressFormat
+from .egress import check as egress_check
 from .emit_integrity import CHECKS, EmitError, line_problem
 from .estate import parse_estate
 from .export import (
@@ -2000,6 +2005,31 @@ def _gpo_list_item(gpo: Any) -> dict[str, Any]:
     return item
 
 
+_Refusals = tuple[ValidationIssue | None, ValidationIssue | None, ValidationIssue | None]
+#: (guid, revision, sha256 of the whole GPO dict) -> the three artifact
+#: refusals. Building the plan, the Studio bundle and the GPMC backup on every
+#: read cost seconds for a large GPO; the content hash makes a hit exact.
+_REFUSAL_CACHE: OrderedDict[tuple[str, int, str], _Refusals] = OrderedDict()
+_REFUSAL_CACHE_SIZE = 256
+
+
+def _artifact_refusals(gpo: GPO) -> _Refusals:
+    try:
+        content = hashlib.sha256(canonical_json_bytes(gpo.to_dict())).hexdigest()
+    except UnicodeError:  # legacy text that cannot be encoded: not cached
+        content = None
+    key = (gpo.guid, gpo.revision, content) if content is not None else None
+    if key is not None and key in _REFUSAL_CACHE:
+        _REFUSAL_CACHE.move_to_end(key)
+        return _REFUSAL_CACHE[key]
+    refusals = (plan_refusal(gpo), studio_export_refusal(gpo), native_backup_refusal(gpo))
+    if key is not None:
+        _REFUSAL_CACHE[key] = refusals
+        while len(_REFUSAL_CACHE) > _REFUSAL_CACHE_SIZE:
+            _REFUSAL_CACHE.popitem(last=False)
+    return refusals
+
+
 def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     if request is not None:
         request.state.gpo_guid = gpo.guid
@@ -2013,11 +2043,11 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     # the advertisement of it cannot drift apart. `studio_export` is listed
     # because `export_bundle` writes `apply.ps1` by calling `powershell_plan`,
     # so the same refusal takes the bundle with it.
-    plan_blocked = plan_refusal(gpo)
-    plan_reason = plan_blocked.message if plan_blocked is not None else ""
     # The bundle writes Registry.pol and every preference file besides the plan,
-    # so it is asked of its own writer (final-r9).
-    studio_blocked = studio_export_refusal(gpo)
+    # so it is asked of its own writer (final-r9). The three refusals build the
+    # artifacts, so they are cached by GPO content (DeepSeek final-r10 N6).
+    plan_blocked, studio_blocked, backup_blocked = _artifact_refusals(gpo)
+    plan_reason = plan_blocked.message if plan_blocked is not None else ""
     studio_reason = studio_blocked.message if studio_blocked is not None else ""
     unknown_cse = _unknown_cse_refusal(gpo)
     # WI-046. Same class as WI-044, one capability along: the GMPC backup path
@@ -2025,7 +2055,6 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     # them until batch 2 measured its pair; an unmeasured GPP Registry item
     # shape still refuses, WI-075), and neither `blocked` nor `preserved_files`
     # sees it.
-    backup_blocked = native_backup_refusal(gpo)
     backup_reason = backup_blocked.message if backup_blocked is not None else ""
     # A stored revision holding text XML cannot carry (legacy: no new one can
     # be written) has no canonical digest -- hashing encodes UTF-8, which a lone
@@ -2479,6 +2508,159 @@ app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/assets", StudioStaticFiles(directory=STATIC), name="assets")
+
+
+# --------------------------------------------------------------------------
+# Egress (final-r10). Every route is declared here: an artifact route with the
+# format its result is validated against before it leaves (`egress.check`),
+# or a route that returns no artifact, with why. `tests/test_egress.py`
+# enumerates `app.routes` at run time and fails on any route in neither table,
+# and on any artifact route whose endpoint is not wrapped by `egress`.
+# --------------------------------------------------------------------------
+
+_Endpoint = TypeVar("_Endpoint", bound=Callable[..., Any])
+
+
+def egress(format: EgressFormat) -> Callable[[_Endpoint], _Endpoint]:
+    """Validate the endpoint's artifact, in its final form, before it responds."""
+
+    def wrap(endpoint: _Endpoint) -> _Endpoint:
+        if inspect.iscoroutinefunction(endpoint):  # pragma: no cover - none are
+            raise TypeError("egress wraps synchronous endpoints")
+
+        @functools.wraps(endpoint)
+        def checked(*args: Any, **kwargs: Any) -> Any:
+            result = endpoint(*args, **kwargs)
+            egress_check(format, result)
+            return result
+
+        checked.__egress__ = format  # type: ignore[attr-defined]
+        return cast(_Endpoint, checked)
+
+    return wrap
+
+
+ROUTE_ARTIFACTS: dict[tuple[str, str], EgressFormat] = {
+    ("GET", "/api/gpos/{guid}/export.zip"): "zip-studio",
+    ("GET", "/api/gpos/{guid}/plan.ps1"): "powershell-plan",
+    ("GET", "/api/gpos/{guid}/report.txt"): "report-text",
+    ("GET", "/api/gpos/{guid}/gpmc-backup"): "zip-gpmc",
+    ("POST", "/api/gpos/{guid}/gpmc-backup-with-scripts"): "zip-gpmc",
+    ("POST", "/api/gpos/{guid}/gpmc-backup-with-scripts/preview"): "scripts-preview",
+    ("GET", "/api/discovery/forest/script"): "powershell-discovery-forest",
+    ("GET", "/api/discovery/domain/script"): "powershell-discovery-domain",
+    ("GET", "/api/discovery/sites/script"): "powershell-discovery-sites",
+    ("GET", "/api/discovery/ous/script"): "powershell-discovery-ous",
+    ("GET", "/api/discovery/gpos/script"): "powershell-discovery-gpos",
+    ("GET", "/api/discovery/principals/script"): "powershell-discovery-principals",
+    ("POST", "/api/security-template/policy-families"): "inf",
+    ("POST", "/api/security-template/object-security"): "inf",
+    ("POST", "/api/network-security/firewall/render"): "firewall-settings",
+}
+_JSON = "JSON data, not an artifact; JSON escapes every control character"
+_GPO_PAYLOAD = "JSON: a GPO payload (capabilities report artifact refusals, never raise)"
+_IMPORT = "JSON: the result of reading an import or a discovery upload"
+_STATIC = "a file shipped with Studio; no user data"
+_FRAMEWORK = "FastAPI's own schema or documentation page"
+NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
+    ("*", "/openapi.json"): _FRAMEWORK,
+    ("*", "/docs"): _FRAMEWORK,
+    ("*", "/docs/oauth2-redirect"): _FRAMEWORK,
+    ("*", "/redoc"): _FRAMEWORK,
+    ("*", "/assets"): _STATIC,
+    ("GET", "/"): _STATIC,
+    ("GET", "/api/health"): _JSON,
+    ("POST", "/api/workspace/integrity"): _JSON,
+    ("GET", "/api/admx/search"): _JSON,
+    ("GET", "/api/admx/policies/{policy_id}"): _JSON,
+    ("POST", "/api/admx/policies/{policy_id}/configure"): _JSON,
+    ("POST", "/api/gpos/{guid}/bulk-policy-state"): _GPO_PAYLOAD,
+    ("GET", "/api/admx/categories"): _JSON,
+    ("GET", "/api/admx/categories/tree"): _JSON,
+    ("GET", "/api/gpos/{guid}/configured-settings"): _JSON,
+    ("GET", "/api/templates"): _JSON,
+    ("POST", "/api/templates/ingest"): _IMPORT,
+    ("GET", "/api/templates/collisions"): _JSON,
+    ("POST", "/api/templates/lock"): _JSON,
+    ("POST", "/api/templates/lock/validate"): _JSON,
+    ("GET", "/api/gpos"): _JSON,
+    ("POST", "/api/gpos"): _GPO_PAYLOAD,
+    ("GET", "/api/starter-gpos"): _JSON,
+    ("POST", "/api/starter-gpos"): _GPO_PAYLOAD,
+    ("POST", "/api/starter-gpos/{guid}/derive"): _GPO_PAYLOAD,
+    ("DELETE", "/api/starter-gpos/{guid}"): _GPO_PAYLOAD,
+    ("GET", "/api/gpos/{guid}"): _GPO_PAYLOAD,
+    ("PATCH", "/api/gpos/{guid}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/settings"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/settings/{setting_id}"): _GPO_PAYLOAD,
+    ("PATCH", "/api/gpos/{guid}/settings/{setting_id}/comment"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/settings/{setting_id}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/copy-settings"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/import-adm"): _IMPORT,
+    ("POST", "/api/gpos/{guid}/links"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/links/{link_id}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/links/{link_id}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/security-filters"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/security-filters/{filter_id}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/security-filters/{filter_id}"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/wmi-filter"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/wmi-filter"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/reorder"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/groups"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/preferences/groups/{group_id}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/preferences/groups/{group_id}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/registry"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/preferences/registry/{registry_id}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/preferences/registry/{registry_id}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/groups/{group_id}/members"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/preferences/groups/{group_id}/members/{member_id}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/preferences/groups/{group_id}/members/{member_id}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/registry/{registry_id}/values"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/preferences/registry/{registry_id}/values/{value_id}"): _GPO_PAYLOAD,
+    (
+        "DELETE",
+        "/api/gpos/{guid}/preferences/registry/{registry_id}/values/{value_id}",
+    ): _GPO_PAYLOAD,
+    ("GET", "/api/wmi-filters"): _JSON,
+    ("GET", "/api/wmi-filters/{filter_id}"): _JSON,
+    ("POST", "/api/wmi-filters/lint"): _JSON,
+    ("POST", "/api/wmi-filters/parse-multi-query"): _JSON,
+    ("POST", "/api/loopback/validate"): _JSON,
+    ("GET", "/api/loopback/describe/{mode}"): _JSON,
+    ("POST", "/api/wmi-filters/check-deletion"): _JSON,
+    ("GET", "/api/gpos/{guid}/revisions"): _JSON,
+    ("GET", "/api/gpos/{guid}/revisions/diff"): _JSON,
+    ("GET", "/api/gpos/{guid}/revisions/{revision}"): _JSON,
+    ("POST", "/api/gpos/{guid}/revisions/{revision}/restore"): _GPO_PAYLOAD,
+    ("GET", "/api/gpos/{guid}/diff"): _JSON,
+    ("POST", "/api/diff"): _JSON,
+    ("GET", "/api/imports/capabilities"): _JSON,
+    ("POST", "/api/backups/import"): _IMPORT,
+    ("POST", "/api/estate/import"): _IMPORT,
+    ("POST", "/api/gpos/{guid}/fork"): _GPO_PAYLOAD,
+    ("POST", "/api/estate/diff"): _JSON,
+    ("POST", "/api/discovery/forest"): _IMPORT,
+    ("POST", "/api/discovery/domain"): _IMPORT,
+    ("POST", "/api/discovery/sites"): _IMPORT,
+    ("POST", "/api/discovery/ous"): _IMPORT,
+    ("POST", "/api/discovery/gpos"): _IMPORT,
+    ("POST", "/api/discovery/principals"): _IMPORT,
+    ("GET", "/api/discovery/principals"): _JSON,
+    ("GET", "/api/discovery/summary"): _JSON,
+    ("POST", "/api/som/precedence"): _JSON,
+    ("POST", "/api/som/plan-link-order"): _JSON,
+    ("POST", "/api/som/set-block-inheritance"): _JSON,
+    ("POST", "/api/delegation/effective-rights"): _JSON,
+    ("POST", "/api/delegation/reconcile-principal"): _JSON,
+    ("POST", "/api/delegation/check-lockout"): _JSON,
+    ("POST", "/api/rsop/compute"): _JSON,
+    ("POST", "/api/rsop/compare"): _JSON,
+    ("POST", "/api/folder-redirection/fdeploy"): _JSON,
+    ("POST", "/api/folder-redirection/fdeploy/diff"): _JSON,
+    ("GET", "/api/gpos/{guid}/publication-plan"): _JSON,
+    ("GET", "/api/gpos/{guid}/firewall-policy"): _JSON,
+    ("POST", "/api/lifecycle/restore-plan"): _JSON,
+}
 
 
 @app.exception_handler(StudioError)
@@ -3770,6 +3952,7 @@ def restore(request: Request, guid: str, revision: int, body: RestoreMutation) -
 
 
 @app.get("/api/gpos/{guid}/export.zip")
+@egress("zip-studio")
 def bundle(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
@@ -3781,6 +3964,7 @@ def bundle(request: Request, guid: str) -> Response:
 
 
 @app.get("/api/gpos/{guid}/plan.ps1")
+@egress("powershell-plan")
 def plan(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
@@ -3790,6 +3974,7 @@ def plan(request: Request, guid: str) -> Response:
 
 
 @app.get("/api/gpos/{guid}/report.txt")
+@egress("report-text")
 def report(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     fname = f"{_safe_filename(gpo.guid)}-report.txt"
@@ -3971,6 +4156,7 @@ def _unknown_cse_refusal(gpo: GPO) -> ValidationIssue | None:
 
 
 @app.get("/api/gpos/{guid}/gpmc-backup")
+@egress("zip-gpmc")
 def gpmc_backup(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
@@ -4020,6 +4206,7 @@ def estate_diff(request: Request, body: EstateDiffRequest) -> dict[str, Any]:
 
 
 @app.get("/api/discovery/forest/script")
+@egress("powershell-discovery-forest")
 def get_forest_discovery_script(request: Request) -> dict[str, str]:
     """Return the PowerShell script for forest discovery."""
     return {"script": discovery_script_forest()}
@@ -4040,6 +4227,7 @@ def import_forest_discovery(request: Request, body: dict[str, Any]) -> dict[str,
 
 
 @app.get("/api/discovery/domain/script")
+@egress("powershell-discovery-domain")
 def get_domain_discovery_script(
     request: Request, domain: str = ""
 ) -> dict[str, str]:
@@ -4062,6 +4250,7 @@ def import_domain_discovery(request: Request, body: dict[str, Any]) -> dict[str,
 
 
 @app.get("/api/discovery/sites/script")
+@egress("powershell-discovery-sites")
 def get_sites_discovery_script(request: Request) -> dict[str, str]:
     """Return the PowerShell script for AD sites and subnets discovery."""
     return {"script": discovery_script_sites()}
@@ -4090,6 +4279,7 @@ def import_sites_discovery(request: Request, body: dict[str, Any]) -> dict[str, 
 
 
 @app.get("/api/discovery/ous/script")
+@egress("powershell-discovery-ous")
 def get_ous_discovery_script(
     request: Request, domain: str, search_base: str = ""
 ) -> dict[str, str]:
@@ -4113,6 +4303,7 @@ def import_ous_discovery(request: Request, body: dict[str, Any]) -> dict[str, An
 
 
 @app.get("/api/discovery/gpos/script")
+@egress("powershell-discovery-gpos")
 def get_gpos_discovery_script(
     request: Request, domain: str = ""
 ) -> dict[str, str]:
@@ -4136,6 +4327,7 @@ def import_gpos_discovery(request: Request, body: dict[str, Any]) -> dict[str, A
 
 
 @app.get("/api/discovery/principals/script")
+@egress("powershell-discovery-principals")
 def get_principals_discovery_script(
     request: Request,
     q: str,
@@ -4925,6 +5117,7 @@ def policy_family_sections(
     "/api/security-template/policy-families",
     response_model=PolicyFamilyRenderResponse,
 )
+@egress("inf")
 def render_policy_families(body: PolicyFamilyRenderRequest) -> dict[str, Any]:
     """Render account, audit, user-rights and security-options families as INF.
 
@@ -4994,7 +5187,7 @@ def render_policy_families(body: PolicyFamilyRenderRequest) -> dict[str, Any]:
 class ObjectSecurityRegistryKeyData(BaseModel):
     #: A `[Registry Keys]` target, e.g. `MACHINE\\Software\\Contoso`.
     key_path: str = Field(min_length=1, max_length=1024)
-    raw_sddl: str = Field(default="", max_length=8192)
+    raw_sddl: str = Field(min_length=1, max_length=8192)
     propagation: PropagationMode = "propagate"
 
     model_config = ConfigDict(extra="forbid")
@@ -5007,7 +5200,7 @@ class ObjectSecurityRegistryKeyData(BaseModel):
 
 class ObjectSecurityFileData(BaseModel):
     file_path: str = Field(min_length=1, max_length=1024)
-    raw_sddl: str = Field(default="", max_length=8192)
+    raw_sddl: str = Field(min_length=1, max_length=8192)
     propagation: PropagationMode = "propagate"
 
     model_config = ConfigDict(extra="forbid")
@@ -5041,10 +5234,11 @@ class ObjectSecurityServiceData(BaseModel):
     def _a_row_says_something(self) -> ObjectSecurityServiceData:
         # `"Spooler",` is not the measured `"name",code,"descriptor"` row
         # (DeepSeek final-r9 N4).
-        if self.startup_mode is None and not self.raw_sddl:
+        if self.startup_mode is None or not self.raw_sddl:
             raise PydanticCustomError(
                 "unwritable_template_value",
-                "service {name} has neither a startup mode nor a descriptor",
+                "service {name} needs a startup mode and a descriptor: a row is "
+                '"name",code,"descriptor"',
                 {"name": repr(self.service_name)},
             )
         return self
@@ -5215,6 +5409,7 @@ def _object_security_models(
     "/api/security-template/object-security",
     response_model=ObjectSecurityRenderResponse,
 )
+@egress("inf")
 def render_object_security(body: ObjectSecurityRenderRequest) -> dict[str, Any]:
     """Render registry, file and service object security as INF.
 
@@ -5940,6 +6135,7 @@ def _scripts_export(
 
 
 @app.post("/api/gpos/{guid}/gpmc-backup-with-scripts")
+@egress("zip-gpmc")
 def gpmc_backup_with_scripts(
     request: Request, guid: str, body: ScriptsExportRequest
 ) -> Response:
@@ -5969,6 +6165,7 @@ def gpmc_backup_with_scripts(
     "/api/gpos/{guid}/gpmc-backup-with-scripts/preview",
     response_model=ScriptsPreviewResponse,
 )
+@egress("scripts-preview")
 def gpmc_backup_with_scripts_preview(
     request: Request, guid: str, body: ScriptsExportRequest
 ) -> dict[str, Any]:
@@ -6690,6 +6887,7 @@ def _firewall_setting_body(setting: RegistrySetting) -> dict[str, str]:
 
 
 @app.post("/api/network-security/firewall/render", response_model=FirewallRenderResponse)
+@egress("firewall-settings")
 def render_firewall_policy(body: FirewallRenderRequest) -> dict[str, Any]:
     """Render a machine firewall policy as registry settings. Writes nothing.
 
