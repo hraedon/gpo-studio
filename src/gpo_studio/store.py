@@ -1286,56 +1286,65 @@ class WorkspaceStore:
         """Copy every stored row of *guid* into the ``deleted_*`` archive
         tables; call inside the deletion's transaction.
 
-        The tables are additive -- created on first use, read by nothing in
-        Studio, so the schema version is unchanged and an older build opens
-        the workspace as before. Each copies its source table's columns as
-        they are (``INSERT ... SELECT``), plus ``deleted_at``."""
+        Each deletion is one event with its own ``deletion_id`` (a fresh UUID:
+        two deletions of one GPO, even within a second, never collide --
+        DeepSeek final-r21 N2), and every archive row -- the retained documents
+        included, one row per document per deletion -- carries it and the
+        deletion's ``deleted_at``. The tables are additive: created on first
+        use and read by nothing in Studio, so the schema version is unchanged
+        and an older build opens the workspace as before. Each copies its
+        source table's columns as they are (``INSERT ... SELECT``)."""
         connection = self._connection
         connection.execute(
             """CREATE TABLE IF NOT EXISTS deleted_gpos (
+                deletion_id TEXT NOT NULL, deleted_at TEXT NOT NULL,
                 guid TEXT NOT NULL, name TEXT NOT NULL, revision INTEGER NOT NULL,
                 snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL,
-                deleted_at TEXT NOT NULL, PRIMARY KEY (guid, deleted_at))"""
+                PRIMARY KEY (deletion_id))"""
         )
         connection.execute(
             """CREATE TABLE IF NOT EXISTS deleted_revisions (
+                deletion_id TEXT NOT NULL, deleted_at TEXT NOT NULL,
                 gpo_guid TEXT NOT NULL, revision INTEGER NOT NULL, actor TEXT NOT NULL,
                 reason TEXT NOT NULL, created_at TEXT NOT NULL, snapshot_json TEXT NOT NULL,
-                deleted_at TEXT NOT NULL, PRIMARY KEY (gpo_guid, revision, deleted_at))"""
+                PRIMARY KEY (deletion_id, revision))"""
         )
         connection.execute(
             """CREATE TABLE IF NOT EXISTS deleted_snapshot_documents (
+                deletion_id TEXT NOT NULL, deleted_at TEXT NOT NULL,
                 gpo_guid TEXT NOT NULL, revision INTEGER NOT NULL, digest TEXT NOT NULL,
-                deleted_at TEXT NOT NULL, PRIMARY KEY (gpo_guid, revision, digest, deleted_at))"""
+                PRIMARY KEY (deletion_id, revision, digest))"""
         )
         connection.execute(
             """CREATE TABLE IF NOT EXISTS deleted_retained_documents (
-                digest TEXT PRIMARY KEY, content_base64 TEXT NOT NULL,
-                byte_length INTEGER NOT NULL)"""
+                deletion_id TEXT NOT NULL, deleted_at TEXT NOT NULL,
+                digest TEXT NOT NULL, content_base64 TEXT NOT NULL,
+                byte_length INTEGER NOT NULL, PRIMARY KEY (deletion_id, digest))"""
         )
+        event = (uuid.uuid4().hex, deleted_at)
         connection.execute(
             """INSERT INTO deleted_gpos
-               SELECT guid, name, revision, snapshot_json, updated_at, ?
+               SELECT ?, ?, guid, name, revision, snapshot_json, updated_at
                FROM gpos WHERE guid = ?""",
-            (deleted_at, guid),
+            (*event, guid),
         )
         connection.execute(
             """INSERT INTO deleted_revisions
-               SELECT gpo_guid, revision, actor, reason, created_at, snapshot_json, ?
+               SELECT ?, ?, gpo_guid, revision, actor, reason, created_at, snapshot_json
                FROM revisions WHERE gpo_guid = ?""",
-            (deleted_at, guid),
+            (*event, guid),
         )
         connection.execute(
             """INSERT INTO deleted_snapshot_documents
-               SELECT gpo_guid, revision, digest, ? FROM snapshot_documents
+               SELECT ?, ?, gpo_guid, revision, digest FROM snapshot_documents
                WHERE gpo_guid = ?""",
-            (deleted_at, guid),
+            (*event, guid),
         )
         connection.execute(
-            """INSERT OR IGNORE INTO deleted_retained_documents
-               SELECT digest, content_base64, byte_length FROM retained_documents
+            """INSERT INTO deleted_retained_documents
+               SELECT ?, ?, digest, content_base64, byte_length FROM retained_documents
                WHERE digest IN (SELECT digest FROM snapshot_documents WHERE gpo_guid = ?)""",
-            (guid,),
+            (*event, guid),
         )
 
     def import_baseline_gpos(
@@ -2691,21 +2700,21 @@ class WorkspaceStore:
         granted here as an import's are; nothing of the current content is
         kept. Every earlier revision stays as it was."""
         current = self.get_gpo(guid)
-        if _plain_guid(imported.source_guid) != _plain_guid(current.source_guid) or not (
-            current.source_guid
-        ):
+        if not _has_replaced(current):
             raise ValidationError([
                 ValidationIssue(
                     severity="error",
-                    code="replace_source_mismatch",
+                    code="replace_not_a_recovery",
                     message=(
-                        "A GPO is replaced only by an import of its own source GPO: this "
-                        f"backup holds {imported.source_guid or 'no GPO identity'}, the GPO "
-                        f"was imported from {current.source_guid or 'no backup'}."
+                        "Studio replaces a GPO from an import only as the recovery for "
+                        "stored values it cannot read; this GPO has none. To bring it in "
+                        "line with its backup, rename it, import the backup as a new GPO, "
+                        "and carry the differences across with the diff."
                     ),
                     path="replace_guid",
                 )
             ])
+        self._require_same_source(guid, imported)
         grants = _Grants()
         for collection in imported.gpp_collections:
             grants.grant(
@@ -2732,6 +2741,66 @@ class WorkspaceStore:
             grants=grants,
             replaces_all=True,
         )
+
+    def _require_same_source(self, guid: str, imported: GPO) -> None:
+        """Refuse a replacement unless *imported* is a backup of the very GPO
+        *guid* was first imported from (Sol final-r21 B1).
+
+        A GPO GUID is not unique across estates -- another forest's GPO, or a
+        same-named domain rebuilt with a new domain GUID, can carry it -- so
+        the identity is the GPO GUID, the domain's DNS name AND its GUID
+        (``GPODomainGuid``), compared with what the FIRST revision's import
+        record holds: revision 1 is immutable, the head is not. A GPO whose
+        first import recorded no domain GUID (an import before 1.1.0, an
+        estate entry, a Studio-format bundle) cannot be identified, so it is
+        refused, not half-checked -- its other recoveries remain (a readable
+        revision, or a deletion, which is archived, then a fresh import)."""
+        first = gpo_from_dict(self.get_revision(guid, 1).snapshot)
+        recorded = first.backup_inventory
+        offered = imported.backup_inventory
+
+        def identity(inventory: BackupInventory | None) -> tuple[str, str, str] | None:
+            if inventory is None or not inventory.source_domain_guid:
+                return None
+            return (
+                _plain_guid(inventory.source_gpo_guid),
+                inventory.source_domain.strip().rstrip(".").casefold(),
+                _plain_guid(inventory.source_domain_guid),
+            )
+
+        def shown(value: tuple[str, str, str] | None) -> str:
+            if value is None:
+                return "no recorded domain identity"
+            return f"GPO {{{value[0]}}} in {value[1]} (domain {{{value[2]}}})"
+
+        mine, theirs = identity(recorded), identity(offered)
+        if mine is None:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="replace_source_unrecorded",
+                    message=(
+                        "This GPO's first import recorded no domain identity (it predates "
+                        "1.1.0, or did not come from a native GPMC backup), so Studio "
+                        "cannot prove a backup is of the same GPO and will not replace it. "
+                        "Restore a readable revision, or delete the GPO (archived) and "
+                        "import the backup as a new GPO."
+                    ),
+                    path="replace_guid",
+                )
+            ])
+        if theirs != mine or _plain_guid(imported.source_guid) != mine[0]:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="replace_source_mismatch",
+                    message=(
+                        "A GPO is replaced only by a backup of the GPO it was first "
+                        f"imported from: {shown(mine)}; this backup holds {shown(theirs)}."
+                    ),
+                    path="replace_guid",
+                )
+            ])
 
     def deletion_log(self) -> list[dict[str, Any]]:
         with self._lock:

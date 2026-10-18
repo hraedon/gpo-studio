@@ -439,9 +439,13 @@ remain historical records for their original revisions.
   principals.
 - **Replace from a fresh import (1.1.0).** With `replace_guid` and
   `expected_revision`, the import replaces an existing GPO's content whole, as
-  a new revision, instead of creating a GPO. Only a GPO imported from the same
-  source GPO can be replaced (`replace_source_mismatch` otherwise). It is a
-  recovery for a GPO whose stored values Studio cannot read, alongside
+  a new revision, instead of creating a GPO. Only a backup of the very GPO
+  the first revision was imported from is accepted -- the same GPO GUID,
+  domain DNS name and domain GUID (`GPODomainGuid`), which a native import
+  records with its provenance from 1.1.0 (`replace_source_mismatch`
+  otherwise; `replace_source_unrecorded` for a GPO whose first import
+  recorded none). It is only a recovery for a GPO whose stored values Studio
+  cannot read (`replace_not_a_recovery` for any other), alongside
   restoring a readable revision and `DELETE /api/gpos/{guid}?confirm={guid}`
   (which deletes only such a GPO, archiving every stored row first; see
   [workspace recovery](workspace-recovery.md#gpos-whose-stored-values-cannot-be-read));

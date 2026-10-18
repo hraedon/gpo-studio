@@ -72,6 +72,30 @@ class BackupInventory:
     backup_xml_base64: str
     report_xml_base64: str = ""
     files: tuple[CseFileEntry, ...] = field(default_factory=tuple)
+    #: The source GPO's identity as its backup's manifest states it, recorded
+    #: at import (final-r21): its GUID, its domain's DNS name and the domain's
+    #: GUID (``GPODomainGuid``). A GPO GUID alone is not unique across estates,
+    #: so a replacement from an import must match all three
+    #: (`WorkspaceStore.replace_from_import`). ``""``: not recorded -- an
+    #: import before 1.1.0, or a backup whose manifest has no domain GUID.
+    #: Left out of the GPO's dict and digests when empty, so every inventory
+    #: recorded before keeps its bytes.
+    source_gpo_guid: str = ""
+    source_domain: str = ""
+    source_domain_guid: str = ""
+
+
+#: `BackupInventory`'s source-identity fields, omitted from dicts when empty.
+INVENTORY_IDENTITY_FIELDS = ("source_gpo_guid", "source_domain", "source_domain_guid")
+
+
+def inventory_dict(data: dict[str, Any]) -> dict[str, Any]:
+    """An inventory's dict (``asdict``) without its unrecorded identity fields."""
+    return {
+        key: value
+        for key, value in data.items()
+        if key not in INVENTORY_IDENTITY_FIELDS or value
+    }
 
 
 TargetType = Literal["user", "group", "computer"]
@@ -147,6 +171,8 @@ class GPO:
         # Never part of a GPO's dict: the key did not exist before final-r18,
         # so a clean GPO's dict is the one it always was.
         data.pop("load_problems", None)
+        if data.get("backup_inventory") is not None:
+            data["backup_inventory"] = inventory_dict(data["backup_inventory"])
         for collection in data.get("gpp_collections", []):
             # A tolerant load's derived `load_problems` are never stored, served
             # or exported; emptied rather than dropped, so a GPO without any

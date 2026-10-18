@@ -31,6 +31,7 @@ import dataclasses
 import hashlib
 import itertools
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -51,22 +52,33 @@ def _oracle() -> Any:
 
 
 def test_the_vendored_oracle_is_the_commit() -> None:
-    """Each vendored file is the 58b80aa blob byte for byte -- checked against
+    """Each vendored file is its 58b80aa blob byte for byte -- checked against
     git where the commit is in the checkout (skipped where it is not: a
     shallow or squashed history; the recorded digest is checked on every
     load regardless)."""
-    for name, (path, digest) in legacy_58b80aa.SOURCES.items():
+    for module, digest in legacy_58b80aa.SOURCES.items():
         try:
             blob = subprocess.run(
-                ["git", "show", f"{legacy_58b80aa.COMMIT}:{path}"],
+                ["git", "show", f"{legacy_58b80aa.COMMIT}:{legacy_58b80aa.source_path(module)}"],
                 cwd=ROOT,
                 capture_output=True,
                 check=True,
             ).stdout
         except (OSError, subprocess.CalledProcessError):
             pytest.skip(f"commit {legacy_58b80aa.COMMIT[:7]} is not in this checkout")
-        assert hashlib.sha256(blob).hexdigest() == digest, path
-        assert legacy_58b80aa.vendored_bytes(name) == blob, name
+        assert hashlib.sha256(blob).hexdigest() == digest, module
+        assert legacy_58b80aa.vendored_bytes(module) == blob, module
+
+
+def test_the_oracle_runs_no_current_code() -> None:
+    """The oracle's whole import closure is vendored: no oracle module holds
+    anything of the current ``gpo_studio`` package (`legacy_58b80aa.gpp`
+    asserts it as it loads), and the classes it reads into are its own."""
+    oracle = _oracle()
+    assert oracle.__name__ == "_oracle_58b80aa.gpp"
+    assert oracle.GppCollection is not gpp.GppCollection
+    adapters = sys.modules["_oracle_58b80aa.gpp_adapters"]
+    assert adapters.GppPrinter.__module__ == "_oracle_58b80aa.gpp_adapters"
 
 
 def _corpus_item(key: str) -> dict[str, Any]:

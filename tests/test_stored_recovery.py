@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import closing
@@ -31,6 +32,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gpo_studio import api
+from gpo_studio import store as store_module
 from gpo_studio.api import app
 from gpo_studio.model import ConflictError
 from gpo_studio.store import WorkspaceStore, _replaced_on_read, committed_answer
@@ -59,6 +61,24 @@ def workspace(
         monkeypatch.setattr(app.state, "store", store, raising=False)
         monkeypatch.setattr(app.state, "owns_store", False, raising=False)
         yield TestClient(app, base_url="http://127.0.0.1"), store, tmp_path
+
+
+#: The fixture backup's ``GPODomainGuid``.
+DOMAIN_GUID = "67c09bd9-0326-42a4-a15f-7d1d878e469e"
+
+
+def _variant(tmp_path: Path, capture: str, name: str, changes: dict[str, str]) -> Path:
+    """A copy of *capture* whose manifest says something else: the same GPO
+    GUID, presented as another estate's."""
+    inbox = tmp_path / "inbox" / name.replace(" ", "-")
+    shutil.copytree(NATIVE / capture, inbox)
+    manifest = inbox / "manifest.xml"
+    text = manifest.read_text(encoding="utf-8")
+    for old, new in changes.items():
+        assert old in text, old
+        text = text.replace(old, new)
+    manifest.write_text(text, encoding="utf-8")
+    return inbox
 
 
 def _import(client: TestClient, inbox: Path, **extra: Any) -> Any:
@@ -131,8 +151,25 @@ def test_an_unreadable_first_revision_is_recovered_by_a_replacing_import(
     )
     assert restore.status_code == 422
     assert _import(client, inbox).status_code == 409
-    # The replacement: expected revision, same source GPO only.
+    # The import recorded the source GPO's full identity, in revision 1.
+    recorded = store.get_revision(guid, 1).snapshot["backup_inventory"]
+    assert recorded["source_gpo_guid"] == "f0197e25-3e19-4835-b296-3c35dc069635"
+    assert recorded["source_domain"] == "ad.hraedon.com"
+    assert recorded["source_domain_guid"] == DOMAIN_GUID
+    # The replacement: expected revision, the very same source GPO only.
     assert _import(client, inbox, replace_guid=guid, expected_revision=7).status_code == 409
+    for name, foreign in (
+        # Sol final-r21 B1: same GPO GUID, another estate's DNS domain.
+        ("another DNS domain", {"ad.hraedon.com": "foreign.example.test"}),
+        # Same DNS name and GPO GUID, a different domain (a rebuilt forest).
+        ("another domain GUID", {DOMAIN_GUID: "11111111-2222-4333-8444-555555555555"}),
+    ):
+        variant = _variant(tmp_path, "WI01A-DriveMaps-GPMC", name, foreign)
+        refused = _import(client, variant, replace_guid=guid, expected_revision=1)
+        assert refused.status_code == 422, (name, refused.text[:300])
+        codes = {i["code"] for i in refused.json()["error"]["issues"]}
+        assert codes == {"replace_source_mismatch"}, name
+        assert store.get_gpo(guid).revision == 1, name
     other = _import(client, _inbox(tmp_path, "WI01A-EnvVars-GPMC"), replace_guid=guid,
                     expected_revision=1)
     assert other.status_code == 422, other.text[:300]
@@ -281,17 +318,124 @@ def test_an_unreadable_gpo_is_deleted_only_confirmed_and_archived_whole(
     assert client.get(f"/api/gpos/{guid}").status_code == 404
     assert _rows(store, guid) == {key: [] for key in before}
     assert _archived(store, guid) == before  # byte-equal: every column as stored
-    ((deleted_at,),) = store._connection.execute(
-        "SELECT deleted_at FROM deletion_log WHERE guid=?", (guid,)
+    ((deletion_id,),) = store._connection.execute(
+        "SELECT deletion_id FROM deleted_gpos WHERE guid=?", (guid,)
     ).fetchall()
+    # Every archive row carries the deletion's id and time (DeepSeek r21 N4).
+    for table in (
+        "deleted_gpos",
+        "deleted_revisions",
+        "deleted_snapshot_documents",
+        "deleted_retained_documents",
+    ):
+        stamps = store._connection.execute(
+            f"SELECT DISTINCT deletion_id, deleted_at FROM {table}"
+        ).fetchall()
+        assert [tuple(stamp) for stamp in stamps] == [
+            (deletion_id, store.deletion_log()[0]["deleted_at"])
+        ], table
     assert client.get(f"/api/gpos/{clean['guid']}").status_code == 200
-    # The runbook's restore puts it back exactly as it was.
-    for statement in _restore_script():
-        store._connection.execute(statement, {"guid": guid, "deleted_at": deleted_at})
-    store._connection.commit()
-    assert _rows(store, guid) == before
-    assert store.deletion_log() == []
+    # The runbook's restore puts it back exactly as it was -- and again, as
+    # a no-op (Sol r21 N1 / DeepSeek N5).
+    for _attempt in range(2):
+        _restore(store, deletion_id)
+        assert _rows(store, guid) == before
+        assert store.deletion_log() == []
     assert client.get(f"/api/gpos/{guid}").status_code == 200
+
+
+def _restore(store: WorkspaceStore, deletion_id: str) -> None:
+    for statement in _restore_script():
+        store._connection.execute(statement, {"deletion_id": deletion_id})
+    store._connection.commit()
+
+
+def test_a_restore_never_overwrites_a_different_gpo(workspace: Any) -> None:
+    """Not blind replacement: a different row under a restored key fails the
+    restore, which changes nothing."""
+    client, store, tmp_path = workspace
+    guid = _import(client, _inbox(tmp_path, "WI01A-DriveMaps-GPMC")).json()["gpo"]["guid"]
+    _unreadable_from_revision_1(store, guid)
+    assert client.request(
+        "DELETE", f"/api/gpos/{guid}?confirm={guid}", json={**AUDIT, "expected_revision": 1}
+    ).status_code == 204
+    ((deletion_id,),) = store._connection.execute("SELECT deletion_id FROM deleted_gpos")
+    # Another GPO now holds the deleted one's guid (a direct insert: the
+    # API never reuses a guid), with other content.
+    store._connection.execute(
+        "INSERT INTO gpos VALUES(?,?,?,?,?)", (guid, "Other", 1, "{}", "2026-10-18T00:00:00Z")
+    )
+    store._connection.commit()
+    with pytest.raises(sqlite3.IntegrityError):
+        for statement in _restore_script():
+            store._connection.execute(statement, {"deletion_id": deletion_id})
+    store._connection.rollback()
+    row = store._connection.execute("SELECT name FROM gpos WHERE guid=?", (guid,)).fetchone()
+    assert tuple(row) == ("Other",)
+
+
+def test_delete_restore_delete_in_the_same_second(
+    workspace: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DeepSeek final-r21 N2: the archive keyed by time collided."""
+    client, store, tmp_path = workspace
+    guid = _import(client, _inbox(tmp_path, "WI01A-DriveMaps-GPMC")).json()["gpo"]["guid"]
+    _unreadable_from_revision_1(store, guid)
+    before = _rows(store, guid)
+    monkeypatch.setattr(store_module, "_now", lambda: "2026-10-18T12:00:00+00:00")
+    deletions = []
+    for _round in range(2):
+        deleted = client.request(
+            "DELETE", f"/api/gpos/{guid}?confirm={guid}", json={**AUDIT, "expected_revision": 1}
+        )
+        assert deleted.status_code == 204, deleted.text[:300]
+        ids = {
+            row[0]
+            for row in store._connection.execute("SELECT deletion_id FROM deleted_gpos")
+        }
+        (latest,) = ids - set(deletions)
+        deletions.append(latest)
+        _restore(store, latest)
+        assert _rows(store, guid) == before
+    assert len(set(deletions)) == 2
+
+
+def test_a_readable_gpo_is_never_replaced(workspace: Any) -> None:
+    """DeepSeek final-r21 N1: replacement is a recovery, like the delete."""
+    client, store, tmp_path = workspace
+    inbox = _inbox(tmp_path, "WI01A-DriveMaps-GPMC")
+    guid = _import(client, inbox).json()["gpo"]["guid"]
+    refused = _import(client, inbox, replace_guid=guid, expected_revision=1)
+    assert refused.status_code == 422
+    assert {i["code"] for i in refused.json()["error"]["issues"]} == {"replace_not_a_recovery"}
+    assert store.get_gpo(guid).revision == 1
+
+
+def test_a_gpo_imported_without_a_recorded_identity_is_not_replaced(workspace: Any) -> None:
+    """Strict, not partial: a first import that recorded no domain identity
+    (before 1.1.0) cannot prove a backup is of the same GPO."""
+    client, store, tmp_path = workspace
+    inbox = _inbox(tmp_path, "WI01A-DriveMaps-GPMC")
+    guid = _import(client, inbox).json()["gpo"]["guid"]
+    _unreadable_from_revision_1(store, guid)
+    connection = store._connection
+    for table, key in (("gpos", "guid"), ("revisions", "gpo_guid")):
+        for rowid, payload in connection.execute(
+            f"SELECT rowid, snapshot_json FROM {table} WHERE {key}=?", (guid,)
+        ).fetchall():
+            data = json.loads(payload)
+            for field in ("source_gpo_guid", "source_domain", "source_domain_guid"):
+                data["backup_inventory"].pop(field)
+            connection.execute(
+                f"UPDATE {table} SET snapshot_json=? WHERE rowid=?",
+                (json.dumps(data, separators=(",", ":"), sort_keys=True), rowid),
+            )
+    connection.commit()
+    refused = _import(client, inbox, replace_guid=guid, expected_revision=1)
+    assert refused.status_code == 422
+    codes = {i["code"] for i in refused.json()["error"]["issues"]}
+    assert codes == {"replace_source_unrecorded"}
+    assert store.get_gpo(guid).revision == 1
 
 
 # ---------------------------------------------------------------------------

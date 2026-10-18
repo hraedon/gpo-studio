@@ -85,6 +85,9 @@ class BackupGpo:
     user_enabled: bool = True
     backup_inventory: BackupInventory | None = None
     fdeploy: FdeployDocument | None = None
+    #: ``GPODomainGuid`` from the native manifest, lower case without braces:
+    #: with the GPO GUID and the domain, the source GPO's identity (final-r21).
+    domain_guid: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,10 +298,13 @@ def _parse_native_manifest(root: ET.Element) -> GpmcBackup:
         guid = ""
         display_name = ""
         domain = ""
+        domain_guid = ""
         for child in inst:
             local = _local_name(child.tag)
             if local == "GPOGuid":
                 guid = _text_or_empty(child).strip("{}").lower()
+            elif local == "GPODomainGuid":
+                domain_guid = _text_or_empty(child).strip().strip("{}").lower()
             elif local == "GPODisplayName":
                 display_name = _text_or_empty(child)
             elif local == "GPODomain":
@@ -308,7 +314,11 @@ def _parse_native_manifest(root: ET.Element) -> GpmcBackup:
             elif local == "ID":
                 backup_id = _text_or_empty(child)
         if guid:
-            gpos.append(BackupGpo(guid=guid, display_name=display_name, domain=domain))
+            gpos.append(
+                BackupGpo(
+                    guid=guid, display_name=display_name, domain=domain, domain_guid=domain_guid
+                )
+            )
 
     if not gpos:
         raise BackupError("No GPO entries found in manifest")
@@ -594,9 +604,15 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
 
         display_name = gpo.display_name
         domain = gpo.domain
+        domain_guid = gpo.domain_guid
         if bkup_gpo is not None and bkup_gpo.guid == gpo.guid:
             display_name = bkup_gpo.display_name or display_name
             domain = bkup_gpo.domain or domain
+            if bkup_gpo.domain_guid and domain_guid and bkup_gpo.domain_guid != domain_guid:
+                raise BackupError("manifest.xml and bkupInfo.xml name different domains")
+            domain_guid = bkup_gpo.domain_guid or domain_guid
+        if domain_guid and guid_problem(domain_guid) is not None:
+            raise BackupError(f"Invalid domain GUID in manifest: {domain_guid!r}")
 
         content_root = _resolve_content_root(backup_dir, backup_id, gpo.guid)
 
@@ -671,6 +687,11 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                         CseFileEntry(relative_path=path, content_hash=f.content_hash, size=f.size)
                         for path, f in sorted(files.items())
                     ),
+                    # The source GPO's identity, recorded with the import's own
+                    # provenance (final-r21); empty without a domain GUID.
+                    source_gpo_guid=gpo.guid if domain_guid else "",
+                    source_domain=domain if domain_guid else "",
+                    source_domain_guid=domain_guid,
                 )
                 inventory = inventory_from_dict(asdict(inventory))
 
@@ -679,6 +700,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                 guid=gpo.guid,
                 display_name=display_name,
                 domain=domain,
+                domain_guid=domain_guid,
                 machine_extensions=machine_exts,
                 user_extensions=user_exts,
                 security_filters=gpo.security_filters,

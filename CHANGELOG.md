@@ -620,6 +620,37 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- After the twenty-first review (final-r21):
+  - **A replacing import must be of the very same source GPO (Sol B1).** The
+    check compared GPO GUIDs only, and a GPO GUID is not unique across
+    estates: another forest's backup with the same GUID replaced the target.
+    A native import now records the source GPO's identity in its import
+    record (`BackupInventory`: GPO GUID, domain DNS name and the manifest's
+    `GPODomainGuid`, which the parser used to discard); a replacement must
+    match all three as revision 1 -- immutable -- recorded them
+    (`replace_source_mismatch`). A GPO whose first import recorded no domain
+    identity (before 1.1.0, an estate entry, a Studio-format bundle) is
+    refused outright (`replace_source_unrecorded`), not half-checked: a
+    domain-only match would still accept a rebuilt same-named domain, and
+    such a GPO keeps its other recoveries (a readable revision; a deletion,
+    archived, then a fresh import). The identity fields are left out of a
+    GPO's dict and digests when empty, so every earlier import keeps its
+    bytes and digests. A replacement is also refused for a readable GPO
+    (`replace_not_a_recovery`, DeepSeek N1), as the delete is.
+  - **Deletion archives are per event; the restore is idempotent (Sol N1,
+    DeepSeek N2/N4/N5).** Each deletion gets its own `deletion_id`, carried
+    with `deleted_at` by every archive row -- the retained documents now
+    included -- so delete, restore and delete again in one second no longer
+    collide. The runbook's restore script inserts a row only where an
+    identical one is not already there: a second run changes nothing, and a
+    different row under a restored key fails the whole restore rather than
+    being overwritten. Tests cover both runs, the conflict and the
+    same-second triple.
+  - **The oracle runs none of the current code (Sol N2, DeepSeek N3).** Its
+    whole 58b80aa import closure -- fifteen modules, each with its blob's
+    SHA-256 -- is vendored and served by an import hook that serves nothing
+    else; loading asserts that no oracle module holds anything of the
+    current package.
 - After the twentieth review (final-r20):
   - **A GPO whose stored values cannot be read has a way out (Sol B1).** Its
     message promised "re-import it, or restore a revision without it"; when
