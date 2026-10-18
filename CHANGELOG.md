@@ -198,6 +198,17 @@ Operator-facing:
   commit and the tag is refused; and the records say plainly which pack files
   the gate refuses (importable modules and `.pth` files) and why archives are
   allowed.
+- After the third review (final-r3): the tagged run now records the automated
+  evidence the approval says it does. `scripts/record_release_identity.py`
+  replaces the published manifest's "To be resolved" Automated evidence
+  paragraph, and adds `evidence.automated_evidence` and a fuller
+  `release_identity` to the published report: the workflow run's URL, id,
+  attempt and ref; that `release-identity`, `ci`, `identifier-gate` and
+  `verify` passed before publish (which `needs:` them); that `verify` checked
+  coverage against the floor (the total is not carried to the publish job, so
+  it is not recorded); and the artifact hashes. It refuses, writing nothing,
+  if a GitHub variable is missing or malformed or the placeholder is not
+  there exactly once, and if one survives the rewrite.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

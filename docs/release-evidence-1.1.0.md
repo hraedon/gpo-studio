@@ -67,7 +67,8 @@ commit or action, in this order:
    that line exactly once in this file) and close every item under
    [Remaining before approval](#remaining-before-approval). Closed means done;
    for the owner's NVDA acceptance, waived for 1.1.0 and recorded as not run;
-   for the automated evidence, recorded by the tagged run after A. Both lists
+   for the automated evidence, recorded by the tagged run after A (item 4 of
+   that section says exactly what it records). Both lists
    stay, each item closed: the gate refuses an approved release that still
    lists anything as pending, and an approval that empties or removes either
    list.
@@ -452,8 +453,11 @@ Plan 034's review gate stands: no module leaves the plan `capture-backed`.
 
 ## Automated evidence
 
-To be resolved from the tagged release workflow run: run IDs for every
-required job, the coverage summary, and the artifact hashes below. Local
+To be resolved from the tagged release workflow run: when it publishes,
+`scripts/record_release_identity.py` replaces this paragraph in the published
+copy with that run's URL and attempt, the statement that the jobs gating
+publication passed in it, that its `verify` job checked coverage against the
+floor (the total stays in that job's log), and the artifact hashes. Local
 success is not release evidence.
 
 Local pre-release observation, **not release evidence**: on 2026-10-08, on the
@@ -634,13 +638,17 @@ data. Each is pinned by a test:
    never as passed, here, under [Accessibility evidence](#accessibility-evidence)
    and in the JSON report.
 4. **Recorded by the tagged run, not a precondition.** The automated evidence
-   (run IDs of every required job, the coverage summary, the artifact hashes)
    comes from the release workflow run on the tag, so it cannot exist before
-   A. That run records it: `record_release_identity.py` writes the tag, the
-   source commit and the artifact hashes into the release assets
-   (`release-evidence.md`, `release-evidence-report.json`, `SHA256SUMS`), and
-   the job run IDs are the workflow run's own. A closes this item by saying
-   so.
+   A. When that run publishes, `scripts/record_release_identity.py` writes into
+   the published `release-evidence.md` (replacing the Automated evidence
+   placeholder) and `release-evidence-report.json`: the run's URL and attempt,
+   the workflow ref, the tag and source commit; that the jobs gating
+   publication (`release-identity`, `ci`, `identifier-gate`, `verify`) passed
+   in that run, since `publish` runs only after they succeed; that `verify`
+   checked branch coverage against the floor (the measured total stays in that
+   job's log and is not recorded); and the wheel, sdist and SBOM hashes. It
+   refuses to publish if any of that is missing or the placeholder is not
+   resolved. A closes this item by saying so.
 5. **Pending.** Approve in the order under
    [How this release is approved](#how-this-release-is-approved) (owner
    decision, 2026-10-17): freeze commit F with its preparation, the full batch
