@@ -296,17 +296,18 @@ def format_security_template(template: SecurityTemplate) -> str:
     not one line of its kind, or that the INF reader would split, strip or
     continue differently, is a :class:`SecurityTemplateError`.
     """
-    if template.raw_text:
-        reparsed = parse_security_template(template.raw_text)
-        if template.sections == reparsed.sections:
-            return template.raw_text
-
+    # Checked BEFORE the lossless path (Sol final-r9 B2): an unchanged parsed
+    # template is still written, so it is held to the same rule.
     problems = template_problems(template)
     if problems:
         raise SecurityTemplateError(
             "Studio will not write this security template: "
             + "; ".join(str(problem) for problem in problems[:5])
         )
+    if template.raw_text:
+        reparsed = parse_security_template(template.raw_text)
+        if template.sections == reparsed.sections:
+            return template.raw_text
     parts: list[str] = []
     for i, section in enumerate(template.sections):
         if i > 0:
@@ -321,7 +322,27 @@ def format_security_template(template: SecurityTemplate) -> str:
                 parts.append(f"{key} = {value}")
         for line in section.unknown_lines:
             parts.append(line)
-    return "\n".join(parts)
+    text = "\n".join(parts)
+    # The backstop: what was written must read back as the same structure --
+    # no value, key or preserved line may have become a section or an entry.
+    if parse_security_template(text).sections != _as_read_back(template.sections):
+        raise SecurityTemplateError(
+            "Studio will not write this security template: it would not read back "
+            "as the same sections and entries"
+        )
+    return text
+
+
+def _as_read_back(sections: tuple[InfSection, ...]) -> tuple[InfSection, ...]:
+    """*sections* as :func:`parse_security_template` reads their formatted text:
+    a row section's entries come back as preserved row lines."""
+    expected = []
+    for section in sections:
+        if section.name.casefold() in _ROW_SECTIONS and section.entries:
+            rows = tuple(f'"{key}",{value}' for key, value in section.entries)
+            section = InfSection(section.name, (), rows + section.unknown_lines)
+        expected.append(section)
+    return tuple(expected)
 
 
 # ---------------------------------------------------------------------------

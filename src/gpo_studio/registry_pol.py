@@ -185,11 +185,26 @@ def serialize(records: Iterable[RegistrySetting | PolRecord]) -> bytes:
     return bytes(output)
 
 
-def _read_until(data: bytes, offset: int, marker: bytes) -> tuple[bytes, int]:
-    end = data.find(marker, offset)
-    if end < 0:
-        raise RegistryPolError("unterminated Registry.pol field")
-    return data[offset:end], end + len(marker)
+def _read_name(data: bytes, offset: int) -> tuple[bytes, int]:
+    """One key or value-name field: UTF-16LE code units up to the terminating
+    NUL, which the ``;`` separator must follow (MS-GPREG 2.2.1).
+
+    Read a code unit at a time from the field's start, so a ``;`` inside the
+    name is data, not the separator, and a ``;`` byte pair straddling two code
+    units is never mistaken for one. Before final-r9 this searched for the first
+    ``;`` byte pair, which split ``Software\\A;B`` and misread any field whose
+    bytes happened to contain ``3B 00`` (Sol and DeepSeek final-r9).
+    """
+    end = offset
+    while True:
+        if end + 2 > len(data):
+            raise RegistryPolError("unterminated Registry.pol field")
+        if data[end : end + 2] == b"\0\0":
+            break
+        end += 2
+    if data[end + 2 : end + 4] != _SEP:
+        raise RegistryPolError("Registry.pol field is not followed by its separator")
+    return data[offset:end], end + 4
 
 
 def parse(data: bytes) -> list[PolRecord]:
@@ -209,8 +224,8 @@ def parse(data: bytes) -> list[PolRecord]:
             raise RegistryPolError(
                 f"PReg record count exceeds {_MAX_POL_RECORDS}"
             )
-        key_bytes, offset = _read_until(data, offset, _SEP)
-        name_bytes, offset = _read_until(data, offset, _SEP)
+        key_bytes, offset = _read_name(data, offset)
+        name_bytes, offset = _read_name(data, offset)
         if offset + 4 > len(data):
             raise RegistryPolError("truncated registry type")
         type_code = struct.unpack("<I", data[offset : offset + 4])[0]
@@ -233,8 +248,8 @@ def parse(data: bytes) -> list[PolRecord]:
             raise RegistryPolError("missing record terminator")
         offset += 2
         try:
-            key = key_bytes.decode("utf-16le").rstrip("\0")
-            value_name = name_bytes.decode("utf-16le").rstrip("\0")
+            key = key_bytes.decode("utf-16le")
+            value_name = name_bytes.decode("utf-16le")
         except UnicodeDecodeError as error:
             raise RegistryPolError("Registry.pol contains invalid UTF-16 text") from error
         registry_type = _CODE_TO_TYPE.get(type_code)

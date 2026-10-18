@@ -71,7 +71,7 @@ AuditPrivilegeUse = 0
 AuditPolicyChange = 1
 AuditAccountManage = 1
 AuditProcessTracking = 0
-AuditDirectoryServiceAccess = 0
+AuditDSAccess = 0
 AuditAccountLogon = 3
 
 [Privilege Rights]
@@ -82,13 +82,13 @@ SeRestorePrivilege = *S-1-5-32-544
 MACHINE\\\\Software\\\\Policies\\\\Test\\\\Enabled = 4,0
 
 [Registry Keys]
-MACHINE\\\\Software\\\\Policies,0,"D:AI(A;CI;CC;;;BA)"
+"MACHINE\\\\Software\\\\Policies",0,"D:AI(A;CI;CC;;;BA)"
 
 [File Security]
-C:\\\\Windows,0,"D:AI(A;CI;CC;;;BA)"
+"C:\\\\Windows",0,"D:AI(A;CI;CC;;;BA)"
 
 [Service General Setting]
-wsiservice,3,"D:AI(A;CI;CC;;;BA)"
+"wsiservice",3,"D:AI(A;CI;CC;;;BA)"
 
 [Group Membership]
 *S-1-5-32-544__Memberof = *S-1-5-32-545

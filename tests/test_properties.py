@@ -24,13 +24,11 @@ _TEXT = st.text(
     min_size=1,
     max_size=32,
 )
-#: Key and value names: one line, no ';' -- what `Registry.pol` can carry
-#: (final-r8). Data keeps `_TEXT`: it is length-prefixed.
+#: Key and value names: anything but NUL, which ends a Registry.pol name; a
+#: ';' is data (MS-GPREG 2.2.1, final-r9). Data keeps `_TEXT`: it is
+#: length-prefixed.
 _NAME = st.text(
-    alphabet=st.characters(
-        blacklist_categories=("Cc", "Cf", "Zl", "Zp", "Cs"),
-        blacklist_characters=(";",),
-    ),
+    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters=("\x00",)),
     min_size=1,
     max_size=32,
 )
@@ -75,16 +73,11 @@ def test_registry_pol_round_trip_property(record: PolRecord) -> None:
 
 
 @_FUZZ
-@given(
-    _NAME,
-    st.characters(categories=("Cc", "Cf", "Zl", "Zp")) | st.just(";"),
-    st.sampled_from(["key", "value_name"]),
-)
-def test_registry_pol_refuses_a_name_it_cannot_carry(name: str, bad: str, field: str) -> None:
+@given(_NAME, _NAME, st.sampled_from(["key", "value_name"]))
+def test_registry_pol_refuses_only_nul_in_a_name(name: str, tail: str, field: str) -> None:
     record = PolRecord(key="Software\\X", value_name="V", registry_type="REG_SZ", value="x")
-    hostile = replace(record, **{field: name + bad})
     with pytest.raises(EmitError):
-        serialize([hostile])
+        serialize([replace(record, **{field: name + "\x00" + tail})])
 
 
 @_FUZZ

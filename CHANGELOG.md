@@ -25,11 +25,17 @@ Current version: `1.1.0rc1` (release candidate). The latest final release is
   only the ASCII `'` inside its single-quoted literals, while PowerShell also
   reads U+2018 to U+201B as single quotes, so a value holding one could end
   the literal and the rest of the value would run as code when the plan was
-  run. The render endpoints are new in 1.1.0; the plan quoting is
+  run. The AD discovery scripts (`GET /api/discovery/*/script`, which an
+  administrator is told to run on a domain-joined machine) had the same
+  quoting: a typographic quote in the domain, search base, search term or
+  object class closed its `param()` default and ran the rest as code. The
+  render endpoints are new in 1.1.0; the plan and discovery-script quoting is
   pre-existing. Every writer now checks each name and value as it writes it
-  and refuses what its format cannot carry intact (see Changed); the plan
-  doubles every PowerShell single-quote character, and the plan validator
-  reads them as PowerShell does.
+  and refuses what its format cannot carry intact (see Changed); every
+  PowerShell value goes through one quoting function that doubles every
+  PowerShell single-quote character, the plan validator reads them as
+  PowerShell does, and a test runs each generated script under PowerShell
+  with these values and checks that nothing in them runs.
 
 ### Fixed
 
@@ -323,9 +329,10 @@ Operator-facing:
   Every value refuses Unicode controls, format characters, line and
   paragraph separators and lone surrogates, except where a format encodes
   one explicitly: TAB and LF in an XML value classified as multi-line text (a
-  description, a message body) or in the plan's `-Comment` and registry data;
-  any character but NUL in `Registry.pol` string data, which is
-  length-prefixed; and the report writes each as a visible `\uXXXX`.
+  description, a message body); any character in the plan's `-Comment` and
+  registry data, each control written as a `[char]` code (final-r9); any
+  character but NUL in `Registry.pol` names and string data; and the report
+  writes each as a visible `\uXXXX`.
   Identity-typed values also go through the shared validators, so an item's
   `uid`, `FilterRunOnce@id` and `clsid` must be braced GUIDs, a power scheme's
   `nameGuid`/`schemeGuid` a GUID, a service name, task name and every other
@@ -351,9 +358,10 @@ Operator-facing:
   that reaches the API without validation having named it first is still a
   422 (`unwritable_artifact_value`; from the GPP writer, `gpp_content_refused`).
   New validation errors: `control_character_in_gpo_name`;
-  `unwritable_registry_name` (a registry key or value name holding `;`, NUL
-  or another control character -- `Registry.pol` separates and terminates
-  names with them); `unwritable_registry_data` (string data holding NUL).
+  `unwritable_registry_name` (a registry key or value name holding NUL, which
+  ends a `Registry.pol` name, or another control, format or separator
+  character, which the plan cannot write as one line; a `;` is valid, see
+  final-r9); `unwritable_registry_data` (string data holding NUL).
   An empty TaskV2 `StartBoundary`, `EndBoundary`, `UserId` or `GroupId` is
   refused rather than skipped. Firewall rule fields and script command lines
   refuse every control, format and separator character, not only line
@@ -380,6 +388,52 @@ Operator-facing:
   `StartBoundary`, which three estate runs showed Windows never creates and
   which Studio now refuses to write), and the conformance fixtures' synthetic
   item uids (`{synth-uid-0}`) are deterministic braced GUIDs.
+- After the ninth review (final-r9):
+  - **The writer list is discovered, not kept.** `emit_integrity.ARTIFACT_WRITERS`
+    names every function that writes artifact text and the check it runs;
+    `tests/test_writer_discovery.py` reads `src/` for every function that
+    builds PowerShell, INI/INF, serialized XML, `Registry.pol`, UTF-16 text or
+    `|`-delimited records, or defines a quoting helper, and fails on one not
+    registered or explained. It found the AD discovery scripts (see Security),
+    which now quote through `emit_integrity.ps_literal`, the one PowerShell
+    quoting function; a discovery value must also be of its kind (a domain a
+    name, a search base a DN, an object class a token), or the script route
+    answers 422. `tests/test_powershell_execution.py` runs the plan and each
+    discovery script under `pwsh` with every single-quote character and code
+    after it, and skips where `pwsh` is absent.
+  - **A `;` in a registry key or value name is valid again.** Round 8 refused
+    it on the premise that `Registry.pol` separates names with `;`; MS-GPREG
+    2.2.1 terminates each name with NUL and puts the separator after it, so a
+    `;` inside a name is data. The reader now reads each name up to its NUL
+    and then requires the separator, one UTF-16 code unit at a time (it used
+    to search for the first `;` byte pair, which split such a name and could
+    split a character whose bytes contain `3B 00`); the writer refuses only
+    NUL. The store still refuses a control, format or separator character in
+    a name, since the plan writes names as single-line literals.
+  - **Registry data with CRLF is accepted end to end.** The plan writes any
+    character of registry data or a description, each control as a `[char]`
+    term, so data the store accepts (a legal notice with line breaks) is no
+    longer refused by `plan.ps1` and `export.zip` after being advertised.
+    The plan and Studio-bundle capabilities are now asked of the writers
+    themselves, as the GPMC backup's already was, so an advertised artifact
+    is one that writes.
+  - **A writer's refusal never breaks a read.** The GPO payload of every read
+    and every mutation response reports a refusal from any writer as a
+    disabled capability with its reason; before, a backup writer's refusal
+    escaped and a `GET` answered 422, or a mutation committed and then
+    answered 422.
+  - **`GptTmpl.inf`**: the check runs before the lossless path that returns a
+    parsed template's original text; a preserved line may not read back as a
+    section header, an entry, a malformed row or a continuation, and what is
+    written must read back as the same sections and entries; each section's
+    keys are a closed Windows vocabulary or a pattern (`INF_KEYS`), checked
+    by the writer and derived from the writers by the completeness test; the
+    family writers check each principal and group member before joining the
+    list; a service row needs a startup mode or a descriptor and a security
+    option a value. A request-model refusal now carries the documented code
+    `unwritable_template_value`.
+  - A UTC offset is at most 14:00 in total (`+14:59` is refused), and
+    `emit_integrity`'s check table is exhaustive over its kinds.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

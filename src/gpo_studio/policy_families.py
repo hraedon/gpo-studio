@@ -11,10 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, assert_never
 
+from .identity_values import security_principal_problem
 from .model import ValidationIssue
 from .security_template import (
     PrivilegeRight,
     SecurityTemplate,
+    SecurityTemplateError,
     extract_account_policy,
     extract_audit_policy,
     extract_privilege_rights,
@@ -533,6 +535,16 @@ class UserRightsFamily:
         return UserRightsFamily(assignments=extract_privilege_rights(template))
 
     def to_template_entries(self) -> dict[str, dict[str, str]]:
+        # Each principal is checked BEFORE the list is joined: once joined, a
+        # comma inside one principal is indistinguishable from the separator, so
+        # the INF check can no longer see it (DeepSeek final-r9 N2).
+        for right in self.assignments:
+            for principal in right.principals:
+                problem = security_principal_problem(principal)
+                if problem is not None:
+                    raise SecurityTemplateError(
+                        f"{right.name} principal {principal!r} {problem}"
+                    )
         return {
             "Privilege Rights": {
                 right.name: ",".join(right.principals) for right in self.assignments

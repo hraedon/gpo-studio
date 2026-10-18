@@ -42,11 +42,14 @@ from gpo_studio.api import app
 from gpo_studio.emit_integrity import (
     BACKUP_XML,
     GPP_XML,
+    INF_KEYS,
     INF_SECTIONS,
     PS_PARAMETERS,
     REGISTRY_POL,
     EmitError,
     classify_xml,
+    inf_key_problem,
+    ps_literal,
     xml_names,
     xml_problems,
 )
@@ -262,11 +265,12 @@ def _builder_sections(script: str, function: str, **kwargs: Any) -> tuple[InfSec
 
 
 def _native_template() -> SecurityTemplate:
+    """As parsed, ``raw_text`` and all: the lossless path is checked too (Sol
+    final-r9 B2 -- round 8's test blanked it and so never exercised it)."""
     text = (ROOT / "tests/fixtures/native-security-template-gpmc/gpttmpl.inf.txt").read_text(
         encoding="utf-8"
     )
-    body = text[text.index("[Unicode]") :]
-    return replace(parse_security_template(body), raw_text="")
+    return parse_security_template(text[text.index("[Unicode]") :])
 
 
 def _inf_corpus() -> Iterator[tuple[str, SecurityTemplate]]:
@@ -285,16 +289,48 @@ def _inf_corpus() -> Iterator[tuple[str, SecurityTemplate]]:
         ),
     )
     yield "native GptTmpl.inf", _native_template()
+    yield "native GptTmpl.inf, normalized", replace(_native_template(), raw_text="")
 
 
-def test_every_inf_section_the_writer_emits_is_classified() -> None:
+def _inf_keys(corpus: Iterator[tuple[str, SecurityTemplate]]) -> set[tuple[str, str]]:
+    return {
+        (section.name, key)
+        for _source, template in corpus
+        for section in template.sections
+        for key, _value in section.entries
+    }
+
+
+def test_every_inf_section_and_key_the_writer_emits_is_classified() -> None:
+    """Key-derived (Sol final-r9 B2): a new setting name is a decision."""
     seen = set()
     for source, template in _inf_corpus():
         assert template_problems(template) == [], source
         format_security_template(template)
         seen |= {section.name.casefold() for section in template.sections}
     assert seen <= set(INF_SECTIONS), sorted(seen - set(INF_SECTIONS))
+    assert seen <= set(INF_KEYS), sorted(seen - set(INF_KEYS))
     assert {"privilege rights", "group membership", "service general setting"} <= seen
+    keys = _inf_keys(_inf_corpus())
+    assert len(keys) > 30
+    unclassified = sorted(k for k in keys if inf_key_problem(*k) is not None)
+    assert not unclassified, unclassified
+
+
+def test_a_planted_inf_key_fails_the_inventory() -> None:
+    """Sol's plant: ``ReviewPlant = 1`` in a real corpus template."""
+    _source, template = next(_inf_corpus())
+    planted = tuple(
+        InfSection(s.name, (*s.entries, ("ReviewPlant", "1")), s.unknown_lines)
+        if s.name == "System Access"
+        else s
+        for s in template.sections
+    )
+    keys = _inf_keys(iter([("planted", SecurityTemplate(sections=planted))]))
+    assert ("System Access", "ReviewPlant") in keys
+    assert inf_key_problem("System Access", "ReviewPlant") is not None
+    with pytest.raises(SecurityTemplateError):
+        format_security_template(SecurityTemplate(sections=planted))
 
 
 def _script_policy() -> ScriptPolicy:
@@ -329,13 +365,13 @@ def test_every_plan_parameter_is_classified(monkeypatch: pytest.MonkeyPatch) -> 
     """Recorded from the writer: every quoted argument names its parameter, and
     the table holds exactly the parameters the plan uses."""
     seen: set[str] = set()
-    original = export._ps_quote
+    original = export.ps_literal
 
-    def recording(value: str, parameter: str) -> str:
+    def recording(value: str, parameter: str, **kwargs: Any) -> str:
         seen.add(parameter)
-        return original(value, parameter)
+        return original(value, parameter, **kwargs)
 
-    monkeypatch.setattr(export, "_ps_quote", recording)
+    monkeypatch.setattr(export, "ps_literal", recording)
     for gpo in (*_baseline_gpos(), _plan_gpo(), _plan_gpo(description="")):
         plan = export.powershell_plan(gpo)
         assert validate_plan(plan).valid, gpo.name
@@ -377,13 +413,14 @@ def test_a_principal_cannot_add_a_privilege_line(client: TestClient, shape: str)
     response = client.post(_RIGHTS_URL, json=_rights("SeBackupPrivilege", [injected]))
     assert response.status_code == 422, response.text
     # And the writer, handed the same value directly, refuses it too.
+    # The family writer refuses it before joining (final-r9 N2) ...
     family = UserRightsFamily(assignments=(PrivilegeRight("SeBackupPrivilege", (injected,)),))
-    sections = tuple(
-        InfSection(name, tuple(entries.items()))
-        for name, entries in family.to_template_entries().items()
-    )
     with pytest.raises(SecurityTemplateError):
-        format_security_template(SecurityTemplate(sections=sections))
+        family.to_template_entries()
+    # ... and the INF writer, handed the joined value directly, refuses it too.
+    section = InfSection("Privilege Rights", (("SeBackupPrivilege", injected),))
+    with pytest.raises(SecurityTemplateError):
+        format_security_template(SecurityTemplate(sections=(section,)))
 
 
 @pytest.mark.parametrize(
@@ -623,7 +660,7 @@ def test_every_powershell_single_quote_is_doubled(quote: str) -> None:
 def test_a_plan_argument_is_one_line(parameter: str, shape: str) -> None:
     value = "Example" + CONTROL_SHAPES[shape] + "Remove-GPO -All"
     with pytest.raises(EmitError):
-        export._ps_quote(value, parameter)
+        ps_literal(value, parameter)
 
 
 @pytest.mark.parametrize(
@@ -640,7 +677,7 @@ def test_a_plan_argument_is_one_line(parameter: str, shape: str) -> None:
         pytest.param(
             _plan_gpo(
                 settings=(
-                    RegistrySetting("s1", "computer", "HKLM", "Software\\A;B", "V", "REG_SZ", "x"),
+                    RegistrySetting("s1", "computer", "HKLM", "Software\\A\nB", "V", "REG_SZ", "x"),
                 )
             ),
             id="registry-key",
@@ -654,8 +691,10 @@ def test_powershell_plan_validates_its_own_input(gpo: GPO) -> None:
 
 
 def test_comment_and_registry_data_may_span_lines() -> None:
+    """Written as [char] codes, so each statement stays one physical line
+    (`tests/test_powershell_execution.py` runs it and reads the value back)."""
     plan = export.powershell_plan(_plan_gpo())
-    assert "-Comment 'Line one\nLine two'" in plan
+    assert "-Comment ('Line one' + [char]0x000A + 'Line two')" in plan
     assert validate_plan(plan).valid
 
 
@@ -670,11 +709,49 @@ def test_a_comment_line_cannot_be_ended() -> None:
 
 
 @pytest.mark.parametrize("field", ["key", "value_name"])
-@pytest.mark.parametrize("bad", ["A;B", "A\x00B", "A\nB", "A B"])
-def test_a_registry_pol_name_holds_no_separator(field: str, bad: str) -> None:
+def test_a_registry_pol_name_holds_no_nul(field: str) -> None:
     setting = RegistrySetting("s", "computer", "HKLM", "Software\\X", "V", "REG_SZ", "x")
     with pytest.raises(EmitError):
-        serialize_pol([replace(setting, **{field: bad})])
+        serialize_pol([replace(setting, **{field: "A\x00B"})])
+
+
+@pytest.mark.parametrize(
+    ("key", "name"),
+    [("Software\\Example;Branch", "Value;Name"), ("Software\\X", "\u3b00"), ("A;", ";")],
+)
+def test_a_semicolon_in_a_registry_pol_name_is_data(key: str, name: str) -> None:
+    """Sol final-r9 B1: MS-GPREG 2.2.1's IdCharacter and ValueCharacter include
+    ';', and the field is NUL-terminated, so a ';' before the NUL is data. A
+    character whose UTF-16 bytes contain 3B 00 must not split the field either."""
+    setting = RegistrySetting("s", "computer", "HKLM", key, name, "REG_SZ", "x;y")
+    (record,) = parse_pol(serialize_pol([setting]))
+    assert (record.key, record.value_name, record.value) == (key, name, "x;y")
+
+
+def test_a_hand_built_preg_record_with_a_semicolon_reads() -> None:
+    """The wire bytes as MS-GPREG lays them out, not Studio's writer."""
+    import struct
+
+    def text(value: str) -> bytes:
+        return (value + "\0").encode("utf-16le")
+
+    sep = ";".encode("utf-16le")
+    data = "v".encode("utf-16le") + b"\0\0"
+    record = (
+        "[".encode("utf-16le")
+        + text("Software\\A;B")
+        + sep
+        + text("V;1")
+        + sep
+        + struct.pack("<I", 1)
+        + sep
+        + struct.pack("<I", len(data))
+        + sep
+        + data
+        + "]".encode("utf-16le")
+    )
+    (parsed,) = parse_pol(b"PReg" + struct.pack("<I", 1) + record)
+    assert (parsed.key, parsed.value_name, parsed.value) == ("Software\\A;B", "V;1", "v")
 
 
 def test_registry_pol_data_is_length_encoded() -> None:
@@ -789,3 +866,301 @@ def test_a_multi_valued_rdn_is_a_dn(dn: str, valid: bool) -> None:
 
 def test_baseline_collections_exist() -> None:
     assert sum(1 for _ in baseline_collections()) > 10
+
+
+# ===========================================================================
+# Final-r9 probes
+# ===========================================================================
+
+
+def test_the_lossless_inf_path_is_checked_too() -> None:
+    """Sol B2: an unchanged parsed template was returned verbatim, before any check."""
+    text = (
+        '[Unicode]\nUnicode=yes\n[Version]\nsignature="$CHICAGO$"\nRevision=1\n'
+        "[Privilege Rights]\nSeBackupPrivilege = *S-1-5-32-544‮X\n"
+    )
+    template = parse_security_template(text)
+    assert template.raw_text
+    with pytest.raises(SecurityTemplateError):
+        format_security_template(template)
+
+
+@pytest.mark.parametrize(
+    ("section", "lines"),
+    [
+        ("Version", ("[Privilege Rights]", "SeDebugPrivilege = *S-1-5-18")),
+        ("Privilege Rights", ("SeDebugPrivilege = *S-1-5-18",)),
+        ("Registry Keys", ('"MACHINE\\Software\\X",0,"D:(A;;KA;;;BA)"', "[Privilege Rights]")),
+        ("Registry Keys", ("MACHINE\\Software\\X,0,D:(A;;KA;;;WD)",)),
+        ("System Access", ("MinimumPasswordAge \\",)),
+    ],
+    ids=["header-then-entry", "entry", "header-in-row-section", "unquoted-row", "continuation"],
+)
+def test_a_preserved_line_cannot_become_structure(section: str, lines: tuple[str, ...]) -> None:
+    """Sol B2: preserved lines were checked only for control characters, so a
+    `[Privilege Rights]` line and an entry after it became an active grant."""
+    template = SecurityTemplate(
+        sections=(
+            InfSection("Version", (("signature", '"$CHICAGO$"'),)),
+            InfSection(section, (), lines),
+        )
+    )
+    assert template_problems(template), lines
+    with pytest.raises(SecurityTemplateError):
+        format_security_template(template)
+
+
+def test_a_preserved_comment_and_a_preserved_row_still_write() -> None:
+    row = '"MACHINE\\Software\\X",0,"D:(A;;KA;;;BA)"'
+    template = SecurityTemplate(
+        sections=(
+            InfSection("Version", (("signature", '"$CHICAGO$"'),), ("; a comment = fine",)),
+            InfSection("Registry Keys", (), (row,)),
+        )
+    )
+    text = format_security_template(template)
+    assert row in text.splitlines() and "; a comment = fine" in text.splitlines()
+
+
+def test_a_comma_in_one_principal_is_refused_before_the_join() -> None:
+    """DeepSeek N2: once joined, `LAB\\A,LAB\\B` reads as two principals."""
+    family = UserRightsFamily(
+        assignments=(PrivilegeRight("SeBackupPrivilege", ("LAB\\A,LAB\\B",)),)
+    )
+    with pytest.raises(SecurityTemplateError):
+        family.to_template_entries()
+
+
+def test_a_comma_in_a_restricted_group_member_is_refused() -> None:
+    from gpo_studio.object_security import (
+        RestrictedGroup,
+        RestrictedGroupMember,
+        RestrictedGroupsFamily,
+    )
+
+    group = RestrictedGroup(
+        group_sid="S-1-5-32-544",
+        members=(RestrictedGroupMember(sid="LAB\\A,LAB\\B"),),
+    )
+    with pytest.raises(SecurityTemplateError):
+        RestrictedGroupsFamily(groups=(group,)).to_template_entries()
+
+
+def test_an_empty_row_value_is_refused() -> None:
+    """DeepSeek N4: `"Spooler",` is not a row."""
+    template = SecurityTemplate(
+        sections=(InfSection("Service General Setting", (("Spooler", ""),)),)
+    )
+    assert any("row value" in p.problem for p in template_problems(template))
+
+
+def test_an_empty_service_row_is_refused_at_the_api(client: TestClient) -> None:
+    response = client.post(_OBJECTS_URL, json={"services": [{"service_name": "Spooler"}]})
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "unwritable_template_value"
+
+
+def test_an_empty_security_option_value_is_refused(client: TestClient) -> None:
+    body = {"security_options": {"options": [{"key": "MACHINE\\Software\\X", "value": ""}]}}
+    assert client.post(_RIGHTS_URL, json=body).status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("url", "body"),
+    [
+        (_RIGHTS_URL, _rights("SeBackupPrivilege\nSeDebugPrivilege", ["*S-1-5-32-544"])),
+        (_RIGHTS_URL, _rights("SeBackupPrivilege", ["*S-1-5-32-544\n"])),
+        (_OBJECTS_URL, {"services": [{"service_name": "Spooler\nX", "startup_mode": "automatic"}]}),
+    ],
+    ids=["right-name", "principal", "service-name"],
+)
+def test_a_render_refusal_carries_its_documented_code(
+    client: TestClient, url: str, body: dict[str, Any]
+) -> None:
+    """Sol N1: the request model refused first and answered without a code."""
+    response = client.post(url, json=body)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "unwritable_template_value"
+
+
+@pytest.mark.parametrize("offset", ["+14:59", "+14:01", "-14:30"])
+def test_no_offset_past_fourteen_hours(offset: str) -> None:
+    """DeepSeek N5."""
+    assert datetime_problem(f"2026-01-01T00:00:00{offset}") is not None
+
+
+def _new_gpo(client: TestClient) -> dict[str, Any]:
+    return client.post(
+        "/api/gpos", json={"name": "Writer probe", "actor": "probe", "reason": "r9"}
+    ).json()["gpo"]
+
+
+def _add_setting(client: TestClient, gpo: dict[str, Any], **setting: Any) -> Any:
+    body = {
+        "side": "computer",
+        "hive": "HKLM",
+        "key": "Software\\Example",
+        "value_name": "Value",
+        "registry_type": "REG_SZ",
+        "value": "x",
+        **setting,
+    }
+    return client.post(
+        f"/api/gpos/{gpo['guid']}/settings",
+        json={
+            "setting": body,
+            "actor": "probe",
+            "reason": "r9",
+            "expected_revision": gpo["revision"],
+        },
+    )
+
+
+def _exports(client: TestClient, guid: str) -> dict[str, int]:
+    return {
+        route: client.get(f"/api/gpos/{guid}/{route}").status_code
+        for route in ("export.zip", "gpmc-backup", "plan.ps1")
+    }
+
+
+def test_crlf_registry_data_is_accepted_end_to_end(client: TestClient) -> None:
+    """Sol B3: accepted, stored, advertised, and every export writes it."""
+    gpo = _new_gpo(client)
+    added = _add_setting(client, gpo, value_name="LegalNoticeText", value="Line one\r\nLine two")
+    assert added.status_code == 201, added.text
+    capabilities = added.json()["artifact_capabilities"]
+    assert all(
+        capabilities[name]["enabled"]
+        for name in ("studio_export", "gpmc_export", "powershell_plan")
+    ), capabilities
+    assert _exports(client, gpo["guid"]) == {"export.zip": 200, "gpmc-backup": 200, "plan.ps1": 200}
+    plan = client.get(f"/api/gpos/{gpo['guid']}/plan.ps1").text
+    assert "[char]0x000D + [char]0x000A" in plan
+
+
+def test_a_semicolon_registry_name_is_accepted_end_to_end(client: TestClient) -> None:
+    """Sol B1: through the API, into both exports, and back out of Registry.pol."""
+    gpo = _new_gpo(client)
+    added = _add_setting(client, gpo, key="Software\\Example;Branch", value_name="Value;Name")
+    assert added.status_code == 201, added.text
+    assert _exports(client, gpo["guid"]) == {"export.zip": 200, "gpmc-backup": 200, "plan.ps1": 200}
+    archive = zipfile.ZipFile(io.BytesIO(client.get(f"/api/gpos/{gpo['guid']}/export.zip").content))
+    (record,) = parse_pol(archive.read("Machine/Registry.pol"))
+    assert (record.key, record.value_name) == ("Software\\Example;Branch", "Value;Name")
+
+
+def test_a_description_with_a_format_character_gets_a_plan(client: TestClient) -> None:
+    """DeepSeek N6: advertised enabled, then refused. It is now written, as [char]."""
+    gpo = client.post(
+        "/api/gpos",
+        json={"name": "Zw", "description": "line one​line two", "actor": "p", "reason": "r9"},
+    ).json()
+    capabilities = gpo["artifact_capabilities"]
+    assert capabilities["powershell_plan"]["enabled"], capabilities
+    assert client.get(f"/api/gpos/{gpo['gpo']['guid']}/plan.ps1").status_code == 200
+
+
+#: Stored before final-r9's rules: each is something a writer now refuses.
+_LEGACY = {
+    "nul-data": RegistrySetting(
+        "s1", "computer", "HKLM", "Software\\Example", "V", "REG_SZ", "a\x00b"
+    ),
+    "line-break-key": RegistrySetting(
+        "s1", "computer", "HKLM", "Software\\A\nB", "V", "REG_SZ", "x"
+    ),
+}
+
+
+@pytest.mark.parametrize("legacy", sorted(_LEGACY))
+def test_a_legacy_value_a_writer_refuses_never_breaks_a_read(legacy: str) -> None:
+    """DeepSeek B2: `native_backup_refusal` let EmitError out, so the GPO's own
+    detail read and every mutation response after commit answered 422."""
+    from gpo_studio.api import _gpo_payload
+
+    gpo = replace(_plan_gpo(settings=()), settings=(_LEGACY[legacy],))
+    payload = _gpo_payload(gpo)  # must not raise
+    capabilities = payload["artifact_capabilities"]
+    for name in ("studio_export", "gpmc_export", "powershell_plan"):
+        assert capabilities[name]["enabled"] is False, (name, capabilities[name])
+    assert payload["validation"], "the read names what to repair"
+    # Each refusal is reported, never raised, whichever layer refuses.
+    for refusal in (
+        export.native_backup_refusal,
+        export.plan_refusal,
+        export.studio_export_refusal,
+    ):
+        refusal(gpo)
+
+
+def test_a_legacy_gpo_reads_and_takes_an_unrelated_edit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The HTTP contract: GET is 200, and a valid edit commits AND answers 200."""
+    gpo = _new_gpo(client)
+    added = _add_setting(client, gpo)
+    assert added.status_code == 201
+    store = app.state.store
+    original = store.get_gpo
+
+    def legacy(guid: str) -> GPO:
+        stored = original(guid)
+        return replace(stored, settings=(*stored.settings, _LEGACY["nul-data"]))
+
+    monkeypatch.setattr(store, "get_gpo", legacy)
+    read = client.get(f"/api/gpos/{gpo['guid']}")
+    assert read.status_code == 200, read.text
+    assert read.json()["artifact_capabilities"]["gpmc_export"]["enabled"] is False
+    assert client.get(f"/api/gpos/{gpo['guid']}/gpmc-backup").status_code == 422
+
+
+@pytest.mark.parametrize("writer", ["_gpmc_preg_bytes", "serialize", "ps_literal", "check_xml"])
+def test_any_writer_refusal_is_reported_by_the_read_not_raised(
+    monkeypatch: pytest.MonkeyPatch, writer: str
+) -> None:
+    """DeepSeek B2 as a class: whichever writer refuses -- Registry.pol in the
+    backup or the bundle, a plan argument, a backup document -- the GPO payload
+    (every read and every mutation response) reports it and does not raise."""
+    from gpo_studio.api import _gpo_payload
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise EmitError([emit_integrity.EmitProblem("probe", writer, "x", "refused by probe")])
+
+    monkeypatch.setattr(export, writer, refuse)
+    payload = _gpo_payload(_plan_gpo())  # a valid GPO: only the writer refuses
+    capabilities = payload["artifact_capabilities"]
+    refused = [
+        name
+        for name in ("studio_export", "gpmc_export", "powershell_plan")
+        if not capabilities[name]["enabled"]
+    ]
+    assert refused, capabilities
+    for name in refused:
+        assert "refused by probe" in capabilities[name]["reason"], capabilities[name]
+
+
+@pytest.mark.parametrize("quote", list(emit_integrity.PS_SINGLE_QUOTES))
+def test_the_discovery_routes_double_every_quote(client: TestClient, quote: str) -> None:
+    """DeepSeek B1 through the real routes (`tests/test_powershell_execution.py`
+    runs the scripts themselves)."""
+    domain = f"lab{quote} ) ; Write-Output PWNED ; #"
+    for route in ("domain", "gpos"):
+        response = client.get(f"/api/discovery/{route}/script", params={"domain": domain})
+        assert response.status_code == 200, response.text
+        script = response.json()["script"]
+        assert f"'lab{quote}{quote} ) ; Write-Output PWNED ; #'" in script
+
+
+@pytest.mark.parametrize(
+    ("route", "params"),
+    [
+        ("ous", {"domain": "lab.test", "search_base": "not a DN"}),
+        ("principals", {"q": "x", "object_class": "user)(cn=*"}),
+        ("domain", {"domain": "lab\nWrite-Output x"}),
+    ],
+)
+def test_a_discovery_value_of_the_wrong_kind_is_a_422(
+    client: TestClient, route: str, params: dict[str, str]
+) -> None:
+    response = client.get(f"/api/discovery/{route}/script", params=params)
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "unwritable_artifact_value"

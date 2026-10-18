@@ -34,6 +34,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response as StarletteResponse
@@ -90,6 +91,7 @@ from .export import (
     native_backup_refusal,
     plan_refusal,
     powershell_plan,
+    studio_export_refusal,
 )
 from .fdeploy import (
     FLAGS_ARE_UNDECODED,
@@ -233,6 +235,7 @@ from .security_template import (
     InfSection,
     PrivilegeRight,
     SecurityTemplate,
+    SecurityTemplateError,
     encode_security_template,
     format_security_template,
     template_issues,
@@ -2012,6 +2015,10 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     # so the same refusal takes the bundle with it.
     plan_blocked = plan_refusal(gpo)
     plan_reason = plan_blocked.message if plan_blocked is not None else ""
+    # The bundle writes Registry.pol and every preference file besides the plan,
+    # so it is asked of its own writer (final-r9).
+    studio_blocked = studio_export_refusal(gpo)
+    studio_reason = studio_blocked.message if studio_blocked is not None else ""
     unknown_cse = _unknown_cse_refusal(gpo)
     # WI-046. Same class as WI-044, one capability along: the GMPC backup path
     # refuses GPP families outside `_GPP_EXTENSION_PROFILES` (Registry was among
@@ -2032,9 +2039,9 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
         "review_model_sha256": None if unwritable else review_model_sha256(gpo),
         "artifact_capabilities": {
             "studio_export": {
-                "enabled": not blocked and plan_blocked is None,
+                "enabled": not blocked and studio_blocked is None,
                 "format": "zip",
-                "reason": plan_reason,
+                "reason": studio_reason,
             },
             "gpmc_export": {
                 "enabled": not blocked and unknown_cse is None and backup_blocked is None,
@@ -2522,6 +2529,17 @@ async def gpp_error(request: Request, error: GppError) -> JSONResponse:
     return JSONResponse(_error_body(request, detail), status_code=422)
 
 
+@app.exception_handler(SecurityTemplateError)
+async def security_template_error(
+    request: Request, error: SecurityTemplateError
+) -> JSONResponse:
+    """A template the INF writer refuses is a 422 with the render routes' code,
+    whichever layer refuses it (the family writers check before joining a list,
+    final-r9 N2)."""
+    detail: dict[str, Any] = {"message": str(error), "code": "unwritable_template_value"}
+    return JSONResponse(_error_body(request, detail), status_code=422)
+
+
 @app.exception_handler(EmitError)
 async def emit_error(request: Request, error: EmitError) -> JSONResponse:
     """A value a writer will not emit is a 422 naming each value, not a 500.
@@ -2625,16 +2643,18 @@ async def http_exception(request: Request, error: StarletteHTTPException) -> Res
 
 @app.exception_handler(RequestValidationError)
 async def request_validation(request: Request, error: RequestValidationError) -> JSONResponse:
-    return JSONResponse(
-        _error_body(
-            request,
-            {
-                "message": "Invalid request",
-                "issues": _sanitize_validation_issues(error.errors()),
-            },
-        ),
-        status_code=422,
-    )
+    detail: dict[str, Any] = {
+        "message": "Invalid request",
+        "issues": _sanitize_validation_issues(error.errors()),
+    }
+    # A value a writer would refuse, caught at the request model: the same code
+    # the writer's own refusal carries.
+    if any(
+        isinstance(item, dict) and item.get("type") == "unwritable_template_value"
+        for item in error.errors()
+    ):
+        detail["code"] = "unwritable_template_value"
+    return JSONResponse(_error_body(request, detail), status_code=422)
 
 
 @app.get("/", include_in_schema=False)
@@ -4609,7 +4629,14 @@ def _template_value(value: str, problem: str | None, what: str) -> str:
     them again as it writes.
     """
     if problem is not None:
-        raise ValueError(f"{what} {value!r} {problem}")
+        # A typed error, so the 422 carries the code the route documents
+        # (`unwritable_template_value`) rather than a bare "Invalid request"
+        # (Sol final-r9 N1).
+        raise PydanticCustomError(
+            "unwritable_template_value",
+            "{what} {value} {problem}",
+            {"what": what, "value": repr(value), "problem": problem},
+        )
     return value
 
 
@@ -4654,7 +4681,7 @@ class SecurityOptionData(BaseModel):
     #: The native `type,value` spelling -- `4,1` for a DWORD, `7,alpha,beta`
     #: for a MULTI_SZ. All four types in the lane's candidate returned from
     #: `secedit` byte-identical.
-    value: str = Field(default="", max_length=4096)
+    value: str = Field(min_length=1, max_length=4096)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -5009,6 +5036,18 @@ class ObjectSecurityServiceData(BaseModel):
     @classmethod
     def _sddl(cls, value: str) -> str:
         return _template_value(value, _quoted_field_problem(value), "service descriptor")
+
+    @model_validator(mode="after")
+    def _a_row_says_something(self) -> ObjectSecurityServiceData:
+        # `"Spooler",` is not the measured `"name",code,"descriptor"` row
+        # (DeepSeek final-r9 N4).
+        if self.startup_mode is None and not self.raw_sddl:
+            raise PydanticCustomError(
+                "unwritable_template_value",
+                "service {name} has neither a startup mode nor a descriptor",
+                {"name": repr(self.service_name)},
+            )
+        return self
 
 
 class ObjectSecurityRenderRequest(BaseModel):

@@ -120,9 +120,9 @@ def test_parse_rejects_excessive_multi_sz_items(monkeypatch) -> None:
     raw_value = ("\0".join(items) + "\0\0").encode("utf-16le")
     record_bytes = (
         "[".encode("utf-16le")
-        + "K".encode("utf-16le")
+        + "K\0".encode("utf-16le")  # names are NUL-terminated (MS-GPREG 2.2.1)
         + ";".encode("utf-16le")
-        + "V".encode("utf-16le")
+        + "V\0".encode("utf-16le")
         + ";".encode("utf-16le")
         + struct.pack("<I", 7)
         + ";".encode("utf-16le")

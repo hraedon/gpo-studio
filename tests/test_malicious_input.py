@@ -59,8 +59,8 @@ def test_parse_truncated_record() -> None:
 
 
 def test_parse_missing_separator() -> None:
-    key = r"Software\Test".encode("utf-16le")
-    name = "Value".encode("utf-16le")
+    key = (r"Software\Test" + "\0").encode("utf-16le")  # NUL-terminated (MS-GPREG)
+    name = "Value\0".encode("utf-16le")
     type_code = struct.pack("<I", 4)
     bad = _PREG_HEADER + _OPEN + key + _SEP + name + _SEP + type_code + b"\xFF\xFF"
     with pytest.raises(RegistryPolError, match="separator"):
@@ -68,8 +68,8 @@ def test_parse_missing_separator() -> None:
 
 
 def test_parse_oversized_data_size() -> None:
-    key = r"Software\Test".encode("utf-16le")
-    name = "Value".encode("utf-16le")
+    key = (r"Software\Test" + "\0").encode("utf-16le")  # NUL-terminated (MS-GPREG)
+    name = "Value\0".encode("utf-16le")
     type_code = struct.pack("<I", 4)
     huge_size = struct.pack("<I", 20 * 1024 * 1024)
     bad = (

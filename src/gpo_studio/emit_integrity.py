@@ -9,22 +9,26 @@ every name and value it emits as it emits it, against one table per format
 here, and refuses what does not fit. A refusal is an error everywhere: the
 store refuses the mutation, an export or render answers 422.
 
-The writers (``tests/test_emit_integrity.py`` runs each over the native
-captures and synthetic inputs and fails on any emitted name not classified
-below):
+The writers are :data:`ARTIFACT_WRITERS`, and that list is not kept by hand:
+``tests/test_writer_discovery.py`` reads the source for every function that
+builds PowerShell, INI/INF, serialized XML, Registry.pol, UTF-16 text or
+delimited records, or defines a quoting helper, and fails on one not
+registered (final-r9: the AD discovery scripts were a PowerShell writer a
+hand-kept list missed). In outline:
 
 * ``gpp.serialize_gpp`` -- GPP XML, typed and retained items and imported
   files alike: :data:`GPP_XML`;
 * ``export._xml_to_bytes`` -- the GPMC backup documents ``Backup.xml``,
   ``bkupInfo.xml`` and ``manifest.xml``: :data:`BACKUP_XML`;
 * ``security_template.format_security_template`` -- ``GptTmpl.inf`` for the
-  policy-family and object-security render endpoints: :data:`INF_SECTIONS`
-  and :func:`inf_problems`;
+  policy-family and object-security render endpoints: :data:`INF_SECTIONS`,
+  :data:`INF_KEYS` and :func:`inf_problems`, the lossless path included;
 * ``export._native_ini_bytes`` -- ``scripts.ini`` / ``psscripts.ini``:
   :data:`SCRIPTS_INI`;
-* ``export.powershell_plan`` (``plan.ps1`` and ``apply.ps1``) -- every quoted
-  argument through ``export._ps_quote``: :data:`PS_PARAMETERS`; comments
-  through :func:`escape_line`;
+* PowerShell -- the plan (``plan.ps1``, ``apply.ps1``) and the AD discovery
+  scripts -- every value through :func:`ps_literal`, the one quoting
+  primitive (:data:`PS_PARAMETERS`, :data:`DISCOVERY_PARAMETERS`); plan
+  comments through :func:`escape_line`;
 * ``registry_pol.serialize`` -- ``Registry.pol``: :data:`REGISTRY_POL`;
 * ``firewall_policy`` rule strings (``|``-delimited REG_SZ values, then
   ``Registry.pol`` and the plan): one line, no ``|``;
@@ -43,11 +47,13 @@ explicitly, each documented where it is allowed:
   emits as ``&#9;``/``&#10;`` in attributes and reads back exactly. Allowed
   only in values classified ``text`` (a description, a message body); every
   other XML value is ``line``. CR is never allowed: XML reads it back as LF.
-* PowerShell single-quoted literals: TAB and LF are part of the literal and
-  read back exactly; allowed only for ``-Comment`` and registry data.
-* ``Registry.pol`` value data: length-prefixed UTF-16, so every character but
-  the terminating NUL is encoded; key and value names are NUL-terminated and
-  ``;``-separated, so they refuse both.
+* PowerShell: a ``text`` value (``-Comment``, registry data) may hold any
+  character; each control, format or separator character is written as a
+  ``[char]0xNNNN`` term of a concatenation, so a CRLF in registry data is
+  carried exactly and every statement stays one physical line.
+* ``Registry.pol``: names are NUL-terminated UTF-16 followed by ``;``, so a
+  ``;`` in a name is data (MS-GPREG 2.2.1) and only NUL is refused; value data
+  is length-prefixed, so every character but NUL is encoded.
 * The plain-text report: a refused character is written as a visible
   ``\\uXXXX`` escape, so a value can never start a line of its own.
 
@@ -61,7 +67,7 @@ import re
 import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, assert_never, get_args
 
 from .identity_values import (
     date_problem,
@@ -78,6 +84,66 @@ from .xml_safety import parse_xml_bounded
 
 #: Categories no emitted value may hold (outside the documented encodings).
 _LINE_BREAKING = frozenset({"Cc", "Cf", "Zl", "Zp", "Cs"})
+
+#: Every function under ``src/gpo_studio`` that writes artifact text, and the
+#: check it runs. ``tests/test_writer_discovery.py`` finds writers by reading
+#: the source (PowerShell, INI/INF, XML serialization, Registry.pol, UTF-16
+#: text, delimited records, quoting helpers) and fails on any not listed here
+#: or in its own list of functions the scan flags that write nothing. Final-r9
+#: found a PowerShell writer (the AD discovery scripts) that a hand-kept list
+#: had missed; this makes "every writer" a property the tests hold.
+_GPP = "GPP XML, inside gpp.serialize_gpp, which checks every file against GPP_XML"
+_DISCOVERY = "PowerShell; every param() default through ps_literal (DISCOVERY_PARAMETERS)"
+ARTIFACT_WRITERS: Mapping[str, str] = {
+    "ad_discovery.discovery_script_forest": "PowerShell; constant text, no input",
+    "ad_discovery.discovery_script_sites": "PowerShell; constant text, no input",
+    "ad_discovery.discovery_script_domain": _DISCOVERY,
+    "ad_discovery.discovery_script_ous": _DISCOVERY,
+    "ad_discovery.discovery_script_gpos": _DISCOVERY,
+    "ad_discovery.discovery_script_principal_search": _DISCOVERY,
+    "emit_integrity.ps_literal": "the PowerShell quoting primitive",
+    "emit_integrity._ps_single_quoted": "ps_literal's single-quoting step",
+    "export.powershell_plan": (
+        "PowerShell plan; every argument through ps_literal (PS_PARAMETERS), "
+        "comments through escape_line"
+    ),
+    "export._native_ini_bytes": "scripts.ini / psscripts.ini; scripts_ini_problems",
+    "export._xml_to_bytes": "GPMC backup documents; check_xml(BACKUP_XML)",
+    "firewall_policy.to_registry_settings": "firewall rule strings; each field through _safe_text",
+    "gpp._serialize_gpp_file": _GPP,
+    "gpp.retained_rendering": _GPP,
+    "gpp_native.native_element_xml": _GPP,
+    "gpp_adapters._typed_task_payload": _GPP,
+    "gpp_adapters.serialize_gpp_environment": _GPP,
+    "gpp_adapters.serialize_gpp_ini_files": _GPP,
+    "gpp_adapters.serialize_gpp_regional_options": _GPP,
+    "gpp_adapters.serialize_gpp_power_options": _GPP,
+    "gpp_adapters.serialize_gpp_devices": _GPP,
+    "gpp_adapters.serialize_gpp_folder_options": _GPP,
+    "gpp_adapters.serialize_gpp_data_sources": _GPP,
+    "gpp_adapters.serialize_gpp_drives": _GPP,
+    "gpp_adapters.serialize_gpp_files": _GPP,
+    "gpp_adapters.serialize_gpp_folders": _GPP,
+    "gpp_adapters.serialize_gpp_network_shares": _GPP,
+    "gpp_adapters.serialize_gpp_printers": _GPP,
+    "gpp_adapters.serialize_gpp_shortcuts": _GPP,
+    "gpp_adapters.serialize_gpp_applications": _GPP,
+    "gpp_adapters.serialize_gpp_services": _GPP,
+    "gpp_adapters.serialize_gpp_local_users": _GPP,
+    "gpp_adapters.serialize_gpp_local_groups": _GPP,
+    "gpp_adapters.serialize_gpp_scheduled_tasks": _GPP,
+    "gpp_adapters.serialize_gpp_immediate_tasks": _GPP,
+    "registry_pol.serialize": "Registry.pol; _record_problems (NUL in a name or string)",
+    "report.policy_report": "report.txt; escape_line on every line",
+    "security_template.format_security_template": (
+        "GptTmpl.inf; template_problems before writing (the lossless path too), "
+        "then a read-back check"
+    ),
+    "security_template.encode_security_template": (
+        "GptTmpl.inf bytes of format_security_template's text"
+    ),
+}
+
 
 
 def _refused(value: str, allowed: str = "") -> list[str]:
@@ -123,7 +189,6 @@ def _pattern(pattern: re.Pattern[str], what: str) -> Callable[[str], str | None]
 Kind = Literal[
     "sid",
     "principal",
-    "security_principal",
     "name",
     "ou",
     "dn",
@@ -143,27 +208,55 @@ Kind = Literal[
     "text",
 ]
 
+
+def _check(kind: Kind) -> Callable[[str], str | None]:
+    """The check for *kind*. Exhaustive: a ``Kind`` added without a check is a
+    type error here, not a ``KeyError`` at the first value (DeepSeek final-r9 N7)."""
+    match kind:
+        case "sid":
+            return sid_problem
+        case "principal":
+            return principal_problem
+        case "name":
+            return name_problem
+        case "ou":
+            return lambda value: dn_problem(value, min_rdns=1)
+        case "dn":
+            return dn_problem
+        case "guid":
+            return guid_problem
+        case "braced_guid":
+            return lambda value: guid_problem(value, braces="required")
+        case "guid_list":
+            return _pattern(_GUID_LIST, "a list of bracketed GUID pairs")
+        case "time":
+            return time_problem
+        case "datetime":
+            return datetime_problem
+        case "date":
+            return date_problem
+        case "timestamp":
+            return _pattern(_TIMESTAMP, "a timestamp (YYYY-MM-DD H:MM:SS)")
+        case "flag":
+            return _pattern(_FLAG, "0 or 1")
+        case "token":
+            return _pattern(_TOKEN, "a token (letters, digits and _.:+-)")
+        case "number":
+            return _pattern(_NUMBER, "an integer")
+        case "hex_bytes":
+            return _pattern(_HEX_BYTES, "space-separated hexadecimal bytes")
+        case "right":
+            return _pattern(_RIGHT, "a user right constant (Se...)")
+        case "line":
+            return line_problem
+        case "text":
+            return text_problem
+        case _:
+            assert_never(kind)
+
+
 CHECKS: Mapping[Kind, Callable[[str], str | None]] = {
-    "sid": sid_problem,
-    "principal": principal_problem,
-    "security_principal": security_principal_problem,
-    "name": name_problem,
-    "ou": lambda value: dn_problem(value, min_rdns=1),
-    "dn": dn_problem,
-    "guid": guid_problem,
-    "braced_guid": lambda value: guid_problem(value, braces="required"),
-    "guid_list": _pattern(_GUID_LIST, "a list of bracketed GUID pairs"),
-    "time": time_problem,
-    "datetime": datetime_problem,
-    "date": date_problem,
-    "timestamp": _pattern(_TIMESTAMP, "a timestamp (YYYY-MM-DD H:MM:SS)"),
-    "flag": _pattern(_FLAG, "0 or 1"),
-    "token": _pattern(_TOKEN, "a token (letters, digits and _.:+-)"),
-    "number": _pattern(_NUMBER, "an integer"),
-    "hex_bytes": _pattern(_HEX_BYTES, "space-separated hexadecimal bytes"),
-    "right": _pattern(_RIGHT, "a user right constant (Se...)"),
-    "line": line_problem,
-    "text": text_problem,
+    kind: _check(kind) for kind in get_args(Kind)
 }
 
 
@@ -486,8 +579,54 @@ INF_SECTIONS: Mapping[str, tuple[Field, Field]] = {
     "service general setting": (Field("name"), _LINE),
     "group membership": (_LINE, _LINE),
 }
-#: ``[Registry Keys]`` and its kin: the value after the quoted key.
-_ROW_VALUE = re.compile(r'(?:[0-9]+,)?"[^"]*"|', re.ASCII)
+#: The keys each section may hold: a closed vocabulary where Windows defines
+#: one, a pattern where the key names a right, path, service or principal. The
+#: completeness test derives the keys the writers emit and requires each to be
+#: here, so a writer gaining a setting is a decision, not a silent addition
+#: (Sol final-r9 B2). The writer refuses a key outside its section's set too.
+INF_KEYS: Mapping[str, frozenset[str] | re.Pattern[str]] = {
+    "unicode": frozenset({"Unicode"}),
+    "version": frozenset({"signature", "Revision"}),
+    "system access": frozenset({
+        "MinimumPasswordAge", "MaximumPasswordAge", "MinimumPasswordLength",
+        "PasswordComplexity", "PasswordHistorySize", "LockoutBadCount",
+        "ResetLockoutCount", "LockoutDuration", "ClearTextPassword",
+    }),
+    "kerberos policy": frozenset({
+        "MaxTicketAge", "MaxRenewAge", "MaxServiceAge", "MaxClockSkew",
+        "TicketValidateClient",
+    }),
+    "event audit": frozenset({
+        "AuditSystemEvents", "AuditLogonEvents", "AuditObjectAccess",
+        "AuditPrivilegeUse", "AuditPolicyChange", "AuditAccountManage",
+        "AuditProcessTracking", "AuditDSAccess", "AuditAccountLogon",
+    }),
+    "privilege rights": _RIGHT,
+    "registry values": re.compile(r"(?:MACHINE|USER)\\.+"),
+    "registry keys": re.compile(r"(?:MACHINE|USERS|CLASSES_ROOT|CURRENT_USER)\\.+"),
+    "file security": re.compile(r".+"),
+    "service general setting": re.compile(r".+"),
+    "group membership": re.compile(r".+__Member(?:s|of)"),
+}
+
+
+def inf_key_problem(section: str, key: str) -> str | None:
+    """Why *key* is not a key of *section*, or ``None``."""
+    allowed = INF_KEYS.get(section.casefold())
+    if allowed is None:
+        return f"is in [{section}], a section Studio does not write"
+    if isinstance(allowed, frozenset):
+        # INF keys are case-insensitive, as the reader treats them.
+        known = {name.casefold() for name in allowed}
+        return None if key.casefold() in known else f"is not a [{section}] setting"
+    return None if allowed.fullmatch(key) else f"is not a [{section}] key"
+
+
+#: ``[Registry Keys]`` and its kin: the value after the quoted key -- a code and
+#: a quoted descriptor, or a descriptor alone. Never empty (DeepSeek final-r9 N4).
+_ROW_VALUE = re.compile(r'(?:[0-9]+,)?"[^"]*"', re.ASCII)
+#: A preserved row line in those sections, as Windows writes it.
+_ROW_LINE = re.compile(r'"[^"]*",[0-9]+,"[^"]*"', re.ASCII)
 
 
 def inf_problems(sections: tuple[tuple[str, tuple[tuple[str, str], ...], tuple[str, ...]], ...],
@@ -510,6 +649,7 @@ def inf_problems(sections: tuple[tuple[str, tuple[tuple[str, str], ...], tuple[s
         for key, value in entries:
             name = f"[{section}] {key}"
             note(name, key, value_problem(Field(key_field.kind, required=True), key))
+            note(name, key, inf_key_problem(section, key))
             note(name, value, value_problem(value_field, value))
             if key != key.strip() or value != value.strip():
                 note(name, f"{key}={value}", "has surrounding whitespace the INF reader strips")
@@ -534,7 +674,24 @@ def inf_problems(sections: tuple[tuple[str, tuple[tuple[str, str], ...], tuple[s
                 else:
                     note(name, group, security_principal_problem(group))
         for line in unknown_lines:
-            note(f"[{section}] (preserved line)", line, line_problem(line))
+            name = f"[{section}] (preserved line)"
+            note(name, line, line_problem(line))
+            stripped = line.strip()
+            if stripped.startswith(";"):
+                continue  # a comment stays a comment
+            # A preserved line must read back as what it is, never as structure:
+            # "[Privilege Rights]" then "SeDebugPrivilege = *S-1-5-18" became an
+            # active grant (Sol final-r9 B2).
+            if stripped.startswith("[") and stripped.endswith("]"):
+                note(name, line, "would read back as a section header")
+            elif "=" in stripped:
+                note(name, line, "would read back as a key = value entry")
+            elif row and not _ROW_LINE.fullmatch(stripped):
+                note(name, line, 'is not a row ("key",code,"descriptor")')
+            elif not row:
+                note(name, line, "is not a comment, and only row sections preserve rows")
+            if stripped.endswith("\\"):
+                note(name, line, "ends in a line-continuation backslash")
     return problems
 
 
@@ -578,10 +735,12 @@ def scripts_ini_problems(
 
 
 # ---------------------------------------------------------------------------
-# The PowerShell plan
+# PowerShell: the plan and the AD discovery scripts
 # ---------------------------------------------------------------------------
 
-#: Parameter (or assignment) -> what its quoted argument holds.
+#: The plan (`export.powershell_plan`): parameter or assignment -> what its
+#: argument holds. ``text`` values may hold any character: each control, format
+#: or separator character is written as ``[char]0xNNNN`` (see :func:`ps_literal`).
 PS_PARAMETERS: Mapping[str, Field] = {
     "Guid": Field("guid", required=True),
     "Name": Field("line", required=True),
@@ -593,16 +752,79 @@ PS_PARAMETERS: Mapping[str, Field] = {
     "Value": _TEXT,
     "desiredApply": Field("principal", required=True),
 }
+#: The AD discovery scripts (`ad_discovery.discovery_script_*`): each
+#: ``param()`` default. Empty means "not given" and is allowed.
+DISCOVERY_PARAMETERS: Mapping[str, Field] = {
+    "Domain": Field("name"),
+    "SearchBase": Field("dn"),
+    "SearchTerm": _LINE,
+    "ObjectClass": _TOKEN_F,
+}
 #: Every character PowerShell reads as a single quote: each is doubled inside a
 #: single-quoted literal, which is how PowerShell escapes any of them.
-PS_SINGLE_QUOTES = "'‘’‚‛"
+PS_SINGLE_QUOTES = "'\u2018\u2019\u201a\u201b"
+#: Characters a ``text`` literal writes as ``[char]`` codes rather than inline.
+_PS_ENCODED = frozenset({"Cc", "Cf", "Zl", "Zp", "Cs"})
 
 
-def ps_problem(parameter: str, value: str) -> str | None:
-    field = PS_PARAMETERS.get(parameter)
+def ps_problem(
+    parameter: str, value: str, table: Mapping[str, Field] = PS_PARAMETERS
+) -> str | None:
+    field = table.get(parameter)
     if field is None:
-        return f"is passed to {parameter}, which the plan does not classify"
+        return f"is passed to {parameter}, which the script does not classify"
+    if field.kind == "text":
+        return None  # every character is representable; see ps_literal
     return value_problem(field, value)
+
+
+def _ps_single_quoted(value: str) -> str:
+    return "'" + "".join(c + c if c in PS_SINGLE_QUOTES else c for c in value) + "'"
+
+
+def ps_literal(
+    value: str,
+    parameter: str,
+    *,
+    table: Mapping[str, Field] = PS_PARAMETERS,
+    where: str = "plan.ps1",
+) -> str:
+    """*value* as a PowerShell expression for *parameter*: the ONE quoting
+    primitive every PowerShell writer uses (final-r9).
+
+    The value is held to *table* first: a GUID must be a GUID, a link target a
+    DN, a principal a principal, and nothing but ``text`` may hold a control,
+    format or separator character. Then every character PowerShell reads as a
+    single quote -- ``'`` and the typographic U+2018 to U+201B -- is doubled
+    inside a single-quoted literal. A ``text`` value holding a control, format
+    or separator character (a CRLF in registry data, say) is written as a
+    concatenation, ``('Line one' + [char]0x000D + [char]0x000A + 'Line two')``,
+    so the plan stays one physical line per statement and carries the value
+    exactly whatever line endings the file is later given.
+    """
+    problem = ps_problem(parameter, value, table)
+    if problem is not None:
+        raise EmitError([EmitProblem(where, f"-{parameter}", value, problem)])
+    field = table[parameter]
+    if field.kind != "text" or not any(
+        unicodedata.category(c) in _PS_ENCODED for c in value
+    ):
+        return _ps_single_quoted(value)
+    pieces: list[str] = []
+    run: list[str] = []
+    for character in value:
+        if unicodedata.category(character) in _PS_ENCODED:
+            if run:
+                pieces.append(_ps_single_quoted("".join(run)))
+                run = []
+            pieces.append(f"[char]0x{ord(character):04X}")
+        else:
+            run.append(character)
+    if run:
+        pieces.append(_ps_single_quoted("".join(run)))
+    if not pieces[0].startswith("'"):
+        pieces.insert(0, "''")  # a string first, so + concatenates strings
+    return "(" + " + ".join(pieces) + ")"
 
 
 # ---------------------------------------------------------------------------
@@ -610,19 +832,24 @@ def ps_problem(parameter: str, value: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 REGISTRY_POL: Mapping[str, str] = {
-    "key": "NUL-terminated, ';'-separated: one line, no ';'",
-    "value_name": "NUL-terminated, ';'-separated: one line, no ';'",
+    "key": "UTF-16LE, NUL-terminated, then ';': any character but NUL (MS-GPREG 2.2.1)",
+    "value_name": "UTF-16LE, NUL-terminated, then ';': any character but NUL",
     "type": "a DWORD code from the type table",
     "data": "length-prefixed: every character but NUL is encoded",
 }
 
 
 def pol_name_problem(value: str) -> str | None:
-    """A Registry.pol key or value name: one line, no ``;`` (the field separator)."""
-    problem = line_problem(value)
-    if problem is None and ";" in value:
-        problem = "contains ';', the Registry.pol field separator"
-    return problem
+    """A Registry.pol key or value name: anything but NUL, which ends the field.
+
+    A ``;`` is data: the field is NUL-terminated and the separator follows the
+    NUL (MS-GPREG 2.2.1; Sol and DeepSeek final-r9). Studio's store holds names
+    to the one-line rule separately (`validation.validate_setting`), because
+    the plan writes them as single-line PowerShell literals.
+    """
+    if "\0" in value:
+        return "contains NUL, which ends a Registry.pol name"
+    return None
 
 
 def pol_data_problem(value: str) -> str | None:

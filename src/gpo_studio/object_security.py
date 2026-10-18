@@ -31,10 +31,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal, assert_never
 
-from .identity_values import sid_problem
+from .identity_values import security_principal_problem, sid_problem
 from .model import ValidationIssue
 from .sddl import SddlError, SecurityDescriptor, format_sddl, parse_sddl
-from .security_template import InfSection, SecurityTemplate
+from .security_template import InfSection, SecurityTemplate, SecurityTemplateError
 
 # ---------------------------------------------------------------------------
 # Type aliases and constants
@@ -269,7 +269,14 @@ def _principal_wire(principal: str) -> str:
 
 
 def _format_member_list(members: tuple[RestrictedGroupMember, ...]) -> str:
-    return ",".join(_principal_wire(m.sid) for m in members)
+    # Checked one by one before joining (DeepSeek final-r9 N2): a comma inside a
+    # member would otherwise read back as two members.
+    wired = [_principal_wire(m.sid) for m in members]
+    for member in wired:
+        problem = security_principal_problem(member)
+        if problem is not None:
+            raise SecurityTemplateError(f"group member {member!r} {problem}")
+    return ",".join(wired)
 
 
 def _parse_group_key(key: str) -> tuple[str, str | None]:

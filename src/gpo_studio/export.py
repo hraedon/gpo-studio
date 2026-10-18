@@ -19,12 +19,11 @@ from .canonical import (
 from .deterministic_zip import deterministic_zip
 from .emit_integrity import (
     BACKUP_XML,
-    PS_SINGLE_QUOTES,
     EmitError,
     EmitProblem,
     check_xml,
     escape_line,
-    ps_problem,
+    ps_literal,
     scripts_ini_problems,
 )
 from .gpp import GppError, contains_cpassword, gpp_registry_unmeasured_shapes, serialize_gpp
@@ -124,24 +123,6 @@ _DOMAIN_NEUTRAL_SECURITY_DESCRIPTOR = (
 )
 
 
-def _ps_quote(value: str, parameter: str) -> str:
-    """*value* as a single-quoted PowerShell literal passed as *parameter*.
-
-    The value is held to the plan's table (`emit_integrity.PS_PARAMETERS`)
-    first: a GUID must be a GUID, a link target a DN, a principal a principal,
-    and nothing but a comment or registry data may hold a line break (final-r8).
-    Then every character PowerShell reads as a single quote -- ``'`` and the
-    typographic U+2018 to U+201B -- is doubled, which is how PowerShell escapes
-    any of them inside a single-quoted literal. Doubling only ``'`` let a
-    typographic apostrophe end the literal.
-    """
-    problem = ps_problem(parameter, value)
-    if problem is not None:
-        raise EmitError([EmitProblem("plan.ps1", f"-{parameter}", value, problem)])
-    escaped = "".join(c + c if c in PS_SINGLE_QUOTES else c for c in value)
-    return "'" + escaped + "'"
-
-
 def _ps_sanitize_comment(text: str) -> str:
     """Comment text: every control, format or separator character is written as
     a visible ``\\uXXXX`` (so none can end the comment line), and a backtick as
@@ -156,7 +137,7 @@ def _ps_value(setting: RegistrySetting) -> str:
     if isinstance(setting.value, int):
         return str(setting.value)
     if isinstance(setting.value, list):
-        return "@(" + ", ".join(_ps_quote(item, "Value") for item in setting.value) + ")"
+        return "@(" + ", ".join(ps_literal(item, "Value") for item in setting.value) + ")"
     if setting.registry_type == "REG_BINARY":
         clean = setting.value.replace(" ", "")
         if not _HEX_PAIRS.fullmatch(clean):
@@ -168,7 +149,7 @@ def _ps_value(setting: RegistrySetting) -> str:
         return (
             "([byte[]](" + ",".join(f"0x{clean[i : i + 2]}" for i in range(0, len(clean), 2)) + "))"
         )
-    return _ps_quote(setting.value, "Value")
+    return ps_literal(setting.value, "Value")
 
 
 def _text_refusal(gpo: GPO) -> ValidationIssue | None:
@@ -183,8 +164,58 @@ def _text_refusal(gpo: GPO) -> ValidationIssue | None:
     return issues[0] if issues else None
 
 
+def _writer_refusal(error: Exception, path: str) -> ValidationIssue:
+    """A writer's refusal as the issue a capability reports (final-r9 DS B2):
+    a read or a mutation response must never raise because stored data is
+    something a writer will not emit."""
+    if isinstance(error, ValidationError) and error.issues:
+        return error.issues[0]
+    return ValidationIssue(
+        severity="error",
+        code="unwritable_artifact_value",
+        message=f"Studio will not write this artifact: {error}",
+        path=path,
+    )
+
+
 def plan_refusal(gpo: GPO) -> ValidationIssue | None:
     """Why this GPO can get no PowerShell plan, or ``None`` if it can.
+
+    Asks the writer (final-r9, Sol B3 and DeepSeek N6): after the stated
+    preconditions it generates the plan and reports whatever the generator
+    refuses, so the capability and the download cannot disagree. A GPO with a
+    validation error is reported by `validate_gpo` (the caller's ``blocked``),
+    not here.
+    """
+    precondition = _plan_precondition(gpo)
+    if precondition is not None:
+        return precondition
+    if any(issue.severity == "error" for issue in validate_gpo(gpo)):
+        return None
+    try:
+        powershell_plan(gpo)
+    except (ValidationError, ValueError) as error:
+        return _writer_refusal(error, "plan.ps1")
+    return None
+
+
+def studio_export_refusal(gpo: GPO) -> ValidationIssue | None:
+    """Why this GPO can get no Studio bundle (`export_bundle`), asked of the
+    bundle writer itself -- the plan, Registry.pol and every preference file."""
+    precondition = _plan_precondition(gpo)
+    if precondition is not None:
+        return precondition
+    if any(issue.severity == "error" for issue in validate_gpo(gpo)):
+        return None
+    try:
+        export_bundle(gpo)
+    except (ValidationError, ValueError) as error:
+        return _writer_refusal(error, "export.zip")
+    return None
+
+
+def _plan_precondition(gpo: GPO) -> ValidationIssue | None:
+    """What refuses a plan before any argument is written.
 
     ONE function so the refusal and the advertisement of it cannot disagree
     (WI-044). `powershell_plan` raises on whatever this returns, and the API
@@ -224,10 +255,10 @@ def powershell_plan(gpo: GPO) -> str:
 
     Validates its own input (DeepSeek final-r8 N3): a GPO with a validation
     error gets no plan, whichever caller asks, and every quoted argument is
-    checked as it is written (:func:`_ps_quote`).
+    checked as it is written (:func:`emit_integrity.ps_literal`).
     """
     errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
-    refusal = plan_refusal(gpo)
+    refusal = _plan_precondition(gpo)
     if refusal is not None:
         errors.insert(0, refusal)
     if errors:
@@ -239,26 +270,26 @@ def powershell_plan(gpo: GPO) -> str:
         "[CmdletBinding(SupportsShouldProcess=$true)]",
         "param()",
         "$ErrorActionPreference = 'Stop'",
-        f"$gpo = Get-GPO -Guid {_ps_quote(gpo.guid, 'Guid')} -ErrorAction SilentlyContinue",
+        f"$gpo = Get-GPO -Guid {ps_literal(gpo.guid, 'Guid')} -ErrorAction SilentlyContinue",
         "if (-not $gpo) {",
-        f"    $gpo = Get-GPO -Name {_ps_quote(gpo.name, 'Name')} -ErrorAction SilentlyContinue",
+        f"    $gpo = Get-GPO -Name {ps_literal(gpo.name, 'Name')} -ErrorAction SilentlyContinue",
         "}",
         "if (-not $gpo) {",
     ]
     if gpo.description:
         lines.append(
-            f"    $gpo = New-GPO -Name {_ps_quote(gpo.name, 'Name')}"
-            f" -Comment {_ps_quote(gpo.description, 'Comment')}"
+            f"    $gpo = New-GPO -Name {ps_literal(gpo.name, 'Name')}"
+            f" -Comment {ps_literal(gpo.description, 'Comment')}"
         )
     else:
         lines.append(
-            f"    $gpo = New-GPO -Name {_ps_quote(gpo.name, 'Name')}"
+            f"    $gpo = New-GPO -Name {ps_literal(gpo.name, 'Name')}"
             " -Comment 'Created by GPO Studio'"
         )
     lines += [
         "}",
-        "elseif ($gpo.DisplayName -ne " + _ps_quote(gpo.name, "Name") + ") {",
-        f"    Rename-GPO -Guid $gpo.Id -TargetName {_ps_quote(gpo.name, 'Name')} | Out-Null",
+        "elseif ($gpo.DisplayName -ne " + ps_literal(gpo.name, "Name") + ") {",
+        f"    Rename-GPO -Guid $gpo.Id -TargetName {ps_literal(gpo.name, 'Name')} | Out-Null",
         "}",
         "",
     ]
@@ -267,18 +298,18 @@ def powershell_plan(gpo: GPO) -> str:
         if setting.action == "delete":
             lines.append(
                 "Remove-GPRegistryValue -Guid $gpo.Id"
-                f" -Key {_ps_quote(key, 'Key')}"
-                f" -ValueName {_ps_quote(setting.value_name, 'ValueName')}"
+                f" -Key {ps_literal(key, 'Key')}"
+                f" -ValueName {ps_literal(setting.value_name, 'ValueName')}"
                 " -ErrorAction SilentlyContinue"
             )
         elif setting.action == "delete_all_values":
             lines.append(
                 f"$existing = Get-GPRegistryValue -Guid $gpo.Id"
-                f" -Key {_ps_quote(key, 'Key')} -ErrorAction SilentlyContinue"
+                f" -Key {ps_literal(key, 'Key')} -ErrorAction SilentlyContinue"
             )
             lines.append(
                 "if ($existing) { $existing | ForEach-Object"
-                f" {{ Remove-GPRegistryValue -Guid $gpo.Id -Key {_ps_quote(key, 'Key')}"
+                f" {{ Remove-GPRegistryValue -Guid $gpo.Id -Key {ps_literal(key, 'Key')}"
                 " -ValueName $_.ValueName -ErrorAction SilentlyContinue } }"
             )
         elif setting.action == "set":
@@ -292,8 +323,8 @@ def powershell_plan(gpo: GPO) -> str:
             }
             lines.append(
                 "Set-GPRegistryValue -Guid $gpo.Id"
-                f" -Key {_ps_quote(key, 'Key')}"
-                f" -ValueName {_ps_quote(setting.value_name, 'ValueName')}"
+                f" -Key {ps_literal(key, 'Key')}"
+                f" -ValueName {ps_literal(setting.value_name, 'ValueName')}"
                 f" -Type {type_map[setting.registry_type]}"
                 f" -Value {_ps_value(setting)}"
             )
@@ -302,7 +333,7 @@ def powershell_plan(gpo: GPO) -> str:
     if gpo.links:
         lines.extend(["", "# Link intent (New-GPLink updates an existing link when present)."])
     for link in gpo.links:
-        target = _ps_quote(link.target, "Target")
+        target = ps_literal(link.target, "Target")
         common = (
             f"-Guid $gpo.Id -Target {target}"
             f" -LinkEnabled {'Yes' if link.enabled else 'No'}"
@@ -336,14 +367,14 @@ def powershell_plan(gpo: GPO) -> str:
         # carrying a deny does not get a partial plan; it gets no plan and a
         # reason. Same call as the cpassword refusal below, and WI-012's on
         # `explicitValue`: refuse what cannot be expressed rather than guess.
-        refusal = plan_refusal(gpo)
+        refusal = _plan_precondition(gpo)
         if refusal is not None:
             raise ValidationError([refusal])
         lines.append("")
         lines.append("# Security filtering — reconcile GpoApply permissions only.")
         lines.append("# GpoEdit, GpoRead, and other management permissions are preserved.")
         desired_targets = ", ".join(
-            _ps_quote(sf.principal, "desiredApply")
+            ps_literal(sf.principal, "desiredApply")
             for sf in gpo.security_filters
             if sf.permission == "apply"
         )
@@ -376,7 +407,7 @@ def powershell_plan(gpo: GPO) -> str:
             target_type_ps = sf.target_type.title()
             lines.append(
                 f"Set-GPPermission -Guid $gpo.Id -PermissionLevel {perm}"
-                f" -TargetName {_ps_quote(sf.principal, 'TargetName')}"
+                f" -TargetName {ps_literal(sf.principal, 'TargetName')}"
                 f" -TargetType {target_type_ps} -Replace"
                 " | Out-Null"
             )
@@ -1165,19 +1196,20 @@ def native_backup_refusal(
     `validate_gpo` reported nothing and `preserved_files` stayed 0. (An
     unmeasured GPP Registry item shape still refuses the same way, WI-075.)
 
-    RUNS THE REAL CODE rather than restating its conditions.
-    `gpmc_backup_bundle` refuses only inside `native_backup_id` and
-    `_native_export_files`; calling both and catching is therefore exact by
-    construction, and a new refusal added to either is advertised the day it
+    RUNS THE REAL CODE rather than restating its conditions: it builds the
+    backup and catches whatever the writers refuse (the backup documents' own
+    emit check included, final-r9), so a new refusal is advertised the day it
     lands instead of the day someone remembers to mirror it. Restating the
     conditions is precisely how the deny case drifted (WI-044), so the same
     mistake is not repeated one capability along.
     """
     try:
-        native_backup_id(gpo)
-        _native_export_files(gpo, scripts)
-    except ValidationError as error:
-        return error.issues[0]
+        gpmc_backup_bundle(gpo, scripts=scripts)
+    except (ValidationError, ValueError) as error:
+        # A writer's own refusal (EmitError, a Registry.pol or GPP error) is
+        # reported, never raised: this runs on every GPO read and after every
+        # mutation commits (DeepSeek final-r9 B2).
+        return _writer_refusal(error, "gpmc-backup")
     return None
 
 

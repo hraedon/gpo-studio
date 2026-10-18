@@ -176,7 +176,9 @@ def datetime_problem(value: str) -> str | None:
     year, month, day, hour, minute, second, offset_hours, offset_minutes = match.groups()
     if not (_calendar(year, month, day) and _clock(hour, minute, second)):
         return "is not a valid date-time"
-    if offset_hours is not None and (int(offset_hours) > 14 or int(offset_minutes) > 59):
+    if offset_hours is not None and (
+        int(offset_minutes) > 59 or int(offset_hours) * 60 + int(offset_minutes) > 14 * 60
+    ):  # at most 14:00, so not +14:59 (DeepSeek final-r9 N5)
         return "has a UTC offset outside -14:00..+14:00"
     return None
 

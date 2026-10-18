@@ -134,10 +134,12 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
                 f"{path}/key",
             )
         )
-    # What Registry.pol cannot carry (final-r8, `emit_integrity`): its names are
-    # NUL-terminated and ';'-separated, its string data NUL-terminated.
+    # Names: NUL ends a Registry.pol field (a ';' is data, MS-GPREG 2.2.1), and
+    # the plan writes each name as a single-line PowerShell literal, so the
+    # store refuses what either writer would -- never accepted here and refused
+    # at export (final-r9). String data: NUL ends a registry string.
     for field_name, text in (("key", setting.key), ("value_name", setting.value_name)):
-        problem = pol_name_problem(text)
+        problem = pol_name_problem(text) or line_problem(text)
         if problem is not None:
             issues.append(
                 ValidationIssue(
