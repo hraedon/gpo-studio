@@ -875,6 +875,10 @@ TEMPLATES: tuple[Template, ...] = (
         _LOCKED_RUN,
     ),
     _t(
+        "uv run --locked pytest tests/test_stored_type_fuzz.py -q",
+        _LOCKED_RUN,
+    ),
+    _t(
         (
             "uv run --locked --only-group release pip-audit --strict --require-hashes "
             "--disable-pip --requirement "
@@ -1670,6 +1674,8 @@ ENV: dict[str, set[str]] = {
     "GH_TOKEN": {"${{ github.token }}"},
     "GITHUB_TOKEN": {"${{ secrets.GITHUB_TOKEN }}"},
     "GPO_STUDIO_FORBIDDEN_IDENTIFIERS": {"${{ secrets.GPO_STUDIO_FORBIDDEN_IDENTIFIERS }}"},
+    # The exhaustive stored-type fuzz (ci.yml `type-fuzz-full`).
+    "GPO_STUDIO_FULL_FUZZ": {"1"},
     "GPO_STUDIO_TEST_PYTHON": {"${{ github.workspace }}/.venv/bin/python"},
     "SOURCE_DATE_EPOCH": {"315532800"},
 }

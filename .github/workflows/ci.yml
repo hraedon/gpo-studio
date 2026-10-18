@@ -538,6 +538,31 @@ jobs:
       - name: Run bounded parser and codec properties
         run: uv run --locked pytest tests/test_properties.py -q
 
+  type-fuzz-full:
+    # The exhaustive stored-type fuzz (tests/test_stored_type_fuzz.py): every
+    # stored field x every JSON type in the whole sample GPO, and 174 fields
+    # through every GPO route. 13-14 min on a 12-vCPU dev host (2026-10-18),
+    # too long for the test jobs' budgets, so the default suite runs a reduced
+    # fuzz (~80 s) and this job runs the full one, on Linux only.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.0"
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked --extra dev
+      - name: Run the exhaustive stored-type fuzz
+        env:
+          GPO_STUDIO_FULL_FUZZ: "1"
+        run: uv run --locked pytest tests/test_stored_type_fuzz.py -q
+
   mutation-check:
     # Restores defects a self-consistent round-trip test cannot see (a parser
     # that reads nothing, a comparator that always agrees, an export that

@@ -22,11 +22,14 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import os
 import tempfile
+import types
+import typing
 from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_args, get_origin
 
 import pytest
 from fastapi.testclient import TestClient
@@ -97,6 +100,35 @@ def _inventory() -> tuple[dict[str, Any], dict[str, tuple[tuple[Any, ...], Any]]
 CLEAN, FIELDS = _inventory()
 LABELS = sorted(FIELDS)
 
+#: The exhaustive fuzz -- every field through every route, each plant in the
+#: whole sample GPO -- runs only when asked (CI's own ``type-fuzz-full`` job):
+#: it takes over ten minutes, more than the test jobs' budget. The default run
+#: still plants every JSON type in every field, in a GPO cut down to that
+#: field's item, and drives every route with one field of every kind.
+FULL = os.environ.get("GPO_STUDIO_FULL_FUZZ") == "1"
+
+
+def _slim(data: dict[str, Any], path: tuple[Any, ...]) -> dict[str, Any]:
+    """*data* cut down to the item *path* runs through: every other item list
+    emptied, every other optional record dropped, and of the preferences only
+    the collection and family on the path. The field and everything around it
+    on the path are as in the whole sample (`_fields` always takes element 0)."""
+    out = copy.deepcopy(data)
+    for key, value in data.items():
+        if key == path[0]:
+            continue
+        if isinstance(value, list):
+            out[key] = []
+        elif key in ("wmi_filter", "fdeploy", "backup_inventory"):
+            out[key] = None
+    if path[0] == "gpp_collections" and len(path) > 2:
+        collection = out["gpp_collections"][path[1]]
+        for key, value in list(collection.items()):
+            if key != path[2] and isinstance(value, list) and key != "load_problems":
+                collection[key] = []
+        out["gpp_collections"] = out["gpp_collections"][: path[1] + 1]
+    return out
+
 
 def test_the_fuzz_reaches_every_stored_field() -> None:
     assert len(LABELS) >= 448
@@ -120,18 +152,22 @@ def _wrong_type(annotation: Any, value: Any) -> bool:
     return bool(problems)
 
 
-def _distinct_plants(label: str, *, wrong_only: bool = False) -> list[tuple[str, Any]]:
+def _distinct_plants(
+    label: str, *, wrong_only: bool = False, slim: bool = False
+) -> list[tuple[str, Any]]:
     """(kind, loaded GPO) for each JSON type planted in *label*'s field, each
     loaded GPO once: a value of the wrong type is replaced by the field's
     default, so the wrong types of one field mostly load the same GPO (and
     `GPO.__eq__` leaves out the load problems, which name the type). Every
     plant is loaded -- the load never raises -- and a GPO already seen is not
-    driven again. *wrong_only*: of the right types, keep none."""
+    driven again. *wrong_only*: of the right types, keep none. *slim*: plant
+    in the GPO cut down to the field's item (`_slim`)."""
     path, annotation = FIELDS[label]
+    base = _slim(CLEAN, path) if slim else CLEAN
     seen: list[Any] = []
     out: list[tuple[str, Any]] = []
     for kind, value in JSON_VALUES.items():
-        gpo = gpo_from_dict(_planted(CLEAN, path, value))
+        gpo = gpo_from_dict(_planted(base, path, value))
         wrong = _wrong_type(annotation, value)
         if wrong:
             assert gpo.load_problems, (label, kind)
@@ -147,10 +183,13 @@ def _distinct_plants(label: str, *, wrong_only: bool = False) -> list[tuple[str,
 
 @pytest.mark.parametrize("label", LABELS)
 def test_every_stored_field_holds_every_json_type(label: str) -> None:
-    """The load, validation and the payload never raise; a value of the wrong
-    type blocks every content export."""
+    """Every JSON type in every field: the load and validation never raise,
+    and a value of the wrong type is an error whose payload (which never
+    raises) blocks every content export. The default run plants in the GPO
+    cut down to the field's item; the full run in the whole sample, wrong
+    types only (its routes drive the right ones)."""
     path, annotation = FIELDS[label]
-    for kind, gpo in _distinct_plants(label, wrong_only=True):
+    for kind, gpo in _distinct_plants(label, wrong_only=FULL, slim=not FULL):
         issues = validate_gpo(gpo)
         if _wrong_type(annotation, JSON_VALUES[kind]):
             assert any(i.severity == "error" for i in issues), (label, kind)
@@ -163,10 +202,11 @@ def test_every_stored_field_holds_every_json_type(label: str) -> None:
                 )
 
 
-#: Fields driven through every GPO route: every field outside the preference
-#: families, and every field of the first group, its member, targeting
-#: predicate and common options, and of the first registry item and value.
-ROUTED = sorted(
+#: Fields the full run drives through every GPO route: every field outside
+#: the preference families, and every field of the first group, its member,
+#: targeting predicate and common options, and of the first registry item and
+#: value.
+ROUTED_FULL = sorted(
     label
     for label in LABELS
     if label.split(".")[0]
@@ -189,6 +229,46 @@ ROUTED = sorted(
         "GppRegistryValue",
     }
 )
+
+
+
+
+def _kind(annotation: Any) -> str:
+    """A field's kind, for choosing the default run's routed fields."""
+    origin = get_origin(annotation)
+    if origin in (typing.Union, types.UnionType):
+        args = [arg for arg in get_args(annotation) if arg is not type(None)]
+        inner = "+".join(sorted(_kind(arg) for arg in args))
+        return f"optional {inner}" if len(args) < len(get_args(annotation)) else inner
+    if origin is Literal:
+        return "closed set"
+    if origin in (tuple, list):
+        return "array"
+    if dataclasses.is_dataclass(annotation):
+        return "object"
+    return getattr(annotation, "__name__", str(annotation))
+
+
+#: The default run's routed fields: of the full set, the first field (sorted)
+#: of every kind (a boolean, a closed set, a string, a number, an array, an
+#: object, their optional and union forms), and the hive.
+_FIRST_OF_KIND: dict[str, str] = {}
+for _label in ROUTED_FULL:
+    _FIRST_OF_KIND.setdefault(_kind(FIELDS[_label][1]), _label)
+ROUTED_DEFAULT = sorted(
+    {
+        *_FIRST_OF_KIND.values(),
+        "GppRegistry.hive",  # a de-facto closed string a writer normalizes
+    }
+)
+ROUTED = ROUTED_FULL if FULL else ROUTED_DEFAULT
+
+
+def test_the_default_run_routes_every_kind_of_field() -> None:
+    kinds = {_kind(FIELDS[label][1]) for label in ROUTED_FULL}
+    assert {_kind(FIELDS[label][1]) for label in ROUTED_DEFAULT} == kinds
+    assert {"bool", "closed set", "str", "int", "array", "object"} <= kinds, kinds
+    assert set(ROUTED_DEFAULT) <= set(ROUTED_FULL)
 
 
 @pytest.fixture(scope="module")

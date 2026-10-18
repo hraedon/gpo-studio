@@ -662,7 +662,11 @@ Operator-facing:
     outside the preference families and for each field of a group, member,
     targeting predicate, common options and registry item and value, a
     mutation commits exactly when it answers, and a stored boolean reaches
-    the plan exactly or the plan is refused.
+    the plan exactly or the plan is refused. That exhaustive run takes over
+    ten minutes, so it runs in CI's own Linux job (`type-fuzz-full`,
+    `GPO_STUDIO_FULL_FUZZ=1`); the default suite plants every JSON type in
+    every field of a GPO cut down to that field's item, and drives every
+    route with one field of each kind (about 80 s).
   - **Mutations validate before committing.** The response a mutation
     returns validates the GPO it stored; it now validates it before the
     commit, so a failure cannot follow a durable revision. A test runs six
