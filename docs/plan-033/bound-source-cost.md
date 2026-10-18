@@ -166,6 +166,7 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/snapshot_documents.py`
 - `src/gpo_studio/som.py`
 - `src/gpo_studio/store.py`
+- `src/gpo_studio/stored_types.py`
 - `src/gpo_studio/template_store.py`
 - `src/gpo_studio/wmi_catalogue.py`
 - `src/gpo_studio/wmi_filter.py`

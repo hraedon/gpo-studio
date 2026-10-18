@@ -87,7 +87,8 @@ from .egress import (
     gpmc_backup_refusal,
     plan_refusal,
     studio_export_refusal,
-    unwritable_artifact,
+    writer_boundary,
+    writer_errors,
 )
 from .emit_integrity import CHECKS, EmitError, line_problem
 from .estate import parse_estate
@@ -254,7 +255,7 @@ from .som import (
     plan_link_order,
     set_block_inheritance,
 )
-from .store import WorkspaceStore, _now, gpo_from_dict
+from .store import WorkspaceStore, _now, gpo_from_dict, require_unreplaced
 from .validation import validate_gpo, validate_setting
 from .wmi_catalogue import WmiCatalogue, WmiCatalogueError, load_wmi_catalogue
 from .wmi_filter import (
@@ -1927,7 +1928,7 @@ def _digest(compute: Callable[[Any], str], gpo: Any) -> str | None:
     reports it through validation and never fails on it (final-r17)."""
     try:
         return compute(gpo)
-    except Exception as error:
+    except UnicodeError as error:  # stored text no XML can carry (reported by validation)
         _logger.warning("no digest for GPO %s (%s)", gpo.guid, type(error).__name__)
         return None
 
@@ -2428,17 +2429,6 @@ app.mount("/assets", StudioStaticFiles(directory=STATIC), name="assets")
 _Endpoint = TypeVar("_Endpoint", bound=Callable[..., Any])
 
 
-#: Exceptions that already are an answer: a refusal, a missing object, a
-#: conflict, a request error. Anything else an artifact route raises is a
-#: writer or builder failing on stored data.
-_ANSWERED: tuple[type[BaseException], ...] = (
-    StudioError,
-    EmitError,
-    StarletteHTTPException,
-    RequestValidationError,
-)
-
-
 def egress(format: EgressFormat) -> Callable[[_Endpoint], _Endpoint]:
     """Validate the endpoint's artifact, in its final form, before it responds."""
 
@@ -2448,14 +2438,10 @@ def egress(format: EgressFormat) -> Callable[[_Endpoint], _Endpoint]:
 
         @functools.wraps(endpoint)
         def checked(*args: Any, **kwargs: Any) -> Any:
-            try:
-                result = endpoint(*args, **kwargs)
-            except _ANSWERED:
-                raise
-            except Exception as error:
-                # The no-500 rule (DeepSeek final-r17 B1): whatever a writer or
-                # builder raises on stored data is a refusal, never a 500.
-                raise unwritable_artifact(error, format) from error
+            # No catch here (final-r18): writers' named refusals become 422s
+            # at the writer call (`egress.writer_boundary`); a store, validation
+            # or programming failure keeps its 500.
+            result = endpoint(*args, **kwargs)
             egress_check(format, result)
             return result
 
@@ -2484,7 +2470,11 @@ ROUTE_ARTIFACTS: dict[tuple[str, str], EgressFormat] = {
 }
 _JSON = "JSON data, not an artifact; JSON escapes every control character"
 _GPO_PAYLOAD = "JSON: a GPO payload (capabilities report artifact refusals, never raise)"
-_IMPORT = "JSON: the result of reading an import or a discovery upload"
+_IMPORT = (
+    "JSON: the result of reading an import or a discovery upload (a GPO payload "
+    "where the import made or changed a GPO)"
+)
+_NO_CONTENT = "204: no body"
 _STATIC = "a file shipped with Studio; no user data"
 _FRAMEWORK = "FastAPI's own schema or documentation page"
 #: JSON that names the digests of artifacts Studio would write (final-r15): not
@@ -2511,7 +2501,7 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/workspace/integrity"): _JSON,
     ("GET", "/api/admx/search"): _JSON,
     ("GET", "/api/admx/policies/{policy_id}"): _JSON,
-    ("POST", "/api/admx/policies/{policy_id}/configure"): _JSON,
+    ("POST", "/api/admx/policies/{policy_id}/configure"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/bulk-policy-state"): _GPO_PAYLOAD,
     ("GET", "/api/admx/categories"): _JSON,
     ("GET", "/api/admx/categories/tree"): _JSON,
@@ -2526,7 +2516,7 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/starter-gpos"): _JSON,
     ("POST", "/api/starter-gpos"): _GPO_PAYLOAD,
     ("POST", "/api/starter-gpos/{guid}/derive"): _GPO_PAYLOAD,
-    ("DELETE", "/api/starter-gpos/{guid}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/starter-gpos/{guid}"): _NO_CONTENT,
     ("GET", "/api/gpos/{guid}"): _GPO_PAYLOAD,
     ("PATCH", "/api/gpos/{guid}"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/settings"): _GPO_PAYLOAD,
@@ -3373,6 +3363,9 @@ def delete_setting(
 @app.post("/api/gpos/{guid}/copy-settings")
 def copy_settings(request: Request, guid: str, body: CopySettingsMutation) -> dict[str, Any]:
     source = _store(request).get_gpo(body.source_guid)
+    # A source whose read replaced stored values would copy the defaults in
+    # their place (final-r18): refused, as an edit of it is.
+    require_unreplaced(source)
     settings = list(source.settings)
     if body.side is not None:
         settings = [s for s in settings if s.side == body.side]
@@ -4045,11 +4038,9 @@ def report(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     fname = f"{_safe_filename(gpo.guid)}-report.txt"
     headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
-    return Response(
-        policy_report(gpo),
-        media_type="text/plain; charset=utf-8",
-        headers=headers,
-    )
+    with writer_boundary("report.txt"):
+        body = policy_report(gpo)
+    return Response(body, media_type="text/plain; charset=utf-8", headers=headers)
 
 
 def _resolve_gpo(request: Request, ref: str | dict[str, Any]) -> GPO:
@@ -5948,7 +5939,7 @@ def _gpo_has_preference_content(gpo: GPO) -> bool:
         try:
             if serialize_gpp(collection):
                 return True
-        except Exception:  # a collection the writer refuses has content by definition
+        except writer_errors():  # a collection the writer refuses has content by definition
             return True
     return False
 
@@ -6612,10 +6603,8 @@ def publication_plan_preview(
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
     if errors:
         raise ValidationError(errors)
-    try:
+    with writer_boundary("the publication plan"):
         plan = generate_publication_plan(gpo, target=target)
-    except Exception as error:  # the no-500 boundary (final-r17)
-        raise unwritable_artifact(error, "the publication plan") from error
     issues = validate_publication_plan(plan)
     refused_checks = frozenset(issue.check for issue in issues if issue.level == "error")
     planned_operations = {step.operation for step in plan.steps}

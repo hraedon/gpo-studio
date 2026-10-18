@@ -52,9 +52,10 @@ from gpo_studio.fdeploy import (
     read_fdeploy,
 )
 from gpo_studio.import_export import collect_cse_metadata
-from gpo_studio.model import GPO, StudioError, ValidationError
+from gpo_studio.model import GPO, ValidationError
 from gpo_studio.report import policy_report
 from gpo_studio.store import WorkspaceStore, gpo_from_dict
+from gpo_studio.validation import validate_gpo
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "docs/plan-033/wp1b-evidence/wi059-20260908/scripts-metadata/rebackup"
@@ -429,8 +430,12 @@ def test_the_stored_form_is_rebuilt_from_its_text_not_from_its_views() -> None:
 
 @pytest.mark.parametrize("stored", [[], {"sections": []}, {"raw_text": 5}])
 def test_a_malformed_stored_document_is_refused(stored: object) -> None:
-    with pytest.raises(StudioError):
-        gpo_from_dict({"guid": "g", "name": "n", "fdeploy": stored})
+    """Refused, never fatal on read (final-r18): the GPO loads without the
+    document and is blocked by a load problem that names it."""
+    gpo = gpo_from_dict({"guid": "g", "name": "n", "fdeploy": stored})
+    assert gpo.fdeploy is None
+    errors = [i for i in validate_gpo(gpo) if i.severity == "error"]
+    assert any(i.code == "stored_value_wrong_type" and "fdeploy" in i.message for i in errors)
 
 
 def test_a_snapshot_written_before_the_field_existed_reads_back_without_it() -> None:

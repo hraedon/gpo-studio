@@ -436,7 +436,7 @@ def test_a_cpassword_is_never_written_back_from_a_retained_element() -> None:
         ('<Drive clsid="x" name="M:"><Properties/></Drive>', "not an item of printers"),
         ("<SharedPrinter", "Malformed"),
         ('<!DOCTYPE x [<!ENTITY e "v">]><SharedPrinter/>', "entity"),
-        (7, "must be a string"),
+        (7, "must be a string|stored value of the wrong type"),
     ],
     ids=["another family's item", "not XML", "an entity", "not a string"],
 )

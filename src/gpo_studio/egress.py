@@ -86,8 +86,10 @@ import re
 import threading
 import zipfile
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import replace
+from functools import cache
 from typing import Any, Literal, assert_never
 
 from .emit_integrity import (
@@ -838,10 +840,71 @@ def _was_checked(data: bytes) -> bool:
         return hashlib.sha256(data).hexdigest() in _CHECKED_ARCHIVES
 
 
+@cache
+def writer_errors() -> tuple[type[BaseException], ...]:
+    """What a writer or builder raises when the GPO holds something it will not
+    write -- the only exceptions a writer boundary turns into a refusal
+    (Sol and DeepSeek final-r18). A store failure, a validation crash or a
+    programming defect is none of these, and keeps its normal (500) meaning.
+    `EmitError` and `ValidationError` are refusals already and pass through."""
+    from .deterministic_zip import DeterministicZipError
+    from .fdeploy import FdeployError
+    from .firewall_policy import FirewallValidationError
+    from .gpp import GppError
+    from .ilt import IltError
+    from .registry_pol import RegistryPolError
+    from .sddl import SddlError
+    from .security_template import SecurityTemplateError
+
+    return (
+        GppError,
+        IltError,
+        RegistryPolError,
+        DeterministicZipError,
+        FdeployError,
+        SecurityTemplateError,
+        SddlError,
+        FirewallValidationError,
+    )
+
+
+def sanitized(error: BaseException, limit: int = 240) -> str:
+    """A writer error's text, safe to log and to serve: one line, no control
+    characters, bounded."""
+    text = " ".join(
+        "".join(ch if ch.isprintable() else " " for ch in str(error)).split()
+    )
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+@contextmanager
+def writer_boundary(where: str) -> Iterator[None]:
+    """Around a writer or builder call ONLY: its named refusals become a 422
+    with the (sanitized) reason; anything else propagates (final-r18)."""
+    try:
+        yield
+    except writer_errors() as error:
+        raise unwritable_artifact(error, where) from error
+
+
+def _require_valid(gpo: Any) -> None:
+    """Every checked builder validates the GPO itself before building anything
+    (Sol final-r18 B2): a GPO with a validation error -- stored content a
+    current rule refuses among them -- is never serialized, whoever calls."""
+    from .model import ValidationError
+    from .validation import validate_gpo
+
+    errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
+    if errors:
+        raise ValidationError(errors)
+
+
 def checked_plan(gpo: Any) -> str:
     from . import export
 
-    text = export.powershell_plan(gpo)
+    _require_valid(gpo)
+    with writer_boundary("plan.ps1"):
+        text = export.powershell_plan(gpo)
     problems = powershell_plan_problems(text)
     if problems:
         raise EmitError(problems)
@@ -851,7 +914,9 @@ def checked_plan(gpo: Any) -> str:
 def checked_studio_bundle(gpo: Any) -> bytes:
     from . import export
 
-    data = export.export_bundle(gpo)
+    _require_valid(gpo)
+    with writer_boundary("export.zip"):
+        data = export.export_bundle(gpo)
     problems = zip_problems(data, "studio", gpo)
     if problems:
         raise EmitError(problems)
@@ -862,7 +927,9 @@ def checked_studio_bundle(gpo: Any) -> bytes:
 def checked_gpmc_backup(gpo: Any, scripts: Mapping[str, Any] | None = None) -> bytes:
     from . import export
 
-    data = export.gpmc_backup_bundle(gpo, scripts=scripts)
+    _require_valid(gpo)
+    with writer_boundary("gpmc-backup"):
+        data = export.gpmc_backup_bundle(gpo, scripts=scripts)
     problems = zip_problems(data, "gpmc", gpo)
     if problems:
         raise EmitError(problems)
@@ -894,32 +961,24 @@ def _refusal(build: Callable[[], Any], gpo: Any, path: str, *, blocked_first: bo
         return None if blocked_first else _writer_refusal(ValidationError(errors), path)
     try:
         build()
-    except (ValidationError, ValueError) as error:
+    except (ValidationError, EmitError) as error:  # the builders' refusals, named
         return _writer_refusal(error, path)
-    except Exception as error:  # the no-500 rule: a capability never raises
-        return unwritable_artifact(error, path).issues[0]
     return None
 
 
 def unwritable_artifact(error: BaseException, where: str) -> Any:
-    """The refusal for anything a writer or builder raises on stored data
-    (DeepSeek final-r17 B1): a 422 with a generic reason, never a 500. The
-    exception type is logged; its text, which may quote stored data, is not
-    served."""
+    """The refusal for a writer's named refusal (`writer_errors`): a 422 with
+    the writer's reason, sanitized (final-r18). Logged as the exception type
+    and the sanitized reason, without a traceback (DeepSeek final-r18 N5)."""
     from .model import ValidationError, ValidationIssue
 
-    _LOG.warning(
-        "%s: a writer failed on the stored GPO (%s)", where, type(error).__name__, exc_info=error
-    )
+    reason = sanitized(error)
+    _LOG.warning("%s: the writer refused the GPO (%s: %s)", where, type(error).__name__, reason)
     return ValidationError([
         ValidationIssue(
             severity="error",
             code="unwritable_artifact_value",
-            message=(
-                f"Studio could not build {where} from this GPO: a stored value is outside "
-                "what its writer accepts. The GPO's validation issues name what to "
-                "correct; if they do not, re-import the GPO from its source."
-            ),
+            message=f"Studio could not build {where} from this GPO: {reason}",
             path=str(where),
         )
     ])

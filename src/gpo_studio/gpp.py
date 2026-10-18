@@ -28,6 +28,7 @@ from .gpp_native import (
 from .ilt import IltError, IltFilter, IltOsCriteria, IltPredicate, parse_ilt, serialize_ilt
 from .numeric import coerce_dword_qword
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
+from .stored_types import stored_flag
 from .xml_safety import parse_xml_bounded
 
 _LOG = logging.getLogger(__name__)
@@ -318,6 +319,16 @@ class RefusedRecord(str):
     __slots__ = ()
 
 
+def _holds_refused_record(collection: GppCollection) -> bool:
+    from .gpp_adapters import ADAPTER_KEYS
+
+    return any(
+        isinstance(getattr(item, "native_xml", ""), RefusedRecord)
+        for key in ("groups", "registry", *ADAPTER_KEYS)
+        for item in getattr(collection, key)
+    )
+
+
 def with_refused_marks(collection: GppCollection) -> GppCollection:
     """*collection* with its element records marked if it holds refused stored
     content, and unmarked if it no longer does."""
@@ -536,6 +547,17 @@ def _validate_gpp_registry_action(value: str) -> GppRegistryAction:
     if _tolerate(error):
         return value  # type: ignore[return-value]
     raise error
+
+
+def _stored_hive(value: object) -> str:
+    """A stored item's hive: normalized, or -- loading stored data tolerantly --
+    kept as stored and recorded, never fatal on read (final-r18)."""
+    try:
+        return _normalize_hive(str(value))
+    except GppError as error:
+        if not _tolerate(error):
+            raise
+        return str(value)
 
 
 def _normalize_hive(hive: str) -> str:
@@ -1819,6 +1841,13 @@ def serialize_gpp(collection: GppCollection) -> dict[str, bytes]:
 def serialize_gpp_unchecked(collection: GppCollection) -> dict[str, bytes]:
     """:func:`serialize_gpp` without the emit check, for the validator that
     reports each refused value as its own issue. Nothing else may call it."""
+    if has_refused_content(collection) or _holds_refused_record(collection):
+        # Never written, whoever asks (Sol final-r18 B2): a builder that skipped
+        # validation still cannot put refused stored content into bytes.
+        raise GppError(
+            f"the {collection.scope} preferences hold stored content a current rule "
+            "refuses; Studio will not write them"
+        )
     _validate_document_positions(collection)
     if collection.source_files:
         return dict(collection.source_files)
@@ -2487,7 +2516,7 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
                     value = str(item["value"])
                     items.append(IltPredicate(
                         type=item["type"],
-                        negate=bool(item["negate"]),
+                        negate=stored_flag(item["negate"], False),
                         value=value,
                         bool_op=str(item.get("bool_op", "AND")),
                         unknown_attrs=tuple(
@@ -2527,7 +2556,7 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
             predicates.append(
                 IltPredicate(
                     type=predicate["type"],
-                    negate=bool(predicate["negate"]),
+                    negate=stored_flag(predicate["negate"], False),
                     value=value,
                     bool_op=str(predicate.get("bool_op", "AND")),
                     unknown_attrs=tuple(
@@ -2549,7 +2578,7 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
         preds = tuple(
             IltPredicate(
                 type=p["type"],
-                negate=bool(p["negate"]),
+                negate=stored_flag(p["negate"], False),
                 value=str(p["value"]),
             )
             for p in data
@@ -2579,11 +2608,11 @@ def _common_options_from_dict(data: Any) -> GppCommonOptions:
         raise GppError("common.run_once_id must be a string of at most "
                        f"{_MAX_GPP_XML_ATTR_LENGTH} characters")
     return GppCommonOptions(
-        apply_once=bool(data.get("apply_once", False)),
-        remove_when_unapplied=bool(data.get("remove_when_unapplied", False)),
-        user_security_context=bool(data.get("user_security_context", False)),
-        disabled=bool(data.get("disabled", False)),
-        stop_on_error=bool(data.get("stop_on_error", False)),
+        apply_once=stored_flag(data.get("apply_once", False), False),
+        remove_when_unapplied=stored_flag(data.get("remove_when_unapplied", False), False),
+        user_security_context=stored_flag(data.get("user_security_context", False), False),
+        disabled=stored_flag(data.get("disabled", False), False),
+        stop_on_error=stored_flag(data.get("stop_on_error", False), False),
         # Absent in anything stored before WI-080: the writer derives an id.
         run_once_id=run_once_id,
     )
@@ -2787,7 +2816,7 @@ def _gpp_registry_value_from_dict(v: dict[str, Any]) -> GppRegistryValue:
         value=v.get("value", ""),
         registry_type=str(v.get("registry_type", "REG_SZ")),
         action=_validate_gpp_registry_action(v.get("action", "create")),
-        default=bool(v.get("default", False)),
+        default=stored_flag(v.get("default", False), False),
         id=str(v.get("id", "")),
         unknown_attrs=tuple(
             (str(k), str(v2))
@@ -2847,6 +2876,23 @@ def _upgrade_stored_registry(reg: GppRegistry) -> GppRegistry:
 
 def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
     """Reconstruct a GppCollection from a plain dict."""
+    from .stored_types import check_stored, problem_message
+
+    # Held to the model's types first, never coerced (final-r18): a value of
+    # the wrong type is refused here, or -- loading stored data tolerantly --
+    # recorded as refused content and replaced by its default.
+    type_problems: list[tuple[str, str]] = []
+    data = check_stored(
+        GppCollection,
+        data,
+        f"gpp_collections/{data.get('scope', '?')}",
+        type_problems,
+        skip=frozenset({"load_problems", "source_files"}),
+    )
+    for path, what in type_problems:
+        type_error = GppError(problem_message(path, what))
+        if not _tolerate(type_error):
+            raise type_error
     scope_raw = str(data.get("scope", "computer"))
     if scope_raw not in ("computer", "user"):
         scope_error = GppError(f"Invalid GPP scope: {scope_raw!r}")
@@ -2889,8 +2935,8 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 for m in g.get("members", [])
             ),
             description=str(g.get("description", "")),
-            remove_all_users=bool(g.get("remove_all_users", False)),
-            remove_all_groups=bool(g.get("remove_all_groups", False)),
+            remove_all_users=stored_flag(g.get("remove_all_users", False), False),
+            remove_all_groups=stored_flag(g.get("remove_all_groups", False), False),
             common=_common_options_from_dict(g.get("common")),
             ilt_filter=_parse_ilt_filter_from_dict(g.get("ilt_filter")),
             id=str(g.get("id", "")),
@@ -2970,7 +3016,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 )
             registry.append(GppRegistry(
                 key=str(r.get("key", "")),
-                hive=_normalize_hive(str(r.get("hive", "HKEY_LOCAL_MACHINE"))),
+                hive=_stored_hive(r.get("hive", "HKEY_LOCAL_MACHINE")),
                 action=_validate_gpp_action(r.get("action", "update")),
                 uid=new_uid,
                 value=value,
@@ -3032,7 +3078,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     )
                 registry.append(GppRegistry(
                     key=str(r.get("key", "")),
-                    hive=_normalize_hive(str(r.get("hive", "HKEY_LOCAL_MACHINE"))),
+                    hive=_stored_hive(r.get("hive", "HKEY_LOCAL_MACHINE")),
                     action=_validate_gpp_action(r.get("action", "update")),
                     uid=v_uid,
                     value=value,

@@ -248,7 +248,123 @@ def test_the_preview_turns_a_writer_refusal_into_a_422(
     response = client.get(f"/api/gpos/{clean.guid}/publication-plan")
     assert response.status_code == 422, response.text
     (issue,) = response.json()["error"]["issues"]
-    # The one no-500 boundary (final-r17): a generic reason, the writer's own
-    # text (which may quote stored data) logged, not served.
+    # A writer's named refusal, at the writer call: a 422 with its reason,
+    # sanitized (final-r18).
     assert issue["code"] == "unwritable_artifact_value"
-    assert "refused by the writer" not in issue["message"]
+    assert "refused by the writer" in issue["message"]
+
+
+def test_an_unexpected_exception_in_a_writer_is_not_a_refusal(
+    planted: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sol / DeepSeek final-r18: only named writer exceptions are refusals. A
+    programming defect keeps its 500, so a test sees it instead of a 422 that
+    blames the GPO's data."""
+    from gpo_studio import api, export
+
+    client, store, _guid = planted("namespace")
+    clean = store.create_gpo("Defect", identity="t", reason="t")
+
+    def defect(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("a programming defect")
+
+    monkeypatch.setattr(api, "generate_publication_plan", defect)
+    monkeypatch.setattr(export, "powershell_plan", defect)
+    raising = TestClient(app, base_url="http://127.0.0.1", raise_server_exceptions=False)
+    for path in ("publication-plan", "plan.ps1"):
+        response = raising.get(f"/api/gpos/{clean.guid}/{path}")
+        assert response.status_code == 500, (path, response.text)
+    with pytest.raises(RuntimeError):
+        client.get(f"/api/gpos/{clean.guid}/plan.ps1")
+
+
+def _native_beside_collision(group: dict[str, Any]) -> None:
+    # A readable native record, carrying the marker, in a collection whose
+    # other content a current rule refuses: the record is marked at load.
+    group["native_xml"] = (
+        f'<Group clsid="{{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}}" name="G" m="{MARKER}">'
+        '<Properties action="U" groupName="G"/></Group>'
+    )
+    group["unknown_attrs"] = [["name", MARKER]]
+
+
+@pytest.mark.parametrize("shape", [*sorted(SHAPES), "native beside a collision"])
+def test_no_raw_builder_writes_a_refused_record(planted: Any, shape: str) -> None:
+    """Sol final-r18 B2: the raw builders, not only the routes and the checked
+    builders, refuse a GPO holding refused stored content -- each validates
+    first or refuses a marked record -- so no bytes carrying it can exist."""
+    from gpo_studio import export, publication
+    from gpo_studio.egress import checked_gpmc_backup, checked_plan, checked_studio_bundle
+    from gpo_studio.gpp import GppError, RefusedRecord
+    from gpo_studio.model import StudioError
+
+    if shape == "native beside a collision":
+        SHAPES[shape] = _native_beside_collision
+    try:
+        _client, store, guid = planted(shape)
+    finally:
+        SHAPES.pop("native beside a collision", None)
+    gpo = store.get_gpo(guid)
+    (collection,) = gpo.gpp_collections
+    if shape == "native beside a collision":
+        assert isinstance(collection.groups[0].native_xml, RefusedRecord)
+    builders: dict[str, Callable[[], Any]] = {
+        "serialize_gpp": lambda: serialize_gpp(collection),
+        "export_bundle": lambda: export.export_bundle(gpo),
+        "gpmc_backup_bundle": lambda: export.gpmc_backup_bundle(gpo),
+        "powershell_plan": lambda: export.powershell_plan(gpo),
+        "generate_publication_plan": lambda: publication.generate_publication_plan(gpo),
+        "checked_plan": lambda: checked_plan(gpo),
+        "checked_studio_bundle": lambda: checked_studio_bundle(gpo),
+        "checked_gpmc_backup": lambda: checked_gpmc_backup(gpo),
+    }
+    for name, build in builders.items():
+        with pytest.raises((GppError, StudioError)):
+            build()
+            pytest.fail(f"{shape}: {name} built")
+
+
+def test_no_raw_builder_writes_a_record_marked_by_an_invalid_scope(tmp_path: Path) -> None:
+    """Sol final-r18 B2's own probe: a stored collection with an invalid scope
+    marks its otherwise-valid retained Group record; the raw GPMC builder
+    wrote that record into a ZIP. Every builder now refuses first."""
+    from gpo_studio import export, publication
+    from gpo_studio.gpp import GppError, RefusedRecord
+    from gpo_studio.model import StudioError
+
+    with closing(WorkspaceStore(tmp_path / "scope.db")) as store:
+        gpo = store.create_gpo(
+            "Marked by scope",
+            identity="t",
+            reason="t",
+            gpp_collections=(
+                GppCollection(
+                    scope="user", groups=(GppGroup(name="G", sid="S-1-5-32-544", id="g"),)
+                ),
+            ),
+        )
+        connection = store._connection
+        (payload,) = connection.execute(
+            "SELECT snapshot_json FROM gpos WHERE guid=?", (gpo.guid,)
+        ).fetchone()
+        data = json.loads(payload)
+        data["gpp_collections"][0]["scope"] = "bogus"
+        _native_beside_collision(data["gpp_collections"][0]["groups"][0])
+        data["gpp_collections"][0]["groups"][0]["unknown_attrs"] = [["r18", MARKER]]
+        connection.execute(
+            "UPDATE gpos SET snapshot_json=? WHERE guid=?",
+            (json.dumps(data, separators=(",", ":"), sort_keys=True), gpo.guid),
+        )
+        connection.commit()
+        loaded = store.get_gpo(gpo.guid)
+    (collection,) = loaded.gpp_collections
+    assert isinstance(collection.groups[0].native_xml, RefusedRecord)
+    for name, build in {
+        "serialize_gpp": lambda: serialize_gpp(collection),
+        "export_bundle": lambda: export.export_bundle(loaded),
+        "gpmc_backup_bundle": lambda: export.gpmc_backup_bundle(loaded),
+        "generate_publication_plan": lambda: publication.generate_publication_plan(loaded),
+    }.items():
+        with pytest.raises((GppError, StudioError)):
+            build()
+            pytest.fail(f"{name} built")

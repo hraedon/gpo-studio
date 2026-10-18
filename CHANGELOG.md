@@ -620,6 +620,74 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- After the eighteenth review (final-r18):
+  - **A writer's refusal is a 422; nothing else is.** The final-r17 no-500
+    boundary wrapped whole endpoints and turned any exception -- a store
+    failure, a crash in validation, a programming defect -- into a "correct
+    this GPO value" 422 (Sol B1, DeepSeek B2). The catch is now only at the
+    writer or builder call (`egress.writer_boundary`) and only for the
+    writers' named refusals (`egress.writer_errors`: `GppError`, `IltError`,
+    `RegistryPolError`, `DeterministicZipError`, `FdeployError`,
+    `SecurityTemplateError`, `SddlError`, `FirewallValidationError`), each
+    answered with its own reason, sanitized (one printable line, bounded) in
+    both the 422 and the log, which records the type and that reason, not a
+    traceback (DeepSeek N5). Store access, validation and response building
+    keep their 500. The publication preview and the report's inventory catch
+    the same families; the GPP-content probe catches only those, and the
+    file digest only a decoding error (DeepSeek N4). A test injects a
+    `RuntimeError` into a writer and gets a 500.
+  - **Stored data is read by its type, never coerced.** Every loader read
+    booleans by truthiness, so an estate import of `"false"` stored -- and
+    exported -- `true` for a GPO's sides, a link's enabled/enforced and a
+    security filter's flags (Sol B3, DeepSeek N1), and an array in a
+    closed-set field crashed the membership check (500 on read, after a
+    committed mutation and on import; DeepSeek B1). The typed load
+    (`stored_types`) checks each stored value against its field's
+    annotation -- every field of a GPO, its items, preferences and import
+    records -- and replaces one of the wrong type, a missing required field
+    or an unreadable import record by its default, reporting it
+    (`stored_value_wrong_type`, an error), so the GPO is blocked; the
+    closed-set check compares types too. An estate import or an inline diff
+    reference carrying such a value is refused (422). Because the read
+    replaced the value, Studio will not store a change over it -- an edit, a
+    fork, a derived GPO, a copy of its settings or a restore of one of its
+    items would store the default and unblock the GPO -- so each is refused
+    (422) until the GPO is re-imported or a revision without the value is
+    restored. Values that keep their type but fall outside a set (an unknown
+    hive, a closed-set string) are kept as stored and block the GPO. A type
+    fuzz plants null, a boolean, a number, a string, an array and an object
+    in each of the 448 stored fields of a GPO holding every kind of item:
+    the load, validation and payload never raise, a wrong type blocks every
+    content export, every GPO route answers without a 500 for every field
+    outside the preference families and for each field of a group, member,
+    targeting predicate, common options and registry item and value, a
+    mutation commits exactly when it answers, and a stored boolean reaches
+    the plan exactly or the plan is refused.
+  - **Mutations validate before committing.** The response a mutation
+    returns validates the GPO it stored; it now validates it before the
+    commit, so a failure cannot follow a durable revision. A test runs six
+    mutations over each kind of bad stored value, and all of them at once:
+    each answers, and the revision moves exactly when it answered 2xx.
+  - **The builders refuse first, not only their callers (Sol B2).** The GPMC
+    backup builder validates its GPO before writing anything, every checked
+    builder does too, and `serialize_gpp` refuses a collection holding
+    refused content or a marked record. A test drives every raw builder
+    (`serialize_gpp`, the Studio and GPMC bundles, the plan, the publication
+    plan) over every refused shape -- Sol's invalid-scope probe included --
+    and none builds.
+  - **De-facto closed strings, decided (DeepSeek N2).** `closed_sets` covers
+    the `Literal` fields. `GppRegistryValue.registry_type` is closed by
+    validation (the six types; `""` only for a key-only item) and the
+    measured-shape rule; `GppRegistry.hive` is closed by the load (one of
+    the five `HKEY_` names; another is kept and blocks the GPO);
+    `IltPredicate.bool_op` is deliberately open, preserved verbatim from an
+    import. Documented in `closed_sets`.
+  - **The profiling test covers every GPO-payload route (DeepSeek N3)**,
+    enumerated from the route table and from every handler that builds a GPO
+    payload, with an assertion that none is missed; four that only ever
+    answer with a new GPO made from the request or a starter's settings are
+    named with the reason. The route table now classifies the ADMX configure
+    route as a GPO payload and the starter delete as a 204.
 - After the seventeenth review (final-r17):
   - **Refused stored content is marked when it is loaded.** A collection a
     tolerant load finds refused content in has its element records marked
@@ -630,18 +698,21 @@ Operator-facing:
     B1); no reader can now, whatever the route. The profiling test covers
     reads, the report, every refused artifact route, the diffs (current
     against a revision, two revisions, `/api/diff` by GUID, the estate diff),
-    a fork, and every kind of GPO-returning mutation.
-  - **Every closed-set field is held to its set, and no route answers 500 on
-    stored data.** An estate import read settings verbatim and stored
+    a fork, and the GPO-returning mutations of each item kind (not every
+    mutation route: final-r18 enumerates them from the route table).
+  - **Every closed-set field is held to its set, and no route answered 500
+    on a closed-set string outside its set** (a value of another JSON type
+    still could, and a boolean was coerced: final-r18). An estate import read settings verbatim and stored
     `registry_type="REG_FOO"`; the GPO's detail, plan and both bundles then
     answered 500 (DeepSeek final-r17 B1). Validation now checks every field
     the model types as a closed set -- found from the annotations, 42 of them
     (`closed_sets`) -- and reports a value outside it
     (`value_outside_closed_set`), so imports and mutations refuse it and a
     stored one blocks the GPO; reading such a GPO tolerates the value. Every
-    artifact route, capability probe and the publication preview turns
-    whatever a writer raises into a 422 (`unwritable_artifact_value`, a
-    generic reason; the exception type is logged). A fuzz plants a value
+    artifact route, capability probe and the publication preview turned
+    whatever was raised into a 422 (`unwritable_artifact_value`, a generic
+    reason; the traceback was logged) -- too broad, narrowed in final-r18 to
+    the writers' named refusals. A fuzz plants a value
     outside its set in each closed-set field of a stored GPO holding every
     kind of item and requests every GPO route: none answers 500. A malformed
     estate member (a link order of "x", an unknown permission) is a 422.

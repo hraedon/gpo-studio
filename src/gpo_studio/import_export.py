@@ -173,9 +173,16 @@ def resolve_gpo(store: WorkspaceStore, ref: str | dict[str, Any]) -> GPO:
     if isinstance(ref, str):
         return store.get_gpo(ref)
     try:
-        return gpo_from_dict(ref)
+        gpo = gpo_from_dict(ref)
     except (KeyError, TypeError, ValueError) as error:
         raise StudioError(f"Invalid inline GPO reference: {error}") from error
+    if gpo.load_problems:
+        # An inline reference is input, not stored data: a value of the wrong
+        # type, or a required field missing, is refused, not read as the
+        # default (final-r18).
+        (_severity, message), *_rest = gpo.load_problems
+        raise StudioError(f"Invalid inline GPO reference: {message.split('. Studio')[0]}")
+    return gpo
 
 
 def backup_security_filters_to_model(

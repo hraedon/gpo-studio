@@ -1207,7 +1207,15 @@ def gpmc_backup_bundle(
     ``MachineExtensionGuids``/``UserExtensionGuids``. States with no measured
     native encoding are refused, not approximated — see
     `_native_scripts_refusal`.
+
+    Validates its own input first, as `powershell_plan` does (Sol final-r18
+    B2): a GPO with a validation error -- stored content a current rule
+    refuses among them -- gets no backup, whichever caller asks, and nothing
+    is serialized for it.
     """
+    errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
+    if errors:
+        raise ValidationError(errors)
     backup_id = native_backup_id(gpo)
     files, profiles = _native_export_files(gpo, scripts)
     prefix = f"{backup_id}/DomainSysvol/GPO"

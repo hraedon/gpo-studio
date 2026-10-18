@@ -624,8 +624,11 @@ def test_a_clean_gpo_exports_the_manifest_it_always_did(tmp_path: Path, served: 
         assert bundle.status_code == 200, bundle.text
         with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
             manifest = json.loads(archive.read("manifest.json"))
-        expected = json.loads(json.dumps(dataclasses.asdict(store.get_gpo(gpo.guid))))
-        assert manifest["gpo"] == expected
-        assert gpo.to_dict() == dataclasses.asdict(gpo)
+        loaded = store.get_gpo(gpo.guid)
+        plain = dataclasses.asdict(loaded)
+        # The GPO-level `load_problems` (final-r18) never entered a GPO's dict.
+        plain.pop("load_problems")
+        assert manifest["gpo"] == json.loads(json.dumps(plain))
+        assert loaded.to_dict() == plain
         for collection in manifest["gpo"]["gpp_collections"]:
             assert collection["load_problems"] == []

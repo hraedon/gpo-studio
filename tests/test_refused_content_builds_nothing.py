@@ -14,6 +14,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from types import CodeType, FrameType
 from typing import Any
 
@@ -59,6 +60,50 @@ def _calls() -> Iterator[list[str]]:
 
 _AUDIT = {"actor": "t", "reason": "r17"}
 
+#: Routes answering with a GPO payload that cannot carry refused stored
+#: content: each makes a new GPO from the request or a starter's settings
+#: (a starter's preferences are not derived), never from a stored one's
+#: preferences. A clean payload builds, as `test_the_spy_sees_a_build` shows.
+_EXCUSED = {
+    ("POST", "/api/gpos"): "an empty new GPO",
+    ("POST", "/api/starter-gpos"): "an empty new starter GPO",
+    ("POST", "/api/starter-gpos/{guid}/derive"): "a new GPO of a starter's settings only",
+    ("POST", "/api/backups/import"): "a new GPO read from uploaded backup bytes",
+}
+
+
+def _payload_routes() -> set[tuple[str, str]]:
+    """Every route answering with a GPO payload: the route table's
+    `_GPO_PAYLOAD` entries, and every handler that builds one (DeepSeek
+    final-r18 N3: enumerated, not chosen)."""
+    import inspect
+
+    from fastapi.routing import APIRoute
+
+    from gpo_studio import api
+
+    routes = {key for key, why in api.NO_ARTIFACT_ROUTES.items() if why == api._GPO_PAYLOAD}
+    for route in api.app.routes:
+        if isinstance(route, APIRoute) and "_gpo_payload(" in inspect.getsource(route.endpoint):
+            routes |= {(method, route.path) for method in route.methods}
+    return routes
+
+
+def _template(method: str, path: str) -> tuple[str, str]:
+    from starlette.routing import Match
+
+    from gpo_studio.api import app
+
+    scope = {"type": "http", "method": method, "path": path.split("?")[0]}
+    for route in app.routes:
+        match, _child = route.matches(scope)
+        if match is Match.FULL:
+            return method, str(getattr(route, "path", ""))
+    raise AssertionError((method, path))
+
+
+_EXERCISED: set[tuple[str, str]] = set()
+
 
 def _step(
     client: Any,
@@ -69,6 +114,7 @@ def _step(
     *,
     expect: tuple[int, ...] = (200, 201),
 ) -> Any:
+    _EXERCISED.add(_template(method, path))
     with _calls() as seen:
         response = client.request(method, path, json=body)
     assert response.status_code in expect, (
@@ -100,9 +146,24 @@ def _mutate(
 def test_no_route_builds_an_artifact_of_refused_content(
     planted: Any,  # noqa: F811
     shape: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reads, diffs, the report, the refused artifact routes and every kind of
-    GPO-returning mutation, while the refused content stays in the GPO."""
+    """Reads, diffs, the report, the refused artifact routes and every
+    GPO-payload route the route table and the handlers name, while the
+    refused content stays in the GPO."""
+    from test_api import _ADML_STATEFUL, _ADMX_STATEFUL, _STATEFUL_ID
+
+    from gpo_studio.api import app
+    from gpo_studio.template_store import ingest_source
+
+    _EXERCISED.clear()
+    admx = tmp_path / "admx"
+    admx.mkdir()
+    (admx / "stateful.admx").write_bytes(_ADMX_STATEFUL)
+    (admx / "stateful.adml").write_bytes(_ADML_STATEFUL)
+    catalogue = ingest_source("default", "local", admx).catalogue
+    monkeypatch.setattr(app.state, "admx_catalogue", catalogue, raising=False)
     client, store, guid = planted(shape)
     base = f"/api/gpos/{guid}"
     # Reads and the report (the diagnostic exception renders, building nothing).
@@ -148,6 +209,32 @@ def test_no_route_builds_an_artifact_of_refused_content(
     )
     _mutate(client, shape, guid, "PATCH", f"{base}/settings/{setting_id}/comment", {"comment": "c"})
     _mutate(client, shape, guid, "DELETE", f"{base}/settings/{setting_id}", {})
+    _mutate(client, shape, guid, "POST", f"{base}/copy-settings", {"source_guid": guid})
+    adm = (
+        'CLASS MACHINE\n POLICY "R18"\n  KEYNAME "Software\\Policies\\R18"\n'
+        '  VALUENAME "V"\n  VALUEON NUMERIC 1\n  VALUEOFF NUMERIC 0\n END POLICY\nEND CLASS'
+    )
+    _mutate(client, shape, guid, "POST", f"{base}/import-adm", {"adm_content": adm})
+    _mutate(
+        client,
+        shape,
+        guid,
+        "POST",
+        f"/api/admx/policies/{_STATEFUL_ID}/configure",
+        {"gpo_guid": guid, "side": "computer", "values": {"SubOption": True}, "state": "enabled"},
+    )
+    _mutate(
+        client,
+        shape,
+        guid,
+        "POST",
+        f"{base}/bulk-policy-state",
+        {
+            "policy_ids": ["Synthetic.Policies.Stateful:StatefulPolicy"],
+            "side": "computer",
+            "target_state": "disabled",
+        },
+    )
     link = {"target": "OU=R17,DC=studio,DC=local"}
     linked = _mutate(client, shape, guid, "POST", f"{base}/links", {"link": link})
     link_id = linked["gpo"]["links"][-1]["id"]
@@ -195,13 +282,30 @@ def test_no_route_builds_an_artifact_of_refused_content(
         f"{prefs}/groups/{added_id}",
         {"scope": "computer", "group": {"name": "Added", "sid": "S-1-5-32-546"}},
     )
-    _mutate(
+    grown_member = _mutate(
         client,
         shape,
         guid,
         "POST",
         f"{prefs}/groups/{added_id}/members",
         {"scope": "computer", "member": {"sid": "S-1-5-32-547", "name": "M"}},
+    )
+    member_id = grown_member["gpo"]["gpp_collections"][0]["groups"][-1]["members"][-1]["id"]
+    _mutate(
+        client,
+        shape,
+        guid,
+        "PUT",
+        f"{prefs}/groups/{added_id}/members/{member_id}",
+        {"scope": "computer", "member": {"sid": "S-1-5-32-547", "name": "M2"}},
+    )
+    _mutate(
+        client,
+        shape,
+        guid,
+        "DELETE",
+        f"{prefs}/groups/{added_id}/members/{member_id}",
+        {"scope": "computer"},
     )
     _mutate(
         client,
@@ -233,7 +337,54 @@ def test_no_route_builds_an_artifact_of_refused_content(
         {"scope": "computer", "registry": {"key": r"Software\R17"}},
     )
     registry_id = registry["gpo"]["gpp_collections"][0]["registry"][-1]["id"]
-    _mutate(client, shape, guid, "DELETE", f"{prefs}/registry/{registry_id}", {"scope": "computer"})
+    registry_revision = registry["gpo"]["revision"]
+    item = f"{prefs}/registry/{registry_id}"
+    value = {"name": "V", "value": "1", "registry_type": "REG_SZ"}
+    _mutate(
+        client,
+        shape,
+        guid,
+        "PUT",
+        item,
+        {"scope": "computer", "registry": {"key": r"Software\R18", "value": value}},
+    )
+    # An item made through the API already has its value: adding one is
+    # refused (422), building nothing.
+    _step(
+        client,
+        shape,
+        "POST",
+        f"{item}/values",
+        {
+            **_AUDIT,
+            "scope": "computer",
+            "value": value,
+            "expected_revision": _current(client, guid)["revision"],
+        },
+        expect=(422,),
+    )
+    current_item = _current(client, guid)["gpp_collections"][0]["registry"][-1]
+    value_id = current_item["value"]["id"]
+    _mutate(
+        client,
+        shape,
+        guid,
+        "PUT",
+        f"{item}/values/{value_id}",
+        {"scope": "computer", "value": {**value, "value": "2"}},
+    )
+    _mutate(client, shape, guid, "POST", f"{item}/clone", {"scope": "computer"})
+    # Deleting an item's only value deletes the item; the restore puts it back.
+    _mutate(client, shape, guid, "DELETE", f"{item}/values/{value_id}", {"scope": "computer"})
+    _mutate(
+        client,
+        shape,
+        guid,
+        "POST",
+        f"{item}/restore",
+        {"scope": "computer", "revision": registry_revision},
+    )
+    _mutate(client, shape, guid, "DELETE", item, {"scope": "computer"})
     current = _current(client, guid)["revision"]
     # Restoring a revision that holds refused content is itself refused --
     # by validation, building nothing.
@@ -276,6 +427,41 @@ def test_no_route_builds_an_artifact_of_refused_content(
     # A fork carries the refused content, and builds nothing either.
     _step(client, shape, "POST", f"{base}/fork", {**_AUDIT, "name": "Refused fork"})
     assert store.get_gpo(guid).gpp_collections[0].load_problems
+    # A starter GPO holding refused content: deleting it builds nothing.
+    starter = store.create_starter_gpo("Refused starter", identity="t", reason="t")
+    _plant_collection(store, starter.guid, guid)
+    _step(
+        client,
+        shape,
+        "DELETE",
+        f"/api/starter-gpos/{starter.guid}",
+        {**_AUDIT, "expected_revision": starter.revision},
+        expect=(204,),
+    )
+    # Every GPO-payload route was driven (DeepSeek final-r18 N3).
+    missing = _payload_routes() - _EXERCISED - set(_EXCUSED)
+    assert missing == set(), sorted(missing)
+
+
+def _plant_collection(store: Any, target: str, source: str) -> None:
+    """*source*'s stored preferences, refused content and all, into *target*."""
+    import json
+
+    connection = store._connection
+    (stored,) = connection.execute(
+        "SELECT snapshot_json FROM gpos WHERE guid=?", (source,)
+    ).fetchone()
+    (payload,) = connection.execute(
+        "SELECT snapshot_json FROM gpos WHERE guid=?", (target,)
+    ).fetchone()
+    data = json.loads(payload)
+    data["gpp_collections"] = json.loads(stored)["gpp_collections"]
+    connection.execute(
+        "UPDATE gpos SET snapshot_json=? WHERE guid=?",
+        (json.dumps(data, separators=(",", ":"), sort_keys=True), target),
+    )
+    connection.commit()
+    assert store.get_gpo(target).gpp_collections[0].load_problems
 
 
 def test_the_spy_sees_a_build(planted: Any) -> None:  # noqa: F811

@@ -13,6 +13,24 @@ reports every value outside its field's set as a validation error, so an
 import or a mutation carrying one is refused, and a stored one makes the GPO
 blocked -- reported, readable, never built. It derives the sets from the
 annotations, so a field added later is covered the day it lands.
+
+What it covers is the ``Literal`` fields. Three plain ``str`` fields are
+de-facto closed or deliberately open, decided here (DeepSeek final-r18 N2):
+
+* ``GppRegistryValue.registry_type`` -- closed, but held by validation, not
+  here: ``validate_gpp_registry_value`` refuses anything outside the six
+  registry types (``invalid_gpp_registry_type``; ``""`` only on a key-only
+  item) and the measured-shape rule refuses an unmeasured one. It stays a
+  ``str`` because the importer reads it from XML before validation judges it.
+* ``GppRegistry.hive`` -- closed: normalized to one of the five ``HKEY_``
+  names on load; a stored one outside them is a load problem (an error), kept
+  as stored, so the GPO is blocked, never exported.
+* ``IltPredicate.bool_op`` -- open by design: an imported predicate's
+  ``bool`` attribute is preserved and written back verbatim (the request
+  models restrict an authored one to ``AND``/``OR``); only its text is
+  checked, as every text field is.
+
+The JSON *type* of every stored field, these included, is `stored_types`'.
 """
 
 from __future__ import annotations
@@ -97,7 +115,11 @@ def closed_set_issues(root: Any, prefix: str = "") -> list[ValidationIssue]:
     one, at *path*) holding a value outside its set."""
     issues: list[ValidationIssue] = []
     for path, value, (members, optional) in _walk(root, prefix):
-        if value in members or (optional and value is None):
+        # Total over JSON values: a list or an object is unhashable, and simply
+        # not a member (DeepSeek final-r18 B1).
+        if (optional and value is None) or any(
+            type(value) is type(member) and value == member for member in members
+        ):
             continue
         shown = repr(value)
         shown = shown if len(shown) <= 40 else shown[:37] + "..."

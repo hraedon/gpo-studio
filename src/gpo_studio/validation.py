@@ -33,6 +33,7 @@ from .identity_values import (
 from .ilt import IltError, IltFilter, IltPredicate
 from .model import GPO, RegistrySetting, ValidationIssue
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
+from .stored_types import STORED_WRONG_TYPE
 from .xml_safety import unwritable_text, xml_char_forbidden
 
 _WQL_SELECT = re.compile(r"\bselect\b", re.IGNORECASE)
@@ -272,6 +273,17 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
 
 def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = text_issues(gpo)
+    # A stored value of the wrong JSON type, which the load replaced by its
+    # default rather than coerce (final-r18, `stored_types`).
+    issues += [
+        ValidationIssue(
+            "error" if severity == "error" else "warning",
+            "stored_value_wrong_type",
+            message,
+            "",
+        )
+        for severity, message in gpo.load_problems
+    ]
     from .closed_sets import closed_set_issues
 
     outside = closed_set_issues(gpo)
@@ -1137,8 +1149,12 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
         issues.append(
             ValidationIssue(
                 "error" if severity == "error" else "warning",
-                "stored_preferences_refused",
-                f"{message}. Studio kept it as stored but will not export it: delete "
+                "stored_value_wrong_type"
+                if message.startswith(STORED_WRONG_TYPE)
+                else "stored_preferences_refused",
+                f"{message}."
+                if message.startswith(STORED_WRONG_TYPE)
+                else f"{message}. Studio kept it as stored but will not export it: delete "
                 "the item holding it, or re-import the GPO from its source backup."
                 if severity == "error"
                 else f"{message}. Studio writes these items in its own order instead.",

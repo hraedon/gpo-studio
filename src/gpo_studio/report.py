@@ -58,16 +58,26 @@ def _inventory_lines(gpo: GPO) -> list[str]:
     for stored data every content export refuses, so it must never fail on it
     (DeepSeek final-r16 B1). Stored content a current rule refuses is not
     written to inventory it -- the validation section names it and the remedy
-    -- and any writer refusal (`GppError`, the ILT codec's `IltError`, both
-    `ValueError`s) is the same "unavailable" note, with its reason and never
-    the stored bytes.
+    -- and any writer refusal (`egress.writer_errors`: `GppError`, the ILT
+    codec's `IltError` and the rest) is the same "unavailable" note, with its
+    reason and never the stored bytes.
     """
     if any(has_refused_content(collection) for collection in gpo.gpp_collections):
         return ["(inventory unavailable: stored preferences are refused; see Validation)"]
+    if any(issue.severity == "error" for issue in validate_gpo(gpo)):
+        # The inventory is written by the preference writers, which assume a
+        # valid GPO (a closed set holds, a value has its type): never run them
+        # on one validation refuses (final-r18).
+        return ["(inventory unavailable: the GPO has validation errors; see Validation)"]
+    from .egress import sanitized, writer_errors
+
+    refusals: tuple[type[BaseException], ...] = (ReportParityError, *writer_errors())
     try:
         inventory = studio_inventory(gpo)
-    except (ReportParityError, ValueError) as error:
-        return [f"(inventory unavailable: {error})"]
+    except refusals as error:
+        # Only the writers' named refusals (final-r18): anything else is a
+        # defect, and fails as one.
+        return [f"(inventory unavailable: {sanitized(error)})"]
     return [
         line
         for family in inventory.families

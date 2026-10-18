@@ -137,9 +137,16 @@ class GPO:
     domain: str = "studio.local"
     created_at: str = ""
     updated_at: str = ""
+    #: ``(severity, message)`` for each stored value of the wrong JSON type a
+    #: load replaced by its field's default (`stored_types`, final-r18).
+    #: Validation reports them; never stored, served or exported.
+    load_problems: tuple[tuple[str, str], ...] = field(default=(), compare=False)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
+        # Never part of a GPO's dict: the key did not exist before final-r18,
+        # so a clean GPO's dict is the one it always was.
+        data.pop("load_problems", None)
         for collection in data.get("gpp_collections", []):
             # A tolerant load's derived `load_problems` are never stored, served
             # or exported; emptied rather than dropped, so a GPO without any

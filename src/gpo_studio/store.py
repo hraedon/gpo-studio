@@ -47,6 +47,7 @@ from .model import (
     RegistrySetting,
     Revision,
     SecurityFilter,
+    StudioError,
     ValidationError,
     ValidationIssue,
     WmiFilter,
@@ -59,6 +60,7 @@ from .snapshot_documents import (
     extract_snapshot_documents,
     snapshot_digests,
 )
+from .stored_types import STORED_WRONG_TYPE, check_stored, problem_message, stored_flag
 from .validation import (
     text_issues,
     validate_gpo,
@@ -102,8 +104,8 @@ def _link(data: dict[str, Any]) -> GPOLink:
     return GPOLink(
         id=str(data["id"]),
         target=str(data["target"]),
-        enabled=bool(data.get("enabled", True)),
-        enforced=bool(data.get("enforced", False)),
+        enabled=stored_flag(data.get("enabled", True), True),
+        enforced=stored_flag(data.get("enforced", False), False),
         order=int(data.get("order", 1)),
     )
 
@@ -174,14 +176,14 @@ def _security_filter(data: dict[str, Any], *, strict: bool = True) -> SecurityFi
         id=str(data["id"]),
         principal=str(data["principal"]),
         permission=permission,
-        inheritable=bool(data.get("inheritable", True)),
+        inheritable=stored_flag(data.get("inheritable", True), True),
         target_type=target_type,
         sid=str(data.get("sid", "")),
         # Absent means allow, which is what every row written before WI-033
         # meant. Reading it is not optional: without this the field round-trips
         # to False, so a deny authored in one session came back an ALLOW in the
         # next -- the polarity silently inverted by persistence alone.
-        deny=bool(data.get("deny", False)),
+        deny=stored_flag(data.get("deny", False), False),
     )
 
 
@@ -447,15 +449,82 @@ def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
     return replace(gpo, gpp_collections=tuple(new_collections))
 
 
+def _replaced_on_read(gpo: GPO) -> list[ValidationIssue]:
+    """The stored values *gpo*'s read replaced: of the wrong type, missing, or
+    an unreadable import record (final-r18).
+
+    The typed load replaces each with its default, never coercing it; the
+    GPO is blocked. Storing the GPO again would store the default in its
+    place -- an edit, a fork, a derived GPO or a copy would turn "false" into
+    the default ``true`` and unblock it -- so each refuses such a GPO. A
+    restore of a revision without them, or a re-import, is the way out."""
+    from .validation import validate_gpo
+
+    replaced = bool(gpo.load_problems) or any(
+        message.startswith(STORED_WRONG_TYPE)
+        for collection in gpo.gpp_collections
+        for _severity, message in collection.load_problems
+    )
+    if not replaced:
+        return []
+    return [
+        replace(
+            issue,
+            message=(
+                f"{issue.message} Studio will not store a change to this GPO -- it would "
+                "store the default in its place -- until it is re-imported or a revision "
+                "without it is restored."
+            ),
+        )
+        for issue in validate_gpo(gpo)
+        if issue.code == "stored_value_wrong_type" and issue.severity == "error"
+    ]
+
+
+def require_unreplaced(gpo: GPO) -> None:
+    issues = _replaced_on_read(gpo)
+    if issues:
+        raise ValidationError(issues)
+
+
+def _stored_record[Record](
+    loader: Callable[[object], Record],
+    value: object,
+    path: str,
+    problems: list[tuple[str, str]],
+) -> Record | None:
+    """An import record (the native inventory, the fdeploy document) read back
+    tolerantly: one its loader refuses is recorded as a problem -- an error,
+    so the GPO is blocked -- and left out, never fatal on read (final-r18)."""
+    if value is None:
+        return None
+    try:
+        return loader(value)
+    except StudioError as error:
+        problems.append((path, f"the stored record is unreadable ({error})"))
+        return None
+
+
 def gpo_from_dict(data: dict[str, Any]) -> GPO:
     from .backup_inventory import inventory_from_dict
 
+    # Stored JSON is held to the model's types first, never coerced: a value of
+    # the wrong type is reported and replaced by its default (final-r18,
+    # `stored_types`), the preferences and import records included.
+    problems: list[tuple[str, str]] = []
+    data = check_stored(
+        GPO,
+        data,
+        "",
+        problems,
+        skip=frozenset({"load_problems"}),
+    )
     gpo = GPO(
         guid=str(data["guid"]),
         name=str(data["name"]),
         description=str(data.get("description", "")),
-        computer_enabled=bool(data.get("computer_enabled", True)),
-        user_enabled=bool(data.get("user_enabled", True)),
+        computer_enabled=stored_flag(data.get("computer_enabled", True), True),
+        user_enabled=stored_flag(data.get("user_enabled", True), True),
         status=data.get("status", "draft"),
         revision=int(data.get("revision", 0)),
         settings=tuple(_setting(item) for item in data.get("settings", [])),
@@ -464,26 +533,23 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         cse_metadata=tuple(
             _cse_metadata_entry(item) for item in data.get("cse_metadata", [])
         ),
-        backup_inventory=(
-            inventory_from_dict(data["backup_inventory"])
-            if data.get("backup_inventory") is not None else None
+        backup_inventory=_stored_record(
+            inventory_from_dict, data.get("backup_inventory"), "/backup_inventory", problems
         ),
-        fdeploy=(
-            fdeploy_from_dict(data["fdeploy"])
-            if data.get("fdeploy") is not None else None
-        ),
+        fdeploy=_stored_record(fdeploy_from_dict, data.get("fdeploy"), "/fdeploy", problems),
         security_filters=tuple(
             _security_filter(item, strict=False) for item in data.get("security_filters", [])
         ),
-        wmi_filter=_wmi_filter(data["wmi_filter"]) if data.get("wmi_filter") else None,
+        wmi_filter=_wmi_filter(data["wmi_filter"]) if data.get("wmi_filter") is not None else None,
         gpp_collections=tuple(
             _gpp_collection(item) for item in data.get("gpp_collections", [])
         ),
-        is_starter=bool(data.get("is_starter", False)),
+        is_starter=stored_flag(data.get("is_starter", False), False),
         template_version=str(data.get("template_version", "")),
         domain=str(data.get("domain", "studio.local")),
         created_at=str(data.get("created_at", "")),
         updated_at=str(data.get("updated_at", "")),
+        load_problems=tuple(("error", problem_message(path, what)) for path, what in problems),
     )
     return _loaded_gpp(_assign_legacy_gpp_ids(gpo))
 
@@ -999,6 +1065,7 @@ class WorkspaceStore:
         starter = self.get_gpo(starter_guid)
         if not starter.is_starter:
             raise NotFoundError(f"Starter GPO {starter_guid} was not found")
+        require_unreplaced(starter)
         if expected_revision is not None and starter.revision != expected_revision:
             raise ConflictError(
                 f"Expected revision {expected_revision}, "
@@ -1167,6 +1234,7 @@ class WorkspaceStore:
         reason: str,
     ) -> GPO:
         source = self.get_gpo(guid)
+        require_unreplaced(source)
         forked_settings = tuple(
             replace(s, id=f"forked-{s.id}") for s in source.settings
         )
@@ -1214,6 +1282,7 @@ class WorkspaceStore:
         identity: Identity | str,
         reason: str,
         grants: _Grants | None = None,
+        replaces_all: bool = False,
     ) -> GPO:
         actor = _resolve_actor(identity)
         with self._lock:
@@ -1228,6 +1297,8 @@ class WorkspaceStore:
                         expected_revision=expected_revision,
                         current_revision=current.revision,
                     )
+                if not replaces_all:
+                    require_unreplaced(current)
                 timestamp = _now()
                 # Every mutation passes the provenance check (final-r13): it may
                 # keep or drop retained content, and add only what *grants* names.
@@ -1235,6 +1306,10 @@ class WorkspaceStore:
                 updated = replace(
                     changed, revision=current.revision + 1, updated_at=timestamp
                 )
+                # Validate before committing (final-r18): the response the API
+                # builds next validates the GPO, and a failure there must not
+                # follow a durable revision. Raising here rolls the mutation back.
+                validate_gpo(updated)
                 payload, documents = self._encode_snapshot_payload(updated)
                 self._store_documents(current.guid, 0, documents)
                 self._store_documents(current.guid, updated.revision, documents)
@@ -1783,6 +1858,7 @@ class WorkspaceStore:
         records that revision holds for this item and creates none (final-r13).
         """
         historical = gpo_from_dict(self.get_revision(guid, from_revision).snapshot)
+        require_unreplaced(historical)
         old_found = self._find_collection(historical, scope)
         restored = None
         if old_found is not None:
@@ -2363,8 +2439,16 @@ class WorkspaceStore:
                 updated_at=current.updated_at,
             )
 
+        # The one change a GPO whose read replaced stored values may take: it
+        # replaces everything, with a revision validated above.
         return self._mutate(
-            guid, expected_revision, mutate, identity=identity, reason=reason, grants=grants
+            guid,
+            expected_revision,
+            mutate,
+            identity=identity,
+            reason=reason,
+            grants=grants,
+            replaces_all=True,
         )
 
     def deletion_log(self) -> list[dict[str, Any]]:
