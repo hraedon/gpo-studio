@@ -1375,8 +1375,11 @@ class WorkspaceStore:
         ]
         if present and present != expected:
             number = 1
+            # Any schema object's name -- table, view, index, trigger -- is
+            # taken (DeepSeek final-r23 N2), compared as SQLite compares them,
+            # without regard to case.
             while connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                "SELECT 1 FROM sqlite_master WHERE name = ? COLLATE NOCASE",
                 (f"{table}_preshape_{number}",),
             ).fetchone():
                 number += 1
@@ -2853,9 +2856,12 @@ class WorkspaceStore:
                 ValidationIssue(
                     severity="error",
                     code="replace_source_mismatch",
+                    # The recorded identity is never served (final-r23), so the
+                    # refusal names only what the offered backup holds.
                     message=(
                         "A GPO is replaced only by a backup of the GPO it was first "
-                        f"imported from: {shown(mine)}; this backup holds {shown(theirs)}."
+                        f"imported from; this backup holds {shown(theirs)}, which is not "
+                        "the GPO, domain and domain GUID recorded at that import."
                     ),
                     path="replace_guid",
                 )

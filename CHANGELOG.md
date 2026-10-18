@@ -620,6 +620,24 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- After the twenty-third review (final-r23):
+  - **The recorded identity is left out at the serializer, for every route
+    (Sol B1, DeepSeek N1).** The revision detail served the stored snapshot,
+    identity and all. The API's JSON response class -- already the boundary
+    for retained native records -- now also drops every `backup_inventory`
+    object's stored-only fields from every body (`model.without_stored_only`,
+    scoped to import records: a lifecycle plan's own `source_gpo_guid` is
+    untouched), and a replacement's mismatch message no longer names the
+    recorded identity. A sweep plants sentinel identity values in a native
+    import and calls every route of the route table -- GETs and mutations,
+    with bodies that let the GPO routes work -- and finds none in any
+    response, JSON or artifact; a control shows it sees a leak.
+  - Setting an archive table aside skips a name taken by ANY schema object
+    -- view, index, trigger -- compared without regard to case (DeepSeek N2).
+  - The backup instance directory is matched without regard to case, for the
+    nested `bkupInfo.xml` and the content alike (a Windows backup read where
+    names are case sensitive; DeepSeek N3); a backup without content keeps its
+    domain GUID.
 - After the twenty-second review (final-r22):
   - **The nested `bkupInfo.xml` is read and must agree (Sol B1).** A native
     backup nests its `bkupInfo.xml` in the backup instance directory; only a

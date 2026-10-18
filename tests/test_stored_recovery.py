@@ -724,3 +724,51 @@ def test_archive_tables_of_an_earlier_shape_are_set_aside_and_kept(workspace: An
         for row in store._connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
     assert {"deleted_gpos_preshape_1", "deleted_gpos_preshape_2", "deleted_gpos"} <= tables
+
+
+def test_a_set_aside_name_taken_by_any_schema_object_is_skipped(workspace: Any) -> None:
+    """DeepSeek final-r23 N2: only tables were looked at, so an index or view
+    holding the set-aside name failed the deletion."""
+    client, store, tmp_path = workspace
+    guid = _import(client, _inbox(tmp_path, "WI01A-DriveMaps-GPMC")).json()["gpo"]["guid"]
+    for statement in PRESHAPE:
+        store._connection.execute(statement)
+    store._connection.execute(
+        "CREATE VIEW Deleted_GPOs_Preshape_1 AS SELECT 1 AS one"  # another case, too
+    )
+    store._connection.execute(
+        "CREATE INDEX deleted_revisions_preshape_1 ON gpos(updated_at)"
+    )
+    store._connection.commit()
+    _unreadable_from_revision_1(store, guid)
+    deleted = client.request(
+        "DELETE", f"/api/gpos/{guid}?confirm={guid}", json={**AUDIT, "expected_revision": 1}
+    )
+    assert deleted.status_code == 204, deleted.text[:300]
+    names = {
+        str(row[0]).casefold()
+        for row in store._connection.execute("SELECT name FROM sqlite_master")
+    }
+    assert {"deleted_gpos_preshape_2", "deleted_revisions_preshape_2"} <= names
+    assert not store.is_degraded
+
+
+def test_the_nested_bkupinfo_is_found_whatever_the_instance_directorys_case(
+    workspace: Any,
+) -> None:
+    """DeepSeek final-r23 N3: a backup made on Windows can name its instance
+    directory in another case than its manifest does."""
+    client, store, tmp_path = workspace
+    variant = _nested_variant(tmp_path, "lower case", NESTED_DISAGREEMENTS["another domain GUID"])
+    (variant / INSTANCE).rename(variant / INSTANCE.lower())
+    from gpo_studio.backup import BackupError, read_backup
+
+    with pytest.raises(BackupError, match="different domain GUIDs"):
+        read_backup(variant)
+    agreeing = tmp_path / "inbox" / "agreeing"
+    shutil.copytree(NATIVE / "WI01A-DriveMaps-GPMC", agreeing)
+    (agreeing / INSTANCE).rename(agreeing / INSTANCE.lower())
+    (source,) = read_backup(agreeing).gpos
+    assert source.domain_guid == DOMAIN_GUID
+    # And its content is found there too, as the import's own read does.
+    assert source.content_root is not None and source.backup_inventory is not None

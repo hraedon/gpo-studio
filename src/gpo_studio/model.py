@@ -89,6 +89,29 @@ class BackupInventory:
 INVENTORY_IDENTITY_FIELDS = ("source_gpo_guid", "source_domain", "source_domain_guid")
 
 
+def without_stored_only(value: Any) -> Any:
+    """*value* with every import record's stored-only fields left out, at any
+    depth: wherever a ``backup_inventory`` object appears -- a GPO, a revision
+    snapshot as stored, a diff -- its recorded source identity is dropped
+    (final-r23: the revision detail served the stored snapshot). The API's
+    JSON response class applies this to every body, so the boundary is the
+    serializer, not each route. Scoped to ``backup_inventory`` objects: the
+    same key names mean other things elsewhere (a lifecycle plan's
+    ``source_gpo_guid``). Lists, tuples and dicts are copied."""
+    if isinstance(value, dict):
+        return {
+            key: (
+                inventory_dict(without_stored_only(entry))
+                if key == "backup_inventory" and isinstance(entry, dict)
+                else without_stored_only(entry)
+            )
+            for key, entry in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [without_stored_only(entry) for entry in value]
+    return value
+
+
 def inventory_dict(data: dict[str, Any], *, stored: bool = False) -> dict[str, Any]:
     """An inventory's dict (``asdict``) as it is published -- in a GPO's
     public dict, an export manifest, a canonical model -- or, *stored*, as the

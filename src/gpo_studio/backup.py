@@ -502,7 +502,10 @@ def _resolve_content_root(backup_dir: Path, backup_id: str, gpo_guid: str) -> Pa
     Native GPMC layout: {backup_dir}/{BACKUP_ID}/DomainSysvol/GPO
     Legacy Studio layout: {backup_dir}/{GPO_GUID}
     """
-    native_path = backup_dir / backup_id / "DomainSysvol" / "GPO" if backup_id else None
+    # The instance directory matched as the nested bkupInfo.xml is: without
+    # regard to case (DeepSeek final-r23 N3).
+    instance = _instance_directory(backup_dir, backup_id) if backup_id else None
+    native_path = instance / "DomainSysvol" / "GPO" if instance is not None else None
     legacy_path = backup_dir / gpo_guid
 
     native_exists = native_path is not None and native_path.is_dir()
@@ -565,7 +568,9 @@ def _nested_bkup_info(backup_dir: Path, backup_id: str, budget: _BackupBudget) -
     ``None`` where there is none."""
     if not backup_id:
         return None
-    instance = backup_dir / backup_id
+    instance = _instance_directory(backup_dir, backup_id)
+    if instance is None:
+        return None
     path = instance / "bkupInfo.xml"
     for candidate in (instance, path):
         if is_link_or_junction(candidate):
@@ -578,6 +583,27 @@ def _nested_bkup_info(backup_dir: Path, backup_id: str, budget: _BackupBudget) -
     if len(entries) != 1:
         raise BackupError(f"{backup_id}/bkupInfo.xml must describe exactly one GPO")
     return entries[0]
+
+
+def _instance_directory(backup_dir: Path, backup_id: str) -> Path | None:
+    """The backup instance directory *backup_id* names, matched without
+    regard to case -- a backup made on Windows, read where names are case
+    sensitive (DeepSeek final-r23 N3) -- or ``None``. Two that differ only in
+    case are ambiguous, and refused."""
+    exact = backup_dir / backup_id
+    if exact.is_dir():
+        return exact
+    try:
+        candidates = [
+            entry
+            for entry in backup_dir.iterdir()
+            if entry.name.casefold() == backup_id.casefold() and entry.is_dir()
+        ]
+    except OSError:
+        return None
+    if len(candidates) > 1:
+        raise BackupError(f"Ambiguous backup instance directory: {backup_id}")
+    return candidates[0] if candidates else None
 
 
 def _same_domain(left: str, right: str) -> bool:
@@ -675,6 +701,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                     guid=gpo.guid,
                     display_name=display_name,
                     domain=domain,
+                    domain_guid=domain_guid,
                     machine_extensions=gpo.machine_extensions,
                     user_extensions=gpo.user_extensions,
                     security_filters=gpo.security_filters,

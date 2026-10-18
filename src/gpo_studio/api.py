@@ -183,6 +183,7 @@ from .model import (
     ValidationIssue,
     WmiFilter,
     WorkspaceError,
+    without_stored_only,
 )
 from .numeric import coerce_dword_qword
 from .object_security import (
@@ -2142,11 +2143,12 @@ class JSONResponse(_FastAPIJSONResponse):
     ``retained_provenance`` (final-r13) and ``load_problems`` (final-r14)
     wherever they appear -- a GPO, a revision snapshot, a diff, a list row --
     so no route can serve them, however it builds its payload (review P2:
-    revision snapshots and diffs did).
+    revision snapshots and diffs did). The same holds for an import record's
+    stored-only source identity (`model.without_stored_only`, final-r23).
     """
 
     def render(self, content: Any) -> bytes:
-        content = without_native_records(content)
+        content = without_stored_only(without_native_records(content))
         try:
             return super().render(content)
         except UnicodeEncodeError:
@@ -4093,7 +4095,9 @@ def revision_diff(
 @app.get("/api/gpos/{guid}/revisions/{revision}")
 def revision(request: Request, guid: str, revision: int) -> dict[str, Any]:
     item = _store(request).get_revision(guid, revision)
-    return asdict(item)
+    # The snapshot as stored, in its public form: the response class leaves
+    # out the import record's stored-only identity, as it does everywhere.
+    return cast(dict[str, Any], without_stored_only(asdict(item)))
 
 
 @app.post("/api/gpos/{guid}/revisions/{revision}/restore")
