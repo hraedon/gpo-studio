@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import MISSING, dataclass, field, fields, replace
@@ -297,6 +298,26 @@ def _capture_unknown_children(
 _TOLERATED: ContextVar[list[tuple[str, str]] | None] = ContextVar(
     "gpp_tolerated_load_problems", default=None
 )
+
+
+#: Whether `retained_rendering` may run the writer; off while a collection
+#: holding refused stored content is hashed (`raw_retained_records`).
+_RENDER_RETAINED: ContextVar[bool] = ContextVar("gpp_render_retained", default=True)
+
+
+@contextmanager
+def raw_retained_records() -> Iterator[None]:
+    """Within this block `retained_rendering` returns raw records, writing nothing."""
+    token = _RENDER_RETAINED.set(False)
+    try:
+        yield
+    finally:
+        _RENDER_RETAINED.reset(token)
+
+
+def has_refused_content(collection: GppCollection) -> bool:
+    """Whether a tolerant load found stored content a current rule refuses."""
+    return any(severity == "error" for severity, _message in collection.load_problems)
 
 
 def _tolerate(error: GppError, severity: str = "error") -> bool:
@@ -1484,6 +1505,10 @@ def retained_rendering(key: str, item: Any, scope: GppScope) -> str:
     raw: str = getattr(item, "native_xml", "")
     if not raw:
         return ""
+    if not _RENDER_RETAINED.get():
+        # A collection holding refused stored content is hashed from its raw
+        # records: rendering would write the refused content (final-r16).
+        return raw
     # Every GPO payload hashes twice, so the answer is cached. ``repr`` covers
     # every field, the ones outside == included; items are frozen.
     cache_key = (key, scope, repr(item))
@@ -2321,7 +2346,9 @@ _NOT_SERVED = frozenset({"native_xml", "retained_provenance", "load_problems"})
 
 
 def without_native_records(value: Any) -> Any:
-    """*value* with every ``native_xml`` key left out, at any depth (WI-080).
+    """*value* with every `_NOT_SERVED` key left out, at any depth: ``native_xml``
+    (WI-080), ``retained_provenance`` (final-r13) and ``load_problems``
+    (final-r14).
 
     ``native_xml`` is an imported item's element as Windows wrote it: import
     provenance the writer reads, never editable content. The API neither
@@ -2451,6 +2478,7 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
                         ),
                     ))
                 else:
+                    _check_stored_raw_predicate(str(item))
                     items.append(str(item))
             ids = data.get("ids") or []
             if not isinstance(ids, list) or len(ids) not in (0, len(items)) or not all(
@@ -3044,6 +3072,21 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         collection = _without_document_positions(collection)
     _refuse_namespaced(collection, f"stored {scope} preference collection")
     return collection
+
+
+def _check_stored_raw_predicate(raw: str) -> None:
+    """A stored raw targeting predicate must parse: the pre-final-r11 API stored
+    them verbatim, and one that does not parse (an undeclared prefix, broken
+    XML) can be neither written nor exported. A tolerant load records it, so
+    the GPO is read and refused at export without writing it (final-r16)."""
+    from .ilt import _bounded_parse_ilt
+
+    try:
+        _bounded_parse_ilt(raw)
+    except IltError as error:
+        problem = GppError(f"a stored raw targeting predicate does not parse: {error}")
+        if not _tolerate(problem):
+            raise problem from error
 
 
 def _provenance_from_dict(raw: object) -> tuple[str, ...]:

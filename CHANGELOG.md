@@ -620,6 +620,28 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- After the sixteenth review (final-r16): a GPO holding stored content a
+  current rule refuses builds no artifact on any payload path. Every GPO
+  payload (the detail read and every GPO-returning mutation) asked the GPMC
+  backup capability by building the backup -- preferences serialized, ZIP
+  assembled in memory with the refused content -- even though validation had
+  already disabled it. Every capability probe now stops at a validation
+  error (the scripted backup's included), validation no longer writes such a
+  collection to read it back, and its review digests use the raw element
+  records instead of rendering them. A profiling test over the four refused
+  shapes holds `GET /api/gpos/{guid}`, the list, the revision list and four
+  mutations to calling no preference writer, archive builder or publication
+  digester. Folded in from DeepSeek's round: `report.txt` -- the diagnostic
+  exception -- no longer fails (500) on a stored 1.0.0-era raw targeting
+  predicate that does not parse: a tolerant load records it as refused
+  content like the other shapes, and the report's inventory notes any writer
+  refusal (an `IltError` included) instead of raising; the route matrix
+  covers it and a namespaced raw predicate too. The publication panel shows
+  a 422's issues; an operating-system predicate needs at least one criterion
+  set (a stored empty one still round-trips); the export manifest no longer
+  carries a tolerant load's derived problems (`GPO.to_dict` drops them); a raw
+  predicate without `bool` joins with AND, as it is read; the preview's
+  writer-refusal branch catches every writer `ValueError` and is tested.
 - After the fifteenth review (final-r15):
   - **The publication preview is guarded like an artifact route.** It names
     the digest of every file it would copy, and it built those files for a
@@ -627,7 +649,8 @@ Operator-facing:
     invalid-element-record item got a `copy_gpp_xml` step and `refused:
     false`, and a reserved-name collision or malformed child escaped as an
     unhandled writer error. It now refuses (422, with the validation errors)
-    any GPO with a validation error before serializing anything, and a writer
+    any GPO with a validation error before any artifact is built or
+    digested (validation's own read-back aside), and a writer
     refusal is a 422 too. The route table names it as JSON that digests
     artifacts; the other JSON routes were re-audited (the lifecycle restore
     plan names a cmdlet over the backup Windows wrote and builds nothing of
@@ -699,8 +722,9 @@ Operator-facing:
     (fdeploy, firewall, publication, report-parity, scripts-metadata, wp1b;
     `docs/plan-033/bound-source-cost.md`), and `validation.py` by three of
     the same (firewall, publication, scripts-metadata); this branch edits
-    both, so those six verdicts are expired until the next estate batch
-    re-runs them, with the others already pending requalification.
+    both (and, in final-r16, `canonical.py` and `model.py`, bound by lanes
+    of the same six), so those six verdicts are expired until the next estate
+    batch re-runs them, with the others already pending requalification.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

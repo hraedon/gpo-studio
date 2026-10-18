@@ -315,7 +315,9 @@ describe("a raw predicate's join (Sol final-r15 B2)", () => {
     ["<FilterBattery not='0' bool = 'OR'/>", "OR"],
     ['<FilterBattery\n  not="0"\n  bool="AND" />', "AND"],
     ["<FilterBattery bool='AND' not='0'></FilterBattery>", "AND"],
-    ['<FilterBattery not="0"/>', "?"],
+    // No bool is AND, as the parser and Windows read it (DeepSeek final-r16 N6).
+    ['<FilterBattery not="0"/>', "AND"],
+    ["<Filtre\u00c9tat bool='OR'/>", "OR"],
     ["<FilterBattery bool='&#79;R'/>", "?"],
     ["not xml", "?"],
   ])("reads %s as %s", (raw, join) => {

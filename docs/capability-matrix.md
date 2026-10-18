@@ -864,7 +864,9 @@ Reconciled 2026-10-08 under Plan 034 WP-3, lane first and surface second.
 **Endpoint.** `GET /api/gpos/{guid}/publication-plan?target=` returns the
 planner's steps, rollback steps, planned SYSVOL paths, payload digest and
 validator issues, and marks every step `measured`, `unmeasured` or `refused`.
-The Publication preview panel shows it grouped by SYSVOL and Active Directory.
+A GPO with a validation error is a 422 carrying those errors instead, before
+any file is built or digested (final-r15). The Publication preview panel shows
+the plan grouped by SYSVOL and Active Directory, or the 422's errors.
 Nothing executes a step, and `publisher.py` stays unreachable.
 
 **Certification.** `publication-completeness-20261009080352-5754` (21/21,

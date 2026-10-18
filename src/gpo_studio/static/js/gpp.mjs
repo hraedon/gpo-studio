@@ -63,19 +63,20 @@ export function iltRows(filter){
 
 // The join of a raw predicate, read from its start tag as an XML parser reads
 // attributes: either quote style, whitespace around "=" (Sol final-r15 B2: a
-// 1.0.0-era bool='OR' read as AND). "?" when it cannot be read -- no start tag,
-// no bool, or an entity in the value -- which the editor treats as a join
+// 1.0.0-era bool='OR' read as AND). No bool is AND, the default the parser
+// (ilt.py) and Windows apply (DeepSeek final-r16 N6). "?" when the tag cannot
+// be read or the value holds an entity -- which the editor treats as a join
 // that may regroup the expression.
 export function rawJoin(text){
-  const start=/^\s*<[A-Za-z_][\w.:-]*((?:\s+[A-Za-z_][\w.:-]*\s*=\s*(?:"[^"<]*"|'[^'<]*'))*)\s*\/?>/.exec(String(text));
+  const start=/^\s*<[^\s/>=]+((?:\s+[^\s/>=]+\s*=\s*(?:"[^"<]*"|'[^'<]*'))*)\s*\/?>/u.exec(String(text));
   if(!start)return "?";
-  const attribute=/\s([A-Za-z_][\w.:-]*)\s*=\s*(?:"([^"<]*)"|'([^'<]*)')/g;
+  const attribute=/\s([^\s/>=]+)\s*=\s*(?:"([^"<]*)"|'([^'<]*)')/gu;
   for(let match=attribute.exec(start[1]);match;match=attribute.exec(start[1])){
     if(match[1]!=="bool")continue;
     const value=match[2]??match[3];
     return value.includes("&")?"?":value;
   }
-  return "?";
+  return "AND";
 }
 
 export function osCriteriaText(criteria){
@@ -469,8 +470,13 @@ function addPredicateRow(listId,previewId,row=null){
 }
 
 function osProblem(listId){
-  const bad=[...$("#"+listId).querySelectorAll(".gpp-row")].find(row=>row.dataset.readonly!=="true"&&row.querySelector('[data-field=type]').value==="os"&&!osCriteriaFromText(row.querySelector('[data-field=value]').value));
-  return bad?"An operating system predicate needs class/version/type/edition/service pack, e.g. NT/WINTHRESHOLD/WS/NE/NE.":"";
+  const bad=[...$("#"+listId).querySelectorAll(".gpp-row")].find(row=>{
+    if(row.dataset.readonly==="true"||row.querySelector('[data-field=type]').value!=="os")return false;
+    const criteria=osCriteriaFromText(row.querySelector('[data-field=value]').value);
+    // Five parts; one may be empty as stored, but not all (DeepSeek final-r16 N2).
+    return !criteria||!Object.values(criteria).some(Boolean);
+  });
+  return bad?"An operating system predicate needs class/version/type/edition/service pack, at least one of them set, e.g. NT/WINTHRESHOLD/WS/NE/NE.":"";
 }
 
 function collectIlt(listId){

@@ -14,7 +14,7 @@ from .fdeploy import (
     native_digest,
     validate_fdeploy,
 )
-from .gpp import GppCollection
+from .gpp import GppCollection, has_refused_content
 from .model import GPO
 from .report_parity import ReportParityError, studio_inventory
 from .validation import validate_gpo
@@ -52,10 +52,21 @@ def _section(title: str, lines: Iterable[str]) -> list[str]:
 
 
 def _inventory_lines(gpo: GPO) -> list[str]:
-    """The inventory the report-parity lane compares with Get-GPOReport."""
+    """The inventory the report-parity lane compares with Get-GPOReport.
+
+    The report is the diagnostic exception among a GPO's artifacts: it renders
+    for stored data every content export refuses, so it must never fail on it
+    (DeepSeek final-r16 B1). Stored content a current rule refuses is not
+    written to inventory it -- the validation section names it and the remedy
+    -- and any writer refusal (`GppError`, the ILT codec's `IltError`, both
+    `ValueError`s) is the same "unavailable" note, with its reason and never
+    the stored bytes.
+    """
+    if any(has_refused_content(collection) for collection in gpo.gpp_collections):
+        return ["(inventory unavailable: stored preferences are refused; see Validation)"]
     try:
         inventory = studio_inventory(gpo)
-    except ReportParityError as error:
+    except (ReportParityError, ValueError) as error:
         return [f"(inventory unavailable: {error})"]
     return [
         line

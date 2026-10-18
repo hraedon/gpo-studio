@@ -139,7 +139,12 @@ class GPO:
     updated_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        for collection in data.get("gpp_collections", []):
+            # Derived on every load (a tolerant load's `load_problems`): never
+            # stored, served or exported (DeepSeek final-r16 N3).
+            collection.pop("load_problems", None)
+        return data
 
 
 @dataclass(frozen=True, slots=True)

@@ -44,11 +44,24 @@ def _native(group: dict[str, Any]) -> None:
     group["native_xml"] = f'<Registry m="{MARKER}"/>'
 
 
+def _raw_unparseable(group: dict[str, Any]) -> None:
+    # The 1.0.0 API stored raw targeting strings verbatim (DeepSeek final-r16 B1).
+    group["ilt_filter"] = {"items": [f'<p:FilterBattery m="{MARKER}"/>']}
+
+
+def _raw_namespaced(group: dict[str, Any]) -> None:
+    group["ilt_filter"] = {
+        "items": [f'<p:FilterBattery xmlns:p="urn:example" bool="AND" not="0" m="{MARKER}"/>']
+    }
+
+
 SHAPES: dict[str, Callable[[dict[str, Any]], None]] = {
     "namespace": _namespace,
     "reserved-name collision": _reserved,
     "malformed child": _malformed,
     "invalid native record": _native,
+    "unparseable raw predicate": _raw_unparseable,
+    "namespaced raw predicate": _raw_namespaced,
 }
 
 SCRIPTS = {"computer": {"startup": [{"command": "setup.cmd", "parameters": ""}]}}
@@ -215,3 +228,25 @@ def test_a_single_quoted_legacy_raw_or_keeps_its_join_through_a_move(tmp_path: P
         assert moved.status_code == 200, moved.text
         written = serialize_gpp(store.get_gpo(gpo.guid).gpp_collections[0])["Groups/Groups.xml"]
         assert written.index(b"FilterOrgUnit") < written.index(b'FilterBattery bool="OR"')
+
+
+def test_the_preview_turns_a_writer_refusal_into_a_422(
+    planted: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DeepSeek final-r16 N5: the branch after validation, for a refusal only
+    the writer finds (a `ValueError` of any kind, `RegistryPolError` included)."""
+    from gpo_studio import api
+    from gpo_studio.registry_pol import RegistryPolError
+
+    client, store, _guid = planted("namespace")
+    clean = store.create_gpo("Writer refusal", identity="t", reason="t")
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise RegistryPolError(f"refused by the writer {MARKER[:3]}")
+
+    monkeypatch.setattr(api, "generate_publication_plan", refuse)
+    response = client.get(f"/api/gpos/{clean.guid}/publication-plan")
+    assert response.status_code == 422, response.text
+    (issue,) = response.json()["error"]["issues"]
+    assert issue["code"] == "unwritable_preferences"
+    assert "refused by the writer" in issue["message"]

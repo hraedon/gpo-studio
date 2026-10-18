@@ -147,7 +147,6 @@ from .gpp_edit import (
 from .identity import ClaimedIdentity, claimed_identity
 from .identity_values import guid_problem, name_problem, security_principal_problem
 from .ilt import (
-    IltError,
     IltOsCriteria,
     IltPredicate,
 )
@@ -508,6 +507,16 @@ class IltPredicateData(BaseModel):
             raise ValueError("a new targeting predicate needs a type")
         if typed and self.type is None:
             raise ValueError("an edited targeting predicate needs its type")
+        if self.type == "os" and (
+            self.os_criteria is None
+            or not any(self.os_criteria.model_dump().values())
+        ):
+            # Every criterion empty targets nothing meaningful (DeepSeek
+            # final-r16 N2); a stored empty part still round-trips beside others.
+            raise ValueError(
+                "an operating system predicate needs at least one criterion "
+                "(class, version, type, edition or service pack)"
+            )
         return self
 
 
@@ -2053,10 +2062,12 @@ class JSONResponse(_FastAPIJSONResponse):
     readable: on that failure the body is re-rendered with ASCII escapes,
     which JSON permits and which carry the value unchanged.
 
-    It is also the API's one boundary for retained native elements (WI-080):
-    every JSON body leaves out ``native_xml`` wherever it appears -- a GPO, a
-    revision snapshot, a diff, a list row -- so no route can serve it, however
-    it builds its payload (review P2: revision snapshots and diffs did).
+    It is also the API's one boundary for import bookkeeping
+    (`gpp._NOT_SERVED`): every JSON body leaves out ``native_xml`` (WI-080),
+    ``retained_provenance`` (final-r13) and ``load_problems`` (final-r14)
+    wherever they appear -- a GPO, a revision snapshot, a diff, a list row --
+    so no route can serve them, however it builds its payload (review P2:
+    revision snapshots and diffs did).
     """
 
     def render(self, content: Any) -> bytes:
@@ -6574,7 +6585,7 @@ def publication_plan_preview(
         raise ValidationError(errors)
     try:
         plan = generate_publication_plan(gpo, target=target)
-    except (GppError, IltError, EmitError) as error:
+    except (EmitError, ValueError) as error:  # GppError, IltError, RegistryPolError ...
         raise ValidationError([
             ValidationIssue(
                 severity="error",

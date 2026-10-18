@@ -868,7 +868,13 @@ def checked_gpmc_backup(gpo: Any, scripts: Mapping[str, Any] | None = None) -> b
 
 
 def _refusal(build: Callable[[], Any], gpo: Any, path: str, *, blocked_first: bool) -> Any:
-    """Why *build* would refuse, or ``None`` -- by running it."""
+    """Why *build* would refuse, or ``None`` -- by running it.
+
+    Never builds for a GPO with a validation error: that refusal is
+    validation's, and building the artifact anyway would write stored content
+    a current rule refuses into bytes, sent or not (Sol final-r16 B1).
+    ``blocked_first`` adds the plan's own precondition, checked first.
+    """
     from .export import _plan_precondition, _writer_refusal
     from .model import ValidationError
     from .validation import validate_gpo
@@ -877,8 +883,12 @@ def _refusal(build: Callable[[], Any], gpo: Any, path: str, *, blocked_first: bo
         precondition = _plan_precondition(gpo)
         if precondition is not None:
             return precondition
-        if any(issue.severity == "error" for issue in validate_gpo(gpo)):
-            return None  # reported by validation: the caller's `blocked`
+    errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
+    if errors:
+        # The plan and bundle leave it to the caller's `blocked`; the backup
+        # answers with the refusal its builder would have raised -- the same
+        # validation errors -- without building anything.
+        return None if blocked_first else _writer_refusal(ValidationError(errors), path)
     try:
         build()
     except (ValidationError, ValueError) as error:

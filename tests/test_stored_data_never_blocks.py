@@ -530,3 +530,75 @@ def test_load_problems_are_neither_stored_nor_served(tmp_path: Path, served: Any
         assert "load_problems" not in payload
     revision = client.get(f"/api/gpos/{guid}/revisions/{patched.json()['gpo']['revision']}")
     assert "load_problems" not in revision.text
+
+
+def test_an_export_manifest_carries_no_load_problems(tmp_path: Path, served: Any) -> None:
+    """DeepSeek final-r16 N3: a warning-only tolerant load (colliding document
+    order) exports, and its derived problems rode into the manifest."""
+    import io
+    import zipfile
+
+    client, store = served(tmp_path / "manifest.db")
+    created = store.create_gpo(
+        "Manifest",
+        identity="t",
+        reason="t",
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(name="A", sid="S-1-5-32-544", id="a"),
+                    GppGroup(name="B", sid="S-1-5-32-545", id="b"),
+                ),
+            ),
+        ),
+    )
+
+    def collide(data: dict[str, Any]) -> None:
+        for group in data["gpp_collections"][0]["groups"]:
+            group["document_position"] = 0
+
+    _edit_snapshot(tmp_path / "manifest.db", created.guid, None, collide)
+    assert store.get_gpo(created.guid).gpp_collections[0].load_problems
+    bundle = client.get(f"/api/gpos/{created.guid}/export.zip")
+    assert bundle.status_code == 200, bundle.text
+    with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
+        assert "load_problems" not in archive.read("manifest.json").decode("utf-8")
+
+
+def test_an_all_empty_os_predicate_is_refused_and_a_partly_empty_one_is_kept(
+    tmp_path: Path, served: Any
+) -> None:
+    """DeepSeek final-r16 N2: all five criteria empty targets nothing."""
+    client, store = served(tmp_path / "os.db")
+    gpo = store.create_gpo("OS", identity="t", reason="t")
+
+    def add(criteria: dict[str, str]) -> Any:
+        return client.post(
+            f"/api/gpos/{gpo.guid}/preferences/groups",
+            json={
+                "actor": "t",
+                "reason": "t",
+                "scope": "computer",
+                "expected_revision": store.get_gpo(gpo.guid).revision,
+                "group": {
+                    "name": f"G{len(criteria)}{sorted(criteria.values())}",
+                    "sid": "S-1-5-32-544",
+                    "ilt_filter": {"items": [{"type": "os", "os_criteria": criteria}]},
+                },
+            },
+        )
+
+    empty = dict.fromkeys(("os_class", "version", "product_type", "edition", "service_pack"), "")
+    assert add(empty).status_code == 422
+    partly = {
+        **empty,
+        "os_class": "NT",
+        "version": "WINTHRESHOLDSRV",
+        "product_type": "SV",
+        "edition": "NE",
+    }
+    response = add(partly)
+    assert response.status_code == 201, response.text
+    stored = store.get_gpo(gpo.guid).gpp_collections[0].groups[0].ilt_filter.items[0]
+    assert stored.os_criteria.service_pack == ""  # type: ignore[union-attr]

@@ -97,6 +97,11 @@ it acts, each with a coverage badge:
   listed above the steps, and are the same errors `validate_publication_plan`
   reports.
 
+A policy with a validation error gets no plan at all: the API answers 422 with
+the validation errors, as every export does, before any file is built or
+digested -- stored preference content a current rule refuses included -- and
+the panel shows those errors, with the remedy, in place of the steps.
+
 The plan's payload digest binds its steps; the random plan ID is not shown. The
 API is `GET /api/gpos/{guid}/publication-plan?target=ad|sysvol|both`.
 

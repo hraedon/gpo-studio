@@ -153,6 +153,19 @@ async function load() {
     message.setAttribute("role", "alert");
     message.textContent = `Error: ${error.message}`;
     results.appendChild(message);
+    // A refused GPO is a 422 whose issues carry the reason and the remedy
+    // (stored content a current rule refuses, say): show them, not just
+    // "validation failed" (DeepSeek final-r16 N1).
+    if (error.issues?.length) {
+      const list = document.createElement("ul");
+      list.className = "form-error";
+      for (const issue of error.issues) {
+        const item = document.createElement("li");
+        item.textContent = issue.code ? `${issue.message} (${issue.code})` : issue.message || String(issue.msg || "");
+        list.appendChild(item);
+      }
+      results.appendChild(list);
+    }
     status.textContent = "The plan could not be built.";
   } finally {
     if (mine === generation) results.setAttribute("aria-busy", "false");

@@ -1205,6 +1205,10 @@ def serialized_identity_issues(collection: GppCollection) -> list[ValidationIssu
     through it via :func:`validate_gpo`.
     """
     where = f"gpp_collections/{collection.scope}"
+    if any(severity == "error" for severity, _message in collection.load_problems):
+        # Stored content a current rule refuses is already an error (above);
+        # writing it to read it back would put it into bytes (Sol final-r16 B1).
+        return []
     try:
         files = serialize_gpp_unchecked(collection)
     except (GppError, IltError, ValueError) as error:
