@@ -12,6 +12,7 @@ import {
   moveGppItemIds,
   osCriteriaFromText,
   predicateEntry,
+  rawJoin,
   retainedSummary,
 } from "../../src/gpo_studio/static/js/gpp.mjs";
 
@@ -256,6 +257,14 @@ describe("joins and operating systems (final-r14)", () => {
       service_pack: "NE",
     });
     expect(osCriteriaFromText("NT/WINTHRESHOLD")).toBeNull();
+    // An empty stored criterion round-trips (DeepSeek final-r15 N3).
+    expect(osCriteriaFromText("NT/WINTHRESHOLDSRV/SV/NE/")).toEqual({
+      os_class: "NT",
+      version: "WINTHRESHOLDSRV",
+      product_type: "SV",
+      edition: "NE",
+      service_pack: "",
+    });
     expect(
       predicateEntry({
         id: "p",
@@ -296,5 +305,38 @@ describe("joins and operating systems (final-r14)", () => {
     expect(moveChangesGrouping(["AND", "OR"], 1, 0)).toBe(true);
     expect(moveChangesGrouping(["AND", "AND", "OR"], 0, 1)).toBe(true);
     expect(moveChangesGrouping(["OR", "AND"], 0, 0)).toBe(false);
+  });
+});
+
+describe("a raw predicate's join (Sol final-r15 B2)", () => {
+  test.each([
+    ['<FilterBattery bool="OR" not="0"/>', "OR"],
+    ["<FilterBattery bool='OR' not='0'/>", "OR"],
+    ["<FilterBattery not='0' bool = 'OR'/>", "OR"],
+    ['<FilterBattery\n  not="0"\n  bool="AND" />', "AND"],
+    ["<FilterBattery bool='AND' not='0'></FilterBattery>", "AND"],
+    ['<FilterBattery not="0"/>', "?"],
+    ["<FilterBattery bool='&#79;R'/>", "?"],
+    ["not xml", "?"],
+  ])("reads %s as %s", (raw, join) => {
+    expect(rawJoin(raw)).toBe(join);
+  });
+
+  test("a single-quoted raw OR moved second is shown as OR and flagged", () => {
+    const rows = iltRows({
+      items: [
+        "<FilterBattery bool='OR' not='0'/>",
+        { type: "ou", negate: false, value: "OU=A", bool_op: "AND" },
+      ],
+      ids: ["raw", "ou"],
+    });
+    expect(rows.map((row) => row.bool)).toEqual(["OR", "AND"]);
+    expect(moveChangesGrouping(["OR", "AND"], 0, 1)).toBe(true);
+    expect(
+      iltExpression([
+        { bool: "AND", text: "Member of OU=A" },
+        { bool: "OR", text: "[imported FilterBattery]" },
+      ]),
+    ).toBe("Member of OU=A OR [imported FilterBattery]");
   });
 });

@@ -51,6 +51,21 @@ The routes that build a GPO's plan, Studio bundle and GPMC backup call
 those same functions refuse (:func:`plan_refusal` and its siblings), so a
 capability and its download cannot disagree.
 
+**Stored content a current rule refuses** (final-r14/r15). A GPO read
+tolerantly (`gpp.gpp_collection_from_dict_tolerant`) can hold retained
+content a later rule refuses -- a namespace, a reserved-name collision, a
+malformed child, an element record that no longer validates. Validation
+reports it (``stored_preferences_refused``), and every route that builds a
+CONTENT artifact refuses the GPO before building anything: ``plan.ps1``,
+``export.zip`` (and its ``apply.ps1``), both GPMC backups, the scripts
+preview, and the publication preview, which digests the files it would copy
+and so is guarded like them (`api.publication_plan_preview`). ``report.txt``
+is the one diagnostic exception: it still renders, because it summarizes and
+escapes -- item counts and validation messages, never retained bytes -- and
+shows the operator what is refused and the remedy. Its capability says so
+(enabled). ``tests/test_stored_data_never_blocks.py`` holds every route of
+that list to this for each refused shape.
+
 **What egress does not establish.** It checks that an artifact is well formed
 and that user data stays in its place: no value becomes a statement, entry,
 row, element or member. It does not check that a writer meant what it wrote:

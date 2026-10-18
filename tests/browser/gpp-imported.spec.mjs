@@ -285,3 +285,90 @@ test("shows each predicate's AND/OR join and warns when a move regroups it", asy
     ["ou", "AND"],
   ]);
 });
+
+// Sol final-r15 B2: a raw OR first in the list has no effect (the first join is
+// unused); moved second, it joins with OR. The editor must show that and warn.
+const REGISTRY_CAPTURE =
+  "tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC";
+
+function findRegistryFile(root) {
+  for (const entry of readdirSync(root)) {
+    const path = join(root, entry);
+    if (statSync(path).isDirectory()) {
+      const found = findRegistryFile(path);
+      if (found) return found;
+    } else if (path.endsWith(join("Preferences", "Registry", "Registry.xml"))) {
+      return path;
+    }
+  }
+  return null;
+}
+
+test("moving a raw OR predicate second shows the OR and warns", async ({
+  page,
+  request,
+}, testInfo) => {
+  const backup = testInfo.outputPath("registry-backup");
+  cpSync(REGISTRY_CAPTURE, backup, { recursive: true });
+  const file = findRegistryFile(backup);
+  const text = readFileSync(file, "utf-8");
+  writeFileSync(
+    file,
+    text.replace(
+      "</Registry>",
+      "<Filters><FilterBattery bool='OR' not='0'/>" +
+        '<FilterOrgUnit bool="AND" not="0" name="OU=A,DC=studio,DC=test"/>' +
+        "</Filters></Registry>",
+    ),
+  );
+  const imported = await request.post("/api/backups/import", {
+    data: {
+      path: relative(process.cwd(), backup),
+      actor: "browser-test",
+      reason: "Import a capture with a raw OR first",
+    },
+  });
+  expect(imported.status(), await imported.text()).toBe(201);
+  const name = `Raw OR ${testInfo.project.name} ${Date.now()}`;
+  const fork = await request.post(
+    `/api/gpos/${(await imported.json()).gpo.guid}/fork`,
+    { data: { name, actor: "browser-test", reason: "Edit the import" } },
+  );
+  const guid = (await fork.json()).gpo.guid;
+
+  await page.goto("/");
+  await page.locator(".gpo-item", { hasText: name }).click();
+  await page.getByRole("tab", { name: /Preferences/ }).click();
+  await page
+    .locator("#gpp-registry-table")
+    .getByRole("button", { name: /^Edit registry item / })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Edit registry" });
+  const rows = dialog.locator("#gpp-ilt-registry-list .gpp-row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveAttribute("data-bool", "OR");
+  await expect(dialog.locator("#gpp-ilt-registry-preview")).toHaveText(
+    "[imported FilterBattery] AND Member of OU=A,DC=studio,DC=test",
+  );
+  await rows
+    .nth(0)
+    .getByRole("button", { name: "Move ILT predicate later" })
+    .click();
+  await expect(dialog.locator(".gpp-move-warning")).toContainText(
+    "changed how AND and OR group the expression",
+  );
+  await expect(dialog.locator("#gpp-ilt-registry-preview")).toHaveText(
+    "Member of OU=A,DC=studio,DC=test OR [imported FilterBattery]",
+  );
+  await expect(rows.nth(1).locator(".gpp-connector")).toHaveText("OR");
+  await dialog.getByRole("button", { name: "Save registry" }).click();
+  await expect(dialog).toBeHidden();
+
+  const stored = await (await request.get(`/api/gpos/${guid}`)).json();
+  const items = stored.gpo.gpp_collections.find(
+    (collection) => collection.scope === "computer",
+  ).registry[0].ilt_filter.items;
+  expect(items[0].type).toBe("ou");
+  expect(items[1]).toMatch(/^<FilterBattery bool="OR"/);
+});

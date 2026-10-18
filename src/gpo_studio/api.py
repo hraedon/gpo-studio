@@ -147,6 +147,7 @@ from .gpp_edit import (
 from .identity import ClaimedIdentity, claimed_identity
 from .identity_values import guid_problem, name_problem, security_principal_problem
 from .ilt import (
+    IltError,
     IltOsCriteria,
     IltPredicate,
 )
@@ -1975,6 +1976,9 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
                 unknown_cse=unknown_cse,
                 backup_reason=backup_reason,
             ),
+            # The diagnostic exception (final-r15): the report renders even
+            # for stored content a current rule refuses -- it summarizes and
+            # escapes, never embeds retained bytes -- so it is always enabled.
             "policy_report": {"enabled": True, "format": "text"},
             "preserved_content": {
                 "present": preserved_files > 0,
@@ -2443,6 +2447,19 @@ _GPO_PAYLOAD = "JSON: a GPO payload (capabilities report artifact refusals, neve
 _IMPORT = "JSON: the result of reading an import or a discovery upload"
 _STATIC = "a file shipped with Studio; no user data"
 _FRAMEWORK = "FastAPI's own schema or documentation page"
+#: JSON that names the digests of artifacts Studio would write (final-r15): not
+#: an artifact itself, but refused like one -- before anything is serialized --
+#: whenever the GPO has a validation error.
+_GUARDED_DIGESTS = (
+    "JSON: a plan naming the digests of files Studio would write; refused (422) "
+    "on any validation error before a file is built, as the artifact routes are"
+)
+#: The lifecycle plan names a GPMC cmdlet over the backup WINDOWS wrote (the
+#: retained inventory); it serializes and digests nothing of Studio's.
+_BACKUP_PLAN = (
+    "JSON: a cmdlet plan over the retained Windows backup; no Studio-written "
+    "bytes are built, embedded or digested"
+)
 NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("*", "/openapi.json"): _FRAMEWORK,
     ("*", "/docs"): _FRAMEWORK,
@@ -2542,9 +2559,9 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/rsop/compare"): _JSON,
     ("POST", "/api/folder-redirection/fdeploy"): _JSON,
     ("POST", "/api/folder-redirection/fdeploy/diff"): _JSON,
-    ("GET", "/api/gpos/{guid}/publication-plan"): _JSON,
+    ("GET", "/api/gpos/{guid}/publication-plan"): _GUARDED_DIGESTS,
     ("GET", "/api/gpos/{guid}/firewall-policy"): _JSON,
-    ("POST", "/api/lifecycle/restore-plan"): _JSON,
+    ("POST", "/api/lifecycle/restore-plan"): _BACKUP_PLAN,
 }
 
 
@@ -6540,13 +6557,32 @@ def publication_plan_preview(
     """Return the review-only publication plan for a GPO, with lane coverage.
 
     `plan_id` is omitted: it is random and unrelated to the plan's content, and
-    `payload_digest` is what binds the plan's actions. A refusal is a `refused`
-    step plus an error in `issues`, as the planner reports it, and `refused`
-    is true. The response is still 200, because the plan explaining the
-    refusal is the answer. An unknown `target` is a 422.
+    `payload_digest` is what binds the plan's actions. A refusal the PLANNER
+    makes is a `refused` step plus an error in `issues`, and `refused` is true;
+    that response is still 200, because the plan explaining the refusal is the
+    answer. A GPO with a validation error is a 422 carrying those errors, as
+    every artifact route refuses it, before any file is serialized or digested
+    (final-r15). An unknown `target` is a 422.
     """
     gpo = _store(request).get_gpo(guid)
-    plan = generate_publication_plan(gpo, target=target)
+    # The plan names the digest of every file it would copy, so it is guarded
+    # like an artifact route (Sol final-r15 B1): a GPO validation blocks is
+    # refused BEFORE any artifact is built -- stored content a current rule
+    # refuses included -- and a writer refusal is a 422, never a 500.
+    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
+    if errors:
+        raise ValidationError(errors)
+    try:
+        plan = generate_publication_plan(gpo, target=target)
+    except (GppError, IltError, EmitError) as error:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="unwritable_preferences",
+                message=f"Studio could not write this GPO's files: {error}",
+                path="gpp_collections",
+            )
+        ]) from error
     issues = validate_publication_plan(plan)
     refused_checks = frozenset(issue.check for issue in issues if issue.level == "error")
     planned_operations = {step.operation for step in plan.steps}

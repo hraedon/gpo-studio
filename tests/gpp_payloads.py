@@ -38,7 +38,7 @@ def workbench_ilt(ilt: dict[str, Any] | None) -> dict[str, Any] | None:
                 "bool_op": "AND",
             }
             if item["type"] == "os":
-                entry["os_criteria"] = item["os_criteria"]
+                entry["os_criteria"] = item.get("os_criteria")
             entries.append(entry)
         else:
             entries.append({"id": predicate_id})

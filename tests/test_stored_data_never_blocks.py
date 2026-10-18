@@ -502,3 +502,31 @@ def test_a_save_keeps_a_join_the_editor_does_not_author(tmp_path: Path, served: 
     assert edited.status_code == 200, edited.text
     stored = store.get_gpo(created.guid).gpp_collections[0].groups[0]
     assert stored.ilt_filter.items[0].bool_op == "X"  # type: ignore[union-attr]
+
+
+def test_load_problems_are_neither_stored_nor_served(tmp_path: Path, served: Any) -> None:
+    """DeepSeek final-r15 N1: the field said "never persisted" and was both
+    persisted (by any later mutation) and served."""
+    path, guid = _fixture_copy(tmp_path)
+    _edit_snapshot(path, guid, None, _plant_namespaced)
+    client, store = served(path)
+    detail = client.get(f"/api/gpos/{guid}")
+    assert "load_problems" not in detail.text
+    gpo = detail.json()["gpo"]
+    patched = client.patch(
+        f"/api/gpos/{guid}",
+        json={
+            "actor": "t",
+            "reason": "rename",
+            "expected_revision": gpo["revision"],
+            "name": gpo["name"] + " (edited)",
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    assert "load_problems" not in patched.text
+    for _revision, payload in _rows(path, "gpos", "guid", guid) + _rows(
+        path, "revisions", "gpo_guid", guid
+    ):
+        assert "load_problems" not in payload
+    revision = client.get(f"/api/gpos/{guid}/revisions/{patched.json()['gpo']['revision']}")
+    assert "load_problems" not in revision.text

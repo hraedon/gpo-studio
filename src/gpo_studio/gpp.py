@@ -713,7 +713,8 @@ class GppCollection:
     retained_provenance: tuple[str, ...] = field(default=(), compare=False)
     #: ``(severity, message)`` for each check a tolerant load of STORED data
     #: recorded instead of raising (final-r14, `gpp_collection_from_dict_tolerant`).
-    #: Validation reports them; never persisted.
+    #: Validation reports them. Derived on every load: the store drops it
+    #: before writing a snapshot, and the API never serves it (`_NOT_SERVED`).
     load_problems: tuple[tuple[str, str], ...] = field(default=(), compare=False)
     source_files: tuple[tuple[str, bytes], ...] = ()
 
@@ -2313,9 +2314,10 @@ def mark_edited(collection: GppCollection) -> GppCollection:
 
 
 #: Import bookkeeping the API neither serves nor takes: the element records
-#: (WI-080) and the provenance records of retained content (final-r13), which
-#: an inline GPO reference must not be able to supply either.
-_NOT_SERVED = frozenset({"native_xml", "retained_provenance"})
+#: (WI-080), the provenance records of retained content (final-r13), which an
+#: inline GPO reference must not be able to supply either, and a tolerant
+#: load's problems (final-r14; validation reports them).
+_NOT_SERVED = frozenset({"native_xml", "retained_provenance", "load_problems"})
 
 
 def without_native_records(value: Any) -> Any:

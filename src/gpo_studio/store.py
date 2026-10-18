@@ -782,6 +782,9 @@ class WorkspaceStore:
         if unwritable:
             raise ValidationError(unwritable)
         data = gpo.to_dict()
+        for collection_data in data.get("gpp_collections", []):
+            # Derived on every load, never stored (final-r14 `load_problems`).
+            collection_data.pop("load_problems", None)
         try:
             documents = extract_snapshot_documents(data)
         except SnapshotDocumentError as error:

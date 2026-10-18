@@ -21,6 +21,7 @@ from __future__ import annotations
 import ast
 import runpy
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -315,6 +316,16 @@ def test_a_description_makes_the_comment_step_unmeasured(
     assert body["absences"] == []
 
 
+def _with_computer(**changes: Any) -> tuple[GppCollection, ...]:
+    """The candidate's collections with more on its computer side. One
+    collection per scope: a second computer collection is a validation error,
+    which the publication preview refuses (final-r15)."""
+    return tuple(
+        replace(collection, **changes) if collection.scope == "computer" else collection
+        for collection in _CANDIDATE.gpp_collections
+    )
+
+
 def test_an_unmeasured_preference_family_is_unmeasured(
     store: WorkspaceStore, client: TestClient
 ) -> None:
@@ -322,10 +333,7 @@ def test_an_unmeasured_preference_family_is_unmeasured(
     gpo = _create(
         store,
         _CANDIDATE,
-        gpp_collections=(
-            *_CANDIDATE.gpp_collections,
-            GppCollection(scope="computer", groups=(GppGroup(name="SyntheticGroup"),)),
-        ),
+        gpp_collections=_with_computer(groups=(GppGroup(name="SyntheticGroup"),)),
     )
     body = _get(client, gpo.guid)
     coverage = {
@@ -360,10 +368,7 @@ def test_an_unimported_family_makes_its_extension_list_unmeasured(
     gpo = _create(
         store,
         _CANDIDATE,
-        gpp_collections=(
-            *_CANDIDATE.gpp_collections,
-            GppCollection(scope="computer", groups=(GppGroup(name="SyntheticGroup"),)),
-        ),
+        gpp_collections=_with_computer(groups=(GppGroup(name="SyntheticGroup"),)),
     )
     body = _get(client, gpo.guid)
     lists = _extension_steps(body)
@@ -383,10 +388,7 @@ def test_a_measured_family_on_the_other_side_is_unmeasured(
     gpo = _create(
         store,
         _CANDIDATE,
-        gpp_collections=(
-            *_CANDIDATE.gpp_collections,
-            GppCollection(scope="computer", drives=_CANDIDATE.gpp_collections[1].drives),
-        ),
+        gpp_collections=_with_computer(drives=_CANDIDATE.gpp_collections[1].drives),
     )
     lists = _extension_steps(_get(client, gpo.guid))
     machine = lists["gPCMachineExtensionNames"]

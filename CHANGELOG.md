@@ -620,6 +620,37 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- After the fifteenth review (final-r15):
+  - **The publication preview is guarded like an artifact route.** It names
+    the digest of every file it would copy, and it built those files for a
+    GPO whose stored content validation refuses: a namespaced or
+    invalid-element-record item got a `copy_gpp_xml` step and `refused:
+    false`, and a reserved-name collision or malformed child escaped as an
+    unhandled writer error. It now refuses (422, with the validation errors)
+    any GPO with a validation error before serializing anything, and a writer
+    refusal is a 422 too. The route table names it as JSON that digests
+    artifacts; the other JSON routes were re-audited (the lifecycle restore
+    plan names a cmdlet over the backup Windows wrote and builds nothing of
+    Studio's; the fdeploy routes read uploads; GPO payloads only report
+    capability refusals).
+  - **Content artifacts refuse refused stored content; the policy report is
+    the diagnostic exception.** `plan.ps1`, `export.zip` (with `apply.ps1`),
+    both GPMC backups, the scripts preview and the publication preview refuse
+    a GPO holding retained content a current rule refuses. `report.txt` still
+    renders -- it summarizes and escapes, never embeds retained bytes -- so the
+    operator can see what is refused and the remedy, and its capability
+    stays enabled. A route matrix test covers namespace, reserved-name
+    collision, malformed child and invalid element record over all seven
+    routes, and asserts no response carries the refused content.
+  - **A raw predicate's join is read as XML reads it.** The workbench took
+    only `bool="..."`, so a 1.0.0-era raw predicate stored as `bool='OR'`
+    showed as AND, moved without a warning, and saved as the OR it was. The
+    join is now read from the start tag in either quote style (a join it
+    cannot read shows as `?` and is treated as one that can regroup the
+    expression); a browser journey moves a raw OR from first to second.
+  - The workbench saves an operating-system predicate whose stored criteria
+    has an empty field without forcing a change; `load_problems` is neither
+    stored nor served (its comment said so, and it was both).
 - After the fourteenth review (final-r14):
   - **Stored data never blocks a workspace.** The r13 provenance migration
     parsed every stored revision with the current model, so a 1.0.0
@@ -633,8 +664,10 @@ Operator-facing:
     namespace, a reserved-name collision, an element record that no longer
     validates) is kept as stored and reported as a validation error
     (`stored_preferences_refused`), so the GPO and its history stay readable
-    and every export refuses it with the remedy -- delete the item, or
-    re-import from the source backup. A colliding stored document order is
+    and every content artifact refuses it with the remedy -- delete the item,
+    or re-import from the source backup. (As released in r14 the publication
+    preview did not; see final-r15. The policy report is the stated diagnostic
+    exception.) A colliding stored document order is
     dropped with a warning. Malformed predicate ids or provenance records
     are ignored (ids re-derived, content unverified), never fatal.
   - **No import record crosses a scope.** A record's digest does not name

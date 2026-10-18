@@ -56,24 +56,38 @@ export function iltRows(filter){
     // Editable only when its join is AND: the editor writes AND, so a save
     // never rewrites another join (DeepSeek final-r14 N1).
     const editable=!raw&&ILT_TYPES.includes(item.type)&&item.bool_op==="AND";
-    const bool=raw?rawBool(item):item.bool_op;
+    const bool=raw?rawJoin(item):item.bool_op;
     return {id:ids[index]||"",item,raw,editable,bool};
   });
 }
 
-function rawBool(text){
-  const match=/\sbool="([^"]*)"/.exec(text);
-  return match?match[1]:"AND";
+// The join of a raw predicate, read from its start tag as an XML parser reads
+// attributes: either quote style, whitespace around "=" (Sol final-r15 B2: a
+// 1.0.0-era bool='OR' read as AND). "?" when it cannot be read -- no start tag,
+// no bool, or an entity in the value -- which the editor treats as a join
+// that may regroup the expression.
+export function rawJoin(text){
+  const start=/^\s*<[A-Za-z_][\w.:-]*((?:\s+[A-Za-z_][\w.:-]*\s*=\s*(?:"[^"<]*"|'[^'<]*'))*)\s*\/?>/.exec(String(text));
+  if(!start)return "?";
+  const attribute=/\s([A-Za-z_][\w.:-]*)\s*=\s*(?:"([^"<]*)"|'([^'<]*)')/g;
+  for(let match=attribute.exec(start[1]);match;match=attribute.exec(start[1])){
+    if(match[1]!=="bool")continue;
+    const value=match[2]??match[3];
+    return value.includes("&")?"?":value;
+  }
+  return "?";
 }
 
 export function osCriteriaText(criteria){
   return criteria?`${criteria.os_class}/${criteria.version}/${criteria.product_type}/${criteria.edition}/${criteria.service_pack}`:"";
 }
 
-// "class/version/type/edition/sp" -> os_criteria, or null when it is not five parts.
+// "class/version/type/edition/sp" -> os_criteria, or null when it is not five
+// parts. A part may be empty: a stored criterion can be, and a save must not
+// force the operator to change it (DeepSeek final-r15 N3).
 export function osCriteriaFromText(text){
   const parts=String(text).split("/").map(part=>part.trim());
-  if(parts.length!==5||parts.some(part=>!part))return null;
+  if(parts.length!==5)return null;
   const [os_class,version,product_type,edition,service_pack]=parts;
   return {os_class,version,product_type,edition,service_pack};
 }
@@ -92,15 +106,16 @@ export function iltExpression(parts){
   return parts.map((part,index)=>index===0?part.text:`${part.bool} ${part.text}`).join(" ");
 }
 
-// Moving a row changes how AND and OR group the expression whenever an OR join
-// is in effect before or after the move (a join on the first row is unused).
+// Moving a row changes how the expression groups whenever a join other than
+// AND (OR, or one that could not be read) is in effect before or after the
+// move (a join on the first row is unused).
 export function moveChangesGrouping(bools,from,to){
   if(from===to)return false;
   const moved=[...bools];
   const [item]=moved.splice(from,1);
   moved.splice(to,0,item);
-  const hasOr=list=>list.slice(1).includes("OR");
-  return hasOr(bools)||hasOr(moved);
+  const regroups=list=>list.slice(1).some(bool=>bool!=="AND");
+  return regroups(bools)||regroups(moved);
 }
 
 export function memberEntry(member){
@@ -476,7 +491,7 @@ function updateIltPreview(listId,previewId,moveWarning=null){
   rows.forEach((row,index)=>{
     const bool=row.dataset.bool||"AND";
     const connector=row.querySelector(".gpp-connector");
-    if(connector)connector.textContent=index===0?"":bool;
+    if(connector){connector.textContent=index===0?"":bool;connector.title=bool==="?"?"This imported predicate's join could not be read":""}
     const type=row.querySelector('[data-field=type]').value;
     const negate=row.querySelector('[data-field=negate]').checked;
     const value=row.querySelector('[data-field=value]').value.trim();
