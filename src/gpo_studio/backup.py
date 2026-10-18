@@ -560,6 +560,50 @@ def _read_fdeploy_policy(
         raise BackupError(f"Unreadable {FDEPLOY_POLICY_PATH}: {error}") from error
 
 
+def _nested_bkup_info(backup_dir: Path, backup_id: str, budget: _BackupBudget) -> BackupGpo | None:
+    """The GPO entry of the native instance directory's ``bkupInfo.xml``, or
+    ``None`` where there is none."""
+    if not backup_id:
+        return None
+    instance = backup_dir / backup_id
+    path = instance / "bkupInfo.xml"
+    for candidate in (instance, path):
+        if is_link_or_junction(candidate):
+            raise BackupError(f"Symlinks are not allowed: {candidate}")
+    if not path.is_file():
+        return None
+    data = read_file_bytes(path)
+    budget.add_file(len(data))
+    entries = parse_bkup_info(data).gpos
+    if len(entries) != 1:
+        raise BackupError(f"{backup_id}/bkupInfo.xml must describe exactly one GPO")
+    return entries[0]
+
+
+def _same_domain(left: str, right: str) -> bool:
+    return left.strip().rstrip(".").casefold() == right.strip().rstrip(".").casefold()
+
+
+def _require_one_identity(gpo: BackupGpo, identities: list[tuple[str, BackupGpo]]) -> None:
+    """Refuse a backup whose identity documents disagree about which GPO, in
+    which domain, it holds (Sol final-r22 B1): manifest.xml and every
+    bkupInfo.xml must name the same GPO GUID, and -- where they state them --
+    the same domain DNS name and domain GUID. Studio cannot know which estate
+    a contradictory backup is of, so it imports none of it."""
+    for where, other in identities:
+        if other.guid != gpo.guid:
+            raise BackupError(f"manifest.xml and {where} name different GPOs")
+        if other.domain and gpo.domain and not _same_domain(other.domain, gpo.domain):
+            raise BackupError(f"manifest.xml and {where} name different domains")
+        if other.domain_guid and gpo.domain_guid and other.domain_guid != gpo.domain_guid:
+            raise BackupError(f"manifest.xml and {where} name different domain GUIDs")
+    for (where, one), (other_where, other) in zip(identities, identities[1:], strict=False):
+        if one.domain_guid and other.domain_guid and one.domain_guid != other.domain_guid:
+            raise BackupError(f"{where} and {other_where} name different domain GUIDs")
+        if one.domain and other.domain and not _same_domain(one.domain, other.domain):
+            raise BackupError(f"{where} and {other_where} name different domains")
+
+
 def read_backup(backup_dir: Path) -> GpmcBackup:
     """Read a complete GPMC backup directory."""
     if is_link_or_junction(backup_dir):
@@ -597,10 +641,20 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
         backup_type = backup.backup_type
         bkup_gpo = None
 
+    # Every identity document the backup carries: the top-level bkupInfo.xml,
+    # and the one a native backup nests in its instance directory
+    # ({backup_dir}/{ID}/bkupInfo.xml -- Sol final-r22 B1: only the top-level
+    # one was read, so a nested one naming another domain went unchecked).
+    identities = [("bkupInfo.xml", bkup_gpo)] if bkup_gpo is not None else []
+    nested = _nested_bkup_info(backup_dir, backup.backup_id, budget)
+    if nested is not None:
+        identities.append((f"{backup.backup_id}/bkupInfo.xml", nested))
+
     enriched_gpos: list[BackupGpo] = []
     for gpo in backup.gpos:
         if guid_problem(gpo.guid) is not None:
             raise BackupError(f"Invalid GPO GUID in manifest: {gpo.guid!r}")
+        _require_one_identity(gpo, identities)
 
         display_name = gpo.display_name
         domain = gpo.domain
@@ -608,9 +662,8 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
         if bkup_gpo is not None and bkup_gpo.guid == gpo.guid:
             display_name = bkup_gpo.display_name or display_name
             domain = bkup_gpo.domain or domain
-            if bkup_gpo.domain_guid and domain_guid and bkup_gpo.domain_guid != domain_guid:
-                raise BackupError("manifest.xml and bkupInfo.xml name different domains")
-            domain_guid = bkup_gpo.domain_guid or domain_guid
+        for _where, other in identities:
+            domain_guid = domain_guid or other.domain_guid
         if domain_guid and guid_problem(domain_guid) is not None:
             raise BackupError(f"Invalid domain GUID in manifest: {domain_guid!r}")
 

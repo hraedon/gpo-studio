@@ -291,12 +291,20 @@ def test_read_backup_bkup_info_overrides(tmp_path: Path) -> None:
     (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
     (backup_dir / "bkupInfo.xml").write_bytes(_BKUP_INFO_XML)
 
+    # The two documents name different domains for one GPO: Studio cannot
+    # know which estate the backup is of, so it is refused (final-r22).
+    with pytest.raises(BackupError, match="different domains"):
+        read_backup(backup_dir)
+    (backup_dir / "bkupInfo.xml").write_bytes(
+        _BKUP_INFO_XML.replace(b"bkup.example.test", b"EXAMPLE.test.")
+    )
     backup = read_backup(backup_dir)
     assert backup.backup_time == "2026-06-01T00:00:00"
     assert backup.backup_id == "bkup-override"
     assert backup.backup_type == "GPO"
     assert backup.gpos[0].display_name == "Bkup Display Name"
-    assert backup.gpos[0].domain == "bkup.example.test"
+    # The same domain however written; bkupInfo.xml's spelling is kept.
+    assert backup.gpos[0].domain == "EXAMPLE.test."
 
 
 def test_read_backup_registry_attributed_to_registry_cse(tmp_path: Path) -> None:

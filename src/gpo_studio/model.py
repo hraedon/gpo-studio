@@ -78,23 +78,30 @@ class BackupInventory:
     #: so a replacement from an import must match all three
     #: (`WorkspaceStore.replace_from_import`). ``""``: not recorded -- an
     #: import before 1.1.0, or a backup whose manifest has no domain GUID.
-    #: Left out of the GPO's dict and digests when empty, so every inventory
-    #: recorded before keeps its bytes.
+    #: Provenance, not policy (final-r22): stored with the revision, never in
+    #: a GPO's public dict, an artifact or a digest (`inventory_dict`).
     source_gpo_guid: str = ""
     source_domain: str = ""
     source_domain_guid: str = ""
 
 
-#: `BackupInventory`'s source-identity fields, omitted from dicts when empty.
+#: `BackupInventory`'s source-identity fields: stored, never published.
 INVENTORY_IDENTITY_FIELDS = ("source_gpo_guid", "source_domain", "source_domain_guid")
 
 
-def inventory_dict(data: dict[str, Any]) -> dict[str, Any]:
-    """An inventory's dict (``asdict``) without its unrecorded identity fields."""
+def inventory_dict(data: dict[str, Any], *, stored: bool = False) -> dict[str, Any]:
+    """An inventory's dict (``asdict``) as it is published -- in a GPO's
+    public dict, an export manifest, a canonical model -- or, *stored*, as the
+    workspace keeps it.
+
+    The source identity is import provenance, not policy (final-r22 ruling):
+    the workspace keeps it, recorded, for `WorkspaceStore.replace_from_import`,
+    and nothing published carries it, so a native import's dict, digests and
+    export bytes are the ones they were before it was recorded."""
     return {
         key: value
         for key, value in data.items()
-        if key not in INVENTORY_IDENTITY_FIELDS or value
+        if key not in INVENTORY_IDENTITY_FIELDS or (stored and value)
     }
 
 
@@ -167,12 +174,21 @@ class GPO:
     load_problems: tuple[tuple[str, str], ...] = field(default=(), compare=False)
 
     def to_dict(self) -> dict[str, Any]:
+        """The GPO's public dict: what the API serves and artifacts embed."""
+        return self._dict(stored=False)
+
+    def to_stored_dict(self) -> dict[str, Any]:
+        """The dict the workspace stores: the public one, plus the import
+        record's recorded source identity (`inventory_dict`)."""
+        return self._dict(stored=True)
+
+    def _dict(self, *, stored: bool) -> dict[str, Any]:
         data = asdict(self)
         # Never part of a GPO's dict: the key did not exist before final-r18,
         # so a clean GPO's dict is the one it always was.
         data.pop("load_problems", None)
         if data.get("backup_inventory") is not None:
-            data["backup_inventory"] = inventory_dict(data["backup_inventory"])
+            data["backup_inventory"] = inventory_dict(data["backup_inventory"], stored=stored)
         for collection in data.get("gpp_collections", []):
             # A tolerant load's derived `load_problems` are never stored, served
             # or exported; emptied rather than dropped, so a GPO without any

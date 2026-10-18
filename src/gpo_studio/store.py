@@ -450,6 +450,42 @@ def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
     return replace(gpo, gpp_collections=tuple(new_collections))
 
 
+#: The deletion archive's tables (`WorkspaceStore._archive_rows`): name ->
+#: (columns in order, each ``TEXT``/``INTEGER NOT NULL``; the primary key).
+_ARCHIVE_TABLES: dict[str, tuple[tuple[tuple[str, str], ...], tuple[str, ...]]] = {
+    "deleted_gpos": (
+        (
+            ("deletion_id", "TEXT"), ("deleted_at", "TEXT"), ("guid", "TEXT"),
+            ("name", "TEXT"), ("revision", "INTEGER"), ("snapshot_json", "TEXT"),
+            ("updated_at", "TEXT"),
+        ),
+        ("deletion_id",),
+    ),
+    "deleted_revisions": (
+        (
+            ("deletion_id", "TEXT"), ("deleted_at", "TEXT"), ("gpo_guid", "TEXT"),
+            ("revision", "INTEGER"), ("actor", "TEXT"), ("reason", "TEXT"),
+            ("created_at", "TEXT"), ("snapshot_json", "TEXT"),
+        ),
+        ("deletion_id", "revision"),
+    ),
+    "deleted_snapshot_documents": (
+        (
+            ("deletion_id", "TEXT"), ("deleted_at", "TEXT"), ("gpo_guid", "TEXT"),
+            ("revision", "INTEGER"), ("digest", "TEXT"),
+        ),
+        ("deletion_id", "revision", "digest"),
+    ),
+    "deleted_retained_documents": (
+        (
+            ("deletion_id", "TEXT"), ("deleted_at", "TEXT"), ("digest", "TEXT"),
+            ("content_base64", "TEXT"), ("byte_length", "INTEGER"),
+        ),
+        ("deletion_id", "digest"),
+    ),
+}
+
+
 #: Checks run on a GPO before it is committed (`register_answer_check`).
 _ANSWER_CHECKS: list[Callable[[GPO], object]] = []
 
@@ -936,7 +972,7 @@ class WorkspaceStore:
         unwritable = text_issues(gpo)
         if unwritable:
             raise ValidationError(unwritable)
-        data = gpo.to_dict()
+        data = gpo.to_stored_dict()
         for collection_data in data.get("gpp_collections", []):
             # Derived on every load, never stored (final-r14 `load_problems`).
             collection_data.pop("load_problems", None)
@@ -1295,32 +1331,8 @@ class WorkspaceStore:
         and an older build opens the workspace as before. Each copies its
         source table's columns as they are (``INSERT ... SELECT``)."""
         connection = self._connection
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS deleted_gpos (
-                deletion_id TEXT NOT NULL, deleted_at TEXT NOT NULL,
-                guid TEXT NOT NULL, name TEXT NOT NULL, revision INTEGER NOT NULL,
-                snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL,
-                PRIMARY KEY (deletion_id))"""
-        )
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS deleted_revisions (
-                deletion_id TEXT NOT NULL, deleted_at TEXT NOT NULL,
-                gpo_guid TEXT NOT NULL, revision INTEGER NOT NULL, actor TEXT NOT NULL,
-                reason TEXT NOT NULL, created_at TEXT NOT NULL, snapshot_json TEXT NOT NULL,
-                PRIMARY KEY (deletion_id, revision))"""
-        )
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS deleted_snapshot_documents (
-                deletion_id TEXT NOT NULL, deleted_at TEXT NOT NULL,
-                gpo_guid TEXT NOT NULL, revision INTEGER NOT NULL, digest TEXT NOT NULL,
-                PRIMARY KEY (deletion_id, revision, digest))"""
-        )
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS deleted_retained_documents (
-                deletion_id TEXT NOT NULL, deleted_at TEXT NOT NULL,
-                digest TEXT NOT NULL, content_base64 TEXT NOT NULL,
-                byte_length INTEGER NOT NULL, PRIMARY KEY (deletion_id, digest))"""
-        )
+        for table, columns in _ARCHIVE_TABLES.items():
+            self._archive_table(table, columns)
         event = (uuid.uuid4().hex, deleted_at)
         connection.execute(
             """INSERT INTO deleted_gpos
@@ -1345,6 +1357,34 @@ class WorkspaceStore:
                SELECT ?, ?, digest, content_base64, byte_length FROM retained_documents
                WHERE digest IN (SELECT digest FROM snapshot_documents WHERE gpo_guid = ?)""",
             (*event, guid),
+        )
+
+    def _archive_table(
+        self, table: str, columns: tuple[tuple[tuple[str, str], ...], tuple[str, ...]]
+    ) -> None:
+        """Create archive *table* in its current shape. One that exists in
+        another shape -- written by an earlier build -- is renamed aside, to
+        ``<table>_preshape_<n>``, kept and never dropped, and a current one
+        created (final-r22: ``CREATE TABLE IF NOT EXISTS`` left an old shape
+        in place, and every later deletion failed on it)."""
+        connection = self._connection
+        names, key = columns
+        expected = [name for name, _type in names]
+        present = [
+            str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        ]
+        if present and present != expected:
+            number = 1
+            while connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (f"{table}_preshape_{number}",),
+            ).fetchone():
+                number += 1
+            connection.execute(f"ALTER TABLE {table} RENAME TO {table}_preshape_{number}")
+        definition = ", ".join(f"{name} {kind} NOT NULL" for name, kind in names)
+        connection.execute(
+            f"CREATE TABLE IF NOT EXISTS {table} "
+            f"({definition}, PRIMARY KEY ({', '.join(key)}))"
         )
 
     def import_baseline_gpos(
@@ -2774,15 +2814,34 @@ class WorkspaceStore:
             return f"GPO {{{value[0]}}} in {value[1]} (domain {{{value[2]}}})"
 
         mine, theirs = identity(recorded), identity(offered)
+        if mine is not None and _plain_guid(first.source_guid) != mine[0]:
+            # Revision 1 carries an import record but is not the import: a
+            # fork copies its parent's record, and its source is the parent
+            # (DeepSeek final-r22 N1). A fork is its own GPO, never replaced by
+            # its ancestor's backup.
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="replace_not_the_import",
+                    message=(
+                        "Only a GPO whose first revision is an import is replaced from a "
+                        "backup; this GPO's first revision was made from another Studio "
+                        f"GPO ({first.source_guid or 'none'}). Restore a readable revision, "
+                        "or delete the GPO (archived) and import the backup as a new GPO."
+                    ),
+                    path="replace_guid",
+                )
+            ])
         if mine is None:
             raise ValidationError([
                 ValidationIssue(
                     severity="error",
                     code="replace_source_unrecorded",
                     message=(
-                        "This GPO's first import recorded no domain identity (it predates "
-                        "1.1.0, or did not come from a native GPMC backup), so Studio "
-                        "cannot prove a backup is of the same GPO and will not replace it. "
+                        "This GPO's first revision recorded no domain identity -- it was "
+                        "imported before 1.1.0, not from a native GPMC backup, or from a "
+                        "backup whose manifest has no GPODomainGuid -- so Studio cannot "
+                        "prove a backup is of the same GPO and will not replace it. "
                         "Restore a readable revision, or delete the GPO (archived) and "
                         "import the backup as a new GPO."
                     ),

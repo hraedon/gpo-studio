@@ -174,8 +174,16 @@ recoveries, and the validation message names each:
    not unique across estates (`replace_source_mismatch`). A GPO whose first
    import recorded no domain identity (imported before 1.1.0, or not from a
    native GPMC backup) cannot be replaced (`replace_source_unrecorded`): use
-   recovery 1, or 3 and then import the backup as a new GPO. A readable GPO is
-   never replaced (`replace_not_a_recovery`).
+   recovery 1, or 3 and then import the backup as a new GPO. A fork is its own
+   GPO -- its first revision was made from another Studio GPO, not imported --
+   and is never replaced by its ancestor's backup (`replace_not_the_import`).
+   A backup whose identity documents (`manifest.xml` and the `bkupInfo.xml`
+   files, the one nested in the backup's instance directory included)
+   disagree about the GPO, its domain or the domain's GUID is refused outright,
+   for an import and a replacement alike. A readable GPO is never replaced
+   (`replace_not_a_recovery`). The recorded identity is provenance: it is kept
+   with the revision, but never published -- not in the GPO served by the API,
+   an export or a digest.
 3. **Delete the GPO**: `DELETE /api/gpos/{guid}?confirm={guid}` with
    `expected_revision`, `actor` and `reason` in the body. Studio deletes only a
    GPO in this state, and only with the guid repeated as `confirm`.
@@ -268,6 +276,71 @@ nothing changed.
 `tests/test_stored_recovery.py` runs this script, exactly as written here,
 after a deletion -- twice -- and checks that every row came back byte for
 byte; and a delete, restore and second delete in the same second.
+
+### Archive tables set aside (`*_preshape_<n>`)
+
+A pre-release build (5c6ea8a) wrote the archive tables in an earlier shape:
+without `deletion_id`, keyed by the GPO and `deleted_at`, and with
+`deleted_retained_documents` shared by every deletion. When a deletion finds
+an archive table in any shape but the current one, it renames that table
+aside -- `deleted_gpos` becomes `deleted_gpos_preshape_1` (then `_2`, ...) --
+and creates the current one. A set-aside table is never dropped or changed:
+its rows are the archive of the deletions made before, as they were written.
+
+The earlier shape's columns are `deleted_gpos_preshape_<n>(guid, name,
+revision, snapshot_json, updated_at, deleted_at)`,
+`deleted_revisions_preshape_<n>(gpo_guid, revision, actor, reason, created_at,
+snapshot_json, deleted_at)`, `deleted_snapshot_documents_preshape_<n>(gpo_guid,
+revision, digest, deleted_at)` and `deleted_retained_documents_preshape_<n>(digest,
+content_base64, byte_length)`. To list what they hold:
+`SELECT guid, name, deleted_at FROM deleted_gpos_preshape_1;`. To put one of
+those GPOs back, follow the steps above with this script instead, binding
+`:guid` and `:deleted_at` (and replacing `_1` with the set's number):
+
+```sql
+INSERT INTO retained_documents (digest, content_base64, byte_length)
+    SELECT a.digest, a.content_base64, a.byte_length
+    FROM deleted_retained_documents_preshape_1 a
+    WHERE a.digest IN (
+        SELECT digest FROM deleted_snapshot_documents_preshape_1
+        WHERE gpo_guid = :guid AND deleted_at = :deleted_at
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM retained_documents r
+        WHERE r.digest = a.digest AND r.content_base64 = a.content_base64
+        AND r.byte_length = a.byte_length
+    );
+INSERT INTO gpos (guid, name, revision, snapshot_json, updated_at)
+    SELECT a.guid, a.name, a.revision, a.snapshot_json, a.updated_at
+    FROM deleted_gpos_preshape_1 a
+    WHERE a.guid = :guid AND a.deleted_at = :deleted_at
+    AND NOT EXISTS (
+        SELECT 1 FROM gpos g
+        WHERE g.guid = a.guid AND g.name = a.name AND g.revision = a.revision
+        AND g.snapshot_json = a.snapshot_json AND g.updated_at = a.updated_at
+    );
+INSERT INTO revisions (gpo_guid, revision, actor, reason, created_at, snapshot_json)
+    SELECT a.gpo_guid, a.revision, a.actor, a.reason, a.created_at, a.snapshot_json
+    FROM deleted_revisions_preshape_1 a
+    WHERE a.gpo_guid = :guid AND a.deleted_at = :deleted_at
+    AND NOT EXISTS (
+        SELECT 1 FROM revisions r
+        WHERE r.gpo_guid = a.gpo_guid AND r.revision = a.revision AND r.actor = a.actor
+        AND r.reason = a.reason AND r.created_at = a.created_at
+        AND r.snapshot_json = a.snapshot_json
+    );
+INSERT INTO snapshot_documents (gpo_guid, revision, digest)
+    SELECT a.gpo_guid, a.revision, a.digest FROM deleted_snapshot_documents_preshape_1 a
+    WHERE a.gpo_guid = :guid AND a.deleted_at = :deleted_at
+    AND NOT EXISTS (
+        SELECT 1 FROM snapshot_documents s
+        WHERE s.gpo_guid = a.gpo_guid AND s.revision = a.revision AND s.digest = a.digest
+    );
+DELETE FROM deletion_log WHERE guid = :guid AND deleted_at = :deleted_at;
+```
+
+The test suite runs this script too, against tables written in the earlier
+shape and then set aside by a deletion.
 
 ## Integrity check procedures
 

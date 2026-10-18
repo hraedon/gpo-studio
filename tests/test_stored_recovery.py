@@ -68,16 +68,17 @@ DOMAIN_GUID = "67c09bd9-0326-42a4-a15f-7d1d878e469e"
 
 
 def _variant(tmp_path: Path, capture: str, name: str, changes: dict[str, str]) -> Path:
-    """A copy of *capture* whose manifest says something else: the same GPO
-    GUID, presented as another estate's."""
+    """A copy of *capture* presented, consistently, as another estate's: the
+    same GPO GUID, its manifest and nested bkupInfo.xml both changed (they
+    must agree, or the backup is refused before any identity check)."""
     inbox = tmp_path / "inbox" / name.replace(" ", "-")
     shutil.copytree(NATIVE / capture, inbox)
-    manifest = inbox / "manifest.xml"
-    text = manifest.read_text(encoding="utf-8")
-    for old, new in changes.items():
-        assert old in text, old
-        text = text.replace(old, new)
-    manifest.write_text(text, encoding="utf-8")
+    for document in (inbox / "manifest.xml", *inbox.glob("*/bkupInfo.xml")):
+        text = document.read_text(encoding="utf-8")
+        for old, new in changes.items():
+            assert old in text, (document.name, old)
+            text = text.replace(old, new)
+        document.write_text(text, encoding="utf-8")
     return inbox
 
 
@@ -435,6 +436,9 @@ def test_a_gpo_imported_without_a_recorded_identity_is_not_replaced(workspace: A
     assert refused.status_code == 422
     codes = {i["code"] for i in refused.json()["error"]["issues"]}
     assert codes == {"replace_source_unrecorded"}
+    # Every way a first revision comes to record none is named (DeepSeek r22 N2).
+    (message,) = [i["message"] for i in refused.json()["error"]["issues"]]
+    assert "before 1.1.0" in message and "GPODomainGuid" in message
     assert store.get_gpo(guid).revision == 1
 
 
@@ -513,3 +517,210 @@ def test_answering_a_committed_gpo_without_its_answer_is_an_error(workspace: Any
     reread = store.get_gpo(target.guid)  # the same GPO, another object
     with pytest.raises(RuntimeError, match="without the answer built before its commit"):
         committed_answer(reread, api._answer_check)
+
+
+# ---------------------------------------------------------------------------
+# Final-r22: the nested bkupInfo.xml, forks, archive tables of an earlier shape
+# ---------------------------------------------------------------------------
+
+INSTANCE = "{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}"
+
+
+def _nested_variant(tmp_path: Path, name: str, changes: dict[str, str]) -> Path:
+    """A copy of the native capture with ONLY its nested
+    ``{instance}/bkupInfo.xml`` changed -- the real layout of a native backup."""
+    inbox = tmp_path / "inbox" / name.replace(" ", "-")
+    shutil.copytree(NATIVE / "WI01A-DriveMaps-GPMC", inbox)
+    nested = inbox / INSTANCE / "bkupInfo.xml"
+    text = nested.read_text(encoding="utf-8")
+    for old, new in changes.items():
+        assert old in text, old
+        text = text.replace(old, new)
+    nested.write_text(text, encoding="utf-8")
+    return inbox
+
+
+NESTED_DISAGREEMENTS = {
+    "another domain GUID": {DOMAIN_GUID: "11111111-2222-4333-8444-555555555555"},
+    "another DNS domain": {"<![CDATA[ad.hraedon.com]]>": "<![CDATA[foreign.example.test]]>"},
+    "another GPO GUID": {
+        "F0197E25-3E19-4835-B296-3C35DC069635": "A0197E25-3E19-4835-B296-3C35DC069635"
+    },
+}
+
+
+@pytest.mark.parametrize("name", sorted(NESTED_DISAGREEMENTS))
+def test_a_backup_whose_nested_bkupinfo_disagrees_is_refused(
+    workspace: Any, name: str
+) -> None:
+    """Sol final-r22 B1: the nested bkupInfo.xml was never read, so one naming
+    another domain went unchecked. A backup whose identity documents disagree
+    is neither imported nor used as a replacement."""
+    client, store, tmp_path = workspace
+    nested = (NATIVE / "WI01A-DriveMaps-GPMC" / INSTANCE / "bkupInfo.xml").read_text(
+        encoding="utf-8"
+    )
+    assert "GPODomainGuid" in nested  # the real nested document, with an identity
+    guid = _import(client, _inbox(tmp_path, "WI01A-DriveMaps-GPMC")).json()["gpo"]["guid"]
+    _unreadable_from_revision_1(store, guid)
+    variant = _nested_variant(tmp_path, name, NESTED_DISAGREEMENTS[name])
+    store._connection.execute("UPDATE gpos SET name='Renamed' WHERE guid=?", (guid,))
+    store._connection.commit()
+    fresh = _import(client, variant)
+    assert fresh.status_code == 422, (name, fresh.status_code, fresh.text[:300])
+    replaced = _import(client, variant, replace_guid=guid, expected_revision=1)
+    assert replaced.status_code == 422, (name, replaced.text[:300])
+    assert store.get_gpo(guid).revision == 1
+    assert len(store.list_gpos()) == 1
+
+
+def test_a_backup_whose_nested_bkupinfo_agrees_imports() -> None:
+    """Control: the capture as GPMC wrote it -- manifest and nested bkupInfo
+    agreeing -- reads, with the identity both state."""
+    from gpo_studio.backup import read_backup
+
+    (source,) = read_backup(NATIVE / "WI01A-DriveMaps-GPMC").gpos
+    assert source.domain_guid == DOMAIN_GUID
+
+
+def test_a_fork_of_an_import_is_never_replaced_by_its_ancestors_backup(workspace: Any) -> None:
+    """DeepSeek final-r22 N1: a fork copies its parent's import record, but its
+    first revision is not the import."""
+    client, store, tmp_path = workspace
+    inbox = _inbox(tmp_path, "WI01A-DriveMaps-GPMC")
+    parent = _import(client, inbox).json()["gpo"]["guid"]
+    fork = client.post(f"/api/gpos/{parent}/fork", json={**AUDIT, "name": "Fork"})
+    assert fork.status_code == 201, fork.text[:300]
+    fork_guid = fork.json()["gpo"]["guid"]
+    _unreadable_from_revision_1(store, fork_guid)
+    # The parent's name is the backup's: rename the parent so a name clash is
+    # not what refuses the replacement.
+    store._connection.execute("UPDATE gpos SET name='Parent' WHERE guid=?", (parent,))
+    store._connection.commit()
+    refused = _import(client, inbox, replace_guid=fork_guid, expected_revision=1)
+    assert refused.status_code == 422, refused.text[:300]
+    assert {i["code"] for i in refused.json()["error"]["issues"]} == {"replace_not_the_import"}
+    assert store.get_gpo(fork_guid).revision == 1
+
+
+#: The archive tables as 5c6ea8a created them.
+PRESHAPE = (
+    """CREATE TABLE deleted_gpos (
+        guid TEXT NOT NULL, name TEXT NOT NULL, revision INTEGER NOT NULL,
+        snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+        deleted_at TEXT NOT NULL, PRIMARY KEY (guid, deleted_at))""",
+    """CREATE TABLE deleted_revisions (
+        gpo_guid TEXT NOT NULL, revision INTEGER NOT NULL, actor TEXT NOT NULL,
+        reason TEXT NOT NULL, created_at TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+        deleted_at TEXT NOT NULL, PRIMARY KEY (gpo_guid, revision, deleted_at))""",
+    """CREATE TABLE deleted_snapshot_documents (
+        gpo_guid TEXT NOT NULL, revision INTEGER NOT NULL, digest TEXT NOT NULL,
+        deleted_at TEXT NOT NULL, PRIMARY KEY (gpo_guid, revision, digest, deleted_at))""",
+    """CREATE TABLE deleted_retained_documents (
+        digest TEXT PRIMARY KEY, content_base64 TEXT NOT NULL,
+        byte_length INTEGER NOT NULL)""",
+)
+
+
+def _preshape_delete(store: WorkspaceStore, guid: str, deleted_at: str) -> None:
+    """Delete *guid* exactly as 5c6ea8a did: archive in the earlier shape,
+    log, remove."""
+    connection = store._connection
+    connection.execute(
+        "INSERT INTO deleted_gpos SELECT guid, name, revision, snapshot_json, updated_at, ? "
+        "FROM gpos WHERE guid = ?",
+        (deleted_at, guid),
+    )
+    connection.execute(
+        "INSERT INTO deleted_revisions SELECT gpo_guid, revision, actor, reason, created_at, "
+        "snapshot_json, ? FROM revisions WHERE gpo_guid = ?",
+        (deleted_at, guid),
+    )
+    connection.execute(
+        "INSERT INTO deleted_snapshot_documents SELECT gpo_guid, revision, digest, ? "
+        "FROM snapshot_documents WHERE gpo_guid = ?",
+        (deleted_at, guid),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO deleted_retained_documents SELECT digest, content_base64, "
+        "byte_length FROM retained_documents WHERE digest IN "
+        "(SELECT digest FROM snapshot_documents WHERE gpo_guid = ?)",
+        (guid,),
+    )
+    name = connection.execute("SELECT name FROM gpos WHERE guid=?", (guid,)).fetchone()[0]
+    connection.execute(
+        "INSERT INTO deletion_log VALUES(?,?,?,?,?,?)", (guid, name, "t", "r", 1, deleted_at)
+    )
+    connection.execute("DELETE FROM revisions WHERE gpo_guid = ?", (guid,))
+    connection.execute("DELETE FROM gpos WHERE guid = ?", (guid,))
+    connection.commit()
+
+
+def _preshape_restore_script() -> list[str]:
+    text = (Path(__file__).resolve().parents[1] / "docs" / "workspace-recovery.md").read_text(
+        encoding="utf-8"
+    )
+    section = text.split("### Archive tables set aside", 1)[1]
+    script = section.split("```sql\n", 1)[1].split("```", 1)[0]
+    return [statement.strip() for statement in script.split(";") if statement.strip()]
+
+
+def test_archive_tables_of_an_earlier_shape_are_set_aside_and_kept(workspace: Any) -> None:
+    """Sol B3 / DeepSeek B1 of round 22: a workspace whose archive tables
+    5c6ea8a created could not delete (the old shape stayed, the insert
+    failed). A deletion now sets them aside -- kept, never dropped -- and the
+    runbook's script restores a GPO from them."""
+    client, store, tmp_path = workspace
+    old = _import(client, _inbox(tmp_path, "WI01A-DriveMaps-GPMC")).json()["gpo"]["guid"]
+    new = _import(client, _inbox(tmp_path, "WI01A-EnvVars-GPMC")).json()["gpo"]["guid"]
+    for statement in PRESHAPE:
+        store._connection.execute(statement)
+    before_old = _rows(store, old)
+    _preshape_delete(store, old, "2026-10-17T00:00:00+00:00")
+    old_archive = {
+        table: [
+            tuple(row) for row in store._connection.execute(f"SELECT * FROM {table} ORDER BY 1, 2")
+        ]
+        for table in (
+            "deleted_gpos",
+            "deleted_revisions",
+            "deleted_snapshot_documents",
+            "deleted_retained_documents",
+        )
+    }
+    _unreadable_from_revision_1(store, new)
+    deleted = client.request(
+        "DELETE", f"/api/gpos/{new}?confirm={new}", json={**AUDIT, "expected_revision": 1}
+    )
+    assert deleted.status_code == 204, deleted.text[:300]
+    for table, rows in old_archive.items():
+        kept = [
+            tuple(row)
+            for row in store._connection.execute(f"SELECT * FROM {table}_preshape_1 ORDER BY 1, 2")
+        ]
+        assert kept == rows, table
+    assert store._connection.execute(
+        "SELECT guid FROM deleted_gpos WHERE guid=?", (new,)
+    ).fetchone()
+    # The set-aside archive still restores its GPO, by the runbook's script.
+    for statement in _preshape_restore_script():
+        store._connection.execute(
+            statement, {"guid": old, "deleted_at": "2026-10-17T00:00:00+00:00"}
+        )
+    store._connection.commit()
+    assert _rows(store, old) == before_old
+    # A second set-aside never touches the first.
+    for statement in PRESHAPE[:1]:
+        store._connection.execute("DROP TABLE deleted_gpos")
+        store._connection.execute(statement)
+    store._connection.commit()
+    _unreadable_from_revision_1(store, old)
+    again = client.request(
+        "DELETE", f"/api/gpos/{old}?confirm={old}", json={**AUDIT, "expected_revision": 1}
+    )
+    assert again.status_code == 204, again.text[:300]
+    tables = {
+        row[0]
+        for row in store._connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    assert {"deleted_gpos_preshape_1", "deleted_gpos_preshape_2", "deleted_gpos"} <= tables

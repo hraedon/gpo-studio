@@ -1,0 +1,135 @@
+{
+  "native-gpp-gpmc/WI01A-DriveMaps-GPMC": {
+    "bundle": "d7798e1fec68a71e114a516903732424e94cb0571ecbd8191eafbcf72186c59d",
+    "dict": "ad7167e69dbc40879f85c7d791c6522d23f05d6fe56fca396008b09942138519",
+    "manifest": "127cf84a1918d7f8de446d9729be215aac5a42577a002284ae528698b05c8eef",
+    "policy": "5ee6275af365ae9810458d435b29bf5e2be5231f2c2dc635a9fc8b5a5d46f3a8",
+    "review": "5f63133541642a1d63b63a216359f0c52d82980fe155c88d09c9c8b4ed1f7cb5"
+  },
+  "native-gpp-gpmc/WI01A-EnvVars-GPMC": {
+    "bundle": "d287a765c43160194e1b3ec15d0dc592ef008494ecfff29ccbf6fde9f6b96871",
+    "dict": "30cd0ef3d5a6fec0c5e1c4b431594b547353ffbda66fdc91e7ceeb83d802d81a",
+    "manifest": "1cbdb6a4d8924a5ba62e96cba83ded39fe86aeb82186b8b17807f732f09289d2",
+    "policy": "304c14ea90893d31020be0a3c55c0507ec8c5980721d9187f41213e9b26b812e",
+    "review": "a6ac73e69e5c5800509560a58f77618cc9f6741a0f55899b28c12b90dce4b7f8"
+  },
+  "native-gpp-gpmc/WI01A-Files-GPMC": {
+    "bundle": "a84ef0fa2705be49efbc952833aec158802539bb7116714caeac35a4759fc167",
+    "dict": "6a67a9cd7f0d4afd9a3290b1cf00b96fad200b9cfb6747175f40c8b5d6a11235",
+    "manifest": "1045e92af1d45f16f1067dc5f5cce3d4c8633161764d4c07d23b7207ae0c53b0",
+    "policy": "5ab747361d88ee38f9d4c125aed3ed5e281c98a80ed5f41d7287c239850801fc",
+    "review": "30c7273db1e7c76ab6d2ea1bb0b4982dba272399ced133fb81e6fb168f00a650"
+  },
+  "native-gpp-gpmc/WI01A-Folders-GPMC": {
+    "bundle": "542df4eed9857ce7fda5bdee7ee408f860f3c07a0de505f4592ba38baffb5fd2",
+    "dict": "45c0431a1683ca9fdef101dac42334cdeb122e35174a8fa72aab2c05fa691893",
+    "manifest": "092e35cac62af9ea60e793700ee42bcf414d7dc6724ecb6f2355364f8fbe2931",
+    "policy": "58acd1a601ec4028c1a67c0af7285880dda90ac5855fd7dc83d81d910526640a",
+    "review": "08d4fe575b62b7e4576c438ea91877de0717fd1d8eeed2d9ece5336effdf2c6f"
+  },
+  "native-gpp-gpmc/WI01A-IniFiles-GPMC": {
+    "bundle": "079789e1aa9685feae3ada0413f7c196c34d0674762d58f79337f4577a27c14d",
+    "dict": "ab46262e94e6f559b31f1fdf7e1c65ae1fdbe09ea3bf6da1b8e2dbd17d7d7e79",
+    "manifest": "bc7eecb2c0d280b7c2d9596764f7a251eb468c2ef49e092ba4abecb5790cc6e3",
+    "policy": "eb3e36c5d8ebe508420cc959c795ec0bf32a080da47b58f7745cbf816641da74",
+    "review": "9e6e451a9ea2754b06261862c92cb29c91440e9341de6b3412bbe7313ef3fb27"
+  },
+  "native-gpp-gpmc/WI01A-LocalGroups-GPMC": {
+    "bundle": "6a1fa4ea00f17e2d021cc72c02e93dff98c0eaf1da330c3609cd952a63f86238",
+    "dict": "92af67f43eefe311a90929c6516f17284e469a48c74e7d8097db858d145c6cbd",
+    "manifest": "76f0289d393b4b2214e854524b898e65167fe0413c3fdb8f3e7a671e1f7d8f26",
+    "policy": "5f2ef5958f126fcd82791201e3cc6a9abcc84a1985fdc0ab1861b27705b4c262",
+    "review": "cd36d35ccf6fcc23485c9d83f6258a0cd0fe3c4b1b2d097d9fb1b1850d0ecf26"
+  },
+  "native-gpp-gpmc/WI01A-MixedCSE-GPMC": {
+    "bundle": "5379eb39b9a50db7fdc38ce4197818b9faea85cef4f7bf74139042dbf0921286",
+    "dict": "fe6716eb9c08a0d27006222fc0706ee6f6319368dd0066ba9ed99b7051d3a290",
+    "manifest": "a114642f76bc154364f34ec5061ed9c3bd25ed933511a9691f997d48024324d7",
+    "policy": "300a9fce78fde3c88b075fb0c5730a6b64a88df3885999a75b2ad731b7c55097",
+    "review": "f0636c42a36eb72887b22cd9a4aa2496596978c4770cfc14107b177b9204dfe5"
+  },
+  "native-gpp-gpmc/WI01A-NestedILT-GPMC": {
+    "bundle": "b9adf04649c06cfb1faf4f96e28e1eec7145f1e37bbeb4cb3bc08dd22ce23336",
+    "dict": "dcbf1c757ad0926757658b75ea05dea4c0cb57ac074136f4ed476b8ebd269d6e",
+    "manifest": "faa1f3d4822f3654dfc87d8ae3b231a255800cb1904ddabb137e45f233f2d541",
+    "policy": "f41221e0871a7e6e46a176ec48dccede6e698ad1e5a8f9848702c599af870961",
+    "review": "47a83aaa44e22a393c9f3de339b1551f82abee3e71ff2d6c9346e535ee00ce9f"
+  },
+  "native-gpp-gpmc/WI01A-OS-ILT": {
+    "bundle": "d8185c07f3e3f6973bf5b188260169435749511e31445efdcaf7ce48961762cf",
+    "dict": "eded666e03ebe237b7099b05b4c99d23a27de0a5dd7700c9486c31e9c67a2bd3",
+    "manifest": "21114ea4f5643879d5d3668e1dc16323352f926d35f9ff9c7f5bf36cb2055a24",
+    "policy": "4b9f4c8386ffeca3a5f716d4512c1707501f382e9ea0ce13d5f5e5e855991d6f",
+    "review": "7dcaaace7f45683630aaa60e5c7b3eccfa6260c6afc9bd01f97677348b7bd024"
+  },
+  "native-gpp-gpmc/WI01A-Power-GPMC": {
+    "bundle": "3df28533a5d1e1088ed278cce389f7c9ec057dcdd269f28090280bea08865f1c",
+    "dict": "2096221b711ca24df420f01545d689d489b69404b68e5155c63981ef295bb64a",
+    "manifest": "9e6aa501e087cafc298037f9f291d3aeb6fd84c9634e48b31d15240093c49336",
+    "policy": "08e0c99e59b0f5033e4c7f85f255957005aa65e49bed1fb222354064308cb86f",
+    "review": "f973093fd3f47b40c9cee07714708ba530cfaed732393150bff6aa86505b642b"
+  },
+  "native-gpp-gpmc/WI01A-Printers-GPMC": {
+    "bundle": "eacb726800c1b79e41afbc0702367401fb97faba283144ca1f8de1a1fa39ce2c",
+    "dict": "0d5f3569ec1c6a2d8608cde083ed75f1160ffde08fbd3c6bbd8151becb8d9c20",
+    "manifest": "f0248f426292d0bb4860614d6781ae48e6c9ba17c9622606a5d2b3aca60b46e2",
+    "policy": "06333eb8d3656c336ba75d218e7a8b9f142152ab5b9f2ec7df9bbf8797ee6a14",
+    "review": "4e517d896f4374f0203e8fc532678d725f152afbeea83db7235c4c26429fa167"
+  },
+  "native-gpp-gpmc/WI01A-SchedTasks-GPMC": {
+    "bundle": "4e435a2830fb9ea95824e9426e4964059ac6c15890df6733c60193c05d404a6d",
+    "dict": "7a3ba61d70e7aa2092f3b2009b38979fd7545137e5f8130bfaac87601464d9cc",
+    "manifest": "f9c10873bdaed691fd612ea16de11ab42cbded1cee7f2204ac29897f4219b332",
+    "policy": "4ec2e751e892498732178cf9056bfdb1c7ae736756e59b72c6ee7bfbf32d96a9",
+    "review": "db85509414768b5aa64c386b6937c30c868c1028e51c1cf24377e3192ba38811"
+  },
+  "native-gpp-gpmc/WI01A-SchedTasksFull-GPMC": {
+    "bundle": "f5c97b61cf0d3574a4495c4b95a1c683be4d725104feb2f9c14c6935ef0e76b7",
+    "dict": "79e857710a991e8b3c3b2d6929c1edbfc4fe1d21bf8cb8977cce2aa4a594c3ed",
+    "manifest": "8db76eb4f1bc3be7b6ee2a0d8e2066d7e4b79bc3c1a02382dfaafaefd5f70583",
+    "policy": "4bb44b5785ae46a64d53aacc8ff40f229508cf400cd6371e90cc13cb2498dfa1",
+    "review": "674180b94d0c0446e7ab5539688859a5a02385ed08c0987e11dbee25e5188b3e"
+  },
+  "native-gpp-gpmc/WI01A-Services-GPMC": {
+    "bundle": "7c590a16f369dab0488e22adfc46deaddc53707c4c696f415cc1ea1ca02976a1",
+    "dict": "17007448081f1e6d9dbb558a96398e8584fd575552b72819f69f4c760a2b0115",
+    "manifest": "0caf152ffd006c8dc907c4c4a3c16ec2cf74483a6d7e2fdd009b67397d5220ae",
+    "policy": "ddbf1ef3da934cde1d72ed86a3d5523a15c9e4fc907ece6c599c121dcaf2327e",
+    "review": "0116690ceb96a84a8c210cb0036bfad9d8fc180285da25d40903c2fa9fa8b883"
+  },
+  "native-gpp-gpmc/WI01A-ServicesRecovery-GPMC": {
+    "bundle": "80c4206f3565e91f36425f03611297ea3a20a4e73b86074d4ee25bd94aadb893",
+    "dict": "3c4577b2254bb184470b4c93e03acdc958dbc516ff3371f8adf03656810ce9d8",
+    "manifest": "54e7358fdda4d54d05ce61b79a823e26cbe7b5d83e414c060cea541805d662e3",
+    "policy": "93df5684406796d5e179914891cee297a7e8fff1704d8618f153cb123bfdf61c",
+    "review": "420a5ba89abdaf6a682730f82e4121f0eff2461c8a3e52052911599c9c1958df"
+  },
+  "native-gpp-gpmc/WI01A-Shortcuts-GPMC": {
+    "bundle": "fff25316a4afdc4b84cc0fdb8d6dd6aea8168be17cc568fd783ccb76e21dc07b",
+    "dict": "4353758a01cc69dc2267762e655261e43a29ebb8f25a7446541610d03aef2ffe",
+    "manifest": "d2d5cd3eb9cd2e35259f1d6bde61c4f5b25bcdfdab78a8a388cd252e77545060",
+    "policy": "bcf0db171f1ad1f73bf744e53dfd715067e4f2c4d235c90e5940141ee861dca6",
+    "review": "90eb02d3c0479c876afe6d3d8be149c9dd7e705e6ebda2f2e42997577acb19cd"
+  },
+  "native-gpp-registry-gpmc/WI01A-Registry-GPMC": {
+    "bundle": "9e89fb68befee2fafef76fbb0d426282733c24f95a87f95b02b1457610e2c5c9",
+    "dict": "91e3f668bf6d743f88c896b3c442e5563f6e98f785c8a4d9379076999b0ca36d",
+    "manifest": "6294ba0bbd9e992b798b174d3addbdd20d7252bc949d4bfb7e33d6eb018e0e95",
+    "policy": "bda47f800c98b36d882adb0f6df10c372471792046b14be0d2088f26941cb4fd",
+    "review": "fa4c04c30f04c81656b1de0a5777d97800540379c93cf837aea2a491d950299d"
+  },
+  "native-gpp-registry-gpmc/WI01A-RegistryMatrix-GPMC": {
+    "bundle": "3b3c887cd25da94b0b926a5de9c105cd772ffad70c078b6bdca2609c480c9f7d",
+    "dict": "4e358d8a4cf649d473c60ea8c247403d08e6be15184ab4e720e37d005c0049d8",
+    "manifest": "018cb4e35a4a5bdbc59bc1ace57078a93e1a1a402b3863d8c862bf0c0273df88",
+    "policy": "eb331f25b73c62a640354ed553e72e936c0bb3db31ff14b9e50e8d2c6c5426cc",
+    "review": "387bdb64ea1ce3c2f5e6a66984962556863a54b33c8b7b4909ebf7d3017f7431"
+  },
+  "native-gpp-registry-gpmc/WI01A-RegistryShapes-GPMC": {
+    "bundle": "23b9eabbba16f563a80dca8c5901ae25de1bfb7f75f002442be819f3b75972d4",
+    "dict": "37c0008904ba99bf3a654862fdac44689b5f351145ffca62b41a21b125ec2e9a",
+    "manifest": "d5ddf7d2978cded86bcc506bf036a44130bff87e5762ef87a19769a3573c32bd",
+    "policy": "4a9626407cecbe5511e374dade2afc1ab84fe149a0a3f5e3581801a105bd581b",
+    "review": "ca40a1565d5a1fa26bb5367e71d0e6b17b5379f48dc8944c1d00de24322efb4e"
+  }
+}

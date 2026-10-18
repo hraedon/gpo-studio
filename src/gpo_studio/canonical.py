@@ -412,8 +412,8 @@ def review_model_dict(gpo: GPO) -> dict[str, Any]:
     }
     # Preserve existing digests for GPOs without native import provenance.
     if gpo.backup_inventory is not None:
-        # Unrecorded source identity (an import before 1.1.0) is left out, so
-        # such a GPO keeps its digest (final-r21).
+        # The recorded source identity is provenance, not policy: never part
+        # of a digest (final-r22 ruling).
         result["backup_inventory"] = inventory_dict(asdict(gpo.backup_inventory))
     # WI-068: the imported fdeploy1.ini is import provenance too -- review
     # digest only, never the policy-semantic one, and absent when there is none

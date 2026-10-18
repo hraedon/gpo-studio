@@ -620,6 +620,33 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- After the twenty-second review (final-r22):
+  - **The nested `bkupInfo.xml` is read and must agree (Sol B1).** A native
+    backup nests its `bkupInfo.xml` in the backup instance directory; only a
+    top-level one was read, so a nested one naming another domain GUID went
+    unchecked and the backup replaced the target. Every identity document --
+    `manifest.xml`, a top-level and the nested `bkupInfo.xml` -- must now name
+    the same GPO GUID and, where stated, the same domain DNS name and domain
+    GUID; a backup whose documents disagree is refused before an import model
+    is built, for an import and a replacement alike.
+  - **The source identity is provenance, never published (Sol B2 ruling).**
+    Recording it in final-r21 changed a clean native import's public dict,
+    review digest and Studio bundle. It is now kept only in the stored
+    revision (`GPO.to_stored_dict`), for the replacement check; the GPO the
+    API serves, every artifact, the export manifest and both digests leave it
+    out. A test holds the public dict, both digests, the Studio bundle and its
+    `manifest.json` of all 19 native captures to the SHA-256 that 5c6ea8a's
+    source produces (`tests/fixtures/native_artifacts_5c6ea8a.json`).
+  - **Archive tables of an earlier shape are set aside, kept (Sol B3,
+    DeepSeek B1).** A deletion that finds a `deleted_*` table in another shape
+    (the pre-release 5c6ea8a wrote one without `deletion_id`) renames it to
+    `<table>_preshape_<n>` -- never dropped or changed -- and creates the
+    current one; the runbook documents the earlier shape and a restore script
+    for it, which a test runs on tables written exactly as 5c6ea8a wrote them.
+  - **A fork is never replaced by its ancestor's backup (DeepSeek N1):** only
+    a GPO whose first revision IS the import (`replace_not_the_import`
+    otherwise). The unrecorded-identity message names a manifest without
+    `GPODomainGuid` (N2).
 - After the twenty-first review (final-r21):
   - **A replacing import must be of the very same source GPO (Sol B1).** The
     check compared GPO GUIDs only, and a GPO GUID is not unique across

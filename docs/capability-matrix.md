@@ -444,7 +444,10 @@ remain historical records for their original revisions.
   domain DNS name and domain GUID (`GPODomainGuid`), which a native import
   records with its provenance from 1.1.0 (`replace_source_mismatch`
   otherwise; `replace_source_unrecorded` for a GPO whose first import
-  recorded none). It is only a recovery for a GPO whose stored values Studio
+  recorded none; `replace_not_the_import` for a fork). The identity is kept
+  with the stored revision only -- never in the served GPO, an export or a
+  digest -- and a backup whose `manifest.xml` and `bkupInfo.xml` files
+  disagree about it is refused. It is only a recovery for a GPO whose stored values Studio
   cannot read (`replace_not_a_recovery` for any other), alongside
   restoring a readable revision and `DELETE /api/gpos/{guid}?confirm={guid}`
   (which deletes only such a GPO, archiving every stored row first; see
