@@ -99,7 +99,8 @@ it acts, each with a coverage badge:
 
 A policy with a validation error gets no plan at all: the API answers 422 with
 the validation errors, as every export does, before any file is built or
-digested -- stored preference content a current rule refuses included -- and
+digested (validation's own check of what a clean collection would write
+aside) -- stored preference content a current rule refuses included -- and
 the panel shows those errors, with the remedy, in place of the steps.
 
 The plan's payload digest binds its steps; the random plan ID is not shown. The

@@ -132,6 +132,7 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/adm.py`
 - `src/gpo_studio/admx.py`
 - `src/gpo_studio/api.py`
+- `src/gpo_studio/closed_sets.py`
 - `src/gpo_studio/conformance.py`
 - `src/gpo_studio/delegation.py`
 - `src/gpo_studio/diff.py`

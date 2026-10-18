@@ -272,6 +272,14 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
 
 def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = text_issues(gpo)
+    from .closed_sets import closed_set_issues
+
+    outside = closed_set_issues(gpo)
+    if outside:
+        # A value outside its closed set (a stored registry_type="REG_FOO",
+        # DeepSeek final-r17 B1) is the error to report; the rules below
+        # assume every set holds, so they are not run on it.
+        return issues + outside
     if not gpo.name.strip():
         issues.append(ValidationIssue("error", "name_required", "GPO name is required.", "name"))
     name_problem_text = line_problem(gpo.name)
@@ -1111,6 +1119,11 @@ def validate_gpp_registry(reg: GppRegistry, path: str) -> list[ValidationIssue]:
 
 
 def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
+    from .closed_sets import closed_set_issues
+
+    outside = closed_set_issues(collection, f"gpp_collections/{collection.scope}")
+    if outside:
+        return outside  # see `validate_gpo`
     issues: list[ValidationIssue] = []
     match collection.scope:
         case "computer" | "user":

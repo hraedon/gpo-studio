@@ -563,7 +563,10 @@ def test_an_export_manifest_carries_no_load_problems(tmp_path: Path, served: Any
     bundle = client.get(f"/api/gpos/{created.guid}/export.zip")
     assert bundle.status_code == 200, bundle.text
     with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
-        assert "load_problems" not in archive.read("manifest.json").decode("utf-8")
+        manifest = json.loads(archive.read("manifest.json"))
+    # The derived problems are emptied, not exported; the key stays, so the
+    # format is the one a clean GPO writes (DeepSeek final-r17 N3).
+    assert [c["load_problems"] for c in manifest["gpo"]["gpp_collections"]] == [[]]
 
 
 def test_an_all_empty_os_predicate_is_refused_and_a_partly_empty_one_is_kept(
@@ -602,3 +605,27 @@ def test_an_all_empty_os_predicate_is_refused_and_a_partly_empty_one_is_kept(
     assert response.status_code == 201, response.text
     stored = store.get_gpo(gpo.guid).gpp_collections[0].groups[0].ilt_filter.items[0]
     assert stored.os_criteria.service_pack == ""  # type: ignore[union-attr]
+
+
+def test_a_clean_gpo_exports_the_manifest_it_always_did(tmp_path: Path, served: Any) -> None:
+    """DeepSeek final-r17 N3: `GPO.to_dict` dropped the (empty) `load_problems`
+    of every collection, so every Studio bundle's manifest changed. For a GPO
+    without load problems it is plain `asdict` again -- checked on the released
+    1.0.0 workspace's GPOs -- and a GPO with them writes the same format."""
+    import dataclasses
+    import io
+    import zipfile
+
+    path = tmp_path / "workspace.db"
+    shutil.copyfile(FIXTURE, path)
+    client, store = served(path)
+    for gpo in store.list_gpos():
+        bundle = client.get(f"/api/gpos/{gpo.guid}/export.zip")
+        assert bundle.status_code == 200, bundle.text
+        with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+        expected = json.loads(json.dumps(dataclasses.asdict(store.get_gpo(gpo.guid))))
+        assert manifest["gpo"] == expected
+        assert gpo.to_dict() == dataclasses.asdict(gpo)
+        for collection in manifest["gpo"]["gpp_collections"]:
+            assert collection["load_problems"] == []

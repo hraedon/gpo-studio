@@ -620,6 +620,35 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- After the seventeenth review (final-r17):
+  - **Refused stored content is marked when it is loaded.** A collection a
+    tolerant load finds refused content in has its element records marked
+    (`gpp.RefusedRecord`); `retained_rendering` -- the one function that runs
+    the writer to see what a record writes, for every hash and every diff --
+    returns a marked record raw, without rendering or caching it. The
+    revision, ad-hoc and estate diffs rendered such a record (Sol final-r17
+    B1); no reader can now, whatever the route. The profiling test covers
+    reads, the report, every refused artifact route, the diffs (current
+    against a revision, two revisions, `/api/diff` by GUID, the estate diff),
+    a fork, and every kind of GPO-returning mutation.
+  - **Every closed-set field is held to its set, and no route answers 500 on
+    stored data.** An estate import read settings verbatim and stored
+    `registry_type="REG_FOO"`; the GPO's detail, plan and both bundles then
+    answered 500 (DeepSeek final-r17 B1). Validation now checks every field
+    the model types as a closed set -- found from the annotations, 42 of them
+    (`closed_sets`) -- and reports a value outside it
+    (`value_outside_closed_set`), so imports and mutations refuse it and a
+    stored one blocks the GPO; reading such a GPO tolerates the value. Every
+    artifact route, capability probe and the publication preview turns
+    whatever a writer raises into a 422 (`unwritable_artifact_value`, a
+    generic reason; the exception type is logged). A fuzz plants a value
+    outside its set in each closed-set field of a stored GPO holding every
+    kind of item and requests every GPO route: none answers 500. A malformed
+    estate member (a link order of "x", an unknown permission) is a 422.
+  - `GPO.to_dict` is plain `asdict` again for a GPO without load problems,
+    so the Studio bundle's manifest is the bytes it was; a GPO with them
+    writes `load_problems: []` (checked on the released 1.0.0 workspace). The
+    publication panel's issue list is tested.
 - After the sixteenth review (final-r16): a GPO holding stored content a
   current rule refuses builds no artifact on any payload path. Every GPO
   payload (the detail read and every GPO-returning mutation) asked the GPMC
@@ -628,17 +657,18 @@ Operator-facing:
   already disabled it. Every capability probe now stops at a validation
   error (the scripted backup's included), validation no longer writes such a
   collection to read it back, and its review digests use the raw element
-  records instead of rendering them. A profiling test over the four refused
-  shapes holds `GET /api/gpos/{guid}`, the list, the revision list and four
-  mutations to calling no preference writer, archive builder or publication
-  digester. Folded in from DeepSeek's round: `report.txt` -- the diagnostic
+  records instead of rendering them. A profiling test over every refused
+  shape holds `GET /api/gpos/{guid}`, the list, the revision list and four
+  mutations (extended in final-r17) to calling no preference writer, archive
+  builder or publication digester. Folded in from DeepSeek's round: `report.txt` -- the diagnostic
   exception -- no longer fails (500) on a stored 1.0.0-era raw targeting
   predicate that does not parse: a tolerant load records it as refused
   content like the other shapes, and the report's inventory notes any writer
   refusal (an `IltError` included) instead of raising; the route matrix
   covers it and a namespaced raw predicate too. The publication panel shows
   a 422's issues; an operating-system predicate needs at least one criterion
-  set (a stored empty one still round-trips); the export manifest no longer
+  set (a stored, partly empty one still saves; a fully empty one is kept by
+  its id but not re-sent); the export manifest no longer
   carries a tolerant load's derived problems (`GPO.to_dict` drops them); a raw
   predicate without `bool` joins with AND, as it is read; the preview's
   writer-refusal branch catches every writer `ValueError` and is tested.

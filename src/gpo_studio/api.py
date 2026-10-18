@@ -87,6 +87,7 @@ from .egress import (
     gpmc_backup_refusal,
     plan_refusal,
     studio_export_refusal,
+    unwritable_artifact,
 )
 from .emit_integrity import CHECKS, EmitError, line_problem
 from .estate import parse_estate
@@ -1921,6 +1922,16 @@ def _artifact_refusals(gpo: GPO) -> _Refusals:
     return refusals
 
 
+def _digest(compute: Callable[[Any], str], gpo: Any) -> str | None:
+    """A review digest, or ``None`` when stored data cannot be hashed: a read
+    reports it through validation and never fails on it (final-r17)."""
+    try:
+        return compute(gpo)
+    except Exception as error:
+        _logger.warning("no digest for GPO %s (%s)", gpo.guid, type(error).__name__)
+        return None
+
+
 def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     if request is not None:
         request.state.gpo_guid = gpo.guid
@@ -1955,8 +1966,8 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     return {
         "gpo": _gpo_to_api_dict(gpo),
         "validation": [asdict(item) for item in validation],
-        "policy_semantic_sha256": None if unwritable else policy_semantic_sha256(gpo),
-        "review_model_sha256": None if unwritable else review_model_sha256(gpo),
+        "policy_semantic_sha256": None if unwritable else _digest(policy_semantic_sha256, gpo),
+        "review_model_sha256": None if unwritable else _digest(review_model_sha256, gpo),
         "artifact_capabilities": {
             "studio_export": {
                 "enabled": not blocked and studio_blocked is None,
@@ -2417,6 +2428,17 @@ app.mount("/assets", StudioStaticFiles(directory=STATIC), name="assets")
 _Endpoint = TypeVar("_Endpoint", bound=Callable[..., Any])
 
 
+#: Exceptions that already are an answer: a refusal, a missing object, a
+#: conflict, a request error. Anything else an artifact route raises is a
+#: writer or builder failing on stored data.
+_ANSWERED: tuple[type[BaseException], ...] = (
+    StudioError,
+    EmitError,
+    StarletteHTTPException,
+    RequestValidationError,
+)
+
+
 def egress(format: EgressFormat) -> Callable[[_Endpoint], _Endpoint]:
     """Validate the endpoint's artifact, in its final form, before it responds."""
 
@@ -2426,7 +2448,14 @@ def egress(format: EgressFormat) -> Callable[[_Endpoint], _Endpoint]:
 
         @functools.wraps(endpoint)
         def checked(*args: Any, **kwargs: Any) -> Any:
-            result = endpoint(*args, **kwargs)
+            try:
+                result = endpoint(*args, **kwargs)
+            except _ANSWERED:
+                raise
+            except Exception as error:
+                # The no-500 rule (DeepSeek final-r17 B1): whatever a writer or
+                # builder raises on stored data is a refusal, never a 500.
+                raise unwritable_artifact(error, format) from error
             egress_check(format, result)
             return result
 
@@ -5919,7 +5948,7 @@ def _gpo_has_preference_content(gpo: GPO) -> bool:
         try:
             if serialize_gpp(collection):
                 return True
-        except GppError:
+        except Exception:  # a collection the writer refuses has content by definition
             return True
     return False
 
@@ -6585,15 +6614,8 @@ def publication_plan_preview(
         raise ValidationError(errors)
     try:
         plan = generate_publication_plan(gpo, target=target)
-    except (EmitError, ValueError) as error:  # GppError, IltError, RegistryPolError ...
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="unwritable_preferences",
-                message=f"Studio could not write this GPO's files: {error}",
-                path="gpp_collections",
-            )
-        ]) from error
+    except Exception as error:  # the no-500 boundary (final-r17)
+        raise unwritable_artifact(error, "the publication plan") from error
     issues = validate_publication_plan(plan)
     refused_checks = frozenset(issue.check for issue in issues if issue.level == "error")
     planned_operations = {step.operation for step in plan.steps}

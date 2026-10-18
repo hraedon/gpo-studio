@@ -141,9 +141,11 @@ class GPO:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         for collection in data.get("gpp_collections", []):
-            # Derived on every load (a tolerant load's `load_problems`): never
-            # stored, served or exported (DeepSeek final-r16 N3).
-            collection.pop("load_problems", None)
+            # A tolerant load's derived `load_problems` are never stored, served
+            # or exported; emptied rather than dropped, so a GPO without any
+            # writes exactly the dict it always did (DeepSeek final-r17 N3).
+            if collection.get("load_problems"):
+                collection["load_problems"] = []
         return data
 
 

@@ -865,7 +865,8 @@ Reconciled 2026-10-08 under Plan 034 WP-3, lane first and surface second.
 planner's steps, rollback steps, planned SYSVOL paths, payload digest and
 validator issues, and marks every step `measured`, `unmeasured` or `refused`.
 A GPO with a validation error is a 422 carrying those errors instead, before
-any file is built or digested (final-r15). The Publication preview panel shows
+any file is built or digested (final-r15; validation's own check of what a
+clean collection would write aside). The Publication preview panel shows
 the plan grouped by SYSVOL and Active Directory, or the 422's errors.
 Nothing executes a step, and `publisher.py` stays unreachable.
 

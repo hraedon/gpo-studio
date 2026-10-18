@@ -81,6 +81,7 @@ import binascii
 import hashlib
 import io
 import json
+import logging
 import re
 import threading
 import zipfile
@@ -104,6 +105,8 @@ from .emit_integrity import (
     scripts_ini_problems,
     xml_problems,
 )
+
+_LOG = logging.getLogger(__name__)
 
 Format = Literal[
     "powershell-plan",
@@ -893,7 +896,33 @@ def _refusal(build: Callable[[], Any], gpo: Any, path: str, *, blocked_first: bo
         build()
     except (ValidationError, ValueError) as error:
         return _writer_refusal(error, path)
+    except Exception as error:  # the no-500 rule: a capability never raises
+        return unwritable_artifact(error, path).issues[0]
     return None
+
+
+def unwritable_artifact(error: BaseException, where: str) -> Any:
+    """The refusal for anything a writer or builder raises on stored data
+    (DeepSeek final-r17 B1): a 422 with a generic reason, never a 500. The
+    exception type is logged; its text, which may quote stored data, is not
+    served."""
+    from .model import ValidationError, ValidationIssue
+
+    _LOG.warning(
+        "%s: a writer failed on the stored GPO (%s)", where, type(error).__name__, exc_info=error
+    )
+    return ValidationError([
+        ValidationIssue(
+            severity="error",
+            code="unwritable_artifact_value",
+            message=(
+                f"Studio could not build {where} from this GPO: a stored value is outside "
+                "what its writer accepts. The GPO's validation issues name what to "
+                "correct; if they do not, re-import the GPO from its source."
+            ),
+            path=str(where),
+        )
+    ])
 
 
 def plan_refusal(gpo: Any) -> Any:

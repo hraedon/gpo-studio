@@ -234,7 +234,7 @@ def test_the_preview_turns_a_writer_refusal_into_a_422(
     planted: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """DeepSeek final-r16 N5: the branch after validation, for a refusal only
-    the writer finds (a `ValueError` of any kind, `RegistryPolError` included)."""
+    the writer finds -- any exception, `RegistryPolError` included."""
     from gpo_studio import api
     from gpo_studio.registry_pol import RegistryPolError
 
@@ -248,5 +248,7 @@ def test_the_preview_turns_a_writer_refusal_into_a_422(
     response = client.get(f"/api/gpos/{clean.guid}/publication-plan")
     assert response.status_code == 422, response.text
     (issue,) = response.json()["error"]["issues"]
-    assert issue["code"] == "unwritable_preferences"
-    assert "refused by the writer" in issue["message"]
+    # The one no-500 boundary (final-r17): a generic reason, the writer's own
+    # text (which may quote stored data) logged, not served.
+    assert issue["code"] == "unwritable_artifact_value"
+    assert "refused by the writer" not in issue["message"]

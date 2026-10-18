@@ -14,8 +14,6 @@ from .gpp import (
     GppRegistryValue,
     GppScope,
     gpp_document_order,
-    has_refused_content,
-    raw_retained_records,
     retained_rendering,
 )
 from .ilt import IltFilter, IltPredicate
@@ -252,14 +250,6 @@ def semantic_dict_gpp_registry(reg: GppRegistry, scope: GppScope = "computer") -
 
 
 def semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
-    if has_refused_content(collection):
-        # Hashed from raw records: rendering would write the refused content.
-        with raw_retained_records():
-            return _semantic_dict_gpp_collection(collection)
-    return _semantic_dict_gpp_collection(collection)
-
-
-def _semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
     # GPP group/registry order is semantically significant: gpp.py serializes
     # groups and registry in tuple order. Preserve insertion order so a reorder
     # changes the hash (matching how it changes exported XML bytes).

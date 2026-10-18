@@ -126,6 +126,22 @@ export function renderPublicationPlan(body) {
     .join("");
 }
 
+// A refused GPO is a 422 whose issues carry the reason and the remedy (stored
+// content a current rule refuses, say): show them, not just "validation
+// failed" (DeepSeek final-r16 N1). A request-validation issue has `msg`.
+export function renderPlanError(error) {
+  const issues = (error.issues || [])
+    .map((issue) => {
+      const text = issue.message || String(issue.msg || "");
+      return `<li>${escapeHtml(issue.code ? `${text} (${issue.code})` : text)}</li>`;
+    })
+    .join("");
+  return [
+    `<p class="form-error" role="alert">${escapeHtml(`Error: ${error.message}`)}</p>`,
+    issues ? `<ul class="form-error">${issues}</ul>` : "",
+  ].join("");
+}
+
 let generation = 0;
 
 async function load() {
@@ -147,25 +163,7 @@ async function load() {
       : "Plan ready. Review the limits above the steps.";
   } catch (error) {
     if (mine !== generation) return;
-    results.replaceChildren();
-    const message = document.createElement("p");
-    message.className = "form-error";
-    message.setAttribute("role", "alert");
-    message.textContent = `Error: ${error.message}`;
-    results.appendChild(message);
-    // A refused GPO is a 422 whose issues carry the reason and the remedy
-    // (stored content a current rule refuses, say): show them, not just
-    // "validation failed" (DeepSeek final-r16 N1).
-    if (error.issues?.length) {
-      const list = document.createElement("ul");
-      list.className = "form-error";
-      for (const issue of error.issues) {
-        const item = document.createElement("li");
-        item.textContent = issue.code ? `${issue.message} (${issue.code})` : issue.message || String(issue.msg || "");
-        list.appendChild(item);
-      }
-      results.appendChild(list);
-    }
+    results.innerHTML = renderPlanError(error);
     status.textContent = "The plan could not be built.";
   } finally {
     if (mine === generation) results.setAttribute("aria-busy", "false");

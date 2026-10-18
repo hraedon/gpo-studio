@@ -10,8 +10,7 @@ from __future__ import annotations
 import logging
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import MISSING, dataclass, field, fields, replace
@@ -300,24 +299,45 @@ _TOLERATED: ContextVar[list[tuple[str, str]] | None] = ContextVar(
 )
 
 
-#: Whether `retained_rendering` may run the writer; off while a collection
-#: holding refused stored content is hashed (`raw_retained_records`).
-_RENDER_RETAINED: ContextVar[bool] = ContextVar("gpp_render_retained", default=True)
-
-
-@contextmanager
-def raw_retained_records() -> Iterator[None]:
-    """Within this block `retained_rendering` returns raw records, writing nothing."""
-    token = _RENDER_RETAINED.set(False)
-    try:
-        yield
-    finally:
-        _RENDER_RETAINED.reset(token)
-
-
 def has_refused_content(collection: GppCollection) -> bool:
     """Whether a tolerant load found stored content a current rule refuses."""
     return any(severity == "error" for severity, _message in collection.load_problems)
+
+
+class RefusedRecord(str):
+    """An imported element record of a collection holding refused stored
+    content, marked when the collection is LOADED (final-r17).
+
+    `retained_rendering` -- the one function that runs the writer to see what a
+    record writes, for every hash and every diff -- returns a marked record
+    raw, without rendering or caching it. So no reader, whatever route or
+    module, can write refused content by asking what a record writes. A plain
+    `str` subclass: equal to, and stored and served as, its text.
+    """
+
+    __slots__ = ()
+
+
+def with_refused_marks(collection: GppCollection) -> GppCollection:
+    """*collection* with its element records marked if it holds refused stored
+    content, and unmarked if it no longer does."""
+    from .gpp_adapters import ADAPTER_KEYS
+
+    refused = has_refused_content(collection)
+
+    def mark(items: tuple[Any, ...]) -> tuple[Any, ...]:
+        out = []
+        for item in items:
+            raw = getattr(item, "native_xml", "")
+            if raw and isinstance(raw, RefusedRecord) != refused:
+                item = replace(item, native_xml=RefusedRecord(raw) if refused else str(raw))
+            out.append(item)
+        return tuple(out)
+
+    adapters: dict[str, Any] = {key: mark(getattr(collection, key)) for key in ADAPTER_KEYS}
+    return replace(
+        collection, groups=mark(collection.groups), registry=mark(collection.registry), **adapters
+    )
 
 
 def _tolerate(error: GppError, severity: str = "error") -> bool:
@@ -503,13 +523,19 @@ def _native_uid(uid: str) -> str:
 def _validate_gpp_action(value: str) -> GppAction:
     if value in ("add", "replace", "remove", "update"):
         return value  # type: ignore[return-value]
-    raise GppError(f"Invalid GPP action: {value!r}")
+    error = GppError(f"Invalid GPP action: {value!r}")
+    if _tolerate(error):  # stored data: kept, reported, refused at export
+        return value  # type: ignore[return-value]
+    raise error
 
 
 def _validate_gpp_registry_action(value: str) -> GppRegistryAction:
     if value in ("create", "replace", "update", "delete"):
         return value  # type: ignore[return-value]
-    raise GppError(f"Invalid GPP registry action: {value!r}")
+    error = GppError(f"Invalid GPP registry action: {value!r}")
+    if _tolerate(error):
+        return value  # type: ignore[return-value]
+    raise error
 
 
 def _normalize_hive(hive: str) -> str:
@@ -1505,10 +1531,10 @@ def retained_rendering(key: str, item: Any, scope: GppScope) -> str:
     raw: str = getattr(item, "native_xml", "")
     if not raw:
         return ""
-    if not _RENDER_RETAINED.get():
-        # A collection holding refused stored content is hashed from its raw
-        # records: rendering would write the refused content (final-r16).
-        return raw
+    if isinstance(raw, RefusedRecord):
+        # Its collection holds refused stored content: the raw record, never
+        # rendered and never cached -- rendering would write it (final-r17).
+        return str(raw)
     # Every GPO payload hashes twice, so the answer is cached. ``repr`` covers
     # every field, the ones outside == included; items are frozen.
     cache_key = (key, scope, repr(item))
@@ -2823,7 +2849,9 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
     """Reconstruct a GppCollection from a plain dict."""
     scope_raw = str(data.get("scope", "computer"))
     if scope_raw not in ("computer", "user"):
-        raise GppError(f"Invalid GPP scope: {scope_raw!r}")
+        scope_error = GppError(f"Invalid GPP scope: {scope_raw!r}")
+        if not _tolerate(scope_error):
+            raise scope_error
     scope: GppScope = scope_raw  # type: ignore[assignment]
     raw_groups = list(data.get("groups", []))
     for legacy in data.get("local_groups", []):
@@ -3136,7 +3164,9 @@ def gpp_collection_from_dict_tolerant(data: dict[str, Any]) -> GppCollection:
         collection = gpp_collection_from_dict(data)
     finally:
         _TOLERATED.reset(token)
-    return replace(collection, load_problems=tuple(problems)) if problems else collection
+    if not problems:
+        return collection
+    return with_refused_marks(replace(collection, load_problems=tuple(problems)))
 
 
 def _validate_document_positions(collection: GppCollection) -> None:

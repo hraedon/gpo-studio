@@ -119,7 +119,23 @@ def parse_estate(data: dict[str, Any]) -> list[GPO]:
             "status": "archived",
             "source_guid": original_guid,
         }
-        gpo = gpo_from_dict(gpo_dict)
+        try:
+            gpo = gpo_from_dict(gpo_dict)
+        except (ValueError, KeyError, TypeError, AttributeError, AssertionError) as error:
+            # A malformed member field (a link order "x", an unknown
+            # permission) is the import's 422, not a 500 (DeepSeek final-r17 N1).
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="invalid_estate_gpo",
+                    message=(
+                        f"GPO {original_guid} has a field Studio cannot read "
+                        f"({type(error).__name__}); correct the estate export."
+                    ),
+                    path=f"gpos/{original_guid}",
+                )
+            )
+            continue
         gpo_issues = [i for i in validate_gpo(gpo) if i.severity == "error"]
         if gpo_issues:
             issues.extend(gpo_issues)

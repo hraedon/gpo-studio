@@ -31,6 +31,7 @@ from .gpp import (
     gpp_collection_to_dict,
     registry_action_edit,
     serialize_gpp,
+    with_refused_marks,
 )
 from .identity import Identity
 from .ilt import IltError
@@ -116,9 +117,9 @@ def _cse_file_entry(data: dict[str, Any]) -> CseFileEntry:
 
 
 def _cse_metadata_entry(data: dict[str, Any]) -> CseMetadataEntry:
+    # A side outside its set is kept as stored and reported by validation
+    # (`closed_sets`), never fatal on read (final-r17).
     side_raw = str(data["side"])
-    if side_raw not in ("machine", "user"):
-        raise ValueError(f"Invalid CSE side: {side_raw!r}")
     return CseMetadataEntry(
         guid=str(data["guid"]),
         side=cast(CseSide, side_raw),
@@ -159,12 +160,15 @@ def _refuse_identity_issues(gpo: GPO, prefix: str) -> None:
         raise ValidationError(errors)
 
 
-def _security_filter(data: dict[str, Any]) -> SecurityFilter:
+def _security_filter(data: dict[str, Any], *, strict: bool = True) -> SecurityFilter:
+    """A security filter from a dict. Stored data (``strict=False``) keeps a
+    value outside its closed set, for validation (`closed_sets`) to report;
+    a mutation's values refuse it here (final-r17)."""
     permission = data.get("permission", "apply")
-    if permission not in ("apply", "read"):
+    if strict and permission not in ("apply", "read"):
         raise ValueError(f"Invalid permission: {permission!r}")
     target_type = data.get("target_type", "group")
-    if target_type not in ("user", "group", "computer"):
+    if strict and target_type not in ("user", "group", "computer"):
         raise ValueError(f"Invalid target_type: {target_type!r}")
     return SecurityFilter(
         id=str(data["id"]),
@@ -262,11 +266,13 @@ def _keep_provenance(before: GPO, after: GPO, grants: _Grants | None) -> GPO:
             # What a tolerant load reported belongs to the stored data; after
             # this mutation only what the new collection still holds stands
             # (deleting the offending item clears it).
-            kept = replace(
-                kept,
-                load_problems=gpp_collection_from_dict_tolerant(
-                    gpp_collection_to_dict(replace(kept, load_problems=()))
-                ).load_problems,
+            kept = with_refused_marks(
+                replace(
+                    kept,
+                    load_problems=gpp_collection_from_dict_tolerant(
+                        gpp_collection_to_dict(replace(kept, load_problems=()))
+                    ).load_problems,
+                )
             )
         changed = changed or kept is not collection
         collections.append(kept)
@@ -467,7 +473,7 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
             if data.get("fdeploy") is not None else None
         ),
         security_filters=tuple(
-            _security_filter(item) for item in data.get("security_filters", [])
+            _security_filter(item, strict=False) for item in data.get("security_filters", [])
         ),
         wmi_filter=_wmi_filter(data["wmi_filter"]) if data.get("wmi_filter") else None,
         gpp_collections=tuple(
