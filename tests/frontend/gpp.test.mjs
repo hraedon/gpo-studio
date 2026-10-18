@@ -5,7 +5,11 @@ import {
   gppCloneRequest,
   gppRestoreRequest,
   iltOperatorWarning,
+  iltRows,
+  memberEntry,
   moveGppItemIds,
+  predicateEntry,
+  retainedSummary,
 } from "../../src/gpo_studio/static/js/gpp.mjs";
 
 describe("OS targeting warnings", () => {
@@ -117,5 +121,106 @@ describe("GPP reorder shaping", () => {
     ["missing", 1],
   ])("rejects an unavailable move for %s by %i", (id, offset) => {
     expect(moveGppItemIds(items, id, offset)).toBeNull();
+  });
+});
+
+describe("the id-based edit protocol (final-r13)", () => {
+  // Retained (imported) content never round-trips through the browser: an
+  // edit sends typed fields and the ids of what it keeps.
+  const filter = {
+    items: [
+      {
+        type: "ou",
+        negate: false,
+        value: "OU=A",
+        bool_op: "AND",
+        unknown_attrs: [["ouExtra", "o"]],
+      },
+      '<FilterBattery bool="AND" not="0" />',
+      {
+        type: "date",
+        negate: false,
+        value: "2026-01-01|2026-12-31",
+        bool_op: "AND",
+      },
+      { type: "group", negate: false, value: "S-1-5-32-544", bool_op: "OR" },
+    ],
+    ids: ["p-ou", "p-raw", "p-date", "p-or"],
+  };
+
+  test("classifies each stored predicate with its id", () => {
+    expect(
+      iltRows(filter).map(({ id, raw, editable }) => [id, raw, editable]),
+    ).toEqual([
+      ["p-ou", false, true],
+      ["p-raw", true, false],
+      ["p-date", false, false],
+      ["p-or", false, false],
+    ]);
+  });
+
+  test("sends a read-only predicate as its id alone", () => {
+    for (const row of iltRows(filter).filter((row) => !row.editable)) {
+      expect(predicateEntry({ readonly: true, id: row.id })).toEqual({
+        id: row.id,
+      });
+    }
+  });
+
+  test("sends an edited predicate's typed fields and id, never its retained attributes", () => {
+    const entry = predicateEntry({
+      id: "p-ou",
+      type: "group",
+      negate: true,
+      value: "S-1-5-32-545",
+    });
+    expect(entry).toEqual({
+      id: "p-ou",
+      type: "group",
+      negate: true,
+      value: "S-1-5-32-545",
+      bool_op: "AND",
+    });
+    expect(entry).not.toHaveProperty("unknown_attrs");
+  });
+
+  test("sends a new predicate without an id", () => {
+    expect(
+      predicateEntry({ id: "", type: "ou", negate: false, value: "OU=B" }),
+    ).toEqual({
+      type: "ou",
+      negate: false,
+      value: "OU=B",
+      bool_op: "AND",
+    });
+  });
+
+  test("sends members by id without their retained attributes", () => {
+    expect(
+      memberEntry({ id: "m-1", sid: "S-1-5-32-544", name: "A", action: "add" }),
+    ).toEqual({ id: "m-1", sid: "S-1-5-32-544", name: "A", action: "add" });
+    expect(
+      memberEntry({ id: "", sid: "S-1-5-32-545", name: "", action: "add" }),
+    ).toEqual({
+      sid: "S-1-5-32-545",
+      name: "",
+      action: "add",
+    });
+  });
+
+  test("describes retained content read-only, flagging content without an import record", () => {
+    const item = {
+      unknown_attrs: [["image", "2"]],
+      unknown_props_attrs: [],
+      unknown_children: ["<ItemChild />"],
+      members: [{ unknown_attrs: [["memberExtra", "m"]] }],
+    };
+    expect(retainedSummary(item)).toBe(
+      "Imported content Studio does not edit is kept as imported: 2 attributes, 1 element.",
+    );
+    expect(retainedSummary({ ...item, retained_unverified: true })).toContain(
+      "no import record",
+    );
+    expect(retainedSummary({ unknown_attrs: [] })).toBe("");
   });
 });

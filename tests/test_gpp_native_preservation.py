@@ -40,6 +40,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from gpp_payloads import group_payload, registry_payload
 
 from gpo_studio.api import app
 from gpo_studio.backup import read_backup
@@ -676,17 +677,18 @@ def test_an_api_edit_keeps_the_import_record_and_its_edit_wins(
             group = user["groups"][0]
             # Import provenance the writer reads; the API does not serve it.
             assert "native_xml" not in group
-            # What the workbench sends back (static/js/gpp.mjs): no native_xml.
-            payload = {
-                key: group[key]
-                for key in (
-                    "name", "sid", "action", "description", "remove_all_users",
-                    "remove_all_groups", "members", "id", "ilt_filter", "unknown_attrs",
-                    "unknown_props_attrs", "unknown_props_children", "unknown_children",
-                )
-            }
-            payload["description"] = "Edited in the workbench"
-            payload["native_xml"] = "<Group/>"  # ignored: the API never takes one
+            # What the workbench sends back (static/js/gpp.mjs): typed fields and
+            # ids, no retained content and no native_xml (final-r13).
+            payload = group_payload(group, description="Edited in the workbench")
+            refused = client.put(
+                f"/api/gpos/{gpo['guid']}/preferences/groups/{group['id']}",
+                json={
+                    "scope": "user", "group": {**payload, "native_xml": "<Group/>"},
+                    "actor": "native-preservation", "reason": "edit",
+                    "expected_revision": gpo["revision"],
+                },
+            )
+            assert refused.status_code == 422  # the API never takes one
             edited = client.put(
                 f"/api/gpos/{gpo['guid']}/preferences/groups/{group['id']}",
                 json={
@@ -743,16 +745,6 @@ _EDITABLE_CAPTURES = [
         for path in capture.glob("*/DomainSysvol/GPO/*/Preferences/*/*.xml")
     )
 ]
-_GROUP_PAYLOAD_KEYS = (
-    "name", "sid", "action", "description", "remove_all_users", "remove_all_groups",
-    "members", "id", "ilt_filter", "unknown_attrs", "unknown_props_attrs",
-    "unknown_props_children", "unknown_children",
-)
-_REGISTRY_PAYLOAD_KEYS = (
-    "key", "hive", "action", "value", "id", "uid", "ilt_filter", "unknown_attrs",
-    "unknown_props_children", "unknown_children",
-)
-_VALUE_PAYLOAD_KEYS = ("name", "value", "registry_type", "action", "default", "id", "unknown_attrs")
 
 
 @pytest.mark.parametrize("capture", _EDITABLE_CAPTURES, ids=lambda path: path.name)
@@ -786,7 +778,7 @@ def test_saving_every_item_back_through_the_workbench_changes_nothing(
             guid, revision, saved = gpo["guid"], gpo["revision"], 0
             for collection in gpo["gpp_collections"]:
                 for group in collection["groups"]:
-                    payload = {key: group[key] for key in _GROUP_PAYLOAD_KEYS}
+                    payload = group_payload(group)
                     response = client.put(
                         f"/api/gpos/{guid}/preferences/groups/{group['id']}",
                         json={"scope": collection["scope"], "group": payload,
@@ -796,10 +788,7 @@ def test_saving_every_item_back_through_the_workbench_changes_nothing(
                     assert response.status_code == 200, response.text
                     revision, saved = response.json()["gpo"]["revision"], saved + 1
                 for registry in collection["registry"]:
-                    payload = {key: registry[key] for key in _REGISTRY_PAYLOAD_KEYS}
-                    payload["value"] = {
-                        key: registry["value"][key] for key in _VALUE_PAYLOAD_KEYS
-                    }
+                    payload = registry_payload(registry)
                     response = client.put(
                         f"/api/gpos/{guid}/preferences/registry/{registry['id']}",
                         json={"scope": collection["scope"], "registry": payload,

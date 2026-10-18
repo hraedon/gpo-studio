@@ -140,7 +140,9 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/estate.py`
 - `src/gpo_studio/evidence.py`
 - `src/gpo_studio/gpmc_interop.py`
+- `src/gpo_studio/gpp_edit.py`
 - `src/gpo_studio/gpp_native.py`
+- `src/gpo_studio/gpp_provenance.py`
 - `src/gpo_studio/hosting.py`
 - `src/gpo_studio/identity.py`
 - `src/gpo_studio/identity_values.py`
@@ -152,6 +154,7 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/payload.py`
 - `src/gpo_studio/policy_config.py`
 - `src/gpo_studio/provenance.py`
+- `src/gpo_studio/provenance_migration.py`
 - `src/gpo_studio/ps_plan_validator.py`
 - `src/gpo_studio/publisher.py`
 - `src/gpo_studio/remediation_corpus.py`

@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from gpp_payloads import group_payload
 
 from gpo_studio.api import app
 from gpo_studio.diff import diff_gpos, three_way_diff
@@ -137,12 +138,7 @@ def api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
                 json={"name": "Boundary", "actor": "boundary", "reason": "fork"},
             ).json()["gpo"]
             group = next(c for c in fork["gpp_collections"] if c["scope"] == "user")["groups"][0]
-            payload = {key: group[key] for key in (
-                "name", "sid", "action", "description", "remove_all_users",
-                "remove_all_groups", "members", "id", "ilt_filter", "unknown_attrs",
-                "unknown_props_attrs", "unknown_props_children", "unknown_children",
-            )}
-            payload["description"] = "revision two"
+            payload = group_payload(group, description="revision two")
             edited = client.put(
                 f"/api/gpos/{fork['guid']}/preferences/groups/{group['id']}",
                 json={"scope": "user", "group": payload, "actor": "boundary", "reason": "edit",
@@ -180,6 +176,7 @@ def test_no_get_route_serves_native_xml(api: Any) -> None:
             continue
         checked.append(route.path)
         assert "native_xml" not in response.text, route.path
+        assert "retained_provenance" not in response.text, route.path
         if '"unknown_props_attrs"' in response.text:  # a serialised preference group
             gpo_shaped.append(route.path)
     # The routes the review found serving it, and the ordinary ones.
@@ -201,6 +198,7 @@ def test_mutation_responses_serve_no_native_xml(api: Any) -> None:
     )
     assert restored.status_code == 200, restored.text
     assert '"unknown_props_attrs"' in restored.text and "native_xml" not in restored.text
+    assert "retained_provenance" not in restored.text
 
 
 def test_an_inline_diff_reference_cannot_carry_native_xml(api: Any) -> None:

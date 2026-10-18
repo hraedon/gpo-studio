@@ -491,8 +491,11 @@ Operator-facing:
     with the GPO's common options and targeting. (As released in r11, imported
     content with an element outside the vocabulary was kept but could not be
     exported; final-r12 replaces that with the provenance rule below.) The
-    workbench sends retained content back as it received it, so its edits are
-    unaffected.
+    workbench sent retained content back as it received it -- except an
+    imported predicate of a type Studio does not author (`FilterDate` and eight
+    more), which the edit route refused, so such an item could not be edited
+    at all; final-r13 replaces the round trip with the id-based edit protocol
+    below.
   - **The plan grammar is written out and proved complete.** Round 10 compared
     each plan line with lines from a few reference GPOs and so refused the
     writer's own `$desiredApply = @()` (read-only security filtering) and
@@ -527,12 +530,17 @@ Operator-facing:
     and imported element record, never add one (`raw_content_not_accepted`),
     and only an import, a fork, a clone or an item restore copies it. Egress
     allows an element the GPO's retained content holds and applies the closed
-    vocabulary to everything else, which is what the typed writers write. The
+    vocabulary to everything else, which is what the typed writers write.
+    (As released in r12 this inferred provenance from presence: content an
+    older API had accepted, restored from a revision or carried by a workspace
+    upgrade counted as imported. final-r13 records provenance instead.) The
     vocabulary also gains the 28 targeting elements of the Plan 021 inventory
     and the `LocalPrinter`, `PortPrinter` and `ImmediateTask` item tags, each
     from a source in the repository; a test holds it to those sources. Tests
-    import GPMC captures carrying those elements and require `export.zip` and
-    `gpmc-backup` to write them unchanged.
+    import GPMC captures carrying those elements and require `export.zip` to
+    write them unchanged, and `gpmc-backup` too except for Printers, whose
+    backup is refused only for its unmeasured extension registration
+    (`unsupported_native_gpp_extension`, unchanged).
   - **Clone and Restore run on the server.** The workbench's Clone sent the
     whole item, retained content included, to the add route, which refuses
     it since r11. `POST .../preferences/{groups,registry}/{id}/clone` now
@@ -545,12 +553,73 @@ Operator-facing:
     attributes) must equal the stored one or be empty; a reordered, moved,
     partial or duplicated one is refused. Changing a typed predicate's type
     drops the retained attributes of its old type rather than refusing the
-    edit.
+    edit. (As released in r12 the predicates were matched by position, so
+    deleting a typed predicate was refused, or dropped a DIFFERENT predicate's
+    retained attributes and exported other targeting; final-r13 matches them
+    by id.)
   - The writer refuses a retained targeting-predicate or file-root attribute
     that would overwrite one it has set, as it already did for items.
   - The mutation responses now carry `unknown_props_children` for groups and
     registry items. They left it out, so the workbench's next edit sent it
     back empty and dropped an imported item's retained `Properties` children.
+- After the thirteenth review (final-r13), a design change for retained
+  (imported) GPP content, the class rounds 11-13 patched:
+  - **Retained content never round-trips through a client.** Every item and
+    every targeting predicate (typed, of a type Studio does not author, or
+    raw) has a stable server-assigned id (`ilt_filter.ids` in responses).
+    The group, registry, member and value add/edit bodies carry typed fields
+    and ids only (`extra="forbid"`: no `unknown_*`, raw predicate, item `id`
+    or registry `uid`); the server merges an edit onto the stored item under
+    the store lock (`gpp_edit`). A targeting entry `{id}` keeps that predicate
+    as stored; `{id, type, ...}` edits a predicate of an authorable type (a
+    type change drops that predicate's own retained attributes); an entry
+    without an id adds a new typed predicate; a stored id left out is deleted
+    with exactly its own retained content; the list order is the new order.
+    Raw and non-authorable predicates can be kept, moved or deleted, never
+    edited, so an imported `FilterDate` no longer blocks editing the rest of
+    its item. Members work the same way. Responses still show retained
+    content, read-only. The positional matching of r12 and its
+    exact-or-empty comparison are gone.
+  - **Provenance is recorded at acquisition, not inferred from presence.**
+    The backup import mints a record (a digest bound to family, item and
+    predicate/member/value id) for each retained fragment
+    (`gpp_provenance`). A fork carries the records with its items; a clone
+    re-keys them onto the copy's fresh ids and gives the copy a fresh
+    run-once id; an item or whole-revision restore copies the records the
+    revision holds and creates none; every other mutation keeps the records
+    of the fragments it keeps and can add neither a fragment nor a record
+    (checked per item and per id, task payloads and run-once ids included).
+    Egress allows an element outside the closed vocabulary only where an
+    import record holds it, per file; retained content without one is kept and
+    shown (`retained_unverified`) but held to the vocabulary, and a refusal
+    names the items with the remedy: re-import the GPO from its source
+    backup, or delete them.
+  - **Workspaces from before this change are upgraded conservatively.** A
+    one-time migration (`workspace_meta.gpp_provenance`) records a fragment
+    only if the revision that first holds it is revision 1 and that revision
+    was a backup import (`archived`, provenance line `Imported from GPMC
+    backup {GUID}`) or estate import, or a fork whose parent held the fragment
+    recorded at fork time. Revision rows record actor, free-text reason,
+    timestamp and snapshot -- no operation name -- so those revision-1 facts
+    are what identify an import. Everything else is unverified. A snapshot
+    that gains no record is left byte-identical; predicate ids for one written
+    before them are derived from its item on load. A legacy raw
+    `FilterRunOnce` predicate (stored by the pre-r11 API) is read as the
+    item's apply-once option and run-once id, so a clone of it gets its own
+    identity and exports. The schema version is unchanged: a schema-4 build
+    reads the upgraded snapshots, and one that writes drops records, which
+    can only leave content unverified.
+  - The workbench edits by id: an imported read-only predicate can be moved
+    (↑/↓) or removed, the edit dialog shows the item's retained content
+    read-only, and the dead "Clone" dialog mode is gone; a registry clone
+    takes no name. A Playwright journey covers deleting a typed predicate
+    beside a raw one, editing an item holding `FilterDate`, clone and restore.
+  - Egress: an element retained in one preference file no longer admits it in
+    another file of the same side; the route-level check holds archive bytes
+    no checked builder produced to the closed vocabulary. The writer refuses a
+    retained member or registry-value attribute that would overwrite a typed
+    one (now tested). A 422 for a field a request may not carry no longer
+    echoes its value.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

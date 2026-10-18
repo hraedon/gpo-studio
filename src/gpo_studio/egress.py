@@ -63,10 +63,13 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import io
 import json
 import re
+import threading
 import zipfile
+from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any, Literal, assert_never
@@ -466,13 +469,22 @@ _GPMC_REQUIRED = (
 
 
 def zip_problems(
-    data: bytes, kind: Literal["studio", "gpmc"], model: Any = None
+    data: bytes,
+    kind: Literal["studio", "gpmc"],
+    model: Any = None,
+    *,
+    strict_elements: bool = False,
 ) -> list[EmitProblem]:
     """An export ZIP, member by member: by its `ZipInfo`, so a duplicate name
     cannot hide an earlier entry (``read(name)`` returns the last); every name
     safe, unique and of a known kind; every required member present; each
     member valid by its format; and, given the GPO, its preference files reading
-    back as the GPO's preferences."""
+    back as the GPO's preferences, with every element either in the closed
+    vocabulary or held by retained content an import recorded for that file.
+
+    Without the GPO there is no provenance to consult: *strict_elements* then
+    holds every preference file to the closed vocabulary alone (the route
+    backstop for bytes no checked builder produced, DeepSeek final-r13 N2)."""
     members = _STUDIO_MEMBERS if kind == "studio" else _GPMC_MEMBERS
     required = _STUDIO_REQUIRED if kind == "studio" else _GPMC_REQUIRED
     where = "export.zip" if kind == "studio" else "gpmc-backup"
@@ -519,63 +531,59 @@ def zip_problems(
                 side, relative = _gpp_side(name)
                 gpp_files.setdefault(side, {})[relative] = content
     if model is not None and not problems:
-        # The element vocabulary needs the GPO: retained elements are allowed
-        # because the GPO's imported content holds them (provenance), so it is
-        # checked where the GPO is known -- the checked builders the routes and
-        # capabilities call -- not by the route-level backstop.
-        retained = {
-            collection.scope: retained_element_names(collection)
-            for collection in model.gpp_collections
-        }
+        problems += gpp_file_element_problems(where, model, gpp_files)
+        problems += gpp_agreement_problems(where, model, gpp_files)
+    elif strict_elements and not problems:
         for side, files in sorted(gpp_files.items()):
             for relative, content in sorted(files.items()):
-                problems += gpp_element_problems(
-                    f"{where}:{side}/{relative}", content, retained.get(side, frozenset())
-                )
-        problems += gpp_agreement_problems(where, model, gpp_files)
+                problems += gpp_element_problems(f"{where}:{side}/{relative}", content)
     return problems
 
 
-def retained_element_names(collection: Any) -> frozenset[str]:
-    """Every element name in a collection's retained content: retained children,
-    raw targeting predicates, imported element records and task payloads.
+def gpp_file_element_problems(
+    where: str, gpo: Any, files_by_side: Mapping[str, Mapping[str, bytes]]
+) -> list[EmitProblem]:
+    """Every element of each exported preference file outside the closed
+    vocabulary and outside the retained content an IMPORT recorded for that
+    file's families (final-r13; per file, DeepSeek final-r13 N1).
 
-    Only an import puts retained content in a GPO (`store._retained_fragments`
-    holds every mutation to keep or drop it, never add it), so an element named
-    here is one an import stored, and egress exports it as imported.
-    """
-    import dataclasses
+    Provenance is the record `gpp_provenance` keeps, not the content's
+    presence: retained content without a record -- stored through an older
+    API, or migrated from a workspace whose history does not show an import --
+    is held to the vocabulary, and a refusal names the items to re-import or
+    delete."""
+    from . import gpp_provenance
+    from .gpp import _gpp_file_families
 
-    from .xml_safety import parse_xml_bounded
-
-    fragments: list[str] = []
-    for field in dataclasses.fields(collection):
-        content = getattr(collection, field.name)
-        if field.name.endswith("_unknown_children"):
-            fragments += list(content or ())
-        elif isinstance(content, tuple) and content and dataclasses.is_dataclass(content[0]):
-            for item in content:
-                fragments += list(getattr(item, "unknown_children", ()) or ())
-                fragments += list(getattr(item, "unknown_props_children", ()) or ())
-                for text in (getattr(item, "native_xml", ""), getattr(item, "task_xml", "")):
-                    if text:
-                        fragments.append(text)
-                ilt = getattr(item, "ilt_filter", None)
-                fragments += [
-                    p for p in (ilt.items if ilt is not None else ()) if isinstance(p, str)
+    file_families = _gpp_file_families()
+    by_scope = {collection.scope: collection for collection in gpo.gpp_collections}
+    problems: list[EmitProblem] = []
+    for side, files in sorted(files_by_side.items()):
+        collection = by_scope.get(side)
+        for relative, content in sorted(files.items()):
+            families = file_families.get(relative, ())
+            verified: frozenset[str] = frozenset()
+            if collection is not None:
+                verified = gpp_provenance.element_names(collection, families, verified=True)
+            found = gpp_element_problems(f"{where}:{side}/{relative}", content, verified)
+            if found and collection is not None:
+                unverified = gpp_provenance.element_names(collection, families, verified=False)
+                items = gpp_provenance.unverified_items(collection, families)
+                found = [
+                    replace(
+                        problem,
+                        problem=(
+                            f"{problem.problem}: it is retained content with no import "
+                            f"record ({', '.join(items[:5])}). Re-import the GPO from its "
+                            "source backup, or delete these items"
+                        ),
+                    )
+                    if problem.name in unverified
+                    else problem
+                    for problem in found
                 ]
-    names: set[str] = set()
-    for fragment in fragments:
-        data = fragment.encode("utf-8")
-        size = max(len(data), 1)
-        try:
-            root = parse_xml_bounded(
-                data, max_size=size, max_attr_length=size, max_text_length=size
-            )
-        except ValueError:
-            continue  # not well formed: the writer and xml_problems refuse it
-        names.update(element.tag.rsplit("}", 1)[-1] for element in root.iter())
-    return frozenset(names)
+            problems += found
+    return problems
 
 
 def _gpp_side(name: str) -> tuple[str, str]:
@@ -753,9 +761,11 @@ def check(format: Format, result: Any) -> None:
         case "report-text":
             problems = report_text_problems(_body(result).decode("utf-8"))
         case "zip-studio":
-            problems = zip_problems(_body(result), "studio")
+            body = _body(result)
+            problems = zip_problems(body, "studio", strict_elements=not _was_checked(body))
         case "zip-gpmc":
-            problems = zip_problems(_body(result), "gpmc")
+            body = _body(result)
+            problems = zip_problems(body, "gpmc", strict_elements=not _was_checked(body))
         case "scripts-preview":
             problems = [
                 problem
@@ -781,6 +791,30 @@ def check(format: Format, result: Any) -> None:
 # capability asked only the writer, and egress refused what it advertised).
 
 
+#: Digests of the archives a checked builder validated with their GPO, so the
+#: route backstop knows which bytes already passed the provenance-aware
+#: element check (DeepSeek final-r13 N2). Bytes no checked builder produced --
+#: a future route that writes an archive itself -- are held to the closed
+#: vocabulary alone. Bounded: a route checks the bytes it just built.
+_CHECKED_ARCHIVES: OrderedDict[str, None] = OrderedDict()
+_CHECKED_ARCHIVES_SIZE = 64
+_CHECKED_LOCK = threading.Lock()
+
+
+def _remember_checked(data: bytes) -> None:
+    key = hashlib.sha256(data).hexdigest()
+    with _CHECKED_LOCK:
+        _CHECKED_ARCHIVES[key] = None
+        _CHECKED_ARCHIVES.move_to_end(key)
+        while len(_CHECKED_ARCHIVES) > _CHECKED_ARCHIVES_SIZE:
+            _CHECKED_ARCHIVES.popitem(last=False)
+
+
+def _was_checked(data: bytes) -> bool:
+    with _CHECKED_LOCK:
+        return hashlib.sha256(data).hexdigest() in _CHECKED_ARCHIVES
+
+
 def checked_plan(gpo: Any) -> str:
     from . import export
 
@@ -798,6 +832,7 @@ def checked_studio_bundle(gpo: Any) -> bytes:
     problems = zip_problems(data, "studio", gpo)
     if problems:
         raise EmitError(problems)
+    _remember_checked(data)
     return data
 
 
@@ -808,6 +843,7 @@ def checked_gpmc_backup(gpo: Any, scripts: Mapping[str, Any] | None = None) -> b
     problems = zip_problems(data, "gpmc", gpo)
     if problems:
         raise EmitError(problems)
+    _remember_checked(data)
     return data
 
 

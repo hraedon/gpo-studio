@@ -45,7 +45,7 @@ from starlette.responses import Response as StarletteResponse
 from starlette.routing import Match
 from starlette.types import Scope
 
-from . import __version__
+from . import __version__, gpp_provenance
 from .ad_discovery import (
     discovery_script_domain,
     discovery_script_forest,
@@ -125,38 +125,30 @@ from .firewall_policy import (
     to_registry_settings,
 )
 from .gpp import (
-    _GROUP_KNOWN_CHILDREN,
-    _GROUP_PROPS_KNOWN_ATTRS,
-    _GROUP_PROPS_KNOWN_CHILDREN,
-    _GROUP_RESERVED_ATTRS,
-    _MEMBER_RESERVED_ATTRS,
-    _REGISTRY_KNOWN_CHILDREN,
-    _REGISTRY_PROPS_KNOWN_CHILDREN,
-    _REGISTRY_RESERVED_ATTRS,
-    _REGISTRY_VALUE_RESERVED_ATTRS,
     GppError,
     GppGroup,
     GppGroupMember,
     GppRegistry,
     GppRegistryValue,
     _normalize_hive,
-    _validate_unknown_attrs,
-    _validate_unknown_children,
-    item_carries_cpassword,
-    namespaced_content,
     serialize_gpp,
     without_native_records,
 )
-from .gpp_native import credential_local_name
+from .gpp_edit import (
+    MemberEdit,
+    PredicateEdit,
+    merge_group,
+    merge_member,
+    merge_registry,
+    merge_value,
+    new_ilt,
+    new_members,
+)
 from .identity import ClaimedIdentity, claimed_identity
 from .identity_values import guid_problem, name_problem, security_principal_problem
 from .ilt import (
-    IltError,
-    IltFilter,
     IltOsCriteria,
     IltPredicate,
-    serialize_ilt,
-    validate_predicate_unknown_attrs,
 )
 from .import_export import (
     backup_security_filters_to_model,
@@ -488,28 +480,55 @@ class IltOsCriteriaData(BaseModel):
 
 
 class IltPredicateData(BaseModel):
-    type: Literal[
-        "ou", "group", "registry", "ip_range", "environment", "wmi_query", "os"
-    ]
+    """One targeting entry of an add or edit (final-r13).
+
+    ``{"id": X}`` keeps stored predicate X unchanged -- typed, a type Studio
+    does not author, or raw. ``{"id": X, "type": ...}`` edits stored predicate
+    X (an authorable type only). An entry without an id adds a new typed
+    predicate. A predicate's retained content is never sent: the server keeps
+    it with the predicate's id (`gpp_edit`).
+    """
+
+    id: str | None = Field(default=None, min_length=1, max_length=64)
+    type: (
+        Literal["ou", "group", "registry", "ip_range", "environment", "wmi_query", "os"] | None
+    ) = None
     negate: bool = False
     value: str = ""
     bool_op: Literal["AND", "OR"] = "AND"
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     os_criteria: IltOsCriteriaData | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _keep_or_typed(self) -> IltPredicateData:
+        typed = self.model_fields_set - {"id"}
+        if self.id is None and self.type is None:
+            raise ValueError("a new targeting predicate needs a type")
+        if typed and self.type is None:
+            raise ValueError("an edited targeting predicate needs its type")
+        return self
 
 
 class IltFilterData(BaseModel):
-    items: list[IltPredicateData | str] | None = None
-    predicates: list[IltPredicateData] = Field(default_factory=list)
-    unknown_predicates: list[str] = Field(default_factory=list)
+    """Targeting in the order the item will have it; a stored predicate left out
+    is deleted, with its retained content."""
+
+    items: list[IltPredicateData] = Field(default_factory=list, max_length=500)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class GppGroupMemberData(BaseModel):
+    """A member of an add or edit: ``id`` names a stored member (whose retained
+    attributes the server keeps); none adds a new one."""
+
     sid: str = Field(min_length=1, max_length=255)
     name: str = Field(default="", max_length=255)
     action: Literal["add", "replace", "remove", "update"] = "add"
-    id: str = ""
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class GppCommonOptionsData(BaseModel):
@@ -544,13 +563,12 @@ class GppGroupData(BaseModel):
     remove_all_users: bool = False
     remove_all_groups: bool = False
     members: list[GppGroupMemberData] = Field(default_factory=list)
-    id: str = ""
     ilt_filter: IltFilterData | None = None
     common: GppCommonOptionsData | None = None
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    unknown_props_children: list[str] = Field(default_factory=list)
-    unknown_children: list[str] = Field(default_factory=list)
+
+    # Typed fields and ids only: retained content never round-trips through a
+    # client (final-r13); the server merges an edit onto the stored item.
+    model_config = ConfigDict(extra="forbid")
 
 
 _GPP_REGISTRY_TYPES = Literal[
@@ -567,8 +585,8 @@ class GppRegistryValueData(BaseModel):
     registry_type: str = "REG_SZ"
     action: Literal["create", "replace", "update", "delete"] = "create"
     default: bool = False
-    id: str = ""
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def _validate_registry_value(self) -> GppRegistryValueData:
@@ -618,13 +636,11 @@ class GppRegistryData(BaseModel):
     hive: str = Field(default="HKEY_LOCAL_MACHINE", max_length=50)
     action: Literal["add", "replace", "remove", "update"] = "update"
     value: GppRegistryValueData = Field(default_factory=lambda: GppRegistryValueData())
-    id: str = ""
-    uid: str = ""
     ilt_filter: IltFilterData | None = None
     common: GppCommonOptionsData | None = None
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    unknown_props_children: list[str] = Field(default_factory=list)
-    unknown_children: list[str] = Field(default_factory=list)
+
+    # Typed fields only; the item's uid is server-assigned (final-r13).
+    model_config = ConfigDict(extra="forbid")
 
 
 class GppGroupMutation(Audit):
@@ -715,7 +731,7 @@ class GppGroupMutation(Audit):
                             }
                         ],
                         "ilt_filter": {
-                            "predicates": [
+                            "items": [
                                 {
                                     "type": "ou",
                                     "value": "OU=Servers,DC=studio,DC=local",
@@ -968,12 +984,21 @@ class GppRegistryValueMutation(Audit):
     )
 
 
-class GppCloneMutation(Audit):
-    """Clone a stored GPP item server-side (final-r12). The caller names the
+class GppGroupCloneMutation(Audit):
+    """Clone a stored GPP group server-side (final-r12). The caller may name the
     copy; everything else, retained content included, is copied from the store."""
 
     scope: Literal["computer", "user"]
     name: str | None = Field(default=None, min_length=1, max_length=255)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GppRegistryCloneMutation(Audit):
+    """Clone a stored GPP registry item server-side. A registry item has no name
+    to give the copy (DeepSeek final-r13 N7: the name was accepted and ignored)."""
+
+    scope: Literal["computer", "user"]
 
     model_config = ConfigDict(extra="forbid")
 
@@ -1094,6 +1119,9 @@ class IltPredicateResponse(BaseModel):
 
 class IltFilterResponse(BaseModel):
     items: list[IltPredicateResponse | str] = Field(default_factory=list)
+    #: One stable id per item (final-r13): what an edit names to keep, edit,
+    #: move or delete a predicate.
+    ids: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1149,6 +1177,8 @@ class GppGroupResponse(BaseModel):
     # (final-r12; found by the restore route test).
     unknown_props_children: list[str] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
+    #: The item holds retained content with no import record (final-r13).
+    retained_unverified: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1165,6 +1195,7 @@ class GppRegistryResponse(BaseModel):
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_children: list[str] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
+    retained_unverified: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1690,384 +1721,58 @@ def _identity(actor: str) -> ClaimedIdentity:
     return claimed_identity(actor)
 
 
-def _ilt_filter_data_to_model(data: IltFilterData | None) -> IltFilter | None:
+def _ilt_edits(data: IltFilterData | None) -> list[PredicateEdit] | None:
+    """The targeting entries of a request (final-r13); ``None``: no targeting."""
     if data is None:
         return None
-    items: list[IltPredicate | str] = []
-    if data.items:
-        for item in data.items:
-            if isinstance(item, IltPredicateData):
-                pred = IltPredicate(
-                    type=item.type,
-                    negate=item.negate,
-                    value=item.value,
-                    bool_op=item.bool_op,
-                    unknown_attrs=tuple((pair[0], pair[1]) for pair in item.unknown_attrs),
-                    os_criteria=(
-                        IltOsCriteria(**item.os_criteria.model_dump())
-                        if item.os_criteria is not None
-                        else None
-                    ),
-                )
-                _validate_ilt_predicate_attrs(pred)
-                items.append(pred)
-            else:
-                items.append(item)
-    else:
-        for p in data.predicates:
-            pred = IltPredicate(
-                type=p.type,
-                negate=p.negate,
-                value=p.value,
-                bool_op=p.bool_op,
-                unknown_attrs=tuple((pair[0], pair[1]) for pair in p.unknown_attrs),
+    edits: list[PredicateEdit] = []
+    for item in data.items:
+        predicate = None
+        if item.type is not None:
+            predicate = IltPredicate(
+                type=item.type,
+                negate=item.negate,
+                value=item.value,
+                bool_op=item.bool_op,
                 os_criteria=(
-                    IltOsCriteria(**p.os_criteria.model_dump())
-                    if p.os_criteria is not None
+                    IltOsCriteria(**item.os_criteria.model_dump())
+                    if item.os_criteria is not None
                     else None
                 ),
             )
-            _validate_ilt_predicate_attrs(pred)
-            items.append(pred)
-        for raw in data.unknown_predicates:
-            items.append(raw)
-    ilt_filter = IltFilter(items=tuple(items))
-    _refuse_unwritable_ilt(ilt_filter)
-    return ilt_filter
-
-
-def _refuse_unwritable_ilt(ilt_filter: IltFilter) -> None:
-    """Refuse a raw filter predicate Studio could not write, before anything is stored.
-
-    A raw predicate that does not parse (an undeclared prefix, malformed XML)
-    used to be stored as given and fail only when the filter was serialized,
-    so the request returned 500 after committing and every later read or
-    export of that GPO failed too. Only raw predicates are checked here: typed
-    predicates are validated by the store (``invalid_ilt_ip_range`` and the
-    like), and serializing them here would turn those 422s into 500s.
-    """
-    for item in ilt_filter.items:
-        if isinstance(item, IltPredicate):
-            continue
-        try:
-            serialize_ilt(IltFilter(items=(item,)))
-        except (IltError, GppError) as error:
-            raise ValidationError([
-                ValidationIssue(
-                    severity="error",
-                    code="invalid_ilt_filter",
-                    message=f"A raw item-level targeting predicate cannot be written: {error}",
-                    path="ilt_filter",
-                )
-            ]) from error
-
-
-def _validate_ilt_predicate_attrs(pred: IltPredicate) -> None:
-    try:
-        validate_predicate_unknown_attrs(pred)
-    except IltError as error:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="reserved_attribute_collision",
-                message=str(error),
-                path="unknown_attrs",
-            )
-        ]) from error
-
-
-def _validate_gpp_unknown_attrs(
-    unknown: tuple[tuple[str, str], ...],
-    reserved: frozenset[str],
-    context: str,
-) -> None:
-    try:
-        _validate_unknown_attrs(unknown, reserved, context)
-    except GppError as error:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="reserved_attribute_collision",
-                message=str(error),
-                path="unknown_attrs",
-            )
-        ]) from error
-
-
-def _validate_gpp_unknown_children(
-    unknown: tuple[str, ...],
-    reserved: frozenset[str],
-    context: str,
-) -> None:
-    try:
-        _validate_unknown_children(unknown, reserved, context)
-    except GppError as error:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="reserved_child_collision",
-                message=str(error),
-                path="unknown_children",
-            )
-        ]) from error
-
-
-def _refuse_cpassword(key: str, item: Any, context: str) -> None:
-    """Refuse an item whose unknown attributes, children or raw filters hold a cpassword.
-
-    The export refuses one too (``cpassword_detected``); this stops it at the
-    door, as import does (WI-080 review: an element form passed every check).
-    """
-    if item_carries_cpassword(key, item):
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="cpassword_detected",
-                message=f"{context} would carry a cpassword, which Studio never writes.",
-                path="unknown_attrs",
-            )
-        ])
-    _refuse_namespaced_content(item, context)
-
-
-def _refuse_namespaced_content(value: Any, context: str) -> None:
-    """Refuse unknown content in an XML namespace (WI-080 review).
-
-    No native GPP capture uses one, and the writer copies unknown attributes,
-    children and raw filter predicates out verbatim. Import and load refuse it
-    too.
-    """
-    found = namespaced_content(value)
-    if found is not None:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="xml_namespace_refused",
-                message=(
-                    f"{context} uses an XML namespace or prefix ({found}); no native "
-                    "GPP capture does."
-                ),
-                path="unknown_attrs",
-            )
-        ])
-
-
-def _refuse_cpassword_attrs(unknown: tuple[tuple[str, str], ...], context: str) -> None:
-    """The member and registry-value routes' part of `_refuse_cpassword`."""
-    if any(credential_local_name(name) == "cpassword" for name, _ in unknown):
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="cpassword_detected",
-                message=f"{context} would carry a cpassword, which Studio never writes.",
-                path="unknown_attrs",
-            )
-        ])
-
-
-_RAW_ITEM_FIELDS = (
-    "unknown_attrs",
-    "unknown_props_attrs",
-    "unknown_props_children",
-    "unknown_children",
-)
-
-
-def _ilt_retained(ilt_filter: IltFilter | None) -> tuple[tuple[Any, ...], ...]:
-    """The retained parts of a targeting filter, in order and in place: each raw
-    predicate with the number of typed predicates before it, and each typed
-    predicate's retained attributes with its typed position. Exact equality of
-    this signature is "exactly as stored" -- a reordered, moved or partial
-    retained sequence differs (Sol final-r12 B3)."""
-    signature: list[tuple[Any, ...]] = []
-    typed = 0
-    for item in ilt_filter.items if ilt_filter is not None else ():
-        if isinstance(item, str):
-            signature.append(("raw", typed, item))
-        else:
-            if item.unknown_attrs:
-                signature.append(("attrs", typed, item.unknown_attrs))
-            typed += 1
-    return tuple(signature)
-
-
-def _typed_predicates(ilt_filter: IltFilter | None) -> list[IltPredicate]:
-    return [
-        item
-        for item in (ilt_filter.items if ilt_filter is not None else ())
-        if isinstance(item, IltPredicate)
-    ]
-
-
-def _drop_retained_of_changed_type(new: Any, stored: Any) -> Any:
-    """A typed predicate whose type the edit changed loses the retained
-    attributes of its old type: they belonged to another element (DeepSeek
-    final-r12 N3). The server drops them, here and in the comparison."""
-    new_filter = getattr(new, "ilt_filter", None)
-    if new_filter is None or stored is None:
-        return new
-    old_typed = _typed_predicates(getattr(stored, "ilt_filter", None))
-    items: list[IltPredicate | str] = []
-    index = 0
-    for item in new_filter.items:
-        if isinstance(item, IltPredicate):
-            if index < len(old_typed) and item.type != old_typed[index].type:
-                item = replace(item, unknown_attrs=())
-            index += 1
-        items.append(item)
-    return replace(new, ilt_filter=IltFilter(items=tuple(items)))
-
-
-def _raw_problems(new: Any, stored: Any, path: str) -> list[str]:
-    problems = [
-        f"{path}.{name}"
-        for name in _RAW_ITEM_FIELDS
-        if getattr(new, name, ())
-        and getattr(new, name) != (getattr(stored, name, ()) if stored is not None else ())
-    ]
-    if hasattr(new, "ilt_filter"):
-        new_retained = _ilt_retained(new.ilt_filter)
-        stored_retained = _ilt_retained(stored.ilt_filter) if stored is not None else ()
-        if stored is not None:
-            # Retained attributes the server dropped for a type change.
-            changed = {
-                index
-                for index, (old, now) in enumerate(
-                    zip(
-                        _typed_predicates(stored.ilt_filter),
-                        _typed_predicates(new.ilt_filter),
-                        strict=False,  # positions present in both
-                    )
-                )
-                if old.type != now.type
-            }
-            stored_retained = tuple(
-                part for part in stored_retained if not (part[0] == "attrs" and part[1] in changed)
-            )
-        if new_retained and new_retained != stored_retained:
-            problems.append(f"{path}.ilt_filter")
-    return problems
-
-
-def _refuse_new_raw_content(
-    new: Any, stored: Any, path: str, *, members: bool = False, value: bool = False
-) -> None:
-    """Retained import content is kept, never supplied (Sol final-r11 B1).
-
-    An item imported from GPMC carries what Studio does not type -- attributes,
-    children, raw targeting predicates -- and an edit may keep it exactly as
-    stored, or drop it. It may not add or change it: a caller-supplied
-    ``disabled="0"`` overwrote the typed ``disabled`` the same request set, and
-    a raw ``FilterRunOnce`` predicate added an element. A new item carries none.
-    """
-    problems = _raw_problems(new, stored, path)
-    if members:
-        stored_members = {m.id: m for m in getattr(stored, "members", ())}
-        for index, member in enumerate(new.members):
-            problems += _raw_problems(
-                member, stored_members.get(member.id), f"{path}.members[{index}]"
-            )
-    if value:
-        problems += _raw_problems(new.value, getattr(stored, "value", None), f"{path}.value")
-    if problems:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="raw_content_not_accepted",
-                message=(
-                    "Content Studio does not type (retained attributes, children, raw "
-                    "targeting predicates) can be kept as imported, or dropped, but not "
-                    "supplied or changed through the API: " + ", ".join(problems)
-                ),
-                path=path,
-            )
-        ])
-
-
-def _stored_gpp_item(
-    request: Request, guid: str, scope: str, family: str, item_id: str
-) -> Any:
-    gpo = _store(request).get_gpo(guid)
-    for collection in gpo.gpp_collections:
-        if collection.scope == scope:
-            for item in getattr(collection, family):
-                if item.id == item_id:
-                    return item
-    return None
+        edits.append(PredicateEdit(id=item.id, predicate=predicate))
+    return edits
 
 
 def _gpp_member_data_to_model(data: GppGroupMemberData) -> GppGroupMember:
-    member = GppGroupMember(
-        sid=data.sid,
-        name=data.name,
-        action=data.action,
-        id=data.id,
-        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
-    )
-    _validate_gpp_unknown_attrs(
-        member.unknown_attrs, _MEMBER_RESERVED_ATTRS, f"member {member.name!r}"
-    )
-    _refuse_cpassword_attrs(member.unknown_attrs, f"member {member.name!r}")
-    _refuse_namespaced_content(member, f"member {member.name!r}")
-    return member
+    return GppGroupMember(sid=data.sid, name=data.name, action=data.action)
+
+
+def _member_edits(data: list[GppGroupMemberData]) -> list[MemberEdit]:
+    return [MemberEdit(id=m.id, member=_gpp_member_data_to_model(m)) for m in data]
 
 
 def _gpp_group_data_to_model(data: GppGroupData) -> GppGroup:
-    group = GppGroup(
+    """The typed fields of a group add or edit: no members, targeting or
+    retained content, which `gpp_edit` merges."""
+    return GppGroup(
         name=data.name,
         sid=data.sid,
         action=data.action,
-        members=tuple(_gpp_member_data_to_model(m) for m in data.members),
         description=data.description,
         remove_all_users=data.remove_all_users,
         remove_all_groups=data.remove_all_groups,
-        ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
-        id=data.id,
-        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
-        unknown_props_attrs=tuple(
-            (pair[0], pair[1]) for pair in data.unknown_props_attrs
-        ),
-        unknown_props_children=tuple(data.unknown_props_children),
-        unknown_children=tuple(data.unknown_children),
     )
-    _validate_gpp_unknown_attrs(
-        group.unknown_attrs, _GROUP_RESERVED_ATTRS, f"group {group.name!r}"
-    )
-    _validate_gpp_unknown_attrs(
-        group.unknown_props_attrs,
-        _GROUP_PROPS_KNOWN_ATTRS,
-        f"group {group.name!r} properties",
-    )
-    _validate_gpp_unknown_children(
-        group.unknown_children, _GROUP_KNOWN_CHILDREN, f"group {group.name!r}"
-    )
-    _validate_gpp_unknown_children(
-        group.unknown_props_children,
-        _GROUP_PROPS_KNOWN_CHILDREN,
-        f"group {group.name!r} properties",
-    )
-    _refuse_cpassword("groups", group, f"group {group.name!r}")
-    return group
 
 
 def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistryValue:
-    value = GppRegistryValue(
+    return GppRegistryValue(
         name=data.name,
         value=data.value,
         registry_type=data.registry_type,
         action=data.action,
         default=data.default,
-        id=data.id,
-        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
     )
-    _validate_gpp_unknown_attrs(
-        value.unknown_attrs,
-        _REGISTRY_VALUE_RESERVED_ATTRS,
-        f"registry value {value.name!r}",
-    )
-    _refuse_cpassword_attrs(value.unknown_attrs, f"registry value {value.name!r}")
-    _refuse_namespaced_content(value, f"registry value {value.name!r}")
-    return value
 
 
 def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
@@ -2082,37 +1787,12 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
                 path="hive",
             )
         ]) from error
-    reg_ilt = _ilt_filter_data_to_model(data.ilt_filter)
-    value = _gpp_registry_value_data_to_model(data.value)
-    registry = GppRegistry(
+    return GppRegistry(
         key=data.key,
         hive=hive,
         action=data.action,
-        uid=data.uid,
-        value=value,
-        id=data.id,
-        ilt_filter=reg_ilt,
-        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
-        unknown_props_children=tuple(data.unknown_props_children),
-        unknown_children=tuple(data.unknown_children),
+        value=_gpp_registry_value_data_to_model(data.value),
     )
-    _validate_gpp_unknown_attrs(
-        registry.unknown_attrs,
-        _REGISTRY_RESERVED_ATTRS,
-        f"registry {registry.key!r}",
-    )
-    _validate_gpp_unknown_children(
-        registry.unknown_children,
-        _REGISTRY_KNOWN_CHILDREN,
-        f"registry {registry.key!r}",
-    )
-    _validate_gpp_unknown_children(
-        registry.unknown_props_children,
-        _REGISTRY_PROPS_KNOWN_CHILDREN,
-        f"registry {registry.key!r} properties",
-    )
-    _refuse_cpassword("registry", registry, f"registry {registry.key!r}")
-    return registry
 
 
 def _stringify_numeric_settings(settings: list[dict[str, Any]]) -> None:
@@ -2145,7 +1825,31 @@ def _gpo_to_api_dict(gpo: Any) -> dict[str, Any]:
     gpo_dict: dict[str, Any] = gpo.to_dict()
     _stringify_numeric_settings(gpo_dict["settings"])
     _stringify_gpp_numeric_values(gpo_dict["gpp_collections"])
+    _mark_unverified_retained(gpo, gpo_dict["gpp_collections"])
     return gpo_dict
+
+
+def _mark_unverified_retained(gpo: Any, collections: list[dict[str, Any]]) -> None:
+    """Flag each item holding retained content without an import record
+    (final-r13): it is kept and shown, but egress judges it by the closed
+    vocabulary. The records themselves are bookkeeping and are not served."""
+    from . import gpp_provenance
+
+    by_scope = {collection.scope: collection for collection in gpo.gpp_collections}
+    for data in collections:
+        collection = by_scope.get(data.get("scope"))
+        if collection is None:
+            continue
+        held = gpp_provenance.records(collection)
+        for family in gpp_provenance.family_keys():
+            for item, item_dict in zip(
+                getattr(collection, family), data.get(family, []), strict=False
+            ):
+                item_dict["retained_unverified"] = any(
+                    gpp_provenance.digest(key) not in held
+                    for key, _text in gpp_provenance.item_fragments(family, item)
+                    if key[2] != "run_once_id"
+                )
 
 
 def _gpo_list_item(gpo: Any) -> dict[str, Any]:
@@ -2972,12 +2676,23 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
+#: A raw predicate sent where a targeting entry belongs fails as one of these.
+_UNECHOED_INPUT_TYPES = frozenset({"model_type", "model_attributes_type", "dict_type"})
+
+
 def _sanitize_validation_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
     sanitized: list[dict[str, Any]] = []
     for issue in issues:
         if not isinstance(issue, dict):
             sanitized.append({"issue": str(issue)})
             continue
+        if issue.get("type") == "extra_forbidden" or (
+            issue.get("type") in _UNECHOED_INPUT_TYPES and "ilt_filter" in issue.get("loc", ())
+        ):
+            # A field the request may not carry, or a value in a shape it may
+            # not take -- retained content, a raw filter (final-r13) -- is
+            # named, never echoed: it may hold a credential.
+            issue = {key: value for key, value in issue.items() if key != "input"}
         safe = _json_safe(issue)
         sanitized.append(
             cast(dict[str, Any], safe)
@@ -3758,9 +3473,11 @@ def reorder_gpp(
 def add_gpp_group(
     request: Request, guid: str, body: GppGroupMutation
 ) -> dict[str, Any]:
-    group = _gpp_group_data_to_model(body.group)
-    group = replace(group, id="")
-    _refuse_new_raw_content(group, None, "group", members=True)
+    group = replace(
+        _gpp_group_data_to_model(body.group),
+        members=new_members(_member_edits(body.group.members), "group.members"),
+        ilt_filter=new_ilt(_ilt_edits(body.group.ilt_filter), "group.ilt_filter"),
+    )
     gpo = _store(request).put_gpp_group(
         guid,
         body.expected_revision,
@@ -3777,20 +3494,21 @@ def add_gpp_group(
 def edit_gpp_group(
     request: Request, guid: str, group_id: str, body: GppGroupMutation
 ) -> dict[str, Any]:
-    group = _gpp_group_data_to_model(body.group)
-    group = replace(group, id=group_id)
-    stored_group = _stored_gpp_item(request, guid, body.scope, "groups", group_id)
-    group = _drop_retained_of_changed_type(group, stored_group)
-    _refuse_new_raw_content(group, stored_group, "group", members=True)
+    # The edit's typed fields and ids, merged onto the stored group under the
+    # store lock: retained content stays with the ids that own it (final-r13).
+    typed = replace(_gpp_group_data_to_model(body.group), id=group_id)
+    members = _member_edits(body.group.members)
+    ilt = _ilt_edits(body.group.ilt_filter)
     gpo = _store(request).put_gpp_group(
         guid,
         body.expected_revision,
         body.scope,
-        group,
+        typed,
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
         common_edits=_common_edits(body.group.common),
+        merge=lambda stored: merge_group(stored, typed, members, ilt),
     )
     return _gpo_payload(gpo, request)
 
@@ -3818,9 +3536,10 @@ def delete_gpp_group(
 def add_gpp_registry(
     request: Request, guid: str, body: GppRegistryMutation
 ) -> dict[str, Any]:
-    registry = _gpp_registry_data_to_model(body.registry)
-    _refuse_new_raw_content(registry, None, "registry", value=True)
-    registry = replace(registry, id="")
+    registry = replace(
+        _gpp_registry_data_to_model(body.registry),
+        ilt_filter=new_ilt(_ilt_edits(body.registry.ilt_filter), "registry.ilt_filter"),
+    )
     gpo = _store(request).put_gpp_registry(
         guid,
         body.expected_revision,
@@ -3837,20 +3556,18 @@ def add_gpp_registry(
 def edit_gpp_registry(
     request: Request, guid: str, registry_id: str, body: GppRegistryMutation
 ) -> dict[str, Any]:
-    registry = _gpp_registry_data_to_model(body.registry)
-    registry = replace(registry, id=registry_id)
-    stored_registry = _stored_gpp_item(request, guid, body.scope, "registry", registry_id)
-    registry = _drop_retained_of_changed_type(registry, stored_registry)
-    _refuse_new_raw_content(registry, stored_registry, "registry", value=True)
+    typed = replace(_gpp_registry_data_to_model(body.registry), id=registry_id)
+    ilt = _ilt_edits(body.registry.ilt_filter)
     gpo = _store(request).put_gpp_registry(
         guid,
         body.expected_revision,
         body.scope,
-        registry,
+        typed,
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
         common_edits=_common_edits(body.registry.common),
+        merge=lambda stored: merge_registry(stored, typed, ilt),
     )
     return _gpo_payload(gpo, request)
 
@@ -3861,7 +3578,7 @@ def edit_gpp_registry(
     response_model=GpoPayloadResponse,
 )
 def clone_gpp_group(
-    request: Request, guid: str, group_id: str, body: GppCloneMutation
+    request: Request, guid: str, group_id: str, body: GppGroupCloneMutation
 ) -> dict[str, Any]:
     """Copy a stored group, members and retained content included, as a new group.
 
@@ -3887,7 +3604,7 @@ def clone_gpp_group(
     response_model=GpoPayloadResponse,
 )
 def clone_gpp_registry(
-    request: Request, guid: str, registry_id: str, body: GppCloneMutation
+    request: Request, guid: str, registry_id: str, body: GppRegistryCloneMutation
 ) -> dict[str, Any]:
     """Copy a stored GPP registry item, retained content included, as a new item."""
     gpo = _store(request).clone_gpp_item(
@@ -3973,9 +3690,16 @@ def add_gpp_member(
     group_id: str,
     body: GppMemberMutation,
 ) -> dict[str, Any]:
+    if body.member.id is not None:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="unknown_member_id",
+                message="A new member takes no id; the server assigns one.",
+                path="member.id",
+            )
+        ])
     member = _gpp_member_data_to_model(body.member)
-    member = replace(member, id="")
-    _refuse_new_raw_content(member, None, "member")
     gpo = _store(request).put_gpp_member(
         guid,
         body.expected_revision,
@@ -3999,14 +3723,7 @@ def edit_gpp_member(
     member_id: str,
     body: GppMemberMutation,
 ) -> dict[str, Any]:
-    member = _gpp_member_data_to_model(body.member)
-    member = replace(member, id=member_id)
-    stored_group = _stored_gpp_item(request, guid, body.scope, "groups", group_id)
-    _refuse_new_raw_content(
-        member,
-        next((m for m in getattr(stored_group, "members", ()) if m.id == member_id), None),
-        "member",
-    )
+    member = replace(_gpp_member_data_to_model(body.member), id=member_id)
     gpo = _store(request).put_gpp_member(
         guid,
         body.expected_revision,
@@ -4016,6 +3733,7 @@ def edit_gpp_member(
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
+        merge=lambda stored: merge_member(stored, member),
     )
     return _gpo_payload(gpo, request)
 
@@ -4055,8 +3773,6 @@ def add_gpp_registry_value(
     body: GppRegistryValueMutation,
 ) -> dict[str, Any]:
     value = _gpp_registry_value_data_to_model(body.value)
-    value = replace(value, id="")
-    _refuse_new_raw_content(value, None, "value")
     gpo = _store(request).put_gpp_registry_value(
         guid,
         body.expected_revision,
@@ -4080,15 +3796,7 @@ def edit_gpp_registry_value(
     value_id: str,
     body: GppRegistryValueMutation,
 ) -> dict[str, Any]:
-    value = _gpp_registry_value_data_to_model(body.value)
-    value = replace(value, id=value_id)
-    stored_registry = _stored_gpp_item(request, guid, body.scope, "registry", registry_id)
-    stored_value = getattr(stored_registry, "value", None)
-    _refuse_new_raw_content(
-        value,
-        stored_value if getattr(stored_value, "id", None) == value_id else None,
-        "value",
-    )
+    value = replace(_gpp_registry_value_data_to_model(body.value), id=value_id)
     gpo = _store(request).put_gpp_registry_value(
         guid,
         body.expected_revision,
@@ -4098,6 +3806,7 @@ def edit_gpp_registry_value(
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
+        merge=lambda stored: merge_value(stored, value),
     )
     return _gpo_payload(gpo, request)
 
@@ -4349,7 +4058,13 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         if content_root is not None:
             machine_settings = extract_side_settings(content_root, "computer")
             user_settings = extract_side_settings(content_root, "user")
-            gpp_collections = collect_gpp_collections(content_root)
+            # The acquisition boundary (final-r13): every retained fragment of
+            # the backup's preferences is recorded as imported, bound to the ids
+            # `collect_gpp_collections` assigned.
+            gpp_collections = tuple(
+                gpp_provenance.mint(collection)
+                for collection in collect_gpp_collections(content_root)
+            )
         else:
             machine_settings = []
             user_settings = []

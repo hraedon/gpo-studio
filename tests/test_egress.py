@@ -977,7 +977,8 @@ def test_the_api_refuses_a_retained_attribute_overriding_a_typed_one(client: Tes
         },
     )
     assert response.status_code == 422, response.text
-    assert response.json()["error"]["issues"][0]["code"] == "raw_content_not_accepted"
+    # No request carries retained content (final-r13): the field is refused.
+    assert {issue["type"] for issue in response.json()["error"]["issues"]} >= {"extra_forbidden"}
 
 
 def test_a_stored_override_is_refused_by_the_writer_and_at_egress() -> None:

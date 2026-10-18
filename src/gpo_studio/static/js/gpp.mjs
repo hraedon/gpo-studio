@@ -39,6 +39,48 @@ export function gppRestoreRequest(guid,scope,kind,id,revision){
   return {path:`/api/gpos/${guid}/preferences/${segment}/${id}/restore`,body:{scope,revision}};
 }
 
+// The edit protocol (final-r13): retained (imported) content never round-trips
+// through the browser. An edit sends typed fields and the ids of what it keeps;
+// the server merges it onto the stored item. A targeting row the editor cannot
+// edit -- raw, a type it does not author, or joined with OR -- is sent as its id
+// alone: kept as stored, in the row's place. Removing a row deletes that
+// predicate and only its own retained content.
+export function iltRows(filter){
+  const items=filter?.items||[];
+  const ids=filter?.ids||[];
+  return items.map((item,index)=>{
+    const raw=typeof item!=="object";
+    const editable=!raw&&ILT_TYPES.includes(item.type)&&item.bool_op!=="OR";
+    return {id:ids[index]||"",item,raw,editable};
+  });
+}
+
+export function predicateEntry(row){
+  if(row.readonly)return {id:row.id};
+  const entry={type:row.type,negate:row.negate,value:row.value,bool_op:"AND"};
+  if(row.id)entry.id=row.id;
+  return entry;
+}
+
+export function memberEntry(member){
+  const entry={sid:member.sid,name:member.name,action:member.action};
+  if(member.id)entry.id=member.id;
+  return entry;
+}
+
+// What an item carries that Studio does not edit, for the read-only note.
+export function retainedSummary(item){
+  if(!item)return "";
+  const attrs=(item.unknown_attrs||[]).length+(item.unknown_props_attrs||[]).length+(item.members||[]).reduce((n,m)=>n+(m.unknown_attrs||[]).length,0)+(item.value?.unknown_attrs||[]).length;
+  const elements=(item.unknown_children||[]).length+(item.unknown_props_children||[]).length;
+  const parts=[];
+  if(attrs)parts.push(`${attrs} attribute${attrs===1?"":"s"}`);
+  if(elements)parts.push(`${elements} element${elements===1?"":"s"}`);
+  if(!parts.length)return "";
+  const verified=item.retained_unverified?" It has no import record: exports judge it by Studio's vocabulary — re-import from the source backup, or delete the item, if an export refuses it.":"";
+  return `Imported content Studio does not edit is kept as imported: ${parts.join(", ")}.${verified}`;
+}
+
 export function findRevisionGppItem(snapshot,scope,kind,id){
   const collection=(snapshot.gpp_collections||[]).find(item=>item.scope===scope);
   const items=collection?.[kind]||[];
@@ -65,7 +107,7 @@ export function iltOperatorWarning(predicate){
 function iltSummary(filter){
   const items=filter?.items||[];
   if(!items.length)return "—";
-  const hasReadonly=items.some(item=>typeof item!=="object"||item.bool_op==="OR"||!ILT_TYPES.includes(item.type));
+  const hasReadonly=iltRows(filter).some(row=>!row.editable);
   const operatorWarning=items.map(iltOperatorWarning).find(Boolean);
   return `ILT: ${items.length} predicate${items.length===1?'':'s'}${hasReadonly?' · preserved read-only parts':''}${operatorWarning?` · ${operatorWarning}`:''}`;
 }
@@ -79,7 +121,7 @@ export function renderGpp(){
   $("#gpp-groups-table").innerHTML=groups.map((grp,index)=>{
     const memberNames=grp.members.map(m=>escapeHtml(m.name||m.sid)).join(", ")||"—";
     const label=escapeHtml(grp.name);
-    return `<tr><td class="mono">${escapeHtml(grp.action)}</td><td>${label}</td><td class="mono">${escapeHtml(grp.sid)||"—"}</td><td><div class="truncate" title="${memberNames}">${memberNames}</div></td><td>${escapeHtml(iltSummary(grp.ilt_filter))}</td><td><div class="row-actions"><button data-move-gpp-group="${escapeHtml(grp.id)}" data-offset="-1" aria-label="Move group ${label} earlier" title="Move earlier" ${index===0?'disabled':''}>↑</button><button data-move-gpp-group="${escapeHtml(grp.id)}" data-offset="1" aria-label="Move group ${label} later" title="Move later" ${index===groups.length-1?'disabled':''}>↓</button><button data-edit-gpp-group="${escapeHtml(grp.id)}" aria-label="Edit group ${label}">Edit</button><button data-clone-gpp-group="${escapeHtml(grp.id)}" aria-label="Clone group ${label}">Clone</button><button data-restore-gpp-group="${escapeHtml(grp.id)}" aria-label="Restore group ${label} from a revision">Restore</button><button data-delete-gpp-group="${escapeHtml(grp.id)}" aria-label="Delete group ${label}">×</button></div></td></tr>`;
+    return `<tr><td class="mono">${escapeHtml(grp.action)}</td><td>${label}</td><td class="mono">${escapeHtml(grp.sid)||"—"}</td><td><div class="truncate" title="${memberNames}">${memberNames}</div></td><td>${escapeHtml(iltSummary(grp.ilt_filter))}${grp.retained_unverified?' <span class="gpp-readonly-warn" title="Retained content without an import record">· unverified import content</span>':''}</td><td><div class="row-actions"><button data-move-gpp-group="${escapeHtml(grp.id)}" data-offset="-1" aria-label="Move group ${label} earlier" title="Move earlier" ${index===0?'disabled':''}>↑</button><button data-move-gpp-group="${escapeHtml(grp.id)}" data-offset="1" aria-label="Move group ${label} later" title="Move later" ${index===groups.length-1?'disabled':''}>↓</button><button data-edit-gpp-group="${escapeHtml(grp.id)}" aria-label="Edit group ${label}">Edit</button><button data-clone-gpp-group="${escapeHtml(grp.id)}" aria-label="Clone group ${label}">Clone</button><button data-restore-gpp-group="${escapeHtml(grp.id)}" aria-label="Restore group ${label} from a revision">Restore</button><button data-delete-gpp-group="${escapeHtml(grp.id)}" aria-label="Delete group ${label}">×</button></div></td></tr>`;
   }).join("");
   $("#gpp-groups-empty").hidden=groups.length>0;
   $$("[data-edit-gpp-group]").forEach(el=>el.onclick=()=>{const grp=groups.find(g=>g.id===el.dataset.editGppGroup);openGppGroup(scope,grp)});
@@ -91,7 +133,7 @@ export function renderGpp(){
     const v=reg.value;
     const values=v?`${escapeHtml(v.name)}=${escapeHtml(formatRegValue(v))}`:"—";
     const label=escapeHtml(reg.key);
-    return `<tr><td class="mono">${escapeHtml(reg.action)}</td><td><div class="mono truncate" title="${label}">${label}</div></td><td><div class="truncate" title="${escapeHtml(values)}">${escapeHtml(values)}</div></td><td>${escapeHtml(iltSummary(reg.ilt_filter))}</td><td><div class="row-actions"><button data-move-gpp-registry="${escapeHtml(reg.id)}" data-offset="-1" aria-label="Move registry item ${label} earlier" title="Move earlier" ${index===0?'disabled':''}>↑</button><button data-move-gpp-registry="${escapeHtml(reg.id)}" data-offset="1" aria-label="Move registry item ${label} later" title="Move later" ${index===registry.length-1?'disabled':''}>↓</button><button data-edit-gpp-registry="${escapeHtml(reg.id)}" aria-label="Edit registry item ${label}">Edit</button><button data-clone-gpp-registry="${escapeHtml(reg.id)}" aria-label="Clone registry item ${label}">Clone</button><button data-restore-gpp-registry="${escapeHtml(reg.id)}" aria-label="Restore registry item ${label} from a revision">Restore</button><button data-delete-gpp-registry="${escapeHtml(reg.id)}" aria-label="Delete registry item ${label}">×</button></div></td></tr>`;
+    return `<tr><td class="mono">${escapeHtml(reg.action)}</td><td><div class="mono truncate" title="${label}">${label}</div></td><td><div class="truncate" title="${escapeHtml(values)}">${escapeHtml(values)}</div></td><td>${escapeHtml(iltSummary(reg.ilt_filter))}${reg.retained_unverified?' <span class="gpp-readonly-warn" title="Retained content without an import record">· unverified import content</span>':''}</td><td><div class="row-actions"><button data-move-gpp-registry="${escapeHtml(reg.id)}" data-offset="-1" aria-label="Move registry item ${label} earlier" title="Move earlier" ${index===0?'disabled':''}>↑</button><button data-move-gpp-registry="${escapeHtml(reg.id)}" data-offset="1" aria-label="Move registry item ${label} later" title="Move later" ${index===registry.length-1?'disabled':''}>↓</button><button data-edit-gpp-registry="${escapeHtml(reg.id)}" aria-label="Edit registry item ${label}">Edit</button><button data-clone-gpp-registry="${escapeHtml(reg.id)}" aria-label="Clone registry item ${label}">Clone</button><button data-restore-gpp-registry="${escapeHtml(reg.id)}" aria-label="Restore registry item ${label} from a revision">Restore</button><button data-delete-gpp-registry="${escapeHtml(reg.id)}" aria-label="Delete registry item ${label}">×</button></div></td></tr>`;
   }).join("");
   $("#gpp-registry-empty").hidden=registry.length>0;
   $$("[data-edit-gpp-registry]").forEach(el=>el.onclick=()=>{const reg=registry.find(r=>r.id===el.dataset.editGppRegistry);openGppRegistry(scope,reg)});
@@ -114,7 +156,7 @@ export function initGpp(){
     notice.id="gpp-ilt-limitation";
     notice.className="issue-banner";
     notice.setAttribute("role","note");
-    notice.textContent="Targeting predicates you add here are combined with AND. Imported OR, grouped or unsupported expressions are kept as they are and can't be edited here.";
+    notice.textContent="Targeting predicates you add here are combined with AND. Imported OR, grouped or unsupported expressions are kept as they are: you can move or remove them, but not edit them here.";
     scopeRow.insertAdjacentElement("afterend",notice);
   }
   $$(".gpp-scope-row .chip").forEach(chip=>chip.onclick=()=>{$$(".gpp-scope-row .chip").forEach(x=>{x.classList.toggle("active",x===chip);x.setAttribute("aria-pressed",String(x===chip))});state.gppScope=chip.dataset.gppScope;renderGpp()});
@@ -125,16 +167,21 @@ export function initGpp(){
   $("#gpp-add-ilt-registry").onclick=()=>addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview");
   $("#gpp-group-form").onsubmit=submitGppGroup;
   $("#gpp-registry-form").onsubmit=submitGppRegistry;
-  $("#gpp-group-dialog").addEventListener("close",()=>{state.gppGroupSource=null});
-  $("#gpp-registry-dialog").addEventListener("close",()=>{state.gppRegistrySource=null});
 }
 
-export function openGppGroup(scope,group=null,cloning=false){
+function showRetained(formId,item){
+  const form=$("#"+formId);
+  let note=form.querySelector(".gpp-retained-note");
+  if(!note){note=document.createElement("p");note.className="gpp-note gpp-retained-note";note.setAttribute("role","note");form.querySelector(".dialog-actions")?.insertAdjacentElement("beforebegin",note)||form.appendChild(note)}
+  const text=retainedSummary(item);
+  note.textContent=text;note.hidden=!text;
+}
+
+export function openGppGroup(scope,group=null){
   const f=$("#gpp-group-form");f.reset();clearFormErrors(f);
-  state.editingGppGroup=group&&!cloning?group:null;
-  state.gppGroupSource=group;
+  state.editingGppGroup=group;
   f.scope.value=scope;
-  $("#gpp-group-dialog-title").textContent=cloning?"Clone group":group?"Edit group":"Add group";
+  $("#gpp-group-dialog-title").textContent=group?"Edit group":"Add group";
   $("#gpp-members-list").innerHTML="";
   $("#gpp-ilt-list").innerHTML="";
   $("#gpp-ilt-preview").textContent="";
@@ -146,14 +193,12 @@ export function openGppGroup(scope,group=null,cloning=false){
     f.remove_all_users.checked=group.remove_all_users;
     f.remove_all_groups.checked=group.remove_all_groups;
     (group.members||[]).forEach(m=>addMemberRow(m));
-    if(group.ilt_filter&&group.ilt_filter.items)group.ilt_filter.items.forEach(item=>{
-      if(typeof item==="string")addPredicateRow("gpp-ilt-list","gpp-ilt-preview",{unknown:true,raw:item});
-      else addPredicateRow("gpp-ilt-list","gpp-ilt-preview",item);
-    });
-    f.reason.value=cloning?"Clone GPP group":"Update GPP group";
+    iltRows(group.ilt_filter).forEach(row=>addPredicateRow("gpp-ilt-list","gpp-ilt-preview",row));
+    f.reason.value="Update GPP group";
   }else{
     f.reason.value="Add GPP group";
   }
+  showRetained("gpp-group-form",group);
   updateIltPreview("gpp-ilt-list","gpp-ilt-preview");
   $("#gpp-group-dialog").showModal();
 }
@@ -163,27 +208,22 @@ function addMemberRow(member=null){
   const row=document.createElement("div");
   row.className="gpp-row";
   row.innerHTML=`<input data-field="sid" placeholder="SID (required)" maxlength="255" required><input data-field="name" placeholder="Name" maxlength="255"><select data-field="action">${GROUP_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><button type="button" class="quiet">×</button>`;
-  row.dataset.unknownAttrs="[]";
-  if(member){row.querySelector('[data-field=sid]').value=member.sid;row.querySelector('[data-field=name]').value=member.name||"";row.querySelector('[data-field=action]').value=member.action;row.dataset.id=member.id||"";row.dataset.unknownAttrs=JSON.stringify(member.unknown_attrs||[])}
+  if(member){row.querySelector('[data-field=sid]').value=member.sid;row.querySelector('[data-field=name]').value=member.name||"";row.querySelector('[data-field=action]').value=member.action;row.dataset.id=member.id||""}
   const removeButton=row.querySelector("button");removeButton.setAttribute("aria-label","Remove member row");removeButton.onclick=()=>row.remove();
   list.appendChild(row);
 }
 
 function collectMembers(){
-  return [...$("#gpp-members-list").querySelectorAll(".gpp-row")].map(row=>({sid:row.querySelector('[data-field=sid]').value.trim(),name:row.querySelector('[data-field=name]').value.trim(),action:row.querySelector('[data-field=action]').value,id:row.dataset.id||"",unknown_attrs:JSON.parse(row.dataset.unknownAttrs||"[]")})).filter(m=>m.sid);
+  return [...$("#gpp-members-list").querySelectorAll(".gpp-row")].map(row=>memberEntry({sid:row.querySelector('[data-field=sid]').value.trim(),name:row.querySelector('[data-field=name]').value.trim(),action:row.querySelector('[data-field=action]').value,id:row.dataset.id||""})).filter(m=>m.sid);
 }
 
 async function submitGppGroup(event){
   event.preventDefault();
   if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
   const f=event.currentTarget,scope=f.scope.value;
-  if($("#gpp-ilt-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item has targeting predicates that can't be edited here. Saving keeps them unchanged. Continue?"))return;
   const partialMember=[...$("#gpp-members-list").querySelectorAll(".gpp-row")].find(row=>row.querySelector('[data-field=name]').value.trim()&&!row.querySelector('[data-field=sid]').value.trim());
   if(partialMember){showFormErrors(f,{issues:[{message:"Each member with a name must also have a SID."}]});return}
   const group={name:f.name.value.trim(),sid:f.sid.value.trim(),action:f.action.value,description:f.description.value.trim(),remove_all_users:f.remove_all_users.checked,remove_all_groups:f.remove_all_groups.checked,members:collectMembers(),ilt_filter:collectIlt("gpp-ilt-list")};
-  const source=state.gppGroupSource;
-  if(source){group.unknown_attrs=source.unknown_attrs||[];group.unknown_props_attrs=source.unknown_props_attrs||[];group.unknown_props_children=source.unknown_props_children||[];group.unknown_children=source.unknown_children||[]}
-  if(state.editingGppGroup)group.id=state.editingGppGroup.id;
   const broadMembershipChange=group.action==="replace"||group.action==="remove"||group.remove_all_users||group.remove_all_groups||group.members.some(member=>member.action==="replace"||member.action==="remove");
   if(broadMembershipChange&&!confirm(`Save broad membership change for group "${group.name}"?\n\nAction: ${group.action}. Remove all users: ${group.remove_all_users?'yes':'no'}. Remove all groups: ${group.remove_all_groups?'yes':'no'}. Review the required change reason before continuing.`))return;
   const path=state.editingGppGroup?`/api/gpos/${state.current.guid}/preferences/groups/${state.editingGppGroup.id}`:`/api/gpos/${state.current.guid}/preferences/groups`;
@@ -215,7 +255,7 @@ export async function cloneGppItem(scope,kind,item,existingNames=[]){
     const request=gppCloneRequest(state.current.guid,scope,kind,item,existingNames);
     const data=await api(request.path,{method:"POST",body:JSON.stringify({...request.body,...audit(`Clone GPP ${label}`)})});
     applyCurrent(data);toast(`GPP ${label} cloned`);
-    // Open the copy (the last item) for editing, as Clone did before.
+    // Open the copy (the last item) for editing.
     const collection=(state.current.gpp_collections||[]).find(entry=>entry.scope===scope);
     const items=collection?.[kind]||[];
     const copied=items[items.length-1];
@@ -243,12 +283,11 @@ export async function restoreGppItem(scope,kind,id){
   }catch(error){showPersistentError(error.message)}
 }
 
-export function openGppRegistry(scope,registry=null,cloning=false){
+export function openGppRegistry(scope,registry=null){
   const f=$("#gpp-registry-form");f.reset();clearFormErrors(f);
-  state.editingGppRegistry=registry&&!cloning?registry:null;
-  state.gppRegistrySource=registry;
+  state.editingGppRegistry=registry;
   f.scope.value=scope;
-  $("#gpp-registry-dialog-title").textContent=cloning?"Clone registry":registry?"Edit registry":"Add registry";
+  $("#gpp-registry-dialog-title").textContent=registry?"Edit registry":"Add registry";
   $("#gpp-values-list").innerHTML="";
   $("#gpp-ilt-registry-list").innerHTML="";
   $("#gpp-ilt-registry-preview").textContent="";
@@ -257,15 +296,13 @@ export function openGppRegistry(scope,registry=null,cloning=false){
       f.hive.value=registry.hive||"HKEY_LOCAL_MACHINE";
       f.action.value=registry.action;
       addValueRow(registry.value||{name:"",value:"",registry_type:"",action:"create"});
-      if(registry.ilt_filter&&registry.ilt_filter.items)registry.ilt_filter.items.forEach(item=>{
-        if(typeof item==="string")addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",{unknown:true,raw:item});
-        else addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",item);
-      });
-      f.reason.value=cloning?"Clone GPP registry":"Update GPP registry";
+      iltRows(registry.ilt_filter).forEach(row=>addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",row));
+      f.reason.value="Update GPP registry";
   }else{
       f.reason.value="Add GPP registry";
       addValueRow();
   }
+  showRetained("gpp-registry-form",registry);
   updateIltPreview("gpp-ilt-registry-list","gpp-ilt-registry-preview");
   $("#gpp-registry-dialog").showModal();
 }
@@ -285,8 +322,7 @@ function addValueRow(value=null){
   };
   typeSel.onchange=()=>{if(!typeSel.value&&!defaultBox.checked)valueInput.value="";valueInput.placeholder=typeSel.value?REG_VALUE_HINTS[typeSel.value]||"Value":defaultBox.checked?"Default value":"Key-only entry";valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked)};
   actionSel.onchange=()=>{valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked)};
-  row.dataset.unknownAttrs="[]";
-  if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type||"";valueInput.value=Array.isArray(value.value)?value.value.join(";"):String(value.value);actionSel.value=value.action;defaultBox.checked=!!value.default;if(defaultBox.checked)row.querySelector('[data-field=name]').disabled=true;row.dataset.id=value.id||"";row.dataset.unknownAttrs=JSON.stringify(value.unknown_attrs||[])}
+  if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type||"";valueInput.value=Array.isArray(value.value)?value.value.join(";"):String(value.value);actionSel.value=value.action;defaultBox.checked=!!value.default;if(defaultBox.checked)row.querySelector('[data-field=name]').disabled=true}
   valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked);
   typeSel.onchange();
   const removeButton=row.querySelector("button");removeButton.setAttribute("aria-label","Remove registry value row");removeButton.onclick=()=>row.remove();
@@ -307,15 +343,13 @@ function collectValue(){
     else if(type==="REG_MULTI_SZ")value=raw.split(/[\r\n;]+/).map(s=>s.trim()).filter(s=>s.length>0);
     else if(type==="REG_DWORD"||type==="REG_QWORD")value=raw.trim();
     else value=raw;
-    const result={name,value,registry_type:type,action,default:isDefault,id:row.dataset.id||"",unknown_attrs:JSON.parse(row.dataset.unknownAttrs||"[]")};
-    return result;
+    return {name,value,registry_type:type,action,default:isDefault};
 }
 
 async function submitGppRegistry(event){
   event.preventDefault();
   if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
   const f=event.currentTarget,scope=f.scope.value;
-  if($("#gpp-ilt-registry-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item has targeting predicates that can't be edited here. Saving keeps them unchanged. Continue?"))return;
   const value=collectValue();
   if(!value){showFormErrors(f,{issues:[{message:"A registry value is required."}]});return}
   if(!value.default&&String(value.value).trim()&&!value.name.trim()&&value.registry_type){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
@@ -323,9 +357,6 @@ async function submitGppRegistry(event){
   const badDword=(value.action!=="delete"&&(value.registry_type==="REG_DWORD"||value.registry_type==="REG_QWORD")&&!/^(?:0|[1-9][0-9]*)$/.test(value.value));
   if(badDword){showFormErrors(f,{issues:[{message:`${value.registry_type} value for "${value.name||"(default)"}" must be a non-negative decimal integer.`}]});return}
   const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,value,ilt_filter:commonIlt};
-  const source=state.gppRegistrySource;
-  if(source){if(source.uid)registry.uid=source.uid;if(source.unknown_attrs)registry.unknown_attrs=source.unknown_attrs;if(source.unknown_props_children)registry.unknown_props_children=source.unknown_props_children;if(source.unknown_children)registry.unknown_children=source.unknown_children}
-  if(state.editingGppRegistry)registry.id=state.editingGppRegistry.id;
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
   try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),registry})});$("#gpp-registry-dialog").close();applyCurrent(data);toast("GPP registry saved")}catch(error){await handleFormFailure(f,error,{onCurrent:applyCurrent})}
 }
@@ -337,49 +368,44 @@ export async function deleteGppRegistry(scope,id){
   try{const data=await api(`/api/gpos/${state.current.guid}/preferences/registry/${id}`,{method:"DELETE",body:JSON.stringify({scope,...audit("Remove GPP registry")})});applyCurrent(data);toast("GPP registry removed")}catch(error){showPersistentError(error.message)}
 }
 
-function addPredicateRow(listId,previewId,predicate=null){
+function addPredicateRow(listId,previewId,row=null){
   const list=$("#"+listId);
-  const row=document.createElement("div");
-  row.className="gpp-row";
-  row.innerHTML=`<select data-field="type">${ILT_TYPES.map(t=>`<option value="${t}">${ILT_LABELS[t]}</option>`).join("")}</select><label><input type="checkbox" data-field="negate"> NOT</label><input data-field="value" placeholder="${ILT_HINTS.ou}"><button type="button" class="quiet">×</button>`;
-  const typeSel=row.querySelector('[data-field=type]');
-  const valueInput=row.querySelector('[data-field=value]');
-  const negateBox=row.querySelector('[data-field=negate]');
+  const el=document.createElement("div");
+  el.className="gpp-row";
+  el.innerHTML=`<select data-field="type">${ILT_TYPES.map(t=>`<option value="${t}">${ILT_LABELS[t]}</option>`).join("")}</select><label><input type="checkbox" data-field="negate"> NOT</label><input data-field="value" placeholder="${ILT_HINTS.ou}"><button type="button" class="quiet" data-move="-1">↑</button><button type="button" class="quiet" data-move="1">↓</button><button type="button" class="quiet" data-remove>×</button>`;
+  const typeSel=el.querySelector('[data-field=type]');
+  const valueInput=el.querySelector('[data-field=value]');
+  const negateBox=el.querySelector('[data-field=negate]');
   const update=()=>{valueInput.placeholder=ILT_HINTS[typeSel.value]||"";updateIltPreview(listId,previewId)};
   typeSel.onchange=update;
   valueInput.oninput=()=>updateIltPreview(listId,previewId);
   negateBox.onchange=()=>updateIltPreview(listId,previewId);
-  if(predicate&&predicate.unknown){row.dataset.readonly="true";row.dataset.unknownPredicate=predicate.raw;typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value="[unsupported predicate]";row.title="Unknown predicate: kept on save, can't be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ Unknown — preserved on save";row.appendChild(warn)}
-  else if(predicate&&ILT_TYPES.includes(predicate.type)&&predicate.bool_op==="OR"){row.dataset.readonly="true";row.dataset.preservedPredicate=JSON.stringify(predicate);typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.title="Predicate joined with OR: kept on save, can't be edited here";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ OR — preserved on save";row.appendChild(warn)}
-  else if(predicate&&ILT_TYPES.includes(predicate.type)){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.dataset.unknownAttrs=predicate.unknown_attrs?JSON.stringify(predicate.unknown_attrs):""}
-  else if(predicate){row.dataset.readonly="true";row.dataset.preservedPredicate=JSON.stringify(predicate);const unsupportedOption=document.createElement("option");unsupportedOption.value=predicate.type;unsupportedOption.textContent=predicate.type==="os"?"Operating system":predicate.type;typeSel.appendChild(unsupportedOption);typeSel.value=predicate.type;typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;const criteria=predicate.os_criteria;valueInput.value=criteria?`${criteria.os_class}/${criteria.version}/${criteria.product_type}/${criteria.edition}/${criteria.service_pack}`:predicate.value;negateBox.checked=predicate.negate;const operatorWarning=iltOperatorWarning(predicate);row.title=operatorWarning||"Unsupported predicate type: kept on save, can't be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent=operatorWarning||"Unsupported — preserved on save";row.appendChild(warn)}
+  if(row)el.dataset.id=row.id||"";
+  const predicate=row?.item;
+  const readonly=(text,title)=>{el.dataset.readonly="true";typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;el.title=title;const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent=text;el.insertBefore(warn,el.querySelector("[data-move]"))};
+  if(row&&row.raw){valueInput.value="[unsupported predicate]";readonly("⚠ Unknown — kept on save","Unknown predicate: kept as imported; it can be moved or removed, not edited")}
+  else if(row&&!row.editable&&ILT_TYPES.includes(predicate.type)){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate;readonly("⚠ OR — kept on save","Predicate joined with OR: kept as imported; it can be moved or removed, not edited here")}
+  else if(row&&!row.editable){const unsupportedOption=document.createElement("option");unsupportedOption.value=predicate.type;unsupportedOption.textContent=predicate.type==="os"?"Operating system":predicate.type;typeSel.appendChild(unsupportedOption);typeSel.value=predicate.type;const criteria=predicate.os_criteria;valueInput.value=criteria?`${criteria.os_class}/${criteria.version}/${criteria.product_type}/${criteria.edition}/${criteria.service_pack}`:predicate.value;negateBox.checked=predicate.negate;const operatorWarning=iltOperatorWarning(predicate);readonly(operatorWarning||"Unsupported — kept on save",operatorWarning||"Unsupported predicate type: kept as imported; it can be moved or removed, not edited")}
+  else if(row){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate}
   update();
-  const removeButton=row.querySelector("button");
-  if(row.dataset.readonly==="true"){
-    removeButton.disabled=true;
-    removeButton.setAttribute("aria-label","This imported predicate is kept and can't be removed here");
-    removeButton.title="Imported read-only predicates are kept and can't be removed here";
-  }else{
-    removeButton.setAttribute("aria-label","Remove ILT predicate");
-    removeButton.onclick=()=>{row.remove();updateIltPreview(listId,previewId)};
-  }
-  list.appendChild(row);
+  const removeButton=el.querySelector("[data-remove]");
+  removeButton.setAttribute("aria-label",el.dataset.readonly==="true"?"Remove imported ILT predicate":"Remove ILT predicate");
+  removeButton.onclick=()=>{el.remove();updateIltPreview(listId,previewId)};
+  el.querySelectorAll("[data-move]").forEach(button=>{
+    const offset=Number(button.dataset.move);
+    button.setAttribute("aria-label",offset<0?"Move ILT predicate earlier":"Move ILT predicate later");
+    button.onclick=()=>{const sibling=offset<0?el.previousElementSibling:el.nextElementSibling;if(!sibling)return;if(offset<0)sibling.before(el);else sibling.after(el);updateIltPreview(listId,previewId)};
+  });
+  list.appendChild(el);
 }
 
 function collectIlt(listId){
-  const list=$("#"+listId);
-  const rows=list.querySelectorAll(".gpp-row");
-  const items=[...rows].map(row=>{
-    if(row.dataset.readonly==="true"&&row.dataset.unknownPredicate)return row.dataset.unknownPredicate;
-    if(row.dataset.readonly==="true"&&row.dataset.preservedPredicate){try{return JSON.parse(row.dataset.preservedPredicate)}catch{return null}}
-    const type=row.querySelector('[data-field=type]').value;
-    const negate=row.querySelector('[data-field=negate]').checked;
-    const value=row.querySelector('[data-field=value]').value.trim();
+  const rows=$("#"+listId).querySelectorAll(".gpp-row");
+  const items=[...rows].map(el=>{
+    if(el.dataset.readonly==="true")return predicateEntry({readonly:true,id:el.dataset.id});
+    const value=el.querySelector('[data-field=value]').value.trim();
     if(!value)return null;
-    const result={type,negate,value,bool_op:"AND"};
-    const ua=row.dataset.unknownAttrs;
-    if(ua)try{result.unknown_attrs=JSON.parse(ua)}catch(error){void error}
-    return result;
+    return predicateEntry({id:el.dataset.id||"",type:el.querySelector('[data-field=type]').value,negate:el.querySelector('[data-field=negate]').checked,value});
   }).filter(item=>item!==null);
   if(!items.length)return null;
   return {items};

@@ -10,11 +10,12 @@ import threading
 import uuid
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, NoReturn, cast
 
+from . import gpp_provenance as provenance
 from .fdeploy import FdeployDocument, fdeploy_from_dict
 from .gpp import (
     GppCollection,
@@ -193,63 +194,86 @@ def _gpp_collection(data: dict[str, Any]) -> GppCollection:
     return gpp_collection_from_dict(data)
 
 
-_RETAINED_ITEM_FIELDS = (
-    "unknown_attrs",
-    "unknown_props_attrs",
-    "unknown_children",
-    "unknown_props_children",
-)
+@dataclass
+class _Grants:
+    """What one mutation may add beyond what the GPO held (final-r13).
 
-
-def _retained_fragments(collection: GppCollection | None) -> set[tuple[Any, ...]]:
-    """Every retained piece a collection holds: each retained attribute pair,
-    child, raw targeting predicate, typed predicate's retained attribute, and
-    imported element record, on every item and the file roots.
-
-    The provenance invariant (Sol final-r12 B1): a preference mutation may
-    keep or drop these, never add one. Only an import creates retained
-    content; a fork, a server-side clone or an item restore copies it from
-    the stored GPO or a named revision. So retained structure in an export
-    can be judged by where it came from rather than by a vocabulary.
+    ``fragments``: retained fragments (digests, `gpp_provenance`) the mutation
+    may introduce -- a clone's copy, a restored item or revision. ``records``:
+    the provenance records it may carry with them. Every other mutation adds
+    neither: it can only keep or drop what is stored.
     """
-    import dataclasses
 
-    from .ilt import IltPredicate
+    fragments: set[str] = field(default_factory=set)
+    records: set[str] = field(default_factory=set)
 
-    found: set[tuple[Any, ...]] = set()
-    if collection is None:
-        return found
 
-    def add_item(family: str, item: Any) -> None:
-        for name in _RETAINED_ITEM_FIELDS:
-            for piece in getattr(item, name, ()) or ():
-                found.add((family, name, piece))
-        native = getattr(item, "native_xml", "")
-        if native:
-            found.add((family, "native_xml", native))
-        ilt = getattr(item, "ilt_filter", None)
-        for predicate in ilt.items if ilt is not None else ():
-            if isinstance(predicate, IltPredicate):
-                for pair in predicate.unknown_attrs:
-                    found.add((family, "ilt_attr", predicate.type, pair))
-            else:
-                found.add((family, "ilt_raw", predicate))
-        for member in getattr(item, "members", ()) or ():
-            for pair in member.unknown_attrs:
-                found.add((family, "member_attr", pair))
-        value = getattr(item, "value", None)
-        for pair in getattr(value, "unknown_attrs", ()) or ():
-            found.add((family, "value_attr", pair))
+def _provenance_refusal(added: list[provenance.Fragment]) -> ValidationError:
+    places = sorted({"/".join(key[:3]) for key, _text in added})
+    return ValidationError([
+        ValidationIssue(
+            severity="error",
+            code="raw_content_not_accepted",
+            message=(
+                "Retained content (attributes, children, raw targeting, imported "
+                "elements, run-once ids) comes only from an import, a fork, a clone "
+                "or a restore; a mutation may keep or drop it, never add or change it: "
+                + ", ".join(places[:5])
+            ),
+            path="gpp_collections",
+        )
+    ])
 
-    for field in dataclasses.fields(collection):
-        content = getattr(collection, field.name)
-        if field.name.endswith(("_unknown_attrs", "_unknown_children")):
-            for piece in content or ():
-                found.add(("root", field.name, piece))
-        elif isinstance(content, tuple) and content and dataclasses.is_dataclass(content[0]):
-            for item in content:
-                add_item(field.name, item)
-    return found
+
+def _keep_provenance(before: GPO, after: GPO, grants: _Grants | None) -> GPO:
+    """*after* with each collection's retained fragments checked and its
+    provenance records kept, against *before* (the GPO the mutation started
+    from). Refuses a fragment the mutation added without a grant; keeps only
+    the records *before* held (and the grant's) of the fragments still there."""
+    grants = grants or _Grants()
+    old = {collection.scope: collection for collection in before.gpp_collections}
+    collections: list[GppCollection] = []
+    changed = False
+    for collection in after.gpp_collections:
+        previous = old.get(collection.scope)
+        if collection is previous:
+            collections.append(collection)
+            continue
+        added = provenance.new_fragments(collection, previous, grants.fragments)
+        if added:
+            raise _provenance_refusal(added)
+        kept = provenance.keep_records(collection, previous, grants.records)
+        changed = changed or kept is not collection
+        collections.append(kept)
+    if not changed:
+        return after
+    return replace(after, gpp_collections=tuple(collections))
+
+
+def _loaded_gpp(gpo: GPO) -> GPO:
+    """Every loaded item with stable targeting-predicate ids and the legacy raw
+    ``FilterRunOnce`` shape normalised (final-r13). A snapshot written before
+    predicate ids existed gets ids derived from its item, so every load of it
+    agrees until the schema migration writes them."""
+    if not gpo.gpp_collections:
+        return gpo
+
+    def loader(scope: str) -> Callable[[str, Any], Any]:
+        def load(family: str, item: Any) -> Any:
+            item = provenance.normalize_run_once(item)
+            return provenance.with_predicate_ids(
+                item, seed=f"{gpo.guid}/{scope}/{family}/{getattr(item, 'id', '')}"
+            )
+
+        return load
+
+    return replace(
+        gpo,
+        gpp_collections=tuple(
+            provenance.map_items(collection, loader(collection.scope))
+            for collection in gpo.gpp_collections
+        ),
+    )
 
 
 def _keep_document_position[T: (GppGroup, GppRegistry)](edited: T, existing: T) -> T:
@@ -430,7 +454,7 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         created_at=str(data.get("created_at", "")),
         updated_at=str(data.get("updated_at", "")),
     )
-    return _assign_legacy_gpp_ids(gpo)
+    return _loaded_gpp(_assign_legacy_gpp_ids(gpo))
 
 
 def lf_line_breaks(text: Any) -> Any:
@@ -829,6 +853,13 @@ class WorkspaceStore:
     ) -> GPO:
         actor = _resolve_actor(identity)
         timestamp = _now()
+        # A creation keeps the provenance records its collections carry -- an
+        # import's minted ones, a fork's carried ones -- for the fragments they
+        # still hold; it mints none itself (final-r13).
+        gpp_collections = tuple(
+            provenance.with_records(collection, provenance.records(collection))
+            for collection in gpp_collections
+        )
         gpo = GPO(
             guid=(guid or str(uuid.uuid4())).lower().strip("{}"),
             name=name.strip(),
@@ -1132,6 +1163,11 @@ class WorkspaceStore:
             user_enabled=source.user_enabled,
             security_filters=forked_security_filters,
             wmi_filter=forked_wmi,
+            # The same items, so their provenance records carry over as they
+            # are (final-r13). Their run-once ids stay too: a fork is how an
+            # imported GPO is edited, and a new id would make every client
+            # apply its apply-once items again (WI-080). A clone is a new item
+            # and gets fresh ones (`gpp_provenance.fresh_item`).
             gpp_collections=source.gpp_collections,
         )
 
@@ -1143,6 +1179,7 @@ class WorkspaceStore:
         *,
         identity: Identity | str,
         reason: str,
+        grants: _Grants | None = None,
     ) -> GPO:
         actor = _resolve_actor(identity)
         with self._lock:
@@ -1158,7 +1195,9 @@ class WorkspaceStore:
                         current_revision=current.revision,
                     )
                 timestamp = _now()
-                changed = mutation(current)
+                # Every mutation passes the provenance check (final-r13): it may
+                # keep or drop retained content, and add only what *grants* names.
+                changed = _keep_provenance(current, mutation(current), grants)
                 updated = replace(
                     changed, revision=current.revision + 1, updated_at=timestamp
                 )
@@ -1483,8 +1522,6 @@ class WorkspaceStore:
         self,
         collection: GppCollection,
         before: tuple[int, GppCollection] | None = None,
-        *,
-        retained_from: GppCollection | None = None,
     ) -> None:
         """Refuse a preference mutation that leaves an error it did not find.
 
@@ -1496,24 +1533,6 @@ class WorkspaceStore:
         or deleting one, always passes, and adding or keeping-and-adding a bad
         value does not.
         """
-        stored_pieces = _retained_fragments(before[1] if before is not None else None)
-        stored_pieces |= _retained_fragments(retained_from)
-        new_pieces = _retained_fragments(collection) - stored_pieces
-        if new_pieces:
-            raise ValidationError(
-                [
-                    ValidationIssue(
-                        severity="error",
-                        code="raw_content_not_accepted",
-                        message=(
-                            "Retained content (attributes, children, raw targeting, imported "
-                            "elements) only comes from an import; a mutation may keep or drop "
-                            f"it, not add it: {sorted(map(str, new_pieces))[:3]}"
-                        ),
-                        path="gpp_collections",
-                    )
-                ]
-            )
         errors = [
             issue
             for issue in validate_gpp_collection(collection)
@@ -1665,11 +1684,13 @@ class WorkspaceStore:
         lock, as a new item after the existing ones (Sol and DeepSeek final-r12).
 
         Retained content stays exactly as stored -- it is copied here, never
-        supplied by the caller. What makes the copy a new item is reset: editor
-        ids, the imported element record and its document slot, the run-once id
-        and the retained ``uid`` (each identifies the original to Windows), and
-        a registry item's typed ``uid``. A group may take a new name.
+        supplied by the caller -- and so do its provenance records, re-keyed
+        onto the copy's ids (final-r13). What makes the copy a new item is
+        fresh: item, member and value ids, the run-once id, and what identifies
+        the original to Windows (`gpp_provenance.fresh_item`). A group may take
+        a new name.
         """
+        grants = _Grants()
 
         def mutate(gpo: GPO) -> GPO:
             found = self._find_collection(gpo, scope)
@@ -1681,29 +1702,33 @@ class WorkspaceStore:
             if found is None or source is None:
                 raise NotFoundError(f"GPP {kind} item {item_id} not found")
             idx, existing = found
-            copy: GppGroup | GppRegistry = replace(
-                source,
-                id="",
-                native_xml="",
-                document_position=None,
-                common=replace(source.common, run_once_id=""),
-                unknown_attrs=tuple(pair for pair in source.unknown_attrs if pair[0] != "uid"),
+            copy = provenance.fresh_item(source, clone=True)
+            if isinstance(copy, GppGroup) and name is not None:
+                copy = replace(copy, name=name)
+            # A registry copy's uid is derived from its new id, as for any new item.
+            copy = (
+                ensure_editor_ids(GppCollection(scope=scope, registry=(copy,))).registry[0]
+                if isinstance(copy, GppRegistry)
+                else copy
+            )
+            grants.fragments |= {
+                provenance.digest(key) for key, _text in provenance.item_fragments(kind, copy)
+            }
+            grants.records |= provenance.carried_records(
+                kind, source, copy, provenance.records(existing)
             )
             if isinstance(copy, GppGroup):
-                copy = replace(
-                    copy,
-                    name=name if name is not None else copy.name,
-                    members=tuple(replace(m, id="") for m in copy.members),
-                )
                 new_collection = replace(existing, groups=existing.groups + (copy,))
             else:
-                copy = replace(copy, uid="", value=replace(copy.value, id=""))
                 new_collection = replace(existing, registry=existing.registry + (copy,))
-            new_collection = ensure_editor_ids(new_collection)
             self._validate_gpp(new_collection, before=found)
-            return replace(gpo, gpp_collections=self._replace_collection(gpo, idx, new_collection))
+            return replace(
+                gpo, gpp_collections=self._replace_collection(gpo, idx, new_collection)
+            )
 
-        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+        return self._mutate(
+            guid, expected_revision, mutate, identity=identity, reason=reason, grants=grants
+        )
 
     def restore_gpp_item(
         self,
@@ -1721,8 +1746,8 @@ class WorkspaceStore:
 
         The item replaces the current item with the same id (or is appended if
         it has since been deleted). Its retained content comes from that
-        revision, the only source besides the current GPO a mutation may draw
-        retained content from (Sol and DeepSeek final-r12).
+        revision, and so do its provenance records: the restore copies the
+        records that revision holds for this item and creates none (final-r13).
         """
         historical = gpo_from_dict(self.get_revision(guid, from_revision).snapshot)
         old_found = self._find_collection(historical, scope)
@@ -1732,8 +1757,16 @@ class WorkspaceStore:
                 (item for item in getattr(old_found[1], kind) if item.id == item_id), None
             )
         if old_found is None or restored is None:
-            raise NotFoundError(f"GPP {kind} item {item_id} not found in revision {from_revision}")
-        historical_collection = old_found[1]
+            raise NotFoundError(
+                f"GPP {kind} item {item_id} not found in revision {from_revision}"
+            )
+        grants = _Grants(
+            fragments={
+                provenance.digest(key)
+                for key, _text in provenance.item_fragments(kind, restored)
+            },
+            records=set(provenance.item_records(old_found[1], kind, restored)),
+        )
 
         def mutate(gpo: GPO) -> GPO:
             found = self._find_collection(gpo, scope)
@@ -1759,10 +1792,12 @@ class WorkspaceStore:
                     else replace(existing, registry=tuple(items))
                 )
                 collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection, before=found, retained_from=historical_collection)
+            self._validate_gpp(new_collection, before=found)
             return replace(gpo, gpp_collections=collections)
 
-        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+        return self._mutate(
+            guid, expected_revision, mutate, identity=identity, reason=reason, grants=grants
+        )
 
     def put_gpp_group(
         self,
@@ -1775,7 +1810,15 @@ class WorkspaceStore:
         reason: str,
         must_exist: bool = False,
         common_edits: Mapping[str, bool] | None = None,
+        merge: Callable[[GppGroup], GppGroup] | None = None,
     ) -> GPO:
+        """Add *group*, or replace the stored group with its id.
+
+        With *merge* (the API's edits, final-r13) the replacement is
+        ``merge(stored)``, computed under the store lock from the stored group:
+        an edit carries typed fields and ids, never retained content, and the
+        stored item supplies the rest.
+        """
         processed = ensure_editor_ids(GppCollection(scope=scope, groups=(group,)))
         group = processed.groups[0]
 
@@ -1792,8 +1835,13 @@ class WorkspaceStore:
                 groups_list = list(existing.groups)
                 try:
                     gi = next(i for i, x in enumerate(groups_list) if x.id == group.id)
+                    edited = group
+                    if merge is not None:
+                        edited = ensure_editor_ids(
+                            GppCollection(scope=scope, groups=(merge(groups_list[gi]),))
+                        ).groups[0]
                     groups_list[gi] = _keep_document_position(
-                        _with_common_edits(group, groups_list[gi], common_edits),
+                        _with_common_edits(edited, groups_list[gi], common_edits),
                         groups_list[gi],
                     )
                 except StopIteration:
@@ -1873,7 +1921,10 @@ class WorkspaceStore:
         reason: str,
         must_exist: bool = False,
         common_edits: Mapping[str, bool] | None = None,
+        merge: Callable[[GppRegistry], GppRegistry] | None = None,
     ) -> GPO:
+        """Add *registry*, or replace the stored item with its id; *merge* as
+        for `put_gpp_group`."""
         processed = ensure_editor_ids(GppCollection(scope=scope, registry=(registry,)))
         registry = processed.registry[0]
 
@@ -1892,9 +1943,14 @@ class WorkspaceStore:
                 items_list = list(existing.registry)
                 try:
                     ri = next(i for i, x in enumerate(items_list) if x.id == registry.id)
+                    edited = registry
+                    if merge is not None:
+                        edited = ensure_editor_ids(
+                            GppCollection(scope=scope, registry=(merge(items_list[ri]),))
+                        ).registry[0]
                     items_list[ri] = _keep_document_position(
                         registry_action_edit(
-                            _with_common_edits(registry, items_list[ri], common_edits),
+                            _with_common_edits(edited, items_list[ri], common_edits),
                             items_list[ri],
                         ),
                         items_list[ri],
@@ -1977,6 +2033,7 @@ class WorkspaceStore:
         identity: Identity | str,
         reason: str,
         must_exist: bool = False,
+        merge: Callable[[GppGroupMember], GppGroupMember] | None = None,
     ) -> GPO:
         if not member.id:
             member = replace(member, id=str(uuid.uuid4()))
@@ -1999,7 +2056,7 @@ class WorkspaceStore:
             members_list = list(group.members)
             try:
                 mi = next(i for i, x in enumerate(members_list) if x.id == member.id)
-                members_list[mi] = member
+                members_list[mi] = merge(members_list[mi]) if merge is not None else member
             except StopIteration:
                 if must_exist:
                     raise NotFoundError(
@@ -2085,6 +2142,7 @@ class WorkspaceStore:
         identity: Identity | str,
         reason: str,
         must_exist: bool = False,
+        merge: Callable[[GppRegistryValue], GppRegistryValue] | None = None,
     ) -> GPO:
         if not value.id:
             value = replace(value, id=str(uuid.uuid4()))
@@ -2121,7 +2179,8 @@ class WorkspaceStore:
                         path="value_id",
                     )
                 ])
-            new_registry = replace(registry, value=value)
+            new_value = merge(registry.value) if merge is not None and must_exist else value
+            new_registry = replace(registry, value=new_value)
             new_registries = tuple(
                 new_registry if i == reg_idx else r
                 for i, r in enumerate(existing.registry)
@@ -2254,6 +2313,21 @@ class WorkspaceStore:
             if ready_issues:
                 raise ValidationError(ready_issues)
 
+        # The revision's retained content and its provenance records come back
+        # with it; the restore creates no record (final-r13).
+        grants = _Grants(
+            fragments={
+                key
+                for collection in historical.gpp_collections
+                for key in provenance.fragments(collection)
+            },
+            records={
+                key
+                for collection in historical.gpp_collections
+                for key in provenance.records(collection)
+            },
+        )
+
         def mutate(current: GPO) -> GPO:
             return replace(
                 historical,
@@ -2262,7 +2336,9 @@ class WorkspaceStore:
                 updated_at=current.updated_at,
             )
 
-        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+        return self._mutate(
+            guid, expected_revision, mutate, identity=identity, reason=reason, grants=grants
+        )
 
     def deletion_log(self) -> list[dict[str, Any]]:
         with self._lock:

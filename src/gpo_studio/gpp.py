@@ -23,7 +23,7 @@ from .gpp_native import (
     plain_attribute_name,
     same_rendering,
 )
-from .ilt import IltFilter, IltOsCriteria, IltPredicate, parse_ilt, serialize_ilt
+from .ilt import IltError, IltFilter, IltOsCriteria, IltPredicate, parse_ilt, serialize_ilt
 from .numeric import coerce_dword_qword
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
 from .xml_safety import parse_xml_bounded
@@ -661,6 +661,12 @@ class GppCollection:
     root_unknown_positions: tuple[tuple[str, tuple[int, ...]], ...] = field(
         default=(), compare=False
     )
+    #: Digests of the retained fragments an import acquired (final-r13; see
+    #: `gpp_provenance`). Only an import mints them; fork, clone and item
+    #: restore carry them; every mutation keeps those of the fragments it
+    #: keeps. A retained fragment without one is unverified. Persisted;
+    #: bookkeeping, outside ==.
+    retained_provenance: tuple[str, ...] = field(default=(), compare=False)
     source_files: tuple[tuple[str, bytes], ...] = ()
 
 
@@ -1551,7 +1557,9 @@ def _written_element(
 
 #: Bookkeeping, not values an operator edits: editor ids are assigned on
 #: import, the retained element and document slot are provenance.
-_NOT_TYPED_VALUES: frozenset[str] = frozenset({"id", "native_xml", "document_position"})
+#: Editor and import bookkeeping: an item's and its predicates' ids (final-r13), the
+#: element record and its slot.
+_NOT_TYPED_VALUES: frozenset[str] = frozenset({"id", "ids", "native_xml", "document_position"})
 
 
 def _typed_view(value: Any) -> Any:
@@ -2223,15 +2231,19 @@ def ensure_editor_ids(collection: GppCollection) -> GppCollection:
     Assigning editor IDs is a mutation, so ``source_files`` is cleared to
     prevent :func:`serialize_gpp` from returning stale verbatim bytes.
     """
-    new_groups = tuple(_ensure_group_editor_ids(g) for g in collection.groups)
+    from .gpp_provenance import with_predicate_ids
+
+    new_groups = tuple(
+        with_predicate_ids(_ensure_group_editor_ids(g)) for g in collection.groups
+    )
     new_registry = tuple(
-        _ensure_registry_editor_ids(r) for r in collection.registry
+        with_predicate_ids(_ensure_registry_editor_ids(r)) for r in collection.registry
     )
     from .gpp_adapters import ADAPTER_KEYS
     extra: dict[str, Any] = {}
     for key in ADAPTER_KEYS:
         items = getattr(collection, key)
-        extra[key] = tuple(_ensure_simple_editor_id(i) for i in items)
+        extra[key] = tuple(with_predicate_ids(_ensure_simple_editor_id(i)) for i in items)
     return replace(
         collection,
         groups=new_groups,
@@ -2250,6 +2262,12 @@ def mark_edited(collection: GppCollection) -> GppCollection:
     return replace(collection, source_files=())
 
 
+#: Import bookkeeping the API neither serves nor takes: the element records
+#: (WI-080) and the provenance records of retained content (final-r13), which
+#: an inline GPO reference must not be able to supply either.
+_NOT_SERVED = frozenset({"native_xml", "retained_provenance"})
+
+
 def without_native_records(value: Any) -> Any:
     """*value* with every ``native_xml`` key left out, at any depth (WI-080).
 
@@ -2264,7 +2282,7 @@ def without_native_records(value: Any) -> Any:
         return {
             key: without_native_records(entry)
             for key, entry in value.items()
-            if key != "native_xml"
+            if key not in _NOT_SERVED
         }
     if isinstance(value, (list, tuple)):
         return [without_native_records(entry) for entry in value]
@@ -2347,6 +2365,8 @@ def _ilt_filter_to_dict(ilt: IltFilter | None) -> dict[str, Any] | None:
             if isinstance(p, IltPredicate) else p
             for p in ilt.items
         ],
+        # The stable predicate ids (final-r13); absent before them.
+        **({"ids": list(ilt.ids)} if ilt.ids else {}),
     }
 
 
@@ -2380,7 +2400,15 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
                     ))
                 else:
                     items.append(str(item))
-            return IltFilter(items=tuple(items))
+            ids = data.get("ids") or []
+            if not isinstance(ids, list) or len(ids) not in (0, len(items)) or not all(
+                isinstance(i, str) and i and len(i) <= 64 for i in ids
+            ):
+                raise GppError("ilt_filter.ids must hold one short string id per predicate")
+            try:
+                return IltFilter(items=tuple(items), ids=tuple(ids))
+            except IltError as error:
+                raise GppError(str(error)) from error
         predicates_data = data.get("predicates", [])
         unknown = tuple(data.get("unknown_predicates", []))
         predicates: list[IltPredicate] = []
@@ -2577,6 +2605,11 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
             [family, list(positions)]
             for family, positions in collection.root_unknown_positions
         ],
+        **(
+            {"retained_provenance": list(collection.retained_provenance)}
+            if collection.retained_provenance
+            else {}
+        ),
     }
 
 
@@ -2932,10 +2965,22 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         root_unknown_positions=_root_unknown_positions_from_dict(
             data.get("root_unknown_positions"), collection
         ),
+        retained_provenance=_provenance_from_dict(data.get("retained_provenance")),
     )
     _validate_document_positions(collection)
     _refuse_namespaced(collection, f"stored {scope} preference collection")
     return collection
+
+
+def _provenance_from_dict(raw: object) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(
+        isinstance(d, str) and len(d) == 64 and all(c in "0123456789abcdef" for c in d)
+        for d in raw
+    ):
+        raise GppError("retained_provenance must be a list of SHA-256 hex digests")
+    return tuple(sorted(set(raw)))
 
 
 def _validate_document_positions(collection: GppCollection) -> None:

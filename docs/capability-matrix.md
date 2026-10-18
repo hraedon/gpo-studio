@@ -350,9 +350,14 @@ to GPP Groups and GPP Registry elements:
   no authoring semantics. They are preserved as unknown XML and re-emitted on
   export.
 - Unknown filter types (e.g. `FilterBattery`, `FilterComputer`) are captured as
-  raw XML (`unknown_predicates`) and re-emitted on export. The browser shows
-  them read-only with a warning and keeps them on save. The original interleaving of typed and
-  unknown predicates is preserved.
+  raw XML and re-emitted on export. Every predicate has a stable server-assigned
+  id; an edit names the predicates it keeps by id and never sends their
+  retained content, so a raw predicate, or a typed one Studio does not author
+  (`FilterDate`, `FilterUser` ...), can be kept, moved or removed but not
+  edited. The browser shows them read-only with a warning. The original
+  interleaving of typed and unknown predicates is preserved.
+- Retained content an import stored carries an import record; only such
+  content may hold elements outside Studio's closed vocabulary at export.
 
 Per action:
 
