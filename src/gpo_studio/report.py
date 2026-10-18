@@ -14,8 +14,8 @@ from .fdeploy import (
     native_digest,
     validate_fdeploy,
 )
-from .gpp import GppCollection, has_refused_content
-from .model import GPO
+from .gpp import GppCollection, has_refused_content, raw_records
+from .model import GPO, ValidationIssue
 from .report_parity import ReportParityError, studio_inventory
 from .validation import validate_gpo
 
@@ -128,9 +128,18 @@ def _digest(function: Callable[[GPO], str], gpo: GPO) -> str:
 
 
 def policy_report(gpo: GPO) -> str:
-    """Return a stable plain-text summary suitable for a ticket or review."""
+    """Return a stable plain-text summary suitable for a ticket or review.
 
+    For a GPO with a validation error -- the report is the one artifact such a
+    GPO gets -- no writer runs on its retained records: the digests read them
+    raw (`gpp.raw_records`, DeepSeek final-r19 B1).
+    """
     issues = validate_gpo(gpo)
+    with raw_records(any(issue.severity == "error" for issue in issues)):
+        return _policy_report(gpo, issues)
+
+
+def _policy_report(gpo: GPO, issues: list[ValidationIssue]) -> str:
     lines = [
         "GPO Studio policy report",
         "========================",

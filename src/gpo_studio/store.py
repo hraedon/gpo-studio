@@ -449,6 +449,29 @@ def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
     return replace(gpo, gpp_collections=tuple(new_collections))
 
 
+#: Checks run on a GPO before it is committed (`register_answer_check`).
+_ANSWER_CHECKS: list[Callable[[GPO], object]] = []
+
+
+def register_answer_check(check: Callable[[GPO], object]) -> None:
+    """Run *check* on every GPO a mutation or creation is about to commit,
+    before the commit (DeepSeek final-r19 N3). The API registers the build of
+    the payload it answers with: if that cannot be built, the change is
+    rolled back instead of committed and then answered with a 500."""
+    if check not in _ANSWER_CHECKS:
+        _ANSWER_CHECKS.append(check)
+
+
+def _before_commit(gpo: GPO) -> None:
+    # Validation is run either way: with no check registered (the store used
+    # on its own) it is the crash pre-flight; with one, the check's payload
+    # carries its result.
+    if not _ANSWER_CHECKS:
+        validate_gpo(gpo)
+    for check in _ANSWER_CHECKS:
+        check(gpo)
+
+
 def _replaced_on_read(gpo: GPO) -> list[ValidationIssue]:
     """The stored values *gpo*'s read replaced: of the wrong type, missing, or
     an unreadable import record (final-r18).
@@ -983,6 +1006,7 @@ class WorkspaceStore:
             created_at=timestamp,
             updated_at=timestamp,
         )
+        _before_commit(gpo)
         payload, documents = self._encode_snapshot_payload(gpo)
         with self._lock:
             self._require_healthy()
@@ -1273,6 +1297,22 @@ class WorkspaceStore:
             gpp_collections=source.gpp_collections,
         )
 
+    def _unchanged(self, guid: str, expected_revision: int) -> GPO:
+        """A mutation with nothing to change: the GPO as it is -- after the same
+        checks `_mutate` makes, so an empty change is no way around them (Sol
+        final-r19 B1): the expected revision, and no stored value the read
+        replaced."""
+        current = self.get_gpo(guid)
+        if current.revision != expected_revision:
+            raise ConflictError(
+                f"Expected revision {expected_revision}, "
+                f"but the current revision is {current.revision}",
+                expected_revision=expected_revision,
+                current_revision=current.revision,
+            )
+        require_unreplaced(current)
+        return current
+
     def _mutate(
         self,
         guid: str,
@@ -1306,10 +1346,10 @@ class WorkspaceStore:
                 updated = replace(
                     changed, revision=current.revision + 1, updated_at=timestamp
                 )
-                # Validate before committing (final-r18): the response the API
-                # builds next validates the GPO, and a failure there must not
-                # follow a durable revision. Raising here rolls the mutation back.
-                validate_gpo(updated)
+                # The answer is built before the commit (final-r18, r19 N3): a
+                # failure building it raises here and rolls the mutation back,
+                # so no durable revision is followed by a 500.
+                _before_commit(updated)
                 payload, documents = self._encode_snapshot_payload(updated)
                 self._store_documents(current.guid, 0, documents)
                 self._store_documents(current.guid, updated.revision, documents)
@@ -1411,7 +1451,7 @@ class WorkspaceStore:
         reason: str,
     ) -> GPO:
         if not new_settings:
-            return self.get_gpo(guid)
+            return self._unchanged(guid, expected_revision)
         self._validate_settings(new_settings)
         new_ids = {s.id for s in new_settings}
 
@@ -1469,7 +1509,7 @@ class WorkspaceStore:
         reason: str,
     ) -> GPO:
         if not replacements:
-            return self.get_gpo(guid)
+            return self._unchanged(guid, expected_revision)
         prefixes: list[str] = []
         all_new_settings: list[RegistrySetting] = []
         for prefix, settings in replacements:

@@ -24,6 +24,7 @@ import copy
 import dataclasses
 import types
 import typing
+from collections.abc import Callable
 from functools import cache
 from typing import Any, Literal, get_args, get_origin
 
@@ -32,8 +33,196 @@ Problem = tuple[str, str]
 
 _MISSING = object()
 
-#: Items stored as an array by an early release, which their loader reads.
-_LEGACY_ARRAYS = frozenset({"IltFilter"})
+# ---------------------------------------------------------------------------
+# Legacy shapes (DeepSeek final-r19 B2)
+# ---------------------------------------------------------------------------
+#
+# Every older stored shape a loader still accepts is rewritten here, into the
+# current one, BEFORE the type check -- so the check, not the loader, judges
+# every value, and the loaders read the current shape only. A legacy value of
+# the wrong type is a problem like any other (never coerced: ``use_local:
+# "false"`` once exported ``skipLocal="1"``); one the rewrite needs to scale
+# (days to seconds) is scaled only when it is a number. `LEGACY_KEYS` names
+# every key the rewrites read; a test holds every key a loader reads to the
+# model's fields plus these.
+
+
+def _flag_alias(old: str, new: str) -> Callable[[dict[str, Any], str, list[Problem]], None]:
+    def rewrite(data: dict[str, Any], path: str, problems: list[Problem]) -> None:
+        if new not in data and old in data:
+            value = data.pop(old)
+            if isinstance(value, bool):
+                data[new] = value
+            else:
+                problems.append(
+                    (f"{path}/{old}", f"{_json_name(value)} where a boolean belongs")
+                )
+        else:
+            data.pop(old, None)
+
+    return rewrite
+
+
+def _moved(old: str, new: str) -> Callable[[dict[str, Any], str, list[Problem]], None]:
+    def rewrite(data: dict[str, Any], path: str, problems: list[Problem]) -> None:
+        if new not in data and old in data:
+            data[new] = data.pop(old)  # the field's own check judges it
+        else:
+            data.pop(old, None)
+
+    return rewrite
+
+
+def _scaled(
+    old: str, new: str, factor: int
+) -> Callable[[dict[str, Any], str, list[Problem]], None]:
+    def rewrite(data: dict[str, Any], path: str, problems: list[Problem]) -> None:
+        if new not in data and old in data:
+            value = data.pop(old)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                data[new] = value * factor
+            else:
+                problems.append(
+                    (f"{path}/{old}", f"{_json_name(value)} where a count of units belongs")
+                )
+        else:
+            data.pop(old, None)
+
+    return rewrite
+
+
+def _append_arguments(data: dict[str, Any], path: str, problems: list[Problem]) -> None:
+    # A string field before it was a boolean: its documented reading, for a
+    # string only (anything else is a problem, not a truthiness guess).
+    if "append_failure_count" not in data and "append_arguments" in data:
+        value = data.pop("append_arguments")
+        if isinstance(value, str):
+            legacy = value.strip().lower()
+            data["append_failure_count"] = legacy not in {"", "0", "false", "no"}
+        elif isinstance(value, bool):
+            data["append_failure_count"] = value
+        else:
+            problems.append(
+                (f"{path}/append_arguments", f"{_json_name(value)} where a string belongs")
+            )
+    else:
+        data.pop("append_arguments", None)
+
+
+def _ilt_predicates(data: dict[str, Any], path: str, problems: list[Problem]) -> None:
+    # ``{"predicates": [...], "unknown_predicates": [...]}``, before ``items``.
+    if "items" in data:
+        data.pop("predicates", None)
+        data.pop("unknown_predicates", None)
+        return
+    if "predicates" not in data and "unknown_predicates" not in data:
+        return
+    items: list[Any] = []
+    for key in ("predicates", "unknown_predicates"):
+        value = data.pop(key, [])
+        if isinstance(value, list):
+            items.extend(value)
+        else:
+            problems.append((f"{path}/{key}", f"{_json_name(value)} where an array belongs"))
+    data["items"] = items
+
+
+_REGISTRY_VALUE_KEYS = (
+    "name", "value", "registry_type", "action", "default", "id", "unknown_attrs"
+)
+
+
+def _legacy_registry(data: dict[str, Any], path: str, problems: list[Problem]) -> None:
+    # A <Registry> item stored before the one-value model: ``values``, a list
+    # of value objects each with its own targeting and element attributes,
+    # expanded into one current item per value (the first keeps the item's
+    # uid, id and, where the value has none, its targeting and retained
+    # element content).
+    entries = data.get("registry")
+    if not isinstance(entries, list):
+        return
+    out: list[Any] = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict) or "value" in entry:
+            out.append(entry)
+            continue
+        where = f"{path}/registry/{index}"
+        values = entry.get("values", [])
+        if not isinstance(values, list):
+            problems.append((f"{where}/values", f"{_json_name(values)} where an array belongs"))
+            values = []
+        for position, value in enumerate(values or [{}]):
+            if not isinstance(value, dict):
+                problems.append(
+                    (f"{where}/values/{position}", f"{_json_name(value)} where an object belongs")
+                )
+                continue
+            first = position == 0
+            item: dict[str, Any] = {
+                key: entry[key]
+                for key in ("key", "hive", "action", "common", "document_position")
+                if key in entry
+            }
+            if first:
+                item.update({key: entry[key] for key in ("uid", "id") if key in entry})
+            # The legacy loader read a value's name and data as optional ("").
+            item["value"] = {
+                "name": "",
+                "value": "",
+                **{key: value[key] for key in _REGISTRY_VALUE_KEYS if key in value},
+            }
+            for key, own in (
+                ("ilt_filter", "ilt_filter"),
+                ("unknown_attrs", "unknown_elem_attrs"),
+                ("unknown_children", "unknown_children"),
+                ("unknown_props_children", "unknown_props_children"),
+            ):
+                if value.get(own):
+                    item[key] = value[own]
+                elif first and key in entry:
+                    item[key] = entry[key]
+            out.append(item)
+    data["registry"] = out
+
+
+#: Rewrites of each item's legacy keys, by the class it loads into.
+LEGACY_REWRITES: dict[str, tuple[Callable[[dict[str, Any], str, list[Problem]], None], ...]] = {
+    # Stored before WI-081, when the field was ``use_local``.
+    "GppPrinter": (_flag_alias("use_local", "skip_local"),),
+    "GppService": (
+        _moved("recovery_command", "program"),
+        _scaled("reset_period_days", "reset_fail_count_delay_seconds", 86400),
+        _moved("restart_service_delay_raw", "restart_service_delay_milliseconds"),
+        _scaled("restart_delay_minutes", "restart_service_delay_milliseconds", 60_000),
+        _scaled("restart_computer_delay_seconds", "restart_computer_delay_milliseconds", 1000),
+        _append_arguments,
+    ),
+    "IltFilter": (_ilt_predicates,),
+    "GppCollection": (_legacy_registry,),
+}
+
+#: Every key a rewrite reads.
+LEGACY_KEYS: dict[str, frozenset[str]] = {
+    "GppPrinter": frozenset({"use_local"}),
+    "GppService": frozenset({
+        "recovery_command",
+        "reset_period_days",
+        "restart_service_delay_raw",
+        "restart_delay_minutes",
+        "restart_computer_delay_seconds",
+        "append_arguments",
+    }),
+    "IltFilter": frozenset({"predicates", "unknown_predicates"}),
+    # Of a legacy <Registry> item (``values``) and of each of its values.
+    "GppRegistry": frozenset({"values"}),
+    "GppRegistryValue": frozenset({
+        "ilt_filter", "unknown_elem_attrs", "unknown_children", "unknown_props_children"
+    }),
+}
+
+#: Items an early release stored as a bare array: ``IltFilter`` as its
+#: predicates (``[{"type", "negate", "value"}, ...]``), read as ``items``.
+LEGACY_ARRAYS = frozenset({"IltFilter"})
 
 
 def _json_name(value: Any) -> str:
@@ -151,12 +340,8 @@ def _check(annotation: Any, value: Any, path: str, problems: list[Problem]) -> A
                     out.append(checked)
                 return out if args else items
     elif dataclasses.is_dataclass(annotation) and isinstance(annotation, type):
-        if (
-            isinstance(value, list)
-            and annotation.__name__ in _LEGACY_ARRAYS
-            and all(isinstance(entry, dict) for entry in value)
-        ):
-            return value  # a legacy array of predicate objects the loader still reads
+        if isinstance(value, list) and annotation.__name__ in LEGACY_ARRAYS:
+            value = {"items": value}  # checked as the current shape
         if not isinstance(value, dict):
             ok = False
         else:
@@ -202,6 +387,8 @@ def check_stored(
     loaders still read); fields in *skip* are not checked here."""
     problems = problems if problems is not None else []
     out = dict(data)
+    for rewrite in LEGACY_REWRITES.get(cls.__name__, ()):
+        rewrite(out, path, problems)
     for name, annotation, default in _hints(cls):
         if name in skip:
             continue

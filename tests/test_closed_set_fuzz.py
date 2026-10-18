@@ -3,10 +3,12 @@
 DeepSeek final-r17 B1: an estate import stored ``registry_type="REG_FOO"``,
 and the GPO's detail, plan, Studio bundle and GPMC backup all answered 500 --
 a writer assumed the set (``KeyError``) or refused it in a way no route
-translated. Two boundaries now hold: validation reports every value outside
-its field's closed set as an error (`closed_sets`), so an import refuses one
-and a stored one blocks the GPO; and every artifact route and capability
-probe turns whatever a writer raises into a 422 refusal (`egress.unwritable_artifact`).
+translated. Validation reports every value outside its field's closed set
+as an error (`closed_sets`), so an import refuses one and a stored one blocks
+the GPO, and no writer runs on it: the artifact routes refuse it by
+validation first, and a preference collection holding one has its retained
+records marked at load (final-r19; `test_stored_legacy_and_records` plants it
+beside retained records, which this corpus has none of).
 
 This fuzz finds every closed-set field of a GPO that holds every kind of
 item -- from the annotations, as validation does -- plants a value outside

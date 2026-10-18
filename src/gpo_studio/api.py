@@ -133,6 +133,7 @@ from .gpp import (
     GppRegistry,
     GppRegistryValue,
     _normalize_hive,
+    raw_records,
     serialize_gpp,
     without_native_records,
 )
@@ -255,7 +256,13 @@ from .som import (
     plan_link_order,
     set_block_inheritance,
 )
-from .store import WorkspaceStore, _now, gpo_from_dict, require_unreplaced
+from .store import (
+    WorkspaceStore,
+    _now,
+    gpo_from_dict,
+    register_answer_check,
+    require_unreplaced,
+)
 from .validation import validate_gpo, validate_setting
 from .wmi_catalogue import WmiCatalogue, WmiCatalogueError, load_wmi_catalogue
 from .wmi_filter import (
@@ -1933,10 +1940,39 @@ def _digest(compute: Callable[[Any], str], gpo: Any) -> str | None:
         return None
 
 
+#: Payloads built before their GPO was committed (`_answer_check`), by the
+#: GPO object they answer for: the route that committed it answers with it.
+_PREBUILT: dict[int, tuple[Any, dict[str, Any]]] = {}
+_PREBUILT_LOCK = threading.Lock()
+
+
+def _answer_check(gpo: Any) -> None:
+    """Build the payload a mutation will answer with BEFORE it commits
+    (DeepSeek final-r19 B1/N3): a mutation whose answer cannot be built is
+    rolled back, never committed and then a 500. The payload is kept for the
+    route to answer with."""
+    payload = _build_gpo_payload(gpo)
+    with _PREBUILT_LOCK:
+        if len(_PREBUILT) >= 64:
+            _PREBUILT.clear()
+        _PREBUILT[id(gpo)] = (gpo, payload)
+
+
+register_answer_check(_answer_check)
+
+
 def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     if request is not None:
         request.state.gpo_guid = gpo.guid
         request.state.gpo_revision = gpo.revision
+    with _PREBUILT_LOCK:
+        prebuilt = _PREBUILT.pop(id(gpo), None)
+    if prebuilt is not None and prebuilt[0] is gpo:
+        return prebuilt[1]
+    return _build_gpo_payload(gpo)
+
+
+def _build_gpo_payload(gpo: Any) -> dict[str, Any]:
     validation = validate_gpo(gpo)
     blocked = any(item.severity == "error" for item in validation)
     preserved_files = sum(len(entry.files) for entry in gpo.cse_metadata)
@@ -1964,11 +2000,18 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     # surrogate refuses. The read still succeeds and `validation` names the
     # offending fields (batch-2 review).
     unwritable = any(item.code == "text_not_xml_writable" for item in validation)
+    # A blocked GPO's digests read its retained records raw: no writer runs on
+    # content validation refuses (DeepSeek final-r19 B1).
+    with raw_records(blocked):
+        digests = (
+            None if unwritable else _digest(policy_semantic_sha256, gpo),
+            None if unwritable else _digest(review_model_sha256, gpo),
+        )
     return {
         "gpo": _gpo_to_api_dict(gpo),
         "validation": [asdict(item) for item in validation],
-        "policy_semantic_sha256": None if unwritable else _digest(policy_semantic_sha256, gpo),
-        "review_model_sha256": None if unwritable else _digest(review_model_sha256, gpo),
+        "policy_semantic_sha256": None if unwritable else digests[0],
+        "review_model_sha256": None if unwritable else digests[1],
         "artifact_capabilities": {
             "studio_export": {
                 "enabled": not blocked and studio_blocked is None,
@@ -3362,6 +3405,18 @@ def delete_setting(
 
 @app.post("/api/gpos/{guid}/copy-settings")
 def copy_settings(request: Request, guid: str, body: CopySettingsMutation) -> dict[str, Any]:
+    # The target first (Sol final-r19 B1): a target whose read replaced stored
+    # values refuses any change, whatever the source holds -- before anything
+    # is filtered, so an empty selection is refused alike.
+    target = _store(request).get_gpo(guid)
+    if target.revision != body.expected_revision:
+        raise ConflictError(
+            f"Expected revision {body.expected_revision}, "
+            f"but the current revision is {target.revision}",
+            expected_revision=body.expected_revision,
+            current_revision=target.revision,
+        )
+    require_unreplaced(target)
     source = _store(request).get_gpo(body.source_guid)
     # A source whose read replaced stored values would copy the defaults in
     # their place (final-r18): refused, as an edit of it is.

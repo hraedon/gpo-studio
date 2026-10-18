@@ -620,6 +620,52 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- After the nineteenth review (final-r19):
+  - **An empty change makes the same checks as any other (Sol B1).**
+    `copy-settings` from a source with no settings, or none on the requested
+    side, and an empty bulk policy change returned before the expected
+    revision and the defaulted-value refusal were checked: a stale revision
+    or a GPO whose read replaced a value got a 200. The route now checks the
+    target first, and the store's empty paths check both (`_unchanged`).
+    No other mutation returns before `_mutate`'s checks.
+  - **No writer runs on stored content validation refuses (DeepSeek B1).** A
+    preference item holding a value outside its closed set beside a retained
+    native record reached the writer's `assert_never` through the digests:
+    the detail and the report answered 500, and a mutation committed before
+    its answer failed. Now (1) a collection holding such a value has its
+    records marked at load, as one holding refused content does, so every
+    hash and diff reads them raw and `serialize_gpp` refuses it; (2) a GPO
+    with any validation error has every retained record read raw by its
+    digests and its report (`gpp.raw_records`); (3) every mutation and
+    creation builds the payload it answers with BEFORE it commits
+    (`store.register_answer_check`) and answers with that payload, so an
+    answer that cannot be built rolls the change back (DeepSeek N3). The
+    digests' catch stays `UnicodeError` (DeepSeek N1): a writer's named
+    refusal is read as the raw record inside `retained_rendering`, a defect
+    is a 500, and a test holds both. `retained_rendering` no longer claims
+    it never raises (N4).
+  - **The legacy shapes are under the typed load (DeepSeek B2).** A bare
+    array of targeting predicates, the `predicates`/`unknown_predicates`
+    shape, a printer's `use_local`, a service's pre-WI-081 delay, recovery
+    and `append_arguments` keys, and a multi-value registry item (`values`)
+    are rewritten into the current shape by the typed load
+    (`stored_types.LEGACY_REWRITES`) and type-checked there; the loaders read
+    the current shape only. A legacy value of the wrong type is a replaced
+    value like any other -- `use_local: "false"` exported `skipLocal="1"`; it
+    now blocks the GPO and its edits -- and a delay is scaled only when it is
+    a non-negative number. A test holds every key a loader reads to the
+    model's fields and the rewrites' keys, with a control.
+  - **Out-of-range stored values read, never refuse the read (DeepSeek N2).**
+    A document position of -1 answered 422 on the detail read; it is now a
+    replaced value (no slot), and a named loader refusal no tolerance covers
+    reads its collection as empty and replaced instead of failing. The type
+    fuzz plants -1 and 2^63 in every field that admits an integer; another
+    plants every JSON type and both integers in every legacy printer and
+    service key, and cases cover the legacy targeting and registry shapes
+    (missing keys, `negate: 1`/`"false"`, a non-array). A closed-set sweep plants a value outside its set in every
+    closed-set field of every preference item, each carrying a retained
+    record, and drives the load, payload, report, digests, a diff and a
+    committed edit; the exhaustive forms run in `type-fuzz-full`.
 - After the eighteenth review (final-r18):
   - **A writer's refusal is a 422; nothing else is.** The final-r17 no-500
     boundary wrapped whole endpoints and turned any exception -- a store
@@ -643,8 +689,10 @@ Operator-facing:
     closed-set field crashed the membership check (500 on read, after a
     committed mutation and on import; DeepSeek B1). The typed load
     (`stored_types`) checks each stored value against its field's
-    annotation -- every field of a GPO, its items, preferences and import
-    records -- and replaces one of the wrong type, a missing required field
+    annotation -- every annotated field of a GPO, its items, preferences
+    and import records (the legacy shapes the loaders still read were left
+    out until final-r19) -- and replaces one of the wrong type, a missing
+    required field
     or an unreadable import record by its default, reporting it
     (`stored_value_wrong_type`, an error), so the GPO is blocked; the
     closed-set check compares types too. An estate import or an inline diff

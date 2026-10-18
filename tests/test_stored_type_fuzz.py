@@ -49,7 +49,20 @@ JSON_VALUES: dict[str, Any] = {
     "array": ["x"],
     "object": {"x": 1},
 }
+#: Integers of the right type outside every field's range (DeepSeek final-r19
+#: N2: a document position of -1 answered 422 on the detail read): planted in
+#: every field whose type admits an integer.
+OUT_OF_RANGE: dict[str, Any] = {"negative": -1, "huge": 2**63}
+VALUES: dict[str, Any] = {**JSON_VALUES, **OUT_OF_RANGE}
 CONTENT_EXPORTS = ("studio_export", "gpmc_export", "powershell_plan")
+
+
+def _values(annotation: Any) -> dict[str, Any]:
+    """The values planted in a field: every JSON type, and the out-of-range
+    integers where the field admits an integer."""
+    problems: list[Any] = []
+    _check(annotation, 0, "", problems)
+    return VALUES if not problems else JSON_VALUES
 
 
 def _fields(
@@ -153,7 +166,7 @@ def _wrong_type(annotation: Any, value: Any) -> bool:
 
 
 def _distinct_plants(
-    label: str, *, wrong_only: bool = False, slim: bool = False
+    label: str, *, wrong_only: bool = False, slim: bool = False, ranges: bool = True
 ) -> list[tuple[str, Any]]:
     """(kind, loaded GPO) for each JSON type planted in *label*'s field, each
     loaded GPO once: a value of the wrong type is replaced by the field's
@@ -161,12 +174,15 @@ def _distinct_plants(
     `GPO.__eq__` leaves out the load problems, which name the type). Every
     plant is loaded -- the load never raises -- and a GPO already seen is not
     driven again. *wrong_only*: of the right types, keep none. *slim*: plant
-    in the GPO cut down to the field's item (`_slim`)."""
+    in the GPO cut down to the field's item (`_slim`). *ranges*: plant the
+    out-of-range integers too."""
     path, annotation = FIELDS[label]
     base = _slim(CLEAN, path) if slim else CLEAN
     seen: list[Any] = []
     out: list[tuple[str, Any]] = []
-    for kind, value in JSON_VALUES.items():
+    for kind, value in _values(annotation).items():
+        if kind in OUT_OF_RANGE and not ranges:
+            continue
         gpo = gpo_from_dict(_planted(base, path, value))
         wrong = _wrong_type(annotation, value)
         if wrong:
@@ -191,7 +207,9 @@ def test_every_stored_field_holds_every_json_type(label: str) -> None:
     path, annotation = FIELDS[label]
     for kind, gpo in _distinct_plants(label, wrong_only=FULL, slim=not FULL):
         issues = validate_gpo(gpo)
-        if _wrong_type(annotation, JSON_VALUES[kind]):
+        if kind in OUT_OF_RANGE:
+            api._gpo_payload(gpo)  # never raises; the range is validation's
+        if _wrong_type(annotation, VALUES[kind]):
             assert any(i.severity == "error" for i in issues), (label, kind)
             payload = api._gpo_payload(gpo)
             for name in CONTENT_EXPORTS:
@@ -320,8 +338,10 @@ def test_no_gpo_route_answers_500_for_any_stored_json_type(served: Any, label: s
     client, store, guid = served
     path, _annotation = FIELDS[label]
     scripts = {"computer": {"startup": [{"command": "setup.cmd"}]}}
-    for kind, _gpo in _distinct_plants(label):
-        revision = _plant_head(store, guid, _planted(CLEAN, path, JSON_VALUES[kind]))
+    # The out-of-range integers go through every route in the full run; the
+    # default run holds them to the load, validation and payload above.
+    for kind, _gpo in _distinct_plants(label, ranges=FULL):
+        revision = _plant_head(store, guid, _planted(CLEAN, path, VALUES[kind]))
         for method, route, body in (
             ("GET", f"/api/gpos/{guid}", None),
             ("GET", "/api/gpos", None),

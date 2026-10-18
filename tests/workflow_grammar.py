@@ -875,7 +875,10 @@ TEMPLATES: tuple[Template, ...] = (
         _LOCKED_RUN,
     ),
     _t(
-        "uv run --locked pytest tests/test_stored_type_fuzz.py -q",
+        (
+            "uv run --locked pytest tests/test_stored_type_fuzz.py "
+            "tests/test_stored_legacy_and_records.py -q"
+        ),
         _LOCKED_RUN,
     ),
     _t(
