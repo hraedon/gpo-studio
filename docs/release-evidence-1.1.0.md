@@ -68,10 +68,12 @@ commit or action, in this order:
    [Remaining before approval](#remaining-before-approval). Closed means done;
    for the owner's NVDA acceptance, waived for 1.1.0 and recorded as not run;
    for the automated evidence, recorded by the tagged run after A (item 4 of
-   that section says exactly what it records). Both lists
-   stay, each item closed: the gate refuses an approved release that still
-   lists anything as pending, and an approval that empties or removes either
-   list.
+   that section says exactly what it records). Both lists stay. What the gate
+   checks is narrower than "closed": it refuses an approved release that still
+   marks any item as pending, and an approval that empties or removes either
+   list (the report's list must be non-empty, the section must keep at least
+   one list item). That each item is truly closed is for the approval's
+   reviewers.
 5. **Tag `v1.1.0` on A**, on `main`.
 
 The release gate holds the tag to this: for a final tag it refuses unless the
@@ -196,8 +198,8 @@ requires, on a full-history checkout:
   commit is the approval commit A, the only commit
   whose report is approved, and it changes only the report's status, version
   and remaining items and this file's line 5 and remaining section, keeping
-  both remaining lists, each with every item closed. A refusal names the
-  commit;
+  both remaining lists non-empty with no item still marked pending. A refusal
+  names the commit;
 - the tagged tree to differ from F only in those files. The release records
   are a closed list (`FREEZE_RECORDS` in the gate: the capability matrix, the
   work-item register, this file and the JSON report, the environment spec, the
@@ -645,8 +647,9 @@ data. Each is pinned by a test:
    the workflow ref, the tag and source commit; that the jobs gating
    publication (`release-identity`, `ci`, `identifier-gate`, `verify`) passed
    in that run, since `publish` runs only after they succeed; that `verify`
-   checked branch coverage against the floor (the measured total stays in that
-   job's log and is not recorded); and the wheel, sdist and SBOM hashes. It
+   checked branch coverage against the floor; and the wheel, sdist and SBOM
+   hashes. The per-job run IDs and the measured coverage total are in that
+   workflow run itself (its jobs and the `verify` log), not in the assets. It
    refuses to publish if any of that is missing or the placeholder is not
    resolved. A closes this item by saying so.
 5. **Pending.** Approve in the order under

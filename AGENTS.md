@@ -16,6 +16,9 @@ uv run uvicorn gpo_studio.api:app --reload
 
 Frontend and browser checks: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+These need a git checkout of the repository. The sdist carries no `tests/`,
+evidence or release records, and several checks read git history.
+
 ## Hard rules
 
 - **No direct AD/SYSVOL writes.** Publication goes through an explicit adapter boundary. v0 emits

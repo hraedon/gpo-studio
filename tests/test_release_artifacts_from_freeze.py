@@ -47,10 +47,12 @@ gate = _gate()
 
 
 def _tree_copy(target: Path) -> None:
-    """Every tracked file, but the banked evidence.
+    """Every file in git's index, written from the index's blobs, but the evidence.
 
-    Tracked only, so the copy does not depend on what else lies in the worktree
-    (Sol final-r2 N2: untracked review scratch made one run copy 7.7 GB). The
+    ``git checkout-index`` writes the staged blobs, so the copy depends on
+    nothing in the worktree: not untracked scratch (Sol final-r2 N2: one run
+    copied 7.7 GB of it), not an unstaged edit, not a tracked file missing from
+    disk (DeepSeek final-r3 N2). A blob it cannot write fails the test. The
     evidence packs are left out only to keep the copy small: the changed tree
     adds a pack of its own, so the exclusion is still exercised.
     """
@@ -58,15 +60,18 @@ def _tree_copy(target: Path) -> None:
         ["git", "ls-files", "-z", "--cached"],
         cwd=ROOT, capture_output=True, check=True,
     ).stdout.decode("utf-8").split("\0")
-    for relative in filter(None, listed):
-        if re.match(r"docs/plan-033/[^/]+-evidence/", relative):
-            continue
-        source = ROOT / relative
-        if not source.is_file() or source.is_symlink():
-            continue
-        destination = target / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, destination)
+    wanted = [
+        relative
+        for relative in filter(None, listed)
+        if not re.match(r"docs/plan-033/[^/]+-evidence/", relative)
+    ]
+    target.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "checkout-index", "-z", "--stdin", f"--prefix={target.as_posix()}/"],
+        cwd=ROOT, input="\0".join(wanted).encode("utf-8"), capture_output=True, check=True,
+    )
+    missing = [relative for relative in wanted if not (target / relative).exists()]
+    assert not missing, missing[:10]
 
 
 def _build(tree: Path, out: Path) -> dict[str, bytes]:

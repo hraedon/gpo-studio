@@ -193,8 +193,9 @@ Operator-facing:
   (it shipped tests without a fixture they read; nothing runs the sdist's
   tests); malformed JSON that Python itself cannot decode (an integer past the
   digit limit, nesting past the recursion limit) is a clean gate refusal, not a
-  traceback; the approval commit must keep both remaining-item lists, every
-  item closed, rather than delete them; an empty commit between the freeze
+  traceback; the approval commit must keep both remaining-item lists
+  (non-empty, no item still marked pending) rather than delete them; the gate
+  checks that, not that each item is truly closed; an empty commit between the freeze
   commit and the tag is refused; and the records say plainly which pack files
   the gate refuses (importable modules and `.pth` files) and why archives are
   allowed.

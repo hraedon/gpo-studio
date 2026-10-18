@@ -631,7 +631,7 @@ def test_an_approval_that_erases_the_remaining_items_is_refused(
         report = json.loads(approval[REPORT])  # type: ignore[arg-type]
         report["evidence"]["remaining_before_approval"] = []
         approval[REPORT] = _json(report)
-        message = "must close remaining_before_approval, not empty or remove it"
+        message = "must keep remaining_before_approval as a non-empty list"
     _rebuild_on(history, history.banked, [approval])
     with pytest.raises(gate.ReleaseGateError, match=message):
         _verify(history)

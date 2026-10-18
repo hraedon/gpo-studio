@@ -1058,14 +1058,16 @@ def _check_approval(root: Path, base: str, parent: str, approval: str) -> None:
             f"the approval commit {approval} changes the report beyond status, version and "
             "evidence.remaining_before_approval"
         )
-    # A closes the remaining items; it may not erase them (DeepSeek final-r2 N3).
-    # The report keeps a non-empty list and the manifest its section with at
-    # least one item, and check() refuses any of them still marked pending.
+    # A may not erase the remaining items (DeepSeek final-r2 N3). What is checked
+    # (DeepSeek final-r3 N1): the report keeps a non-empty list and the manifest
+    # its section with at least one list item; check() refuses any item still
+    # marked pending. Whether each item is truly closed is the reviewer's call.
     remaining = new_evidence.get("remaining_before_approval")
     if not isinstance(remaining, list) or not remaining:
         raise ReleaseGateError(
-            f"the approval commit {approval} must close remaining_before_approval, not "
-            "empty or remove it: each item done, or waived and recorded as not run"
+            f"the approval commit {approval} must keep remaining_before_approval as a "
+            "non-empty list (none of its items may still be marked pending); it may not "
+            "empty or remove it"
         )
     manifest = f"docs/release-evidence-{base}.md"
     old = _blob(root, parent, manifest).decode("utf-8").split("\n")
@@ -1076,10 +1078,9 @@ def _check_approval(root: Path, base: str, parent: str, approval: str) -> None:
     ):
         raise ReleaseGateError(
             f"the approval commit {approval} must keep {manifest}'s Remaining before "
-            "approval section, with each item closed"
+            "approval section with at least one list item (none still marked pending)"
         )
     old_start, old_end = _remaining_section(old)
-    new_start, new_end = _remaining_section(new)
     old_rest = old[:old_start] + old[old_end:]
     new_rest = new[:new_start] + new[new_end:]
     if len(old_rest) > STATUS_LINE_INDEX and len(new_rest) > STATUS_LINE_INDEX:
