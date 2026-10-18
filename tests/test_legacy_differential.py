@@ -5,8 +5,9 @@ the type check (final-r19) changed what one of them meant -- a multi-value
 registry item with a ``uid`` on the entry AND among its first value's element
 attributes exported the value's uid at 58b80aa and was refused after. This
 test is the class: the 58b80aa loader is the oracle. Its ``gpp`` and
-``stored_types`` modules are read from git at that commit and run beside the
-current ones, and over generated combinations of every legacy shape -- uids
+``stored_types`` modules are vendored verbatim (`oracles.legacy_58b80aa`,
+with their provenance) and run beside the current ones, and over generated
+combinations of every legacy shape -- uids
 at entry and value level, missing and extra keys, every legacy key of the
 loader-key table -- it requires:
 
@@ -27,57 +28,45 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import hashlib
 import itertools
-import os
 import subprocess
-import sys
-import types
-from functools import cache
 from pathlib import Path
 from typing import Any
 
 import pytest
+from oracles import legacy_58b80aa
 from writer_corpus import synthetic_collections
 
 from gpo_studio import gpp
 from gpo_studio.gpp import GppCollection, gpp_collection_to_dict
 from gpo_studio.stored_types import LEGACY_KEYS, check_stored
 
-ORACLE = "58b80aa"
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@cache
 def _oracle() -> Any:
-    """The 58b80aa ``gpp`` module, with its own 58b80aa ``stored_types``."""
+    """The vendored 58b80aa loader (`oracles.legacy_58b80aa`): no git needed."""
+    return legacy_58b80aa.gpp()
 
-    def show(path: str) -> str:
+
+def test_the_vendored_oracle_is_the_commit() -> None:
+    """Each vendored file is the 58b80aa blob byte for byte -- checked against
+    git where the commit is in the checkout (skipped where it is not: a
+    shallow or squashed history; the recorded digest is checked on every
+    load regardless)."""
+    for name, (path, digest) in legacy_58b80aa.SOURCES.items():
         try:
-            return subprocess.run(
-                ["git", "show", f"{ORACLE}:{path}"],
+            blob = subprocess.run(
+                ["git", "show", f"{legacy_58b80aa.COMMIT}:{path}"],
                 cwd=ROOT,
                 capture_output=True,
                 check=True,
-                text=True,
             ).stdout
-        except (OSError, subprocess.CalledProcessError) as error:
-            if os.environ.get("GITHUB_ACTIONS"):
-                raise  # CI checks out the full history: the oracle must load
-            pytest.skip(f"the {ORACLE} oracle needs git history ({error})")
-
-    sources = {
-        "gpo_studio._oracle_stored_types": show("src/gpo_studio/stored_types.py"),
-        "gpo_studio._oracle_gpp": show("src/gpo_studio/gpp.py").replace(
-            "from .stored_types import", "from ._oracle_stored_types import"
-        ),
-    }
-    module = None
-    for name, source in sources.items():
-        module = types.ModuleType(name)
-        module.__package__ = "gpo_studio"
-        sys.modules[name] = module
-        exec(compile(source, f"{ORACLE}:{name}", "exec"), module.__dict__)  # noqa: S102
-    return module
+        except (OSError, subprocess.CalledProcessError):
+            pytest.skip(f"commit {legacy_58b80aa.COMMIT[:7]} is not in this checkout")
+        assert hashlib.sha256(blob).hexdigest() == digest, path
+        assert legacy_58b80aa.vendored_bytes(name) == blob, name
 
 
 def _corpus_item(key: str) -> dict[str, Any]:

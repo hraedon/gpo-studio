@@ -631,8 +631,14 @@ Operator-facing:
     (`POST /api/backups/import` with `replace_guid` and `expected_revision`:
     a new revision whose content is wholly the import, with its freshly
     minted provenance records; refused for a backup of another source GPO);
-    or delete it (`DELETE /api/gpos/{guid}`, which deletes only such a GPO,
-    logged). A test plants a named loader refusal -- the collection reads
+    or delete it (`DELETE /api/gpos/{guid}?confirm={guid}`, which deletes
+    only such a GPO and only with its guid repeated as `confirm`). The
+    deletion is not lossy: in its transaction every stored row of the GPO --
+    head, every revision snapshot with the provenance records inside it, the
+    retained documents they reference -- is copied byte for byte into
+    additive `deleted_*` archive tables (created on first use; the schema
+    version is unchanged), and docs/workspace-recovery.md gives the restore
+    script, which a test runs as written. A test plants a named loader refusal -- the collection reads
     empty -- in revision 1 and walks every artifact refusal, the refused
     edit, fork, restore and plain re-import, then both recoveries.
   - **The answer built before a commit is handed back through the request
@@ -651,8 +657,10 @@ Operator-facing:
     old loader's promotions (an element `uid`, a value `default`) as it made
     them, reads a bare targeting array's predicates by their three keys only,
     and requires a stored predicate's `negate` and `value` as every loader
-    before did. A differential test loads the 58b80aa `gpp` and
-    `stored_types` from git as an oracle and, over 835 generated legacy cases
+    before did. A differential test runs the 58b80aa `gpp` and
+    `stored_types` -- vendored verbatim under tests/oracles with their
+    provenance and blob digests, checked against git where the commit is
+    present, so the test needs no history -- as an oracle and, over 835 generated legacy cases
     (uids at entry and value level, missing and extra keys, every legacy key
     of the loader-key table), requires the same model and identical bytes
     wherever the old loader accepted well-typed input, a refusal wherever it

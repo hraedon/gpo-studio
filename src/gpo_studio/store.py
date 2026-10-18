@@ -1178,11 +1178,32 @@ class WorkspaceStore:
         *,
         identity: Identity | str,
         reason: str,
+        confirm: str | None,
     ) -> None:
         """Delete a GPO whose read replaced a stored value -- one of its
         recoveries (Sol final-r20 B1). Deleting persists nothing, so no default
-        is stored in a value's place; the deletion is logged. A readable GPO
-        is not deleted here: Studio has no general GPO deletion."""
+        is stored in a value's place. A readable GPO is not deleted here:
+        Studio has no general GPO deletion.
+
+        Not lossy (final-r20 ruling): *confirm* must repeat the GPO's guid
+        exactly, and every stored row of the GPO -- its head, every revision
+        (each snapshot, the provenance records inside it) and the retained
+        documents they reference -- is copied, byte for byte, into the
+        ``deleted_*`` archive tables in the same transaction as the deletion,
+        so an operator can audit it and put it back
+        (docs/workspace-recovery.md)."""
+        if confirm != guid:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="delete_confirmation_required",
+                    message=(
+                        "Deleting a GPO needs its guid repeated as confirm=<guid>; the GPO "
+                        "is archived, not lost (docs/workspace-recovery.md)."
+                    ),
+                    path="confirm",
+                )
+            ])
         self._delete(guid, expected_revision, identity=identity, reason=reason, starter=False)
 
     def delete_starter_gpo(
@@ -1228,12 +1249,15 @@ class WorkspaceStore:
                     expected_revision=expected_revision,
                     current_revision=current.revision,
                 )
+            deleted_at = _now()
             try:
                 self._connection.execute("BEGIN IMMEDIATE")
+                if not starter:
+                    self._archive_rows(current.guid, deleted_at)
                 self._connection.execute(
                     """INSERT INTO deletion_log(guid, name, actor, reason, revision, deleted_at)
                        VALUES(?,?,?,?,?,?)""",
-                    (current.guid, current.name, actor, reason, current.revision, _now()),
+                    (current.guid, current.name, actor, reason, current.revision, deleted_at),
                 )
                 self._connection.execute(
                     "DELETE FROM revisions WHERE gpo_guid = ?",
@@ -1257,6 +1281,62 @@ class WorkspaceStore:
                     self._connection.execute("ROLLBACK")
                 self._map_sqlite_error(exc)
                 raise
+
+    def _archive_rows(self, guid: str, deleted_at: str) -> None:
+        """Copy every stored row of *guid* into the ``deleted_*`` archive
+        tables; call inside the deletion's transaction.
+
+        The tables are additive -- created on first use, read by nothing in
+        Studio, so the schema version is unchanged and an older build opens
+        the workspace as before. Each copies its source table's columns as
+        they are (``INSERT ... SELECT``), plus ``deleted_at``."""
+        connection = self._connection
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS deleted_gpos (
+                guid TEXT NOT NULL, name TEXT NOT NULL, revision INTEGER NOT NULL,
+                snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+                deleted_at TEXT NOT NULL, PRIMARY KEY (guid, deleted_at))"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS deleted_revisions (
+                gpo_guid TEXT NOT NULL, revision INTEGER NOT NULL, actor TEXT NOT NULL,
+                reason TEXT NOT NULL, created_at TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+                deleted_at TEXT NOT NULL, PRIMARY KEY (gpo_guid, revision, deleted_at))"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS deleted_snapshot_documents (
+                gpo_guid TEXT NOT NULL, revision INTEGER NOT NULL, digest TEXT NOT NULL,
+                deleted_at TEXT NOT NULL, PRIMARY KEY (gpo_guid, revision, digest, deleted_at))"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS deleted_retained_documents (
+                digest TEXT PRIMARY KEY, content_base64 TEXT NOT NULL,
+                byte_length INTEGER NOT NULL)"""
+        )
+        connection.execute(
+            """INSERT INTO deleted_gpos
+               SELECT guid, name, revision, snapshot_json, updated_at, ?
+               FROM gpos WHERE guid = ?""",
+            (deleted_at, guid),
+        )
+        connection.execute(
+            """INSERT INTO deleted_revisions
+               SELECT gpo_guid, revision, actor, reason, created_at, snapshot_json, ?
+               FROM revisions WHERE gpo_guid = ?""",
+            (deleted_at, guid),
+        )
+        connection.execute(
+            """INSERT INTO deleted_snapshot_documents
+               SELECT gpo_guid, revision, digest, ? FROM snapshot_documents
+               WHERE gpo_guid = ?""",
+            (deleted_at, guid),
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO deleted_retained_documents
+               SELECT digest, content_base64, byte_length FROM retained_documents
+               WHERE digest IN (SELECT digest FROM snapshot_documents WHERE gpo_guid = ?)""",
+            (guid,),
+        )
 
     def import_baseline_gpos(
         self,

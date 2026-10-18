@@ -168,3 +168,6 @@ PSScriptAnalyzerSettings.psd1 text eol=lf
 eslint.config.mjs text eol=lf
 playwright.config.mjs text eol=lf
 vitest.config.mjs text eol=lf
+# The vendored 58b80aa loader (tests/oracles/legacy_58b80aa.py): its bytes are
+# checked against the recorded SHA-256 of the git blob, which is LF.
+tests/oracles/legacy_58b80aa/*.txt text eol=lf

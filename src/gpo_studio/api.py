@@ -3342,12 +3342,22 @@ def delete_starter_gpo(
 
 
 @app.delete("/api/gpos/{guid}", status_code=204)
-def delete_gpo(request: Request, guid: str, body: DeleteMutation) -> Response:
+def delete_gpo(
+    request: Request,
+    guid: str,
+    body: DeleteMutation,
+    confirm: str | None = Query(default=None, max_length=64),
+) -> Response:
     """Delete a GPO whose stored values cannot be read: one of its recoveries
-    (final-r20). Any other GPO is refused (422); Studio has no general GPO
-    deletion."""
+    (final-r20). ``confirm`` must repeat the guid; every stored row is archived
+    first (`WorkspaceStore.delete_gpo`, docs/workspace-recovery.md). Any other
+    GPO is refused (422); Studio has no general GPO deletion."""
     _store(request).delete_gpo(
-        guid, body.expected_revision, identity=_identity(body.actor), reason=body.reason
+        guid,
+        body.expected_revision,
+        identity=_identity(body.actor),
+        reason=body.reason,
+        confirm=confirm,
     )
     return Response(status_code=204)
 

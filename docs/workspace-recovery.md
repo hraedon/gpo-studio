@@ -152,6 +152,86 @@ can still go back to the older release.
 The Windows commands for this procedure are in the
 [Windows quickstart](windows-quickstart.md#roll-back-an-upgrade).
 
+## GPOs whose stored values cannot be read
+
+A GPO whose stored values Studio cannot read -- of the wrong type, missing,
+out of range, or an import record or preference collection the loader refuses
+-- is read with each such value replaced by its default and reported as
+`stored_value_wrong_type`. Studio then neither exports nor changes it: storing
+it again would store the default in the value's place. It has three
+recoveries, and the validation message names each:
+
+1. **Restore an earlier revision that does not hold the value**
+   (`POST /api/gpos/{guid}/revisions/{revision}/restore`). A revision that
+   holds it is refused like the head.
+2. **Replace the GPO from a fresh import of its source backup**:
+   `POST /api/backups/import` with `replace_guid` (the GPO) and
+   `expected_revision`. The new revision's content is wholly the import, with
+   freshly minted provenance records; earlier revisions are kept as they were.
+   Only a backup of the GPO's own source GPO is accepted.
+3. **Delete the GPO**: `DELETE /api/gpos/{guid}?confirm={guid}` with
+   `expected_revision`, `actor` and `reason` in the body. Studio deletes only a
+   GPO in this state, and only with the guid repeated as `confirm`.
+
+### What a deletion keeps
+
+Deleting is not lossy. In the same transaction as the deletion, every stored
+row of the GPO is copied, byte for byte, into archive tables, and the
+deletion is logged in `deletion_log`:
+
+| Archive table | Copied from | Holds |
+|---|---|---|
+| `deleted_gpos` | `gpos` | the head snapshot |
+| `deleted_revisions` | `revisions` | every revision: actor, reason, time, snapshot |
+| `deleted_snapshot_documents` | `snapshot_documents` | which documents each snapshot references |
+| `deleted_retained_documents` | `retained_documents` | the referenced retained XML documents |
+
+Each archive row carries the deletion's `deleted_at`. A GPO's provenance
+records live inside its snapshots (each preference collection's
+`retained_provenance`), so they are archived with them. Studio never reads the
+archive tables; they are created on the first deletion and do not change the
+schema version.
+
+### Putting a deleted GPO back
+
+1. Stop GPO Studio and take a backup of the workspace file
+   ([Create a backup](#create-a-backup)).
+2. Find the deletion: `SELECT guid, name, deleted_at FROM deletion_log;`
+3. If another GPO has since taken the deleted GPO's name, rename that one
+   first: names are unique.
+4. Run this script in one transaction with any SQLite client, binding `:guid`
+   and `:deleted_at` to the deletion's values (Python's `sqlite3` module:
+   `connection.execute(statement, {"guid": ..., "deleted_at": ...})` for each
+   statement, then `connection.commit()`):
+
+```sql
+INSERT INTO retained_documents (digest, content_base64, byte_length)
+    SELECT digest, content_base64, byte_length FROM deleted_retained_documents
+    WHERE digest IN (
+        SELECT digest FROM deleted_snapshot_documents
+        WHERE gpo_guid = :guid AND deleted_at = :deleted_at
+    )
+    AND digest NOT IN (SELECT digest FROM retained_documents);
+INSERT INTO gpos (guid, name, revision, snapshot_json, updated_at)
+    SELECT guid, name, revision, snapshot_json, updated_at FROM deleted_gpos
+    WHERE guid = :guid AND deleted_at = :deleted_at;
+INSERT INTO revisions (gpo_guid, revision, actor, reason, created_at, snapshot_json)
+    SELECT gpo_guid, revision, actor, reason, created_at, snapshot_json
+    FROM deleted_revisions
+    WHERE gpo_guid = :guid AND deleted_at = :deleted_at;
+INSERT INTO snapshot_documents (gpo_guid, revision, digest)
+    SELECT gpo_guid, revision, digest FROM deleted_snapshot_documents
+    WHERE gpo_guid = :guid AND deleted_at = :deleted_at;
+DELETE FROM deletion_log WHERE guid = :guid AND deleted_at = :deleted_at;
+```
+
+5. Start GPO Studio and run a full integrity check. The GPO is back exactly
+   as it was deleted -- still unreadable in the same values, so use one of the
+   other two recoveries next. The archive rows stay as the audit record.
+
+`tests/test_stored_recovery.py` runs this script, exactly as written here,
+after a deletion and checks that every row came back byte for byte.
+
 ## Integrity check procedures
 
 ### Quick check

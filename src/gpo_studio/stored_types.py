@@ -499,7 +499,8 @@ STORED_WRONG_TYPE = "stored value of the wrong type"
 RECOVERIES = (
     "restore an earlier revision that does not hold it, replace the GPO from a "
     "fresh import of its source backup (the backup import with replace_guid and "
-    "expected_revision), or delete the GPO"
+    "expected_revision), or delete the GPO (confirm=<guid>; every stored row is "
+    "archived, docs/workspace-recovery.md)"
 )
 
 

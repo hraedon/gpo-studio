@@ -158,24 +158,140 @@ def test_an_unreadable_first_revision_is_recovered_by_a_replacing_import(
     ).status_code == 200
 
 
-def test_an_unreadable_gpo_can_be_deleted_and_only_such_a_gpo(workspace: Any) -> None:
+def _rows(store: WorkspaceStore, guid: str) -> dict[str, list[tuple[Any, ...]]]:
+    """Every stored row of *guid*, as stored."""
+    connection = store._connection
+    return {
+        "gpos": [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT guid, name, revision, snapshot_json, updated_at FROM gpos WHERE guid=?",
+                (guid,),
+            )
+        ],
+        "revisions": [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT gpo_guid, revision, actor, reason, created_at, snapshot_json "
+                "FROM revisions WHERE gpo_guid=? ORDER BY revision",
+                (guid,),
+            )
+        ],
+        "snapshot_documents": [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT gpo_guid, revision, digest FROM snapshot_documents WHERE gpo_guid=? "
+                "ORDER BY revision, digest",
+                (guid,),
+            )
+        ],
+        "retained_documents": [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT digest, content_base64, byte_length FROM retained_documents WHERE digest "
+                "IN (SELECT digest FROM snapshot_documents WHERE gpo_guid=?) ORDER BY digest",
+                (guid,),
+            )
+        ],
+    }
+
+
+def _archived(store: WorkspaceStore, guid: str) -> dict[str, list[tuple[Any, ...]]]:
+    connection = store._connection
+    return {
+        "gpos": [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT guid, name, revision, snapshot_json, updated_at FROM deleted_gpos "
+                "WHERE guid=?",
+                (guid,),
+            )
+        ],
+        "revisions": [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT gpo_guid, revision, actor, reason, created_at, snapshot_json "
+                "FROM deleted_revisions WHERE gpo_guid=? ORDER BY revision",
+                (guid,),
+            )
+        ],
+        "snapshot_documents": [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT gpo_guid, revision, digest FROM deleted_snapshot_documents "
+                "WHERE gpo_guid=? ORDER BY revision, digest",
+                (guid,),
+            )
+        ],
+        "retained_documents": [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT digest, content_base64, byte_length FROM deleted_retained_documents "
+                "WHERE digest IN (SELECT digest FROM deleted_snapshot_documents "
+                "WHERE gpo_guid=?) ORDER BY digest",
+                (guid,),
+            )
+        ],
+    }
+
+
+def _restore_script() -> list[str]:
+    """The restore script of docs/workspace-recovery.md, exactly as written."""
+    text = (Path(__file__).resolve().parents[1] / "docs" / "workspace-recovery.md").read_text(
+        encoding="utf-8"
+    )
+    section = text.split("### Putting a deleted GPO back", 1)[1]
+    script = section.split("```sql\n", 1)[1].split("```", 1)[0]
+    return [statement.strip() for statement in script.split(";") if statement.strip()]
+
+
+def test_an_unreadable_gpo_is_deleted_only_confirmed_and_archived_whole(
+    workspace: Any,
+) -> None:
+    """The delete recovery is not lossy (final-r20 ruling): it needs the guid
+    repeated as ``confirm``, refuses a readable GPO, and archives every stored
+    row -- head, every revision, the retained documents -- byte for byte; the
+    runbook's restore script puts the GPO back exactly."""
     client, store, tmp_path = workspace
     imported = _import(client, _inbox(tmp_path, "WI01A-DriveMaps-GPMC"))
     guid = imported.json()["gpo"]["guid"]
     clean = client.post("/api/gpos", json={"name": "Clean", **AUDIT}).json()["gpo"]
-    refused = client.request(
-        "DELETE", f"/api/gpos/{clean['guid']}", json={**AUDIT, "expected_revision": 1}
-    )
+
+    def delete(target: str, revision: int, confirm: str | None) -> Any:
+        query = "" if confirm is None else f"?confirm={confirm}"
+        return client.request(
+            "DELETE",
+            f"/api/gpos/{target}{query}",
+            json={**AUDIT, "expected_revision": revision},
+        )
+
+    refused = delete(clean["guid"], 1, clean["guid"])
     assert refused.status_code == 422
     assert {i["code"] for i in refused.json()["error"]["issues"]} == {"gpo_delete_not_a_recovery"}
     _unreadable_from_revision_1(store, guid)
-    stale = client.request("DELETE", f"/api/gpos/{guid}", json={**AUDIT, "expected_revision": 9})
-    assert stale.status_code == 409
-    deleted = client.request("DELETE", f"/api/gpos/{guid}", json={**AUDIT, "expected_revision": 1})
-    assert deleted.status_code == 204
+    for confirm in (None, "", clean["guid"], guid.upper()):
+        unconfirmed = delete(guid, 1, confirm)
+        assert unconfirmed.status_code == 422, confirm
+        codes = {i["code"] for i in unconfirmed.json()["error"]["issues"]}
+        assert codes == {"delete_confirmation_required"}, confirm
+    assert delete(guid, 9, guid).status_code == 409
+    before = _rows(store, guid)
+    assert before["gpos"] and before["revisions"] and before["retained_documents"]
+    assert delete(guid, 1, guid).status_code == 204
     assert client.get(f"/api/gpos/{guid}").status_code == 404
-    assert [entry["guid"] for entry in store.deletion_log()] == [guid]
+    assert _rows(store, guid) == {key: [] for key in before}
+    assert _archived(store, guid) == before  # byte-equal: every column as stored
+    ((deleted_at,),) = store._connection.execute(
+        "SELECT deleted_at FROM deletion_log WHERE guid=?", (guid,)
+    ).fetchall()
     assert client.get(f"/api/gpos/{clean['guid']}").status_code == 200
+    # The runbook's restore puts it back exactly as it was.
+    for statement in _restore_script():
+        store._connection.execute(statement, {"guid": guid, "deleted_at": deleted_at})
+    store._connection.commit()
+    assert _rows(store, guid) == before
+    assert store.deletion_log() == []
+    assert client.get(f"/api/gpos/{guid}").status_code == 200
 
 
 # ---------------------------------------------------------------------------

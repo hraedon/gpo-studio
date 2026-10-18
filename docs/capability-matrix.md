@@ -442,8 +442,10 @@ remain historical records for their original revisions.
   a new revision, instead of creating a GPO. Only a GPO imported from the same
   source GPO can be replaced (`replace_source_mismatch` otherwise). It is a
   recovery for a GPO whose stored values Studio cannot read, alongside
-  restoring a readable revision and `DELETE /api/gpos/{guid}` (which deletes
-  only such a GPO); earlier revisions are kept as they were.
+  restoring a readable revision and `DELETE /api/gpos/{guid}?confirm={guid}`
+  (which deletes only such a GPO, archiving every stored row first; see
+  [workspace recovery](workspace-recovery.md#gpos-whose-stored-values-cannot-be-read));
+  earlier revisions are kept as they were.
 - **Source inventory.** Native imports keep the exact `Backup.xml` and optional
   `gpreport.xml` bytes, plus every payload file's path, size and hash.
   `GET /api/gpos/{guid}/report.txt` includes this inventory, including
