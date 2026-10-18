@@ -189,6 +189,15 @@ Operator-facing:
   long description); the release gate refuses an approved release that still
   lists an item as pending; and its remote-tag check accepts the annotated tag
   object as well as the commit, for whichever `GITHUB_SHA` carries.
+- After the second review (final-r2): the sdist no longer ships `tests/` either
+  (it shipped tests without a fixture they read; nothing runs the sdist's
+  tests); malformed JSON that Python itself cannot decode (an integer past the
+  digit limit, nesting past the recursion limit) is a clean gate refusal, not a
+  traceback; the approval commit must keep both remaining-item lists, every
+  item closed, rather than delete them; an empty commit between the freeze
+  commit and the tag is refused; and the records say plainly which pack files
+  the gate refuses (importable modules and `.pth` files) and why archives are
+  allowed.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

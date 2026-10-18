@@ -345,7 +345,7 @@
       "owner's hands-on NVDA acceptance: waived for 1.1.0 by the owner on 2026-10-17; not run",
       "freeze commit F with __version__ 1.1.0 and the preparation release-evidence-1.1.0.md lists (pending)",
       "all 26 live lanes requalified at F in one batch, banked in commit B whose parent is F, evidence and records only, with freeze set in this report (pending)",
-      "automated evidence from the tagged release workflow run: job run ids, coverage, artifact hashes (pending)",
+      "automated evidence from the tagged release workflow run (job run ids, coverage, artifact hashes): recorded by that run in the release assets, after A; not a precondition of approval",
       "final approval in a records-only commit A after B: version 1.1.0, status approved, manifest line 5; tag v1.1.0 on A, on main (pending)"
     ]
   }

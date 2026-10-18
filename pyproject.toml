@@ -214,7 +214,10 @@ exclude = [
   "/docs/work-items.md",
   "/docs/release-evidence-*.md",
   "/docs/release-evidence-report-*.json",
-  "/tests/fixtures/scenarios/platforms.json",
+  # The tests, platforms.json among them: an sdist that left out a fixture the
+  # tests read would carry a suite that cannot run. Nothing runs the sdist's
+  # tests (CI and the release workflow test the checkout), so none ship.
+  "/tests/",
 ]
 
 [tool.mypy]

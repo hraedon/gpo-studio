@@ -16,8 +16,9 @@ permissions:
 #                     as a candidate for an -rc tag); for a final tag, the
 #                     commit differs from the report's freeze commit only in
 #                     the batch's evidence and the release records, and every
-#                     live verdict was earned at that freeze commit; the
-#                     commit is on main;
+#                     live verdict is the batch's run recorded at that freeze
+#                     commit (the gate does not authenticate the estate run;
+#                     see check_release_manifest.py); the commit is on main;
 #   ci                every ci.yml job passes, including test-windows;
 #   identifier-gate   the committed-identifier gate passes;
 #   verify            the release gates below pass.

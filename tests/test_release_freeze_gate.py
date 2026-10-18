@@ -462,7 +462,8 @@ def test_a_file_python_could_load_in_a_pack_is_refused(tmp_path: Path) -> None:
     plan = Plan(batch=add_hash, extra_banked={
         f"docs/plan-033/{LANES['endpoint']}/{LABEL}/endpoint/conftest.py": payload,
     })
-    with pytest.raises(gate.ReleaseGateError, match="Python could load: \\['conftest.py'\\]"):
+    refusal = "importable modules or .pth files: \\['conftest.py'\\]"
+    with pytest.raises(gate.ReleaseGateError, match=refusal):
         _verify(_build(tmp_path, plan))
 
 
@@ -603,6 +604,36 @@ def test_a_merge_after_the_freeze_is_refused(history: History) -> None:
     _git(history.root, "merge", "-q", "--no-edit", "side")
     _commit(history.root, approval, "A")
     with pytest.raises(gate.ReleaseGateError, match="not a single-parent child"):
+        _verify(history)
+
+
+def test_an_empty_commit_after_the_freeze_is_refused(history: History) -> None:
+    """DeepSeek final-r2 N4: every commit from F to the tag must change something."""
+    approval = _files_of(history, history.approved)
+    _rebuild_on(history, history.banked, [{}, approval])
+    with pytest.raises(gate.ReleaseGateError, match="changes nothing"):
+        _verify(history)
+
+
+@pytest.mark.parametrize("erase", ["section", "report-list"])
+def test_an_approval_that_erases_the_remaining_items_is_refused(
+    history: History, erase: str
+) -> None:
+    """DeepSeek final-r2 N3: A closes the remaining items; it may not delete them."""
+    approval = _files_of(history, history.approved)
+    if erase == "section":
+        text = approval[MANIFEST]
+        lines = (text.decode() if isinstance(text, bytes) else str(text)).split("\n")
+        start, end = gate._remaining_section(lines)
+        approval[MANIFEST] = "\n".join(lines[:start] + lines[end:])
+        message = "must keep .* Remaining before approval section"
+    else:
+        report = json.loads(approval[REPORT])  # type: ignore[arg-type]
+        report["evidence"]["remaining_before_approval"] = []
+        approval[REPORT] = _json(report)
+        message = "must close remaining_before_approval, not empty or remove it"
+    _rebuild_on(history, history.banked, [approval])
+    with pytest.raises(gate.ReleaseGateError, match=message):
         _verify(history)
 
 

@@ -2263,7 +2263,7 @@ REVIEWED_TOOL: dict[str, Any] = {
                         "/docs/work-items.md",
                         "/docs/release-evidence-*.md",
                         "/docs/release-evidence-report-*.json",
-                        "/tests/fixtures/scenarios/platforms.json",
+                        "/tests/",
                     ]
                 },
             }

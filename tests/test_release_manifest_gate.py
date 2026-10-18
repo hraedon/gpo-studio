@@ -541,6 +541,32 @@ def test_malformed_or_ambiguous_json_is_refused(tmp_path: Path, raw: str) -> Non
         gate.check(root, "v1.1.0")
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"report_type": ' + "1" * 5000 + "}",
+        "[" * 200_000 + "]" * 200_000,
+    ],
+    ids=["integer-past-the-digit-limit", "nesting-past-the-recursion-limit"],
+)
+def test_json_python_cannot_decode_is_a_clean_refusal(
+    tmp_path: Path, raw: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sol N3 / DeepSeek N2 (final-r2): ValueError and RecursionError are refusals."""
+    with pytest.raises(gate.ReleaseGateError, match="cannot read it as JSON"):
+        gate._json_bytes(raw.encode(), "probe")
+    problems, _ = gate.report_problems(raw.encode(), "docs/release-evidence-1.1.0.md")
+    assert problems and problems[0].startswith("not valid UTF-8 JSON")
+    root = _root(tmp_path, "1.1.0")
+    _release(root, "1.1.0")
+    (root / "docs" / "release-evidence-report-1.1.0.json").write_text(
+        raw, encoding="utf-8", newline="\n"
+    )
+    assert gate.main(["--tag", "v1.1.0", "--root", str(root)]) == 1
+    error = capsys.readouterr().err
+    assert error.startswith("release gate: FAIL: ") and "Traceback" not in error
+
+
 def test_a_duplicate_status_key_is_named(tmp_path: Path) -> None:
     root = _root(tmp_path, "1.1.0")
     _release(root, "1.1.0")

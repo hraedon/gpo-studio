@@ -62,9 +62,10 @@ needs full history and tags (``fetch-depth: 0``):
 * the tagged tree is ``F``'s except for those files: ``src/``, ``scripts/``,
   ``pyproject.toml``, ``uv.lock``, ``.github/``, ``.gitattributes``,
   ``README.md``, ``CHANGELOG.md`` and every test are byte-identical to ``F``.
-  Every changed path is a regular file (mode 100644); no pack banks a file
-  Python could load; every changed record is UTF-8 with no byte-order mark or
-  coding declaration;
+  Every changed path is a regular file (mode 100644); no pack banks an
+  importable source or extension module or a ``.pth`` file (archives such as
+  ``candidate.zip`` are evidence, and no pack directory is on ``sys.path``);
+  every changed record is UTF-8 with no byte-order mark or coding declaration;
 * the verdict tables are data (:data:`REGISTRY`): ``F``'s entries unchanged,
   the batch's verdicts added with the finalizer the lane had at ``F``, nothing
   pending;
@@ -306,8 +307,8 @@ def report_problems(data: bytes, manifest_rel: str) -> tuple[list[str], dict[str
             object_pairs_hook=_no_duplicates,
             parse_constant=_reject_constant,
         )
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        return [f"not valid UTF-8 JSON: {error}"], {}
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as error:
+        return [f"not valid UTF-8 JSON: {error!r}"[:500]], {}
     except ReleaseGateError as error:
         return [str(error)], {}
     if not isinstance(report, dict):
@@ -741,8 +742,13 @@ _PACK_VERDICT = re.compile(
     r"^(?:wp0|wp1b|wp2|wp3|wp4|wp6|wp7|wp9)-evidence/(?P<label>[a-z0-9][a-z0-9.-]*)/"
     r"(?P<lane>[a-z0-9][a-z0-9-]*)/(?P<file>verification|manifest)\.json$"
 )
-#: Python could load these; no manifest-form pack banks one (the pre-manifest
-#: packs that banked source copies are history), so a new pack never may.
+#: Importable source and extension modules, and .pth path hooks. No
+#: manifest-form pack banks one (the pre-manifest packs that banked source copies
+#: are history), so a new pack never may. Archives are allowed and must be: real
+#: packs bank the builder's `candidate.zip` and `fdeploy-cases.zip`. A zip is
+#: importable only from a directory on sys.path, and none of these is: no code at
+#: the tag adds a pack directory to it, every test is byte-identical to F, and
+#: both distributions exclude the packs (DeepSeek final-r2 N1).
 _LOADABLE = re.compile(r"\.(?:py|pyc|pyo|pyd|pyw|pth|so)$", re.IGNORECASE)
 #: The post-batch directory check's two files, relative to docs/plan-033.
 _CLEANUP_FILE = re.compile(r"^[a-z0-9][a-z0-9.-]*-cleanup/(?:collector\.ps1|directory\.json)$")
@@ -789,8 +795,13 @@ def _json_bytes(data: bytes, where: str, *, bom: bool = False) -> Any:
             object_pairs_hook=_no_duplicates,
             parse_constant=_reject_constant,
         )
-    except (UnicodeDecodeError, json.JSONDecodeError, ReleaseGateError) as error:
-        raise ReleaseGateError(f"{where}: cannot read it as JSON: {error}") from error
+    except (
+        UnicodeDecodeError, json.JSONDecodeError, ReleaseGateError, ValueError, RecursionError
+    ) as error:
+        # ValueError: an integer past Python's digit limit; RecursionError: nesting
+        # deeper than the decoder recurses (Sol and DeepSeek final-r2). Both are a
+        # refusal like any other malformed JSON, never a traceback.
+        raise ReleaseGateError(f"{where}: cannot read it as JSON: {error!r}"[:500]) from error
 
 
 def _json_file(path: Path, where: str, *, bom: bool = False) -> Any:
@@ -898,7 +909,7 @@ def _batch(root: Path, relative: str, freeze: str) -> _Batch:
         loadable = sorted(k for k in files if _LOADABLE.search(k))
         if loadable:
             raise ReleaseGateError(
-                f"lane {name!r}: the pack banks files Python could load: {loadable}"
+                f"lane {name!r}: the pack banks importable modules or .pth files: {loadable}"
             )
         labels.add(match["label"])
         by_lane[name] = run
@@ -1047,9 +1058,26 @@ def _check_approval(root: Path, base: str, parent: str, approval: str) -> None:
             f"the approval commit {approval} changes the report beyond status, version and "
             "evidence.remaining_before_approval"
         )
+    # A closes the remaining items; it may not erase them (DeepSeek final-r2 N3).
+    # The report keeps a non-empty list and the manifest its section with at
+    # least one item, and check() refuses any of them still marked pending.
+    remaining = new_evidence.get("remaining_before_approval")
+    if not isinstance(remaining, list) or not remaining:
+        raise ReleaseGateError(
+            f"the approval commit {approval} must close remaining_before_approval, not "
+            "empty or remove it: each item done, or waived and recorded as not run"
+        )
     manifest = f"docs/release-evidence-{base}.md"
     old = _blob(root, parent, manifest).decode("utf-8").split("\n")
     new = _blob(root, approval, manifest).decode("utf-8").split("\n")
+    new_start, new_end = _remaining_section(new)
+    if new_start == len(new) or not any(
+        re.match(r"^(?:\d+\.|-) \S", line) for line in new[new_start:new_end]
+    ):
+        raise ReleaseGateError(
+            f"the approval commit {approval} must keep {manifest}'s Remaining before "
+            "approval section, with each item closed"
+        )
     old_start, old_end = _remaining_section(old)
     new_start, new_end = _remaining_section(new)
     old_rest = old[:old_start] + old[old_end:]
@@ -1091,7 +1119,15 @@ def _check_history(
     for index, commit in enumerate(commits):
         parent = freeze if index == 0 else commits[index - 1]
         refused = []
-        for status, mode, path in _changes(root, parent, commit):
+        changes = _changes(root, parent, commit)
+        if not changes:
+            # Strict default (DeepSeek final-r2 N4): every commit after F changes
+            # something it may change; an empty one is refused, not tolerated.
+            raise ReleaseGateError(
+                f"commit {commit} changes nothing; every commit from the freeze commit to "
+                "the tag must bank, record or approve"
+            )
+        for status, mode, path in changes:
             if mode != "100644":
                 refused.append(f"{status} {path} (mode {mode})")
             elif index == 0 and status == "A" and path in banked:

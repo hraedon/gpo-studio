@@ -57,7 +57,7 @@ commit or action, in this order:
    path. Nothing else changes: no test (they read the current batch from
    `freeze`), no code, and neither `README.md` nor `CHANGELOG.md`, which ship
    in the distributions and so are final at F. Records-only commits may follow
-   B, before A.
+   B, before A; each must change a record (an empty commit is refused).
 4. **Approve, commit A, the last commit.** Records only, and only the
    approval: in the JSON report, set `"version"` to `1.1.0` and `"status"` to
    `"approved"`, and close every item of `remaining_before_approval`; in this
@@ -65,10 +65,12 @@ commit or action, in this order:
    `scripts/check_release_manifest.py` gives for `approved` (same prefix, ending
    in "approved for release"; it is not quoted here because the gate allows
    that line exactly once in this file) and close every item under
-   [Remaining before approval](#remaining-before-approval). Closed means done,
-   or, for the owner's NVDA acceptance, waived for 1.1.0 and recorded as not
-   run; the gate refuses an approved release that still lists anything as
-   pending.
+   [Remaining before approval](#remaining-before-approval). Closed means done;
+   for the owner's NVDA acceptance, waived for 1.1.0 and recorded as not run;
+   for the automated evidence, recorded by the tagged run after A. Both lists
+   stay, each item closed: the gate refuses an approved release that still
+   lists anything as pending, and an approval that empties or removes either
+   list.
 5. **Tag `v1.1.0` on A**, on `main`.
 
 The release gate holds the tag to this: for a final tag it refuses unless the
@@ -188,11 +190,13 @@ requires, on a full-history checkout:
   no uncommitted change to a tracked file;
 - the history from F to the tagged commit to be linear: the banking commit B,
   F's child, adds the batch (its packs, manifest and note, post-batch directory
-  check) and modifies only release records; any later commit modifies only
-  release records; the tagged commit is the approval commit A, the only commit
+  check) and modifies only release records; any later commit modifies at least
+  one release record and nothing else (an empty commit is refused); the tagged
+  commit is the approval commit A, the only commit
   whose report is approved, and it changes only the report's status, version
-  and remaining items and this file's line 5 and remaining section. A refusal
-  names the commit;
+  and remaining items and this file's line 5 and remaining section, keeping
+  both remaining lists, each with every item closed. A refusal names the
+  commit;
 - the tagged tree to differ from F only in those files. The release records
   are a closed list (`FREEZE_RECORDS` in the gate: the capability matrix, the
   work-item register, this file and the JSON report, the environment spec, the
@@ -200,9 +204,11 @@ requires, on a full-history checkout:
   registry), every one excluded from the distributions. Everything else,
   including `src/`, `scripts/`, `pyproject.toml`, `uv.lock`, `.github/`,
   `.gitattributes`, `README.md`, `CHANGELOG.md` and every test, must be
-  byte-identical to F. Every changed path is a regular file, no pack holds a
-  file Python could load, and every changed record is UTF-8 with no byte-order
-  mark or coding declaration;
+  byte-identical to F. Every changed path is a regular file, no pack banks an
+  importable source or extension module or a `.pth` file (archives such as the
+  builder's `candidate.zip` are evidence, and no pack directory is ever on the
+  import path), and every changed record is UTF-8 with no byte-order mark or
+  coding declaration;
 - the verdict registry to keep F's entries unchanged, add exactly the batch's
   verdicts, each with the finalizer its lane had at F (the finalizer is code
   the tests run), retire only verdicts registered at F, and owe nothing;
@@ -627,11 +633,14 @@ data. Each is pinned by a test:
    On 2026-10-17 the owner waived it for 1.1.0. It is recorded as not run,
    never as passed, here, under [Accessibility evidence](#accessibility-evidence)
    and in the JSON report.
-4. **Pending; does not block the candidate.** Fill in the automated-evidence
-   section from the tagged candidate run (run IDs of every required job, the
-   coverage summary, the artifact hashes), then finalize
-   `docs/release-evidence-report-1.1.0.json`. These come from the tagged run,
-   so they cannot be a prerequisite for creating it.
+4. **Recorded by the tagged run, not a precondition.** The automated evidence
+   (run IDs of every required job, the coverage summary, the artifact hashes)
+   comes from the release workflow run on the tag, so it cannot exist before
+   A. That run records it: `record_release_identity.py` writes the tag, the
+   source commit and the artifact hashes into the release assets
+   (`release-evidence.md`, `release-evidence-report.json`, `SHA256SUMS`), and
+   the job run IDs are the workflow run's own. A closes this item by saying
+   so.
 5. **Pending.** Approve in the order under
    [How this release is approved](#how-this-release-is-approved) (owner
    decision, 2026-10-17): freeze commit F with its preparation, the full batch

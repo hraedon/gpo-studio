@@ -47,13 +47,15 @@ gate = _gate()
 
 
 def _tree_copy(target: Path) -> None:
-    """Every file git would check out (tracked or new), but the banked evidence.
+    """Every tracked file, but the banked evidence.
 
-    The evidence packs are left out only to keep the copy small: the changed
-    tree adds a pack of its own, so the exclusion is still exercised.
+    Tracked only, so the copy does not depend on what else lies in the worktree
+    (Sol final-r2 N2: untracked review scratch made one run copy 7.7 GB). The
+    evidence packs are left out only to keep the copy small: the changed tree
+    adds a pack of its own, so the exclusion is still exercised.
     """
     listed = subprocess.run(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        ["git", "ls-files", "-z", "--cached"],
         cwd=ROOT, capture_output=True, check=True,
     ).stdout.decode("utf-8").split("\0")
     for relative in filter(None, listed):
