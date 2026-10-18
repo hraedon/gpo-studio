@@ -174,6 +174,9 @@ class Plan:
     #: lane -> commit its evidence tag names, or None for no tag; default F.
     tags: dict[str, str | None] = field(default_factory=dict)
     lightweight_tags: bool = False
+    #: F's verdicts are pending requalification, not live (a bound file changed
+    #: before F, as the final-r6 sweep did): the batch must still clear them.
+    pending_at_freeze: bool = False
 
 
 @dataclass
@@ -225,7 +228,10 @@ def _build(tmp_path: Path, plan: Plan | None = None) -> History:
         "schema_version": 1,
         "lane_verdicts": {_verdict_path(lane, "rc"): fin for lane, fin in FINALIZERS.items()},
         "retired_verdicts": [],
-        "pending_requalification": [],
+        "pending_requalification": (
+            sorted(_verdict_path(lane, "rc") for lane in FINALIZERS)
+            if plan.pending_at_freeze else []
+        ),
         "wp0_manifest": _verdict_path("wp0", "rc"),
     }
     common: dict[str, str | bytes | None] = {
@@ -314,6 +320,7 @@ def _build(tmp_path: Path, plan: Plan | None = None) -> History:
         _verdict_path(lane, LABEL): FINALIZERS[lane] for lane in plan.lanes if lane != "wp0"
     })
     registry["retired_verdicts"] = sorted(_verdict_path(lane, "rc") for lane in plan.retire)
+    registry["pending_requalification"] = []
     registry["wp0_manifest"] = _verdict_path("wp0", LABEL)
     if plan.registry is not None:
         plan.registry(registry)
@@ -861,6 +868,28 @@ def test_a_verdict_that_is_not_a_clean_pass_of_the_batch_run_is_refused(
 
     with pytest.raises(gate.ReleaseGateError, match=f"lane 'loopback-merge'.*{message}"):
         _verify(_build(tmp_path, Plan(verdict=changed)))
+
+
+def test_verdicts_pending_at_the_freeze_and_cleared_by_the_batch_pass(tmp_path: Path) -> None:
+    """Pending at F, re-run and retired in B: the shape the final-r6 sweep leaves."""
+    history = _build(tmp_path, Plan(pending_at_freeze=True))
+    registry = json.loads(subprocess.run(
+        ["git", "show", f"{history.freeze}:{REGISTRY}"], cwd=history.root,
+        env={**os.environ, **_GIT_ENV}, capture_output=True, check=True,
+    ).stdout)
+    assert registry["pending_requalification"]
+    _verify(history)
+
+
+def test_a_verdict_pending_at_the_freeze_must_be_retired_by_the_batch(tmp_path: Path) -> None:
+    with pytest.raises(gate.ReleaseGateError, match="must be retired by the batch"):
+        _verify(_build(tmp_path, Plan(pending_at_freeze=True, retire=("endpoint",))))
+
+
+def test_a_lane_pending_at_the_freeze_but_not_re_run_is_refused(tmp_path: Path) -> None:
+    plan = Plan(lanes=("wp0", "endpoint"), pending_at_freeze=True)
+    with pytest.raises(gate.ReleaseGateError, match=r"not re-run: \['loopback-merge'\]"):
+        _verify(_build(tmp_path, plan))
 
 
 def test_a_lane_live_at_the_freeze_but_not_re_run_is_refused(tmp_path: Path) -> None:

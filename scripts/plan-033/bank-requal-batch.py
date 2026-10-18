@@ -383,7 +383,9 @@ def _live_runs() -> dict[str, tuple[str, str]]:
     """Lane -> (run id, commit) for every live verdict, plus WP-0 by commit."""
     registry = runpy.run_path(str(REGISTRY))
     live: dict[str, tuple[str, str]] = {}
-    for relative in registry["LIVE_VERDICTS"]:
+    # Pending verdicts are still the current qualification the records cite; the
+    # batch that clears them retargets them like live ones.
+    for relative in [*registry["LIVE_VERDICTS"], *registry["PENDING_REQUALIFICATION"]]:
         verdict = json.loads((EVIDENCE / relative).read_text(encoding="utf-8-sig"))
         live[Path(relative).parent.name] = (verdict["run_id"], verdict["source"]["commit"])
     commits = {commit for _, commit in live.values()}

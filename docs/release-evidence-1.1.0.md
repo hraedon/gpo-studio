@@ -118,6 +118,12 @@ change to it, is done (2026-10-17, on the branch that added the gate):
 - `src/gpo_studio/api.py` names no run: the restore plan's `evidence` and the
   firewall limitation cite the lane and this document at the version's tag on
   GitHub, which names its certifying run; `README.md` names none either;
+- every release candidate verdict is pending requalification since 2026-10-17:
+  the whole-value validator sweep edited files every lane binds (identity
+  checks in `validation.py`, `publication.py`, `gpp_adapters.py` and the
+  shared `oracle_evidence.py` among them), so no verdict binds the tree that
+  ships until the batch at F re-runs every lane. The gate requires that batch
+  to retire them all;
 - `pyproject.toml` keeps every path that may change after F out of the sdist,
   and the wheel carries none of them, so the distributions built at the tag
   are the distributions built at F

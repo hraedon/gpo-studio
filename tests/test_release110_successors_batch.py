@@ -142,8 +142,9 @@ def test_the_six_replace_exactly_the_verdicts_the_fix_expired() -> None:
     successors = {r["verdict"] for r in SUCCESSORS["runs"]}
     replaced = {r["verdict"] for r in REPLACED.values()}
     assert replaced <= set(registry["RETIRED_VERDICTS"])
-    assert successors <= set(registry["LIVE_VERDICTS"])
-    for relative in set(registry["LIVE_VERDICTS"]) - successors:
+    current = set(registry["LIVE_VERDICTS"]) | set(registry["PENDING_REQUALIFICATION"])
+    assert successors <= current
+    for relative in current - successors:
         verdict = _load(EVIDENCE / relative)
         assert verdict["source"]["commit"] == RELEASE["source_commit"], relative
         assert not set(verdict["source"]["paths"]) & CHANGED, relative
@@ -152,10 +153,11 @@ def test_the_six_replace_exactly_the_verdicts_the_fix_expired() -> None:
         ["git", "diff", "--name-only", RELEASE["source_commit"], FROZEN],
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout.split())
-    for relative in set(registry["LIVE_VERDICTS"]) - successors:
+    for relative in current - successors:
         paths = set(_load(EVIDENCE / relative)["source"]["paths"].values())
         assert not paths & changed, relative
-    assert set(registry["PENDING_REQUALIFICATION"]) == set()
+    # Pending only what this qualification still owes the next batch.
+    assert set(registry["PENDING_REQUALIFICATION"]) <= current
 
 
 def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None:

@@ -273,6 +273,19 @@ def test_the_shipping_finalizer_writes_the_banked_verdict_again(
     assert all(regraded["checks"].values()), [
         name for name, ok in regraded["checks"].items() if not ok
     ]
+    registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
+    if VERDICT_PATH in registry["PENDING_REQUALIFICATION"]:
+        # Pending requalification: some bound file changed since the run, so its
+        # recorded digest is stale by definition and the re-grade records today's.
+        # Exactly those entries may differ; everything else must not.
+        drifted = sorted(
+            name
+            for name, digest in recorded["source"]["files"].items()
+            if regraded["source"]["files"].get(name) != digest
+        )
+        assert drifted, "a pending verdict whose bound files all still match is live"
+        for name in drifted:
+            regraded["source"]["files"][name] = recorded["source"]["files"][name]
     assert regraded == recorded
 
 
@@ -449,4 +462,5 @@ def test_the_option_rendering_per_flags_is_the_recorded_table() -> None:
 def test_the_verdict_is_registered_live() -> None:
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     assert registry["LANE_VERDICTS"][VERDICT_PATH] == "finalize_fdeploy_run.py"
-    assert VERDICT_PATH in registry["LIVE_VERDICTS"]
+    # Live, or pending requalification by the next batch.
+    assert VERDICT_PATH in set(registry["LIVE_VERDICTS"]) | set(registry["PENDING_REQUALIFICATION"])

@@ -592,7 +592,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
 
     enriched_gpos: list[BackupGpo] = []
     for gpo in backup.gpos:
-        if not _GUID_RE.match(gpo.guid):
+        if not _GUID_RE.fullmatch(gpo.guid):
             raise BackupError(f"Invalid GPO GUID in manifest: {gpo.guid!r}")
 
         display_name = gpo.display_name
@@ -841,7 +841,7 @@ def read_cse_content(
     relative_path: str,
 ) -> bytes:
     """Read the raw bytes of a specific CSE file."""
-    if not _GUID_RE.match(gpo_guid):
+    if not _GUID_RE.fullmatch(gpo_guid):
         raise BackupError(f"Invalid GPO GUID: {gpo_guid!r}")
     backup = read_backup(backup_dir)
     matching = [gpo for gpo in backup.gpos if gpo.guid == gpo_guid.casefold()]

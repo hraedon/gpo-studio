@@ -250,11 +250,11 @@ class FdeployDocument:
         """Return every ``[{folder}_{principal}]`` section as a typed rule."""
         found: list[FdeployRedirection] = []
         for section in self.sections:
-            match = _REDIRECTION_SECTION.match(section.name)
+            match = _REDIRECTION_SECTION.fullmatch(section.name)
             if match is None:
                 continue
             raw_flags = section.get("Flags") or ""
-            flags = int(raw_flags) if _FLAGS_VALUE.match(raw_flags) else None
+            flags = int(raw_flags) if _FLAGS_VALUE.fullmatch(raw_flags) else None
             found.append(
                 FdeployRedirection(
                     folder_guid=match.group("folder"),
@@ -387,7 +387,7 @@ def parse_fdeploy(text: str) -> FdeployDocument:
 
     for line in raw_lines:
         stripped = line.strip()
-        header = _SECTION_HEADER.match(stripped) if stripped else None
+        header = _SECTION_HEADER.fullmatch(stripped) if stripped else None
         if header is not None:
             flush()
             if len(sections) >= _MAX_SECTIONS:
@@ -731,7 +731,7 @@ def fdeploy_report_lines(document: FdeployDocument) -> Iterator[str]:
         section
         for section in document.sections
         if section.name.casefold() not in {"version", FOLDER_REDIRECTION_SECTION.casefold()}
-        and _REDIRECTION_SECTION.match(section.name) is None
+        and _REDIRECTION_SECTION.fullmatch(section.name) is None
     )
     for section in unclaimed:
         yield f"Unrecognised section [{section.name}] (preserved, not interpreted):"

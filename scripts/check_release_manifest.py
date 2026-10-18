@@ -1192,6 +1192,17 @@ def _live(registry: dict[str, Any]) -> dict[str, str]:
     return {k: v for k, v in registry["lane_verdicts"].items() if k not in retired}
 
 
+def _current(registry: dict[str, Any]) -> dict[str, str]:
+    """Live and pending verdicts: each lane's current certification, fresh or owed.
+
+    A verdict pending requalification at F is still its lane's certification:
+    the batch at F must re-run that lane, with the finalizer it had, and retire
+    the pending verdict.
+    """
+    retired = set(registry["retired_verdicts"])
+    return {k: v for k, v in registry["lane_verdicts"].items() if k not in retired}
+
+
 def _lane(relative: str) -> str:
     return PurePosixPath(relative).parent.name
 
@@ -1218,6 +1229,12 @@ def _check_registry(
             f"{REGISTRY}: only verdicts registered at F may be retired after it: "
             f"{sorted(newly_retired - set(before))[:10]}"
         )
+    still = set(at_freeze["pending_requalification"]) - set(at_tag["retired_verdicts"])
+    if still:
+        raise ReleaseGateError(
+            f"{REGISTRY}: verdicts pending requalification at F must be retired by the "
+            f"batch: {sorted(still)[:5]}"
+        )
     if at_tag["pending_requalification"]:
         raise ReleaseGateError(
             f"{REGISTRY}: pending_requalification is not empty "
@@ -1233,7 +1250,7 @@ def _check_registry(
             f"run but not added: {sorted(set(cited) - added)[:5]}"
         )
     # The finalizer is code the tests run on each verdict: it may not move after F.
-    finalizer_at_freeze = {_lane(k): v for k, v in _live(at_freeze).items()}
+    finalizer_at_freeze = {_lane(k): v for k, v in _current(at_freeze).items()}
     for relative in sorted(added):
         lane = cited[relative]
         if after[relative] != finalizer_at_freeze.get(lane):
@@ -1271,7 +1288,9 @@ def _check_live_verdicts(
     doubled = sorted({lane for lane in lanes if lanes.count(lane) > 1})
     if doubled:
         raise ReleaseGateError(f"{REGISTRY}: more than one live verdict for lanes {doubled}")
-    expected = {_lane(relative) for relative in (*_live(at_freeze), at_freeze["wp0_manifest"])}
+    expected = {
+        _lane(relative) for relative in (*_current(at_freeze), at_freeze["wp0_manifest"])
+    }
     missing = sorted(expected - set(batch.runs))
     extra = sorted(set(batch.runs) - expected)
     if missing or extra:

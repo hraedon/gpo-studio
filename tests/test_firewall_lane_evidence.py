@@ -253,4 +253,5 @@ def test_the_tool_guid_observation_is_what_the_results_doc_records() -> None:
 def test_the_verdict_is_registered_live() -> None:
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     assert registry["LANE_VERDICTS"][VERDICT_PATH] == "finalize_firewall_run.py"
-    assert VERDICT_PATH in registry["LIVE_VERDICTS"]
+    # Live, or pending requalification by the next batch.
+    assert VERDICT_PATH in set(registry["LIVE_VERDICTS"]) | set(registry["PENDING_REQUALIFICATION"])

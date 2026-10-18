@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from typing import Literal
@@ -659,12 +660,19 @@ def generate_publication_plan(
 
 
 def _is_valid_dn(value: str) -> bool:
-    return bool(re.match(r"^(?:CN|OU|DC)=[^,=]+(?:,(?:CN|OU|DC)=[^,=]+)+$", value, re.IGNORECASE))
+    # Whole value, and no control or format character anywhere: the plan quotes
+    # this DN into PowerShell, and "OU=Lab,DC=x\n" passed match() with `$` and
+    # reached `Get-GPInheritance -Target` (Sol final-r6 B2b).
+    if value != value.strip() or any(unicodedata.category(c) in ("Cc", "Cf") for c in value):
+        return False
+    return bool(
+        re.fullmatch(r"(?:CN|OU|DC)=[^,=]+(?:,(?:CN|OU|DC)=[^,=]+)+", value, re.IGNORECASE)
+    )
 
 
 def _is_valid_guid(value: str) -> bool:
-    return bool(re.match(
-        r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$",
+    return bool(re.fullmatch(
+        r"\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?",
         value,
     ))
 

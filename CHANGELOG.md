@@ -231,6 +231,27 @@ Operator-facing:
   lists them, and fails on any new site. The release gate's path check now
   refuses every Unicode control and format character (a bidirectional
   override among them), not only ASCII ones.
+- After the sixth review (final-r6), the remaining lane-bound sites too. **What
+  operators see:** a GPP group or member SID, a security-filter SID or
+  principal, or a link DN with a control or format character (LF, CR, TAB, a
+  bidirectional override) or surrounding whitespace is now refused, and a
+  malformed group or security-filter SID is an error rather than a warning.
+  Before, `"S-1-5-32-544\n"` was stored and written into Groups.xml as
+  `groupSid="S-1-5-32-544&#10;"`, and a link DN ending in LF passed validation
+  and reached the PowerShell plan's `Get-GPInheritance -Target`. The store
+  refuses such a link or filter outright (other draft errors still wait for
+  the ready transition), and the publication preview refuses such a DN. A
+  scheduled task's trigger time with whitespace or a control character is
+  refused (`unwritable_preferences`) instead of becoming a StartBoundary
+  Windows silently rejects. The lane-bound parsers and finalizers (backup,
+  fdeploy, lifecycle, object security, the evidence contract, the lifecycle
+  finalizer) match whole values. Every lane's verdict is therefore pending
+  requalification (`docs/plan-033/verdict-registry.json`), cleared by the
+  batch at the freeze commit; the gate accepts a verdict pending at F only if
+  that batch retires it. `tests/test_whole_value_validators.py` now follows
+  annotated, concatenated, f-string, imported, constant-name and chained
+  patterns and keys inline sites by pattern; it leaves two sites, each a line
+  or over-match by design.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

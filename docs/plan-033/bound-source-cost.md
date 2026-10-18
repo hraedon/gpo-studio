@@ -19,9 +19,10 @@ information was already complete and unreadable: spread across
 which is a statement about coverage rather than about quality --- and
 for anything in `src/gpo_studio/`, usually the more interesting one.
 
-Live set: 25 lane verdicts plus WP-0. Retired and
-pending-requalification verdicts are excluded; they bind the commits
-they name and are not re-earned by an edit today.
+Current set: 25 lane verdicts plus WP-0, live or pending
+requalification (a pending verdict is still a lane's certification,
+owed to the next batch). Retired verdicts are excluded; they bind the
+commits they name and are not re-earned by an edit today.
 
 ## Product source
 

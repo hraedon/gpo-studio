@@ -47,6 +47,11 @@ WP0_MANIFEST: str
 #: those entries; the entries themselves are in the JSON file. `_load_registry`
 #: refuses anything but the exact schema, and `_file_tables` refuses a finalizer
 #: that is not a bare `finalize_*.py` name in scripts/windows-oracle/.
+#:
+#: Since 2026-10-17 every live verdict is pending requalification: the final-r6
+#: whole-value sweep edited files every lane binds (`oracle_evidence.py` among
+#: them), so each verdict's bound bytes moved. The release's batch at its freeze
+#: commit re-runs every lane and retires them; the final-tag gate requires that.
 REGISTRY_FILE = EVIDENCE / "verdict-registry.json"
 _REGISTRY_KEYS = {
     "schema_version", "lane_verdicts", "retired_verdicts", "pending_requalification",

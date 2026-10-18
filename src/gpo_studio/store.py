@@ -122,6 +122,34 @@ def _cse_metadata_entry(data: dict[str, Any]) -> CseMetadataEntry:
     )
 
 
+#: Validation codes that mean "this is not the identity the operator reviewed":
+#: a link DN that is not exactly a DN, a security-filter SID that is malformed or
+#: carries a control or format character, a principal that is padded or carries
+#: one. A draft may hold other errors (a principal written as a bare group name,
+#: say) until it is marked ready; these the store refuses outright, because a
+#: stored value of this kind reaches the PowerShell plan and the GPO's ACL as a
+#: different identity (Sol final-r6 B2b).
+_IDENTITY_ERRORS = frozenset({
+    "invalid_link_target",
+    "control_character_in_principal",
+    "principal_surrounding_whitespace",
+    "control_character_in_sid",
+    "invalid_sid_format",
+})
+
+
+def _refuse_identity_issues(gpo: GPO, prefix: str) -> None:
+    errors = [
+        issue
+        for issue in validate_gpo(gpo)
+        if issue.severity == "error"
+        and issue.code in _IDENTITY_ERRORS
+        and (issue.path or "").startswith(prefix)
+    ]
+    if errors:
+        raise ValidationError(errors)
+
+
 def _security_filter(data: dict[str, Any]) -> SecurityFilter:
     permission = data.get("permission", "apply")
     if permission not in ("apply", "read"):
@@ -1303,7 +1331,9 @@ class WorkspaceStore:
             links = [item for item in gpo.links if item.id != new_link.id]
             links.append(new_link)
             links.sort(key=lambda item: (item.target.casefold(), item.order))
-            return replace(gpo, links=tuple(links))
+            updated = replace(gpo, links=tuple(links))
+            _refuse_identity_issues(updated, f"links/{new_link.id}/")
+            return updated
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
@@ -1340,7 +1370,9 @@ class WorkspaceStore:
             filters = [item for item in gpo.security_filters if item.id != new_filter.id]
             filters.append(new_filter)
             filters.sort(key=lambda item: item.principal.casefold())
-            return replace(gpo, security_filters=tuple(filters))
+            updated = replace(gpo, security_filters=tuple(filters))
+            _refuse_identity_issues(updated, f"security_filters/{new_filter.id}/")
+            return updated
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 

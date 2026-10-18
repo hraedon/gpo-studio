@@ -441,6 +441,32 @@
     "wp9-evidence/wi062-20260910/user-security-filtering/verification.json",
     "wp9-evidence/wi062-20260910/user-side-disabled/verification.json"
   ],
-  "pending_requalification": [],
+  "pending_requalification": [
+    "wp1b-evidence/release110-rerun-20261009/publication/verification.json",
+    "wp1b-evidence/release110-rerun-20261009/scripts-metadata/verification.json",
+    "wp1b-evidence/release110-rerun-20261009/wp1b/verification.json",
+    "wp2-evidence/release110-20261009/wp2/verification.json",
+    "wp2-evidence/release110-rerun-20261009/report-parity/verification.json",
+    "wp3-evidence/release110-20261009/object-security/verification.json",
+    "wp3-evidence/release110-20261009/wp3-dc/verification.json",
+    "wp3-evidence/release110-20261009/wp3-member/verification.json",
+    "wp3-evidence/release110-rerun-20261009/firewall/verification.json",
+    "wp4-evidence/release110-rerun-20261009/fdeploy/verification.json",
+    "wp6-evidence/release110-20261009/computer-security-filtering-deny-read/verification.json",
+    "wp6-evidence/release110-20261009/computer-security-filtering-group-deny/verification.json",
+    "wp6-evidence/release110-20261009/computer-security-filtering/verification.json",
+    "wp6-evidence/release110-20261009/disabled-block-enforced/verification.json",
+    "wp6-evidence/release110-20261009/endpoint/verification.json",
+    "wp6-evidence/release110-20261009/lsdou-precedence/verification.json",
+    "wp6-evidence/release110-20261009/wmi-filtering-error/verification.json",
+    "wp6-evidence/release110-20261009/wmi-filtering/verification.json",
+    "wp7-evidence/release110-20261009/lifecycle/verification.json",
+    "wp9-evidence/release110-20261009/loopback-merge/verification.json",
+    "wp9-evidence/release110-20261009/loopback-replace/verification.json",
+    "wp9-evidence/release110-20261009/user-security-filtering-deny/verification.json",
+    "wp9-evidence/release110-20261009/user-security-filtering-read-deny/verification.json",
+    "wp9-evidence/release110-20261009/user-security-filtering/verification.json",
+    "wp9-evidence/release110-20261009/user-side-disabled/verification.json"
+  ],
   "wp0_manifest": "wp0-evidence/release110-20261009/wp0/manifest.json"
 }

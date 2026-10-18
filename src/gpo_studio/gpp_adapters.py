@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import functools
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -3274,7 +3275,17 @@ def _start_boundary(trigger_time: str) -> str:
     """Normalize a scalar trigger time into an ISO 8601 StartBoundary."""
     if not trigger_time:
         return _UNSPECIFIED_START_BOUNDARY
-    if _BARE_TIME_RE.match(trigger_time):
+    # Refused, not passed through: "03:00\n" became `T03:00\n:00`, a StartBoundary
+    # Windows rejects without a word, so the task is never created (Sol final-r6
+    # B2c). The store reports a GppError as `unwritable_preferences`.
+    if trigger_time != trigger_time.strip() or any(
+        unicodedata.category(c) in ("Cc", "Cf") for c in trigger_time
+    ):
+        raise GppError(
+            f"Scheduled task trigger time {trigger_time!r} has surrounding whitespace or "
+            "control characters"
+        )
+    if _BARE_TIME_RE.fullmatch(trigger_time):
         padded = trigger_time if trigger_time.count(":") == 2 else f"{trigger_time}:00"
         hour, rest = padded.split(":", 1)
         return f"{_PLACEHOLDER_START_DATE}T{int(hour):02d}:{rest}"

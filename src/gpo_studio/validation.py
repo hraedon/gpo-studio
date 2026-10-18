@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import unicodedata
 from typing import assert_never
 
 from .gpp import GppCollection, GppGroup, GppGroupMember, GppRegistry, GppRegistryValue
@@ -27,6 +28,16 @@ _VALID_REGISTRY_TYPES = frozenset(
 
 def _has_xml_unsafe_text(text: str) -> bool:
     return any(xml_char_forbidden(ord(c)) for c in text)
+
+
+def _control_or_format(text: str) -> bool:
+    """Any control (Cc) or format (Cf) character: LF, TAB, a bidi override.
+
+    An identity (a SID, a DN, a principal) carrying one is not the identity the
+    operator reviewed, even where XML can carry it: an LF in a group SID was
+    written into Groups.xml as ``&#10;`` (Sol final-r6 B2a).
+    """
+    return any(unicodedata.category(c) in ("Cc", "Cf") for c in text)
 
 
 def text_issues(gpo: GPO) -> list[ValidationIssue]:
@@ -216,7 +227,13 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
         identities[identity] = setting.id
     orders: set[tuple[str, int]] = set()
     for link in gpo.links:
-        if not _DN.fullmatch(link.target.strip()):
+        # The raw target, not a stripped copy: the stored value is what reaches the
+        # PowerShell plan (Sol final-r6 B2b), so it must itself be the DN.
+        if (
+            _control_or_format(link.target)
+            or link.target != link.target.strip()
+            or not _DN.fullmatch(link.target)
+        ):
             issues.append(
                 ValidationIssue(
                     "error",
@@ -289,7 +306,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                     sf_path,
                 )
             )
-        if any(ord(c) < 0x20 for c in principal):
+        if _control_or_format(principal):
             issues.append(
                 ValidationIssue(
                     "error",
@@ -319,10 +336,19 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
             )
         if stripped:
             seen_principals.add(folded)
+        if principal != stripped:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "principal_surrounding_whitespace",
+                    "Principal has leading or trailing whitespace.",
+                    sf_path,
+                )
+            )
         if stripped and not (
-            _PRINCIPAL_DOMAIN_USER.match(stripped)
-            or _PRINCIPAL_UPN.match(stripped)
-            or _PRINCIPAL_SID.match(stripped)
+            _PRINCIPAL_DOMAIN_USER.fullmatch(stripped)
+            or _PRINCIPAL_UPN.fullmatch(stripped)
+            or _PRINCIPAL_SID.fullmatch(stripped)
         ):
             issues.append(
                 ValidationIssue(
@@ -334,7 +360,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
             )
         if sf.sid:
             sf_sid_path = f"security_filters/{sf.id}/sid"
-            if any(ord(c) < 0x20 for c in sf.sid):
+            if _control_or_format(sf.sid):
                 issues.append(
                     ValidationIssue(
                         "error",
@@ -343,10 +369,12 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                         sf_sid_path,
                     )
                 )
-            if not _PRINCIPAL_SID.match(sf.sid):
+            if not _PRINCIPAL_SID.fullmatch(sf.sid):
+                # An error, not a warning: a malformed SID is a wrong identity
+                # in policy output (Sol final-r6 B2).
                 issues.append(
                     ValidationIssue(
-                        "warning",
+                        "error",
                         "invalid_sid_format",
                         "SID does not match expected format (S-1-5-...).",
                         sf_sid_path,
@@ -408,7 +436,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                 "error", "domain_too_long", "Domain exceeds 255 characters.", "domain"
             )
         )
-    if any(ord(c) < 0x20 for c in gpo.domain):
+    if _control_or_format(gpo.domain):
         issues.append(
             ValidationIssue(
                 "error",
@@ -417,7 +445,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                 "domain",
             )
         )
-    if domain and not _DOMAIN_FORMAT.match(domain):
+    if domain and not _DOMAIN_FORMAT.fullmatch(domain):
         issues.append(
             ValidationIssue(
                 "warning",
@@ -615,7 +643,7 @@ def validate_gpp_group_member(
                 f"{path}/sid",
             )
         )
-    if _has_xml_unsafe_text(member.sid):
+    if _has_xml_unsafe_text(member.sid) or _control_or_format(member.sid):
         issues.append(
             ValidationIssue(
                 "error",
@@ -696,7 +724,7 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
             assert_never(group.action)
     if group.sid:
         sid_path = f"{path}/sid"
-        if _has_xml_unsafe_text(group.sid):
+        if _has_xml_unsafe_text(group.sid) or _control_or_format(group.sid):
             issues.append(
                 ValidationIssue(
                     "error",
@@ -714,10 +742,11 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
                     sid_path,
                 )
             )
-        if not _PRINCIPAL_SID.match(group.sid):
+        if not _PRINCIPAL_SID.fullmatch(group.sid):
+            # An error, not a warning (Sol final-r6 B2a): the store refuses it.
             issues.append(
                 ValidationIssue(
-                    "warning",
+                    "error",
                     "invalid_gpp_group_sid",
                     "GPP group SID does not match expected format (S-1-5-...).",
                     sid_path,

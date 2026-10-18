@@ -34,11 +34,12 @@ def _registry() -> dict[str, Any]:
 
 
 def test_the_current_qualification_is_the_live_set() -> None:
+    """Live, or pending requalification by the next batch (it still certifies nothing new)."""
     registry = _registry()
     runs = cq.current_runs()
     assert {r["verdict"] for n, r in runs.items() if n != "wp0"} == set(
         registry["LIVE_VERDICTS"]
-    )
+    ) | set(registry["PENDING_REQUALIFICATION"])
     assert runs["wp0"]["verdict"] == registry["WP0_MANIFEST"]
 
 

@@ -220,7 +220,7 @@ def _object_section_rows(section: InfSection) -> tuple[tuple[str, str], ...]:
     for line in section.unknown_lines:
         if line.startswith(";"):
             continue
-        match = _OBJECT_ROW_RE.match(line)
+        match = _OBJECT_ROW_RE.fullmatch(line)
         if match is not None:
             path, code, sddl = match.groups()
             rows.append((path, f'{code},"{sddl}"'))
