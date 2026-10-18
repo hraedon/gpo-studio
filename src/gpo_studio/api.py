@@ -25,7 +25,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, Response
 from fastapi.responses import JSONResponse as _FastAPIJSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response as StarletteResponse
@@ -65,6 +73,7 @@ from .delegation import (
     reconcile_principal,
 )
 from .diff import diff_gpos, three_way_diff
+from .emit_integrity import CHECKS, EmitError, line_problem
 from .estate import parse_estate
 from .export import (
     _GPP_EXTENSION_PROFILES,
@@ -129,7 +138,7 @@ from .gpp import (
 )
 from .gpp_native import credential_local_name
 from .identity import ClaimedIdentity, claimed_identity
-from .identity_values import guid_problem
+from .identity_values import guid_problem, name_problem, security_principal_problem
 from .ilt import (
     IltError,
     IltFilter,
@@ -226,6 +235,7 @@ from .security_template import (
     SecurityTemplate,
     encode_security_template,
     format_security_template,
+    template_issues,
 )
 from .settings_browser import (
     build_category_tree,
@@ -2512,6 +2522,25 @@ async def gpp_error(request: Request, error: GppError) -> JSONResponse:
     return JSONResponse(_error_body(request, detail), status_code=422)
 
 
+@app.exception_handler(EmitError)
+async def emit_error(request: Request, error: EmitError) -> JSONResponse:
+    """A value a writer will not emit is a 422 naming each value, not a 500.
+
+    Every writer checks what it writes (`emit_integrity`, final-r8); the
+    validation that runs before an export normally reports the same values
+    first, so this is the backstop for a path that skipped it.
+    """
+    detail: dict[str, Any] = {
+        "message": str(error),
+        "code": "unwritable_artifact_value",
+        "problems": [
+            {"where": p.where, "name": p.name, "value": p.value, "problem": p.problem}
+            for p in error.problems
+        ],
+    }
+    return JSONResponse(_error_body(request, detail), status_code=422)
+
+
 @app.exception_handler(AmbiguousPolicyError)
 async def ambiguous_policy(
     _request: Request, error: AmbiguousPolicyError
@@ -4572,6 +4601,25 @@ class AuditPolicyFamilyData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _template_value(value: str, problem: str | None, what: str) -> str:
+    """Refuse at the request model (422) what the INF writer would refuse.
+
+    Defense in depth (final-r8): the render endpoints refuse the same values
+    from the composed template (`template_issues`), and the formatter refuses
+    them again as it writes.
+    """
+    if problem is not None:
+        raise ValueError(f"{what} {value!r} {problem}")
+    return value
+
+
+def _quoted_field_problem(value: str) -> str | None:
+    """A value written inside a quoted INF row field: one line, no quote."""
+    return line_problem(value) or (
+        "contains a double quote, which would end the quoted field" if '"' in value else None
+    )
+
+
 class PrivilegeRightData(BaseModel):
     #: `SeBackupPrivilege`, not its display name: the INF key is the constant.
     name: str = Field(min_length=1, max_length=128)
@@ -4580,6 +4628,18 @@ class PrivilegeRightData(BaseModel):
     principals: list[str] = Field(default_factory=list, max_length=500)
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("name")
+    @classmethod
+    def _right_name(cls, value: str) -> str:
+        return _template_value(value, CHECKS["right"](value), "user right")
+
+    @field_validator("principals")
+    @classmethod
+    def _principals(cls, value: list[str]) -> list[str]:
+        for principal in value:
+            _template_value(principal, security_principal_problem(principal), "principal")
+        return value
 
 
 class UserRightsFamilyData(BaseModel):
@@ -4597,6 +4657,11 @@ class SecurityOptionData(BaseModel):
     value: str = Field(default="", max_length=4096)
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("key", "value")
+    @classmethod
+    def _one_line(cls, value: str) -> str:
+        return _template_value(value, line_problem(value), "security option")
 
 
 class SecurityOptionsFamilyData(BaseModel):
@@ -4846,9 +4911,21 @@ def render_policy_families(body: PolicyFamilyRenderRequest) -> dict[str, Any]:
     advisory and never blocks the render: whether Windows accepts a template
     and whether an administrator should deploy it are different questions, and
     only the first one has been measured.
+
+    What is not advisory: a right name that is not a `Se...` constant, a
+    principal that is neither a starred SID nor a plain name, or any value that
+    is not one line of its kind is a 422 (`unwritable_template_value`), because
+    the INF would read it back as something else -- a principal holding a line
+    break became a new privilege grant (final-r8).
     """
     sections = policy_family_sections(body)
     account, audit, user_rights, security_options = _policy_family_models(body)
+    refusals = template_issues(SecurityTemplate(sections=sections))
+    if refusals:
+        # A value that is not one line of its kind would change the template's
+        # structure -- a principal holding a line break became a privilege grant
+        # (final-r8) -- so it is refused, never rendered with an issue beside it.
+        raise ValidationError(refusals)
     text = format_security_template(SecurityTemplate(sections=sections)) + "\n"
     issues: list[ValidationIssue] = []
     for family in (account, audit, user_rights, security_options):
@@ -4895,6 +4972,11 @@ class ObjectSecurityRegistryKeyData(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    @field_validator("key_path", "raw_sddl")
+    @classmethod
+    def _quoted(cls, value: str) -> str:
+        return _template_value(value, _quoted_field_problem(value), "registry key row field")
+
 
 class ObjectSecurityFileData(BaseModel):
     file_path: str = Field(min_length=1, max_length=1024)
@@ -4902,6 +4984,11 @@ class ObjectSecurityFileData(BaseModel):
     propagation: PropagationMode = "propagate"
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("file_path", "raw_sddl")
+    @classmethod
+    def _quoted(cls, value: str) -> str:
+        return _template_value(value, _quoted_field_problem(value), "file row field")
 
 
 class ObjectSecurityServiceData(BaseModel):
@@ -4911,6 +4998,17 @@ class ObjectSecurityServiceData(BaseModel):
     raw_sddl: str = Field(default="", max_length=8192)
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("service_name")
+    @classmethod
+    def _service_name(cls, value: str) -> str:
+        problem = name_problem(value) or _quoted_field_problem(value)
+        return _template_value(value, problem, "service name")
+
+    @field_validator("raw_sddl")
+    @classmethod
+    def _sddl(cls, value: str) -> str:
+        return _template_value(value, _quoted_field_problem(value), "service descriptor")
 
 
 class ObjectSecurityRenderRequest(BaseModel):
@@ -5089,9 +5187,16 @@ def render_object_security(body: ObjectSecurityRenderRequest) -> dict[str, Any]:
     `acl_content_is_not_judged` before reading an empty list as approval — the
     silence there is a ruling, and it is the one limitation on this surface
     that will not be closed by a future measurement.
+
+    A name, path or descriptor that is not one line of its kind is not an
+    issue but a 422 (`unwritable_template_value`): a service name holding a
+    line break wrote a second service row (final-r8).
     """
     sections = object_security_sections(body)
     registry, files, services = _object_security_models(body)
+    refusals = template_issues(SecurityTemplate(sections=sections))
+    if refusals:
+        raise ValidationError(refusals)
     text = format_security_template(SecurityTemplate(sections=sections)) + "\n"
     issues: list[ValidationIssue] = []
     for family in (registry, files, services):
@@ -5479,9 +5584,6 @@ class ScriptsPreviewResponse(BaseModel):
 
 _SCRIPT_TRIGGERS: tuple[ScriptType, ...] = ("startup", "shutdown", "logon", "logoff")
 #: Characters that would let a value start a new INI line or truncate one.
-_SCRIPT_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
-
-
 def _scripts_limitations() -> list[dict[str, str]]:
     """Three limits that hold for every answer, plus the shape the lane read.
 
@@ -5587,7 +5689,7 @@ def _scripts_gpo_refusals(gpo: GPO) -> list[ValidationIssue]:
 def _script_entry_refusals(entry: ScriptEntryData, path: str) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for name, value in (("command", entry.command), ("parameters", entry.parameters)):
-        if _SCRIPT_CONTROL_CHARACTERS.search(value):
+        if line_problem(value) is not None:
             issues.append(
                 ValidationIssue(
                     severity="error",

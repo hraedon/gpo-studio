@@ -17,13 +17,15 @@ the GPO (export.zip, the GPMC backup, the PowerShell plan) carries it. Each
 route has a positive control (the valid value is accepted and shipped), so a
 dead route cannot pass as a refusal.
 
-Section (d) does the same for every entry of the serializer-side inventory
-(`validation.SERIALIZED_ATTRIBUTES` / `SERIALIZED_TEXT`), including fields no
-typed model writes (a retained native element's attributes, a v1 Task's
-triggerTime, a TaskV2 payload's UserId/GroupId/boundaries), and pins that the
-inventory is complete. With that boundary disabled, 219 of its cases fail.
-A last test holds DeepSeek final-r7 N4: a value stored before a rule tightened
-blocks export but not its own repair.
+Section (d) probes the writer's own table (`emit_integrity.GPP_XML`) through
+import: fields no typed model writes (a retained native element's attributes,
+an item's uid, FilterRunOnce@id, a v1 Task's triggerTime, a TaskV2 payload's
+UserId/GroupId/boundaries/command), each with a written-when-valid control and
+an empty-payload case. That the table covers everything the writers emit is
+`tests/test_emit_integrity.py`, which derives the names from the writers.
+A last test holds DeepSeek final-r7 N4 and final-r8 N5: a value stored before
+a rule tightened blocks export but not its own repair, and is not a licence
+to swap it for a different bad value.
 """
 
 from __future__ import annotations
@@ -70,13 +72,23 @@ KIND_SHAPES: dict[str, dict[str, Callable[[str], str]]] = {
     "guid": {"junk-suffix": lambda v: v + "x", "one-brace": lambda v: "{" + v},
     "datetime": {"junk-suffix": lambda v: v + "x", "not-a-time": lambda v: "tomorrow"},
     "name": {},
+    "line": {},
 }
+#: Free text may hold NBSP and surrounding spaces; it may not hold a control,
+#: format or separator character.
+_LINE_SHAPES = ("crlf", "lf", "line-separator", "nul", "rlo", "zwsp")
+
+
+def _shape_names(kind: str) -> list[str]:
+    if kind == "line":
+        return sorted(_LINE_SHAPES)
+    return sorted({**SHAPES, **KIND_SHAPES[kind]})
 
 
 def _cases(fields: dict[str, tuple[str, str]]) -> list[Any]:
     cases = []
     for field, (kind, _valid) in sorted(fields.items()):
-        for shape in sorted({**SHAPES, **KIND_SHAPES[kind]}):
+        for shape in _shape_names(kind):
             cases.append(pytest.param(field, shape, id=f"{field}-{shape}"))
     return cases
 
@@ -565,6 +577,17 @@ def test_a_stored_value_a_tightened_rule_refuses_is_correctable_through_the_api(
         },
     )
     assert swapped.status_code == 422, swapped.text
+    # The same code at the same place, a different bad value: still a new error,
+    # because the message names the value (DeepSeek final-r8 N5).
+    same_kind = test_client.put(
+        f"{route}/{one}",
+        json={
+            "scope": "computer",
+            "group": {"name": "Legacy one", "sid": "S-1-5-32-599 "},
+            **audit(),
+        },
+    )
+    assert same_kind.status_code == 422, same_kind.text
     # Legacy values do not block an unrelated valid edit (it adds no new error).
     unrelated = test_client.post(
         route,
@@ -595,14 +618,17 @@ def test_a_stored_value_a_tightened_rule_refuses_is_correctable_through_the_api(
     assert _exports(test_client, guid) == {200}
 
 
-# --- (d) every identity the serializer writes, wherever it comes from ----------------
+# --- (d) every value the writer emits, wherever it comes from ----------------------
 #
 # The typed fields are a projection: a retained native element, a v1 Task's
-# triggerTime and an imported TaskV2's payload are written as they are. So the
-# boundary checks the serialized XML (`validation.SERIALIZED_ATTRIBUTES` and
-# `SERIALIZED_TEXT`), and this is that inventory made executable: one source
-# document per entry, taken from a native capture where Windows wrote the
-# field and edited into one where it did not, parsed as an import parses it.
+# triggerTime, an imported TaskV2's payload and an item's own uid are written as
+# they are. So the writer checks the XML it writes, against
+# `emit_integrity.GPP_XML` (final-r8; the completeness of that table is
+# `tests/test_emit_integrity.py`, which derives it from the writers). These are
+# probes into it: one source document per field, taken from a native capture
+# where Windows wrote the field and edited into one where it did not, parsed as
+# an import parses it. Final-r8's probes are among them: an item's uid,
+# FilterRunOnce@id, a service name, a task's name and a power scheme's nameGuid.
 
 _V = "@@V@@"
 _TASK_V1 = (
@@ -612,194 +638,227 @@ _TASK_V1 = (
     f' startIn="" enabled="1" triggerType="ONCE" triggerTime="{_V}" triggerDays=""/>'
     "</Task>"
 )
-#: key -> (capture, file under Preferences/, text to replace, replacement, valid).
-INVENTORY: dict[Any, tuple[str, str, str, str, str]] = {
-    ("Member", "sid"): (
-        "WI01A-LocalGroups-GPMC",
-        "Groups/Groups.xml",
-        'sid="S-1-5-21-0000000000-0000000000-0000000000-5124"',
-        f'sid="{_V}"',
-        "S-1-5-21-0000000000-0000000000-0000000000-5124",
-    ),
-    ("Member", "name"): (
-        "WI01A-LocalGroups-GPMC",
-        "Groups/Groups.xml",
+_GROUPS = ("WI01A-LocalGroups-GPMC", "Groups/Groups.xml")
+_DRIVES = ("WI01A-DriveMaps-GPMC", "Drives/Drives.xml")
+_NESTED = ("WI01A-NestedILT-GPMC", "Drives/Drives.xml")
+_SERVICES = ("WI01A-ServicesRecovery-GPMC", "Services/Services.xml")
+_TASKS = ("WI01A-SchedTasks-GPMC", "ScheduledTasks/ScheduledTasks.xml")
+_ENV = ("WI01A-EnvVars-GPMC", "EnvironmentVariables/EnvironmentVariables.xml")
+_POWER = ("WI01A-Power-GPMC", "PowerOptions/PowerOptions.xml")
+_SID_5124 = "S-1-5-21-0000000000-0000000000-0000000000-5124"
+_SID_4674 = "S-1-5-21-0000000000-0000000000-0000000000-4674"
+_OU = "OU=Lab-WS2,OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com"
+
+#: (root, element, attribute or #text) -> (capture, file under Preferences/,
+#: text to replace, replacement, valid value).
+PROBES: dict[tuple[str, str, str], tuple[str, str, str, str, str]] = {
+    ("Groups", "Member", "sid"): (*_GROUPS, f'sid="{_SID_5124}"', f'sid="{_V}"', _SID_5124),
+    ("Groups", "Member", "name"): (
+        *_GROUPS,
         'name="HRAENET\\svc-gpolens"',
         f'name="{_V}"',
         "HRAENET\\svc-gpolens",
     ),
-    ("Properties", "groupSid"): (
-        "WI01A-LocalGroups-GPMC",
-        "Groups/Groups.xml",
+    ("Groups", "Properties", "groupSid"): (
+        *_GROUPS,
         'groupSid="S-1-5-32-544"',
         f'groupSid="{_V}"',
         "S-1-5-32-544",
     ),
-    ("Properties", "groupName"): (
-        "WI01A-LocalGroups-GPMC",
-        "Groups/Groups.xml",
+    ("Groups", "Properties", "groupName"): (
+        *_GROUPS,
         'groupName="Administrators (built-in)"',
         f'groupName="{_V}"',
         "Administrators (built-in)",
     ),
-    ("Properties", "newName"): (
-        "WI01A-LocalGroups-GPMC",
-        "Groups/Groups.xml",
+    ("Groups", "Properties", "newName"): (
+        *_GROUPS,
         'newName=""',
         f'newName="{_V}"',
         "Local Admins",
     ),
-    ("Properties", "userName"): (
-        "WI01A-DriveMaps-GPMC",
-        "Drives/Drives.xml",
+    ("Groups", "FilterRunOnce", "id"): (
+        *_GROUPS,
+        'id="{96AFCD0C-EA2A-4ECD-BB76-284E9A8FB23C}"',
+        f'id="{_V}"',
+        "{96AFCD0C-EA2A-4ECD-BB76-284E9A8FB23C}",
+    ),
+    ("Drives", "Properties", "userName"): (
+        *_DRIVES,
         'userName=""',
         f'userName="{_V}"',
         "HRAENET\\svc-maps",
     ),
-    ("Properties", "username"): (
-        "WI01A-DriveMaps-GPMC",
-        "Drives/Drives.xml",
+    ("Drives", "Properties", "username"): (
+        *_DRIVES,
         'userName=""',
         f'userName="" username="{_V}"',
         "HRAENET\\svc-maps",
     ),
-    ("Properties", "accountName"): (
-        "WI01A-ServicesRecovery-GPMC",
-        "Services/Services.xml",
+    ("Drives", "FilterRunOnce", "id"): (
+        *_DRIVES,
+        'id="{F9EA1205-34A7-41AF-8AAD-A76FFB3EDFE4}"',
+        f'id="{_V}"',
+        "{F9EA1205-34A7-41AF-8AAD-A76FFB3EDFE4}",
+    ),
+    ("NTServices", "Properties", "accountName"): (
+        *_SERVICES,
         'accountName="LocalSystem"',
         f'accountName="{_V}"',
         "LocalSystem",
     ),
-    ("Properties", "runAs"): (
-        "WI01A-SchedTasks-GPMC",
-        "ScheduledTasks/ScheduledTasks.xml",
+    ("NTServices", "Properties", "serviceName"): (
+        *_SERVICES,
+        'serviceName="Spooler"',
+        f'serviceName="{_V}"',
+        "Spooler",
+    ),
+    ("NTServices", "NTService", "uid"): (
+        *_SERVICES,
+        'uid="{3DA17861-8910-4232-9F50-7EE67ED8266D}"',
+        f'uid="{_V}"',
+        "{3DA17861-8910-4232-9F50-7EE67ED8266D}",
+    ),
+    ("ScheduledTasks", "Properties", "runAs"): (
+        *_TASKS,
         'runAs="NT AUTHORITY\\System"',
         f'runAs="{_V}"',
         "NT AUTHORITY\\System",
     ),
-    ("Properties", "triggerTime"): (
-        "WI01A-SchedTasks-GPMC",
-        "ScheduledTasks/ScheduledTasks.xml",
+    ("ScheduledTasks", "Properties", "name"): (
+        *_TASKS,
+        'action="U" name="GpoStudio-Cleanup"',
+        f'action="U" name="{_V}"',
+        "GpoStudio-Cleanup",
+    ),
+    ("ScheduledTasks", "TaskV2", "name"): (
+        *_TASKS,
+        'name="GpoStudio-Cleanup" image',
+        f'name="{_V}" image',
+        "GpoStudio-Cleanup",
+    ),
+    ("ScheduledTasks", "Properties", "triggerTime"): (
+        *_TASKS,
         "</ScheduledTasks>",
         _TASK_V1 + "</ScheduledTasks>",
         "02:00:00",
     ),
-    ("FilterGroup", "sid"): (
-        "WI01A-EnvVars-GPMC",
-        "EnvironmentVariables/EnvironmentVariables.xml",
-        'sid="S-1-5-21-0000000000-0000000000-0000000000-4674"',
-        f'sid="{_V}"',
-        "S-1-5-21-0000000000-0000000000-0000000000-4674",
+    ("ScheduledTasks", "StartBoundary", "#text"): (
+        *_TASKS,
+        "<StartBoundary>2026-07-26T02:00:00</StartBoundary>",
+        f"<StartBoundary>{_V}</StartBoundary>",
+        "2026-07-26T02:00:00",
     ),
-    ("FilterGroup", "name"): (
-        "WI01A-EnvVars-GPMC",
-        "EnvironmentVariables/EnvironmentVariables.xml",
+    ("ScheduledTasks", "EndBoundary", "#text"): (
+        *_TASKS,
+        "<EndBoundary>%LocalTimeXmlEx%</EndBoundary>",
+        f"<EndBoundary>{_V}</EndBoundary>",
+        "%LocalTimeXmlEx%",
+    ),
+    ("ScheduledTasks", "UserId", "#text"): (
+        *_TASKS,
+        "<UserId>%LogonDomain%\\%LogonUser%</UserId>",
+        f"<UserId>{_V}</UserId>",
+        "NT AUTHORITY\\System",
+    ),
+    ("ScheduledTasks", "GroupId", "#text"): (
+        *_TASKS,
+        "<UserId>%LogonDomain%\\%LogonUser%</UserId>",
+        f"<GroupId>{_V}</GroupId>",
+        "BUILTIN\\Users",
+    ),
+    ("ScheduledTasks", "Command", "#text"): (
+        *_TASKS,
+        "<Command>C:\\Windows\\System32\\cleanmgr.exe</Command>",
+        f"<Command>{_V}</Command>",
+        "C:\\Windows\\System32\\cleanmgr.exe",
+    ),
+    ("EnvironmentVariables", "FilterGroup", "sid"): (
+        *_ENV,
+        f'sid="{_SID_4674}"',
+        f'sid="{_V}"',
+        _SID_4674,
+    ),
+    ("EnvironmentVariables", "FilterGroup", "name"): (
+        *_ENV,
         'name="HRAENET\\lab-admins"',
         f'name="{_V}"',
         "HRAENET\\lab-admins",
     ),
-    ("FilterUser", "sid"): (
-        "WI01A-NestedILT-GPMC",
-        "Drives/Drives.xml",
+    ("PowerOptions", "Properties", "nameGuid"): (
+        *_POWER,
+        'nameGuid="{8C5E7FDA-E8BF-4A96-9A85-A6E23A8C635C}"',
+        f'nameGuid="{_V}"',
+        "{8C5E7FDA-E8BF-4A96-9A85-A6E23A8C635C}",
+    ),
+    ("Drives", "FilterUser", "sid"): (
+        *_NESTED,
         "<Filters>",
         f'<Filters><FilterUser bool="AND" not="0" name="HRAENET\\u1" sid="{_V}"/>',
         "S-1-5-21-0000000000-0000000000-0000000000-1104",
     ),
-    ("FilterUser", "name"): (
-        "WI01A-NestedILT-GPMC",
-        "Drives/Drives.xml",
+    ("Drives", "FilterUser", "name"): (
+        *_NESTED,
         "<Filters>",
         f'<Filters><FilterUser bool="AND" not="0" name="{_V}" sid=""/>',
         "HRAENET\\u1",
     ),
-    ("FilterOrgUnit", "name"): (
-        "WI01A-NestedILT-GPMC",
-        "Drives/Drives.xml",
-        'name="OU=Lab-WS2,OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com"',
-        f'name="{_V}"',
-        "OU=Lab-WS2,OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com",
-    ),
-    ("FilterComputerName", "name"): (
-        "WI01A-NestedILT-GPMC",
-        "Drives/Drives.xml",
+    ("Drives", "FilterOrgUnit", "name"): (*_NESTED, f'name="{_OU}"', f'name="{_V}"', _OU),
+    ("Drives", "FilterComputerName", "name"): (
+        *_NESTED,
         "<Filters>",
         f'<Filters><FilterComputerName bool="AND" not="0" type="NETBIOS" name="{_V}"/>',
         "LAB-WS01",
     ),
-    ("FilterDomain", "name"): (
-        "WI01A-NestedILT-GPMC",
-        "Drives/Drives.xml",
+    ("Drives", "FilterDomain", "name"): (
+        *_NESTED,
         'name="ad.hraedon.com"',
         f'name="{_V}"',
         "ad.hraedon.com",
     ),
-    ("FilterDate", "startDate"): (
-        "WI01A-NestedILT-GPMC",
-        "Drives/Drives.xml",
+    ("Drives", "FilterDate", "startDate"): (
+        *_NESTED,
         "<Filters>",
         '<Filters><FilterDate bool="AND" not="0" period="RANGE"'
         f' startDate="{_V}" endDate="2026-12-31"/>',
         "2026-01-01",
     ),
-    ("FilterDate", "endDate"): (
-        "WI01A-NestedILT-GPMC",
-        "Drives/Drives.xml",
+    ("Drives", "FilterDate", "endDate"): (
+        *_NESTED,
         "<Filters>",
         '<Filters><FilterDate bool="AND" not="0" period="RANGE"'
         f' startDate="2026-01-01" endDate="{_V}"/>',
         "2026-12-31",
     ),
-    "StartBoundary": (
-        "WI01A-SchedTasks-GPMC",
-        "ScheduledTasks/ScheduledTasks.xml",
-        "<StartBoundary>2026-07-26T02:00:00</StartBoundary>",
-        f"<StartBoundary>{_V}</StartBoundary>",
-        "2026-07-26T02:00:00",
-    ),
-    "EndBoundary": (
-        "WI01A-SchedTasks-GPMC",
-        "ScheduledTasks/ScheduledTasks.xml",
-        "<EndBoundary>%LocalTimeXmlEx%</EndBoundary>",
-        f"<EndBoundary>{_V}</EndBoundary>",
-        "%LocalTimeXmlEx%",
-    ),
-    "UserId": (
-        "WI01A-SchedTasks-GPMC",
-        "ScheduledTasks/ScheduledTasks.xml",
-        "<UserId>%LogonDomain%\\%LogonUser%</UserId>",
-        f"<UserId>{_V}</UserId>",
-        "NT AUTHORITY\\System",
-    ),
-    "GroupId": (
-        "WI01A-SchedTasks-GPMC",
-        "ScheduledTasks/ScheduledTasks.xml",
-        "<UserId>%LogonDomain%\\%LogonUser%</UserId>",
-        f"<GroupId>{_V}</GroupId>",
-        "BUILTIN\\Users",
-    ),
+}
+#: The writer table's kinds, as the shape families above name them.
+_SHAPE_KIND = {
+    "sid": "sid",
+    "principal": "name",
+    "security_principal": "name",
+    "name": "name",
+    "ou": "dn",
+    "dn": "dn",
+    "guid": "guid",
+    "braced_guid": "guid",
+    "time": "datetime",
+    "datetime": "datetime",
+    "date": "datetime",
+    "line": "line",
+    "text": "line",
 }
 
 
-def _kind_of(key: Any) -> str:
-    from gpo_studio import validation
+def _kind_of(key: tuple[str, str, str]) -> str:
+    from gpo_studio.emit_integrity import GPP_XML, classify_xml
 
-    check = (
-        validation.SERIALIZED_TEXT[key]
-        if isinstance(key, str)
-        else validation.SERIALIZED_ATTRIBUTES[key]
-    )
-    return {
-        identity_values.sid_problem: "sid",
-        identity_values.name_problem: "name",
-        identity_values.principal_problem: "name",
-        identity_values.time_problem: "datetime",
-        identity_values.datetime_problem: "datetime",
-        identity_values.date_problem: "datetime",
-    }.get(check, "dn")
+    field = classify_xml(GPP_XML, *key)
+    assert field is not None, f"{key} is not in the writer's table"
+    return _SHAPE_KIND[field.kind]
 
 
-def _source(key: Any, value: str) -> tuple[str, dict[str, bytes]]:
-    capture, relative, old, new, _valid = INVENTORY[key]
+def _source(key: tuple[str, str, str], value: str) -> tuple[str, dict[str, bytes]]:
+    capture, relative, old, new, _valid = PROBES[key]
     (path,) = [
         candidate
         for candidate in sorted(
@@ -813,7 +872,9 @@ def _source(key: Any, value: str) -> tuple[str, dict[str, bytes]]:
     return scope, {relative: data.encode("utf-8")}
 
 
-def _through_the_boundary(key: Any, value: str) -> tuple[list[str], list[tuple[str, bytes]]]:
+def _through_the_boundary(
+    key: tuple[str, str, str], value: str
+) -> tuple[list[str], list[tuple[str, bytes]]]:
     """(errors, written files) for a document holding `value` at `key`."""
     from gpo_studio.gpp import GppError, parse_gpp_collection, serialize_gpp
     from gpo_studio.validation import validate_gpp_collection
@@ -824,34 +885,47 @@ def _through_the_boundary(key: Any, value: str) -> tuple[list[str], list[tuple[s
     except GppError as error:
         return [f"parse: {error}"], []
     errors = [i.code for i in validate_gpp_collection(collection) if i.severity == "error"]
-    written = [] if errors else sorted(serialize_gpp(collection).items())
+    if errors:
+        return errors, []
+    try:
+        written = sorted(serialize_gpp(collection).items())
+    except GppError as error:  # the writer's own check, after validation missed it
+        return [f"write: {error}"], []
     return errors, written
 
 
-def test_the_inventory_is_every_serialized_identity() -> None:
-    from gpo_studio import validation
-
-    assert set(INVENTORY) == set(validation.SERIALIZED_ATTRIBUTES) | set(validation.SERIALIZED_TEXT)
-
-
-@pytest.mark.parametrize("key", sorted(INVENTORY, key=str), ids=str)
-def test_a_serialized_identity_is_written_when_valid(key: Any) -> None:
-    valid = INVENTORY[key][4]
+@pytest.mark.parametrize("key", sorted(PROBES), ids=str)
+def test_a_serialized_value_is_written_when_valid(key: tuple[str, str, str]) -> None:
+    valid = PROBES[key][4]
     errors, written = _through_the_boundary(key, valid)
     assert not errors, errors
     assert _carried(written, valid), f"{key} is not written, so the boundary never sees it"
 
 
 @pytest.mark.parametrize(
+    "key",
+    [key for key in sorted(PROBES) if key[2] == "#text" and key[1] != "Command"],
+    ids=str,
+)
+def test_an_empty_task_payload_identity_is_refused(key: tuple[str, str, str]) -> None:
+    """DeepSeek final-r8 B3: ``<StartBoundary/>`` is not "unset", it is a task
+    Windows never creates; the same holds for an empty principal."""
+    errors, _written = _through_the_boundary(key, "")
+    assert errors, f"an empty {key[1]} was accepted"
+
+
+@pytest.mark.parametrize(
     ("key", "shape"),
     [
         pytest.param(key, shape, id=f"{key}-{shape}")
-        for key in sorted(INVENTORY, key=str)
-        for shape in sorted({**SHAPES, **KIND_SHAPES[_kind_of(key)]})
+        for key in sorted(PROBES)
+        for shape in _shape_names(_kind_of(key))
     ],
 )
-def test_a_serialized_identity_is_refused_or_never_written(key: Any, shape: str) -> None:
-    value = _hostile(_kind_of(key), INVENTORY[key][4], shape)
+def test_a_serialized_value_is_refused_or_never_written(
+    key: tuple[str, str, str], shape: str
+) -> None:
+    value = _hostile(_kind_of(key), PROBES[key][4], shape)
     errors, written = _through_the_boundary(key, value)
     if errors:
         return

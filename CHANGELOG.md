@@ -10,6 +10,27 @@ Current version: `1.1.0rc1` (release candidate). The latest final release is
 
 ## [Unreleased]
 
+### Security
+
+- **A value can no longer change the structure of an artifact Studio writes
+  (final-r8).** Studio's line- and record-oriented writers wrote values as
+  given. A value holding a line break, or another control, format or
+  separator character, therefore became structure: in the `GptTmpl.inf` that
+  `POST /api/security-template/policy-families` renders, a user-right
+  principal or right name became an additional `[Privilege Rights]` entry,
+  granting a right the request did not name; in
+  `POST /api/security-template/object-security`, a service name, registry or
+  file path, or security descriptor became an additional row. Separately,
+  the PowerShell plan (`plan.ps1`, and `apply.ps1` in `export.zip`) escaped
+  only the ASCII `'` inside its single-quoted literals, while PowerShell also
+  reads U+2018 to U+201B as single quotes, so a value holding one could end
+  the literal and the rest of the value would run as code when the plan was
+  run. The render endpoints are new in 1.1.0; the plan quoting is
+  pre-existing. Every writer now checks each name and value as it writes it
+  and refuses what its format cannot carry intact (see Changed); the plan
+  doubles every PowerShell single-quote character, and the plan validator
+  reads them as PowerShell does.
+
 ### Fixed
 
 Operator-facing:
@@ -264,7 +285,7 @@ Operator-facing:
   migration and object security call these instead of their own patterns.
   **What operators see:** besides the typed fields final-r6 covered, every
   identity Studio writes into preference XML is now checked as written
-  (`preference_identity`, an error): group and member SIDs and names, a local
+  (an error; final-r8 below gives the codes): group and member SIDs and names, a local
   user's `userName`/`newName`, a service's `accountName`, a task's `runAs`
   and v1 `triggerTime`, a TaskV2 payload's `UserId`, `GroupId`,
   `StartBoundary` and `EndBoundary` (also when retained from an import), and
@@ -291,6 +312,74 @@ Operator-facing:
   `tests/test_whole_value_validators.py` now also follows `pattern=`,
   `import re as ...`, `from re import compile/match/search`, walrus bindings
   and a compiled pattern passed to `re.match`.
+- After the eighth review (final-r8), the integrity rule moved from field
+  inventories into the writers. `src/gpo_studio/emit_integrity.py` holds one
+  table per output format, and each writer checks what it emits against it as
+  it emits it: the GPP XML writer (typed items, retained native elements,
+  retained attributes and imported files alike), the GPMC backup documents,
+  `GptTmpl.inf` (policy families and object security), `scripts.ini` and
+  `psscripts.ini`, the PowerShell plan, `Registry.pol` and the plain-text
+  report. JSON outputs are not listed: JSON escapes every control character.
+  Every value refuses Unicode controls, format characters, line and
+  paragraph separators and lone surrogates, except where a format encodes
+  one explicitly: TAB and LF in an XML value classified as multi-line text (a
+  description, a message body) or in the plan's `-Comment` and registry data;
+  any character but NUL in `Registry.pol` string data, which is
+  length-prefixed; and the report writes each as a visible `\uXXXX`.
+  Identity-typed values also go through the shared validators, so an item's
+  `uid`, `FilterRunOnce@id` and `clsid` must be braced GUIDs, a power scheme's
+  `nameGuid`/`schemeGuid` a GUID, a service name, task name and every other
+  free-text value one line. A name a table does not classify (a vendor
+  attribute retained from an import) is held to the one-line rule.
+  `tests/test_emit_integrity.py` runs every writer over the native captures,
+  the stored baselines, the lane candidates' templates and synthetic inputs
+  covering every typed family, targeting predicate and common option, and
+  fails on any emitted name the tables do not classify; this replaces round
+  7's test that compared one hand-written inventory with another.
+
+  **What operators see.** A GPP value a writer refuses is an error with code
+  `invalid_preference_value` or `control_character_in_preference_value`
+  (round 7 named these `*_preference_identity`); the message names the file,
+  the element and attribute, and the value. The two security-template render
+  endpoints answer 422 `unwritable_template_value` for a right name that is
+  not a `Se...` constant, a principal that is neither a starred SID
+  (`*S-1-...`, which must be a SID) nor a name without a comma or double
+  quote, any value that is not one line, a double quote inside a quoted row
+  field, or anything the INF reader would split, strip, continue or read as a
+  comment; their request models refuse the same first. Advisory issues (risk,
+  an unparseable descriptor) still do not block a render. A writer refusal
+  that reaches the API without validation having named it first is still a
+  422 (`unwritable_artifact_value`; from the GPP writer, `gpp_content_refused`).
+  New validation errors: `control_character_in_gpo_name`;
+  `unwritable_registry_name` (a registry key or value name holding `;`, NUL
+  or another control character -- `Registry.pol` separates and terminates
+  names with them); `unwritable_registry_data` (string data holding NUL).
+  An empty TaskV2 `StartBoundary`, `EndBoundary`, `UserId` or `GroupId` is
+  refused rather than skipped. Firewall rule fields and script command lines
+  refuse every control, format and separator character, not only line
+  breaks. `powershell_plan` validates its own input, so no caller gets a plan
+  for a GPO with a validation error. The plain-text report escapes such
+  characters instead of writing them; a description's own lines stay lines.
+  Validators: a date must be a real day (no 31 February), a UTC offset at
+  most 14:00, a multi-valued RDN (`CN=a+OU=b,DC=x`, RFC 4514) is a DN, a
+  starred template SID must be a SID, and a migration table's lower-case
+  `s-1-...` is a SID again, as before round 7. Identity error messages now
+  name the value, so the store's "only new errors" rule no longer lets one
+  stored bad value be swapped for a different bad value.
+
+  **Existing workspaces.** Nothing is migrated and every workspace loads.
+  A stored GPO holding a value these rules now refuse (a GPO name or GPP
+  value with a control character, a registry name with `;`, a malformed item
+  uid) keeps it, but its `export.zip`, `gpmc-backup` and `plan.ps1` answer 422
+  naming the value until it is corrected through the API (`PUT` the item, or
+  `DELETE` it), exactly as round 7 describes; a correcting edit is never
+  refused for errors it does not add. The render endpoints are stateless:
+  only the request changes. Every live lane's verdict remains pending
+  requalification at the freeze commit. Two lane inputs change with it: the
+  endpoint candidate no longer builds bisect row I (a bare `03:00:00`
+  `StartBoundary`, which three estate runs showed Windows never creates and
+  which Studio now refuses to write), and the conformance fixtures' synthetic
+  item uids (`{synth-uid-0}`) are deterministic braced GUIDs.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

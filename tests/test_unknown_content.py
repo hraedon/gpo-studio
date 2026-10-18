@@ -30,7 +30,7 @@ from gpo_studio.model import GPO, RegistrySetting
 _GROUPS_XML_WITH_UNKNOWN = b"""<?xml version="1.0" encoding="utf-8"?>
 <Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
   <Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Admins"
-         uid="{abc-123}" userContext="0" disabled="0" bypassErrors="1">
+         uid="{ABC12300-0000-4000-8000-000000000123}" userContext="0" disabled="0" bypassErrors="1">
     <Properties action="U" groupName="Admins" groupSid="S-1-5-32-544"
                 deleteAllUsers="0" deleteAllGroups="0">
       <Members>
@@ -97,7 +97,7 @@ def test_unknown_group_attrs_preserved_in_round_trip() -> None:
 
     uid_attrs = [a for a in group.unknown_attrs if a[0] == "uid"]
     assert len(uid_attrs) == 1
-    assert uid_attrs[0][1] == "{abc-123}"
+    assert uid_attrs[0][1] == "{ABC12300-0000-4000-8000-000000000123}"
 
     assert group.common.user_security_context is False
     assert group.common.disabled is False
@@ -105,7 +105,7 @@ def test_unknown_group_attrs_preserved_in_round_trip() -> None:
     assert all(name != "userContext" for name, _value in group.unknown_attrs)
 
     serialized = serialize_gpp_groups(GppCollection(scope="computer", groups=(group,)))
-    assert b'uid="{abc-123}"' in serialized
+    assert b'uid="{ABC12300-0000-4000-8000-000000000123}"' in serialized
     assert b'userContext="0"' in serialized
     assert b'bypassErrors="1"' in serialized
 
@@ -312,7 +312,7 @@ def test_unknown_content_survives_store_round_trip(tmp_path: Path) -> None:
 
     uid_attrs = [a for a in group.unknown_attrs if a[0] == "uid"]
     assert len(uid_attrs) == 1
-    assert uid_attrs[0][1] == "{abc-123}"
+    assert uid_attrs[0][1] == "{ABC12300-0000-4000-8000-000000000123}"
 
     assert group.ilt_filter is not None
     assert len(group.ilt_filter.unknown_predicates) == 1
@@ -362,7 +362,7 @@ def test_unknown_content_survives_gpmc_backup_round_trip(tmp_path: Path) -> None
 
     uid_attrs = [a for a in group.unknown_attrs if a[0] == "uid"]
     assert len(uid_attrs) == 1
-    assert uid_attrs[0][1] == "{abc-123}"
+    assert uid_attrs[0][1] == "{ABC12300-0000-4000-8000-000000000123}"
 
     assert group.ilt_filter is not None
     assert len(group.ilt_filter.unknown_predicates) == 1
@@ -396,7 +396,7 @@ def test_unknown_content_survives_export_bundle() -> None:
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
         groups_xml = archive.read("Machine/Preferences/Groups/Groups.xml")
 
-    assert b'uid="{abc-123}"' in groups_xml
+    assert b'uid="{ABC12300-0000-4000-8000-000000000123}"' in groups_xml
     assert b'bypassErrors="1"' in groups_xml
     assert b"FilterBattery" in groups_xml
 

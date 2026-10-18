@@ -14,6 +14,7 @@ from copy import deepcopy
 from dataclasses import MISSING, dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, assert_never
 
+from .emit_integrity import GPP_XML, xml_problems
 from .gpp_native import (
     has_never_retained_name,
     merge_native,
@@ -1671,7 +1672,29 @@ def serialize_gpp(collection: GppCollection) -> dict[str, bytes]:
     every root child is written in document order (see the section above).
     A collection whose positions collide is refused here as well as on load,
     so nothing can be written that would not read back.
+
+    Every value written -- typed, retained from an import or carried verbatim
+    in ``source_files`` -- is checked against
+    :data:`gpo_studio.emit_integrity.GPP_XML` as it is written (final-r8), and
+    a value its field refuses is a :class:`GppError`.
     """
+    files = serialize_gpp_unchecked(collection)
+    problems = [
+        problem
+        for path, data in sorted(files.items())
+        for problem in xml_problems(GPP_XML, path, data)
+    ]
+    if problems:
+        raise GppError(
+            "Studio will not write these preference values: "
+            + "; ".join(str(problem) for problem in problems[:5])
+        )
+    return files
+
+
+def serialize_gpp_unchecked(collection: GppCollection) -> dict[str, bytes]:
+    """:func:`serialize_gpp` without the emit check, for the validator that
+    reports each refused value as its own issue. Nothing else may call it."""
     _validate_document_positions(collection)
     if collection.source_files:
         return dict(collection.source_files)

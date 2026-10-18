@@ -14,6 +14,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from typing import Literal, Never, assert_never, cast
 
+from .emit_integrity import line_problem
 from .model import RegistrySetting, RegistryType, ValidationIssue
 from .registry_pol import PolRecord
 
@@ -232,7 +233,10 @@ def _policy_field_types(policy: FirewallPolicy) -> None:
 
 
 def _safe_text(value: str, field_name: str) -> str:
-    if not value or any(c in value for c in "|\0\r\n"):
+    """A rule-string field: nonempty, no ``|`` (the field delimiter), and one
+    line -- no control, format or separator character (final-r8; before, only
+    NUL, CR and LF were refused)."""
+    if not value or "|" in value or line_problem(value) is not None:
         _fail("invalid_text", f"{field_name} must be nonempty and contain no wire delimiters")
     return value
 

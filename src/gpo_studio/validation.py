@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from collections.abc import Callable
 from typing import assert_never
 
+from .emit_integrity import (
+    GPP_XML,
+    line_problem,
+    pol_data_problem,
+    pol_name_problem,
+    xml_problems,
+)
 from .gpp import (
     GppCollection,
     GppError,
@@ -14,22 +20,20 @@ from .gpp import (
     GppGroupMember,
     GppRegistry,
     GppRegistryValue,
-    serialize_gpp,
+    serialize_gpp_unchecked,
 )
 from .identity_values import (
     date_problem,
-    datetime_problem,
     dn_problem,
     name_problem,
     principal_problem,
     sid_problem,
-    time_problem,
     unsafe_characters,
 )
 from .ilt import IltError, IltFilter, IltPredicate
 from .model import GPO, RegistrySetting, ValidationIssue
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
-from .xml_safety import parse_xml_bounded, unwritable_text, xml_char_forbidden
+from .xml_safety import unwritable_text, xml_char_forbidden
 
 _WQL_SELECT = re.compile(r"\bselect\b", re.IGNORECASE)
 _WQL_FROM = re.compile(r"\bfrom\b", re.IGNORECASE)
@@ -59,12 +63,17 @@ def _control_or_format(text: str) -> bool:
 def _identity_issues(
     value: str, problem: str | None, code: str, label: str, path: str
 ) -> list[ValidationIssue]:
-    """One error for an invalid identity: ``control_character_<code>`` when the
-    value carries a refused character, ``invalid_<code>`` otherwise."""
+    """One error for an invalid identity: ``control_character_in_<code>`` when
+    the value carries a refused character, ``invalid_<code>`` otherwise.
+
+    The message names the value: the store's "only new errors" rule keys
+    errors by code, path and message, so a bad value swapped for a different
+    bad value is a new error, not the old one (DeepSeek final-r8 N5).
+    """
     if problem is None:
         return []
     kind = "control_character_in" if unsafe_characters(value) else "invalid"
-    return [ValidationIssue("error", f"{kind}_{code}", f"{label} {problem}.", path)]
+    return [ValidationIssue("error", f"{kind}_{code}", f"{label} {value!r} {problem}.", path)]
 
 
 def text_issues(gpo: GPO) -> list[ValidationIssue]:
@@ -125,6 +134,31 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
                 f"{path}/key",
             )
         )
+    # What Registry.pol cannot carry (final-r8, `emit_integrity`): its names are
+    # NUL-terminated and ';'-separated, its string data NUL-terminated.
+    for field_name, text in (("key", setting.key), ("value_name", setting.value_name)):
+        problem = pol_name_problem(text)
+        if problem is not None:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "unwritable_registry_name",
+                    f"Registry {field_name} {text!r} {problem}.",
+                    f"{path}/{field_name}",
+                )
+            )
+    data = setting.value if isinstance(setting.value, list) else [setting.value]
+    for item in data:
+        if isinstance(item, str) and pol_data_problem(item) is not None:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "unwritable_registry_data",
+                    "Registry string data contains NUL, which ends a registry string.",
+                    f"{path}/value",
+                )
+            )
+            break
     if "\\\\" in setting.key:
         issues.append(
             ValidationIssue(
@@ -238,6 +272,17 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = text_issues(gpo)
     if not gpo.name.strip():
         issues.append(ValidationIssue("error", "name_required", "GPO name is required.", "name"))
+    name_problem_text = line_problem(gpo.name)
+    if name_problem_text is not None:
+        # One line in Backup.xml, bkupInfo.xml and the plan's -Name (final-r8).
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_gpo_name",
+                f"GPO name {gpo.name!r} {name_problem_text}.",
+                "name",
+            )
+        )
     identities: dict[tuple[str, str, str, str], str] = {}
     for setting in gpo.settings:
         issues.extend(validate_setting(setting))
@@ -1130,62 +1175,22 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
     return issues
 
 
-Problem = Callable[[str], "str | None"]
-
-
-def _ou_problem(value: str) -> str | None:
-    return dn_problem(value, min_rdns=1)
-
-
-#: (element, attribute) -> the validator for the identity it holds, in the XML
-#: Studio writes. Read off the native GPMC captures (every SID, account, group,
-#: user, OU, domain, time and date attribute in them) and Studio's writers.
-#: An empty value is not checked here; whether one is allowed is the typed
-#: validator's business.
-SERIALIZED_ATTRIBUTES: dict[tuple[str, str], Problem] = {
-    ("Member", "sid"): sid_problem,
-    ("Member", "name"): name_problem,
-    ("Properties", "groupSid"): sid_problem,
-    ("Properties", "groupName"): name_problem,
-    ("Properties", "newName"): name_problem,
-    ("Properties", "userName"): name_problem,
-    ("Properties", "username"): name_problem,
-    ("Properties", "accountName"): name_problem,
-    ("Properties", "runAs"): principal_problem,
-    ("Properties", "triggerTime"): time_problem,
-    ("FilterGroup", "sid"): sid_problem,
-    ("FilterGroup", "name"): name_problem,
-    ("FilterUser", "sid"): sid_problem,
-    ("FilterUser", "name"): name_problem,
-    ("FilterOrgUnit", "name"): _ou_problem,
-    ("FilterComputerName", "name"): name_problem,
-    ("FilterDomain", "name"): name_problem,
-    ("FilterDate", "startDate"): date_problem,
-    ("FilterDate", "endDate"): date_problem,
-}
-#: Element text that holds an identity: the Task Scheduler payload a TaskV2 or
-#: ImmediateTaskV2 carries (retained from an import or written by Studio).
-SERIALIZED_TEXT: dict[str, Problem] = {
-    "StartBoundary": datetime_problem,
-    "EndBoundary": datetime_problem,
-    "UserId": principal_problem,
-    "GroupId": principal_problem,
-}
-
-
 def serialized_identity_issues(collection: GppCollection) -> list[ValidationIssue]:
-    """Every identity in the XML this collection WILL write, checked as written.
+    """Every value the collection's XML WILL carry that its writer would refuse.
 
     The typed fields are a projection: an imported TaskV2's retained payload, a
-    v1 Task's ``triggerTime`` and a retained native element are written as they
-    are, not from the projection (Sol final-r7 B2). So the boundary validates
-    the serialized files themselves, attribute by attribute and payload element
-    by payload element, with the shared validators. Mutation (the store), both
-    imports and every export pass through it via :func:`validate_gpo`.
+    v1 Task's ``triggerTime``, a retained native element and its item ``uid``
+    or ``FilterRunOnce@id`` are written as they are. So this reads the files
+    the writer produces and holds every attribute and text value to the
+    writer's own table (:data:`gpo_studio.emit_integrity.GPP_XML`, with the
+    shared identity validators behind it) -- the same check
+    :func:`gpo_studio.gpp.serialize_gpp` makes as it writes, reported here one
+    issue per value. Mutation (the store), both imports and every export pass
+    through it via :func:`validate_gpo`.
     """
     where = f"gpp_collections/{collection.scope}"
     try:
-        files = serialize_gpp(collection)
+        files = serialize_gpp_unchecked(collection)
     except (GppError, IltError, ValueError) as error:
         return [
             ValidationIssue(
@@ -1198,28 +1203,18 @@ def serialized_identity_issues(collection: GppCollection) -> list[ValidationIssu
     issues: list[ValidationIssue] = []
     for name, data in sorted(files.items()):
         try:
-            root = parse_xml_bounded(data, max_size=max(len(data), 1))
+            problems = xml_problems(GPP_XML, name, data)
         except ValueError as error:
             issues.append(ValidationIssue(
                 "error", "unwritable_preferences",
                 f"{name} does not read back: {error}", f"{where}/{name}",
             ))
             continue
-        for element in root.iter():
-            tag = element.tag.rsplit("}", 1)[-1]
-            for attribute, value in element.attrib.items():
-                check = SERIALIZED_ATTRIBUTES.get((tag, attribute))
-                if check is not None and value:
-                    issues.extend(_identity_issues(
-                        value, check(value), "preference_identity",
-                        f"{name} {tag} {attribute} {value!r}", f"{where}/{name}",
-                    ))
-            text_check = SERIALIZED_TEXT.get(tag)
-            if text_check is not None and element.text:
-                issues.extend(_identity_issues(
-                    element.text, text_check(element.text), "preference_identity",
-                    f"{name} {tag} {element.text!r}", f"{where}/{name}",
-                ))
+        for problem in problems:
+            issues.extend(_identity_issues(
+                problem.value, problem.problem, "preference_value",
+                f"{name} {problem.name}", f"{where}/{name}",
+            ))
     return issues
 
 

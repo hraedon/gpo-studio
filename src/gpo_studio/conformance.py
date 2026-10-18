@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import struct
+import uuid
 from typing import Any, Literal
 
 from .canonical import policy_semantic_dict
@@ -27,6 +28,15 @@ from .model import GPO, GPOLink, RegistrySetting, SecurityFilter, WmiFilter
 _SYNTH_GUID = "11111111-2222-3333-4444-555555555555"
 _SYNTH_GUID_2 = "22222222-3333-4444-5555-666666666666"
 _SYNTH_DOMAIN = "synthetic.test"
+
+
+def _synthetic_uid(label: str) -> str:
+    """A deterministic braced GUID for a synthetic item's ``uid``.
+
+    These fixtures used labels such as ``{synth-uid-0}``, which the GPP writer
+    now refuses: an item uid is a braced GUID wherever it is written (final-r8).
+    """
+    return "{" + str(uuid.uuid5(uuid.NAMESPACE_URL, f"gpo-studio:{label}")).upper() + "}"
 
 
 def normalize_gpo_for_comparison(gpo: GPO) -> dict[str, Any]:
@@ -344,7 +354,7 @@ def fixture_gpp_registry_all_actions() -> GPO:
                 key=r"Software\Policies\GppReg",
                 hive="HKEY_LOCAL_MACHINE",
                 action="update",
-                uid=f"{{synth-uid-{i}}}",
+                uid=_synthetic_uid(f"synth-uid-{i}"),
                 value=GppRegistryValue(
                     name=f"RegVal_{vaction}",
                     value=rval,
@@ -505,7 +515,7 @@ def fixture_comprehensive() -> GPO:
             key=r"Software\Policies\Gpp",
             hive="HKEY_LOCAL_MACHINE",
             action="update",
-            uid="{synth-comprehensive-1}",
+            uid=_synthetic_uid("synth-comprehensive-1"),
             value=GppRegistryValue(
                 name="GppVal",
                 value="gpp_data",

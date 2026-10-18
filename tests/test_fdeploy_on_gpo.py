@@ -478,7 +478,7 @@ def test_the_capability_advertises_the_gpmc_refusal(
 def test_the_studio_bundle_retains_the_document_and_emits_no_fdeploy_file() -> None:
     """Same rule as backup_inventory: carried in the manifest, never emitted."""
     doc = read_fdeploy(_policy_bytes())
-    gpo = GPO(guid="g", name="Redirected", fdeploy=doc)
+    gpo = GPO(guid="0b0d0080-0000-4000-8000-0000000000fd", name="Redirected", fdeploy=doc)
     with zipfile.ZipFile(io.BytesIO(export_bundle(gpo))) as archive:
         manifest = json.loads(archive.read("manifest.json"))
         names = archive.namelist()

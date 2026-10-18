@@ -10,6 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
+from .emit_integrity import PS_SINGLE_QUOTES
+
 _ALLOWED_CMDLETS: frozenset[str] = frozenset({
     "get-gpo",
     "new-gpo",
@@ -73,12 +75,14 @@ def _strip_single_quoted_tracked(
     i = 0
     while i < len(line):
         ch = line[i]
-        if ch == "'" and not in_string:
+        # PowerShell reads ' and the typographic U+2018-U+201B alike as a single
+        # quote, opening, closing or (doubled) escaped (final-r8).
+        if ch in PS_SINGLE_QUOTES and not in_string:
             in_string = True
             i += 1
             continue
-        if ch == "'" and in_string:
-            if i + 1 < len(line) and line[i + 1] == "'":
+        if ch in PS_SINGLE_QUOTES and in_string:
+            if i + 1 < len(line) and line[i + 1] in PS_SINGLE_QUOTES:
                 i += 2
                 continue
             in_string = False

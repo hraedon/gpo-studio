@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import cast
 
+from .emit_integrity import EmitError, EmitProblem, pol_data_problem, pol_name_problem
 from .model import RegistrySetting
 
 _HEADER = b"PReg" + struct.pack("<I", 1)
@@ -109,6 +110,29 @@ def _decode_data(registry_type: str, data: bytes) -> str | int | list[str]:
     raise RegistryPolError(f"unsupported registry type: {registry_type}")
 
 
+def _record_problems(
+    key: str, value_name: str, value: str | int | list[str]
+) -> list[EmitProblem]:
+    """What a record would write that PReg cannot carry intact (final-r8).
+
+    Key and value names are NUL-terminated and ``;``-separated, so they hold
+    one line and no ``;`` (:func:`emit_integrity.pol_name_problem`). String
+    data is length-prefixed, so every character is encoded except NUL, which
+    ends a registry string (a MULTI_SZ item would split in two).
+    """
+    found: list[EmitProblem] = []
+    for name, text in (("key", key), ("value_name", value_name)):
+        problem = pol_name_problem(text)
+        if problem is not None:
+            found.append(EmitProblem("Registry.pol", name, text, problem))
+    items = value if isinstance(value, list) else [value] if isinstance(value, str) else []
+    for item in items:
+        problem = pol_data_problem(item)
+        if problem is not None:
+            found.append(EmitProblem("Registry.pol", "data", item, problem))
+    return found
+
+
 _ACTION_ORDER = {"delete_all_values": 0, "delete": 1, "set": 2}
 
 
@@ -122,6 +146,13 @@ def serialize(records: Iterable[RegistrySetting | PolRecord]) -> bytes:
             item.value_name.casefold(),
         ),
     )
+    problems = [
+        problem
+        for record in ordered
+        for problem in _record_problems(record.key, record.value_name, record.value)
+    ]
+    if problems:
+        raise EmitError(problems)
     output = bytearray(_HEADER)
     for record in ordered:
         value_name = record.value_name

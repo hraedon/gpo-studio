@@ -21,6 +21,7 @@ spaces). Surrogates, private-use and unassigned code points (Cs, Co, Cn) too.
 
 from __future__ import annotations
 
+import calendar
 import re
 import unicodedata
 from typing import Literal
@@ -37,7 +38,7 @@ _TIME = re.compile(r"([0-9]{1,2}):([0-9]{2})(?::([0-9]{2}))?", re.ASCII)
 _DATE = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})", re.ASCII)
 _DATETIME = re.compile(
     r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]{1,7})?"
-    r"(?:Z|[+-][0-9]{2}:[0-9]{2})?",
+    r"(?:Z|[+-]([0-9]{2}):([0-9]{2}))?",
     re.ASCII,
 )
 #: The DN attribute types Studio accepts: domains, OUs and containers.
@@ -118,12 +119,33 @@ def principal_problem(value: str) -> str | None:
     return None
 
 
+def security_principal_problem(value: str) -> str | None:
+    """A principal in a security template list (``GptTmpl.inf``).
+
+    Windows writes a SID with a leading star (``*S-1-5-32-544``) and accepts a
+    bare account name. The star form must be a SID (DeepSeek final-r8 N6). A
+    name must also hold no comma or double quote: those are the list's own
+    separators and quoting, so either would turn one principal into two.
+    """
+    if value.startswith("*"):
+        return sid_problem(value[1:])
+    bad = principal_problem(value)
+    if bad:
+        return bad
+    for separator in ',"':
+        if separator in value:
+            return f"contains {separator!r}, which separates or quotes template principals"
+    return None
+
+
 def _clock(hour: str, minute: str, second: str | None) -> bool:
     return int(hour) < 24 and int(minute) < 60 and (second is None or int(second) < 60)
 
 
 def _calendar(year: str, month: str, day: str) -> bool:
-    return 1 <= int(month) <= 12 and 1 <= int(day) <= 31 and int(year) >= 1601
+    """A real day: month 1-12 and the day within that month (DeepSeek final-r8 N2)."""
+    y, m, d = int(year), int(month), int(day)
+    return y >= 1601 and 1 <= m <= 12 and 1 <= d <= calendar.monthrange(y, m)[1]
 
 
 def time_problem(value: str) -> str | None:
@@ -151,9 +173,11 @@ def datetime_problem(value: str) -> str | None:
     match = _DATETIME.fullmatch(value)
     if match is None:
         return "is not an ISO 8601 date-time (YYYY-MM-DDTHH:MM:SS)"
-    year, month, day, hour, minute, second = match.groups()
+    year, month, day, hour, minute, second, offset_hours, offset_minutes = match.groups()
     if not (_calendar(year, month, day) and _clock(hour, minute, second)):
         return "is not a valid date-time"
+    if offset_hours is not None and (int(offset_hours) > 14 or int(offset_minutes) > 59):
+        return "has a UTC offset outside -14:00..+14:00"
     return None
 
 
@@ -207,39 +231,48 @@ def _dn_value_problem(raw: str) -> str | None:
     return _characters(text)
 
 
+def _split_unescaped(value: str, separator: str) -> list[str]:
+    parts: list[str] = []
+    start = index = 0
+    while index < len(value):
+        if value[index] == "\\":
+            index += 2
+            continue
+        if value[index] == separator:
+            parts.append(value[start:index])
+            start = index + 1
+        index += 1
+    parts.append(value[start:])
+    return parts
+
+
 def dn_problem(value: str, *, types: frozenset[str] = DN_TYPES, min_rdns: int = 2) -> str | None:
     """A distinguished name per RFC 4514, as Studio writes and Windows reads one.
 
-    Single-valued RDNs of the given attribute types (``CN``, ``OU``, ``DC``),
-    separated by unescaped commas; values with every special character escaped,
-    no unescaped leading or trailing space or leading ``#``, no dangling or
-    incomplete escape; and no refused character, whether written or escaped.
+    RDNs of the given attribute types (``CN``, ``OU``, ``DC``) separated by
+    unescaped commas, each one attribute-value pair or several joined by an
+    unescaped ``+`` (a multi-valued RDN, RFC 4514 section 3; DeepSeek final-r8
+    N8); values with every special character escaped -- ``=`` included, which
+    the RFC only recommends -- no unescaped leading or trailing space or
+    leading ``#``, no dangling or incomplete escape; and no refused character,
+    whether written or escaped.
     """
     if not value:
         return "is empty"
     bad = _characters(value)
     if bad:
         return bad
-    rdns: list[str] = []
-    start = index = 0
-    while index < len(value):
-        if value[index] == "\\":
-            index += 2
-            continue
-        if value[index] == ",":
-            rdns.append(value[start:index])
-            start = index + 1
-        index += 1
-    rdns.append(value[start:])
+    rdns = _split_unescaped(value, ",")
     if len(rdns) < min_rdns:
         return f"has fewer than {min_rdns} RDNs"
     for rdn in rdns:
-        attribute, separator, raw = rdn.partition("=")
-        if not separator:
-            return "has an RDN without '='"
-        if attribute.upper() not in types:
-            return f"has an RDN of type {attribute!r}, not one of {sorted(types)}"
-        problem = _dn_value_problem(raw)
-        if problem:
-            return problem
+        for pair in _split_unescaped(rdn, "+"):
+            attribute, separator, raw = pair.partition("=")
+            if not separator:
+                return "has an RDN without '='"
+            if attribute.upper() not in types:
+                return f"has an RDN of type {attribute!r}, not one of {sorted(types)}"
+            problem = _dn_value_problem(raw)
+            if problem:
+                return problem
     return None

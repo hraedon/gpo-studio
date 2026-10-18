@@ -6,6 +6,7 @@ from collections.abc import Iterable
 
 from .backup_inventory import inventory_report_lines
 from .canonical import policy_semantic_sha256, review_model_sha256
+from .emit_integrity import escape_line
 from .fdeploy import (
     FDEPLOY_POLICY_PATH,
     FdeployDocument,
@@ -113,7 +114,10 @@ def policy_report(gpo: GPO) -> str:
         f"Review model SHA-256: {review_model_sha256(gpo)}",
         "",
     ]
-    lines += _section("Description", [gpo.description] if gpo.description else [])
+    # A description is the one multi-line value: each of its lines is a line.
+    lines += _section(
+        "Description", gpo.description.split("\n") if gpo.description else []
+    )
     lines += _section(
         "Validation",
         (
@@ -186,4 +190,7 @@ def policy_report(gpo: GPO) -> str:
             "Imported Windows inventory (source snapshot)",
             inventory_report_lines(gpo.backup_inventory),
         )
-    return "\n".join(lines).rstrip() + "\n"
+    # Every value is one report line: a control, format or separator character
+    # in one is written as a visible \uXXXX, so no value can start a line that
+    # reads as the report's own (final-r8: every writer checks what it writes).
+    return "\n".join(escape_line(line) for line in lines).rstrip() + "\n"

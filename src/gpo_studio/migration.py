@@ -89,7 +89,9 @@ def _principal_parts(text: str) -> tuple[str, str]:
     GPMC writes account names (``DOMAIN\\name``) or UNC paths as plain text;
     a raw SID string is also accepted so SID-keyed filters keep matching.
     """
-    if sid_problem(text) is None:
+    # Case-insensitive, as before final-r7 (DeepSeek final-r8 N7): an rc1
+    # table keyed by a lower-case ``s-1-...`` keeps meaning a SID.
+    if sid_problem(text[:1].upper() + text[1:]) is None:
         return text, ""
     return "", text
 

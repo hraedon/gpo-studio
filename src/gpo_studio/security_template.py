@@ -15,6 +15,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Literal
 
+from .emit_integrity import EmitProblem, inf_problems
 from .model import ValidationIssue
 
 _UTF16LE_BOM = b"\xff\xfe"
@@ -252,6 +253,32 @@ def parse_security_template(text: str) -> SecurityTemplate:
 # ---------------------------------------------------------------------------
 
 
+def template_problems(template: SecurityTemplate) -> list[EmitProblem]:
+    """Every name or value in *template* that :func:`format_security_template`
+    refuses to write (:func:`gpo_studio.emit_integrity.inf_problems`)."""
+    return inf_problems(
+        tuple(
+            (section.name, section.entries, section.unknown_lines)
+            for section in template.sections
+        ),
+        _ROW_SECTIONS,
+    )
+
+
+def template_issues(template: SecurityTemplate) -> list[ValidationIssue]:
+    """:func:`template_problems` as errors, one per value, for a 422 that names
+    each field rather than an artifact with advisory issues (final-r8)."""
+    return [
+        ValidationIssue(
+            "error",
+            "unwritable_template_value",
+            f"{problem.name}: {problem.value!r} {problem.problem}.",
+            problem.name,
+        )
+        for problem in template_problems(template)
+    ]
+
+
 def format_security_template(template: SecurityTemplate) -> str:
     """Serialize a :class:`SecurityTemplate` back to INF text.
 
@@ -261,12 +288,25 @@ def format_security_template(template: SecurityTemplate) -> str:
     its sections in a normalized ``Key = Value`` form -- except for the
     row-shaped sections (:data:`_ROW_SECTIONS`), whose entries are emitted
     as bare quoted-CSV lines, the shape the Windows parser requires.
+
+    Every section name, key, value and preserved line is checked first
+    (:func:`gpo_studio.emit_integrity.inf_problems`, final-r8): a value holding
+    a line break would become an INF line of its own -- a principal in
+    ``[Privilege Rights]`` became a new privilege grant -- so anything that is
+    not one line of its kind, or that the INF reader would split, strip or
+    continue differently, is a :class:`SecurityTemplateError`.
     """
     if template.raw_text:
         reparsed = parse_security_template(template.raw_text)
         if template.sections == reparsed.sections:
             return template.raw_text
 
+    problems = template_problems(template)
+    if problems:
+        raise SecurityTemplateError(
+            "Studio will not write this security template: "
+            + "; ".join(str(problem) for problem in problems[:5])
+        )
     parts: list[str] = []
     for i, section in enumerate(template.sections):
         if i > 0:

@@ -135,6 +135,7 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/conformance.py`
 - `src/gpo_studio/delegation.py`
 - `src/gpo_studio/diff.py`
+- `src/gpo_studio/emit_integrity.py`
 - `src/gpo_studio/estate.py`
 - `src/gpo_studio/evidence.py`
 - `src/gpo_studio/gpmc_interop.py`

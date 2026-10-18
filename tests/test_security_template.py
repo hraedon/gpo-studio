@@ -91,7 +91,7 @@ C:\\\\Windows,0,"D:AI(A;CI;CC;;;BA)"
 wsiservice,3,"D:AI(A;CI;CC;;;BA)"
 
 [Group Membership]
-*__Member_of_S-1-5-32-544 = *S-1-5-32-544
+*S-1-5-32-544__Memberof = *S-1-5-32-545
 
 [Kerberos Policy]
 MaxTicketAge = 10

@@ -343,12 +343,15 @@ BISECT: tuple[tuple[str, dict[str, object], str], ...] = (
         {"trigger_time": "2026-01-01T03:00:00"},
         "hypothesis: a 1970 StartBoundary is rejected as too old (DISPROVED: absent)",
     ),
-    (
-        "GPOStudio-EP2-I-bare-time",
-        {"run_as": "NT AUTHORITY\\System", "trigger_time": "RAW-BARE-TIME"},
-        "was the StartBoundary fix load-bearing, or only schema hygiene?",
-    ),
 )
+#: Row I (``GPOStudio-EP2-I-bare-time``) is retired. It asked whether a bare
+#: ``03:00:00`` StartBoundary was fatal, and three estate runs answered: the CSE
+#: creates no task (docs/plan-033/endpoint-lane-design.md, "One row moved").
+#: Studio now refuses to write that payload at all -- every value the GPP writer
+#: emits is checked as it is written, and a StartBoundary must be an ISO 8601
+#: date-time (final-r8) -- so the row can no longer be built through Studio,
+#: which is the point of the finding. `_bare_time_task` stays as the record of
+#: what the row was.
 
 
 def main() -> int:
@@ -369,12 +372,7 @@ def main() -> int:
                         _task(name, native_shape=native, ilt=ilt)
                         for name, native, ilt, _, _ in TASKS
                     )
-                    + tuple(
-                        _bare_time_task(name)
-                        if fields.get("trigger_time") == "RAW-BARE-TIME"
-                        else _scalar_task(name, **fields)
-                        for name, fields, _ in BISECT
-                    )
+                    + tuple(_scalar_task(name, **fields) for name, fields, _ in BISECT)
                 ),
             ),
         ),
