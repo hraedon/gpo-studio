@@ -40,6 +40,13 @@ edit that supplied raw content -- or one restored into the head from such a
 revision, stays unverified, and so does everything in a GPO whose creation
 the history does not show to be an import.
 
+Stored data never stops the migration, or the workspace opening (DeepSeek
+final-r14 B1): revision 1 is read first and nothing else for a GPO that was
+not imported or forked; a snapshot the current model cannot load, or loads
+only with problems (a 1.0.0-era namespaced child, say), records nothing, and
+the reason is logged and listed in ``workspace_meta.gpp_provenance_unrecorded``.
+Such content is refused at export with the reason (`validation`), not on read.
+
 The migration is keyed by ``workspace_meta.gpp_provenance`` rather than a
 schema version: the rewritten snapshots stay readable by a schema-4 build,
 which ignores the new keys, and a schema-4 build that writes drops records --
@@ -49,14 +56,18 @@ which can only leave content unverified, never verify it.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 from collections.abc import Iterable
-from dataclasses import dataclass, field
 from typing import Any
 
 META_KEY = "gpp_provenance"
 META_VALUE = "1"
+#: Why snapshots got no import record (a JSON list), when any did not load.
+UNRECORDED_KEY = "gpp_provenance_unrecorded"
+
+_LOG = logging.getLogger(__name__)
 
 _IMPORT_PROVENANCE = re.compile(
     r"Imported from GPMC backup \{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
@@ -76,17 +87,16 @@ def legacy_key(key: tuple[str, ...]) -> tuple[str, ...]:
     return key
 
 
-@dataclass
-class _Snapshot:
-    revision: int  # 0: the head
-    created_at: str
-    data: dict[str, Any]
-    collections: list[Any] = field(default_factory=list)
+class _Unloadable(Exception):
+    """A stored snapshot the current model cannot load cleanly."""
 
 
 def _load_collections(guid: str, data: dict[str, Any]) -> list[Any]:
     """The snapshot's collections as a load sees them: legacy item ids,
-    normalised run-once, derived predicate ids."""
+    normalised run-once, derived predicate ids. Raises `_Unloadable` for one
+    the model refuses, or loads only with problems (`load_problems`): content a
+    current rule refuses cannot be shown to be imported, so it records nothing
+    -- and it must not stop the workspace opening (DeepSeek final-r14 B1)."""
     from .store import gpo_from_dict
 
     minimal = {
@@ -94,7 +104,19 @@ def _load_collections(guid: str, data: dict[str, Any]) -> list[Any]:
         "name": str(data.get("name", "")),
         "gpp_collections": data.get("gpp_collections", []),
     }
-    return list(gpo_from_dict(minimal).gpp_collections)
+    try:
+        collections = list(gpo_from_dict(minimal).gpp_collections)
+    except Exception as error:  # any stored shape the model refuses
+        raise _Unloadable(f"{type(error).__name__}: {error}") from error
+    problems = [
+        message
+        for collection in collections
+        for severity, message in collection.load_problems
+        if severity == "error"
+    ]
+    if problems:
+        raise _Unloadable(problems[0])
+    return collections
 
 
 def _legacy_keys(collections: Iterable[Any]) -> set[tuple[str, ...]]:
@@ -119,57 +141,85 @@ def _creation(guid: str, first: dict[str, Any]) -> str:
 
 
 class _History:
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    """Revision history, read lazily: a snapshot is parsed only when the rule
+    needs it, and one that does not load records nothing (`_Unloadable`)."""
+
+    def __init__(self, conn: sqlite3.Connection, unrecorded: list[dict[str, Any]]) -> None:
         self.conn = conn
-        self.snapshots: dict[str, list[_Snapshot]] = {}
+        self.unrecorded = unrecorded
         self.first_verified: dict[str, set[tuple[str, ...]]] = {}
         self.guids = {
             str(row[0]) for row in conn.execute("SELECT guid FROM gpos").fetchall()
         }
 
-    def revisions(self, guid: str) -> list[_Snapshot]:
-        if guid not in self.snapshots:
-            rows = self.conn.execute(
-                "SELECT revision, created_at, snapshot_json FROM revisions "
-                "WHERE gpo_guid=? ORDER BY revision",
-                (guid,),
-            ).fetchall()
-            snapshots = []
-            for revision, created_at, payload in rows:
-                data = json.loads(payload)
-                snapshots.append(
-                    _Snapshot(int(revision), str(created_at), data, _load_collections(guid, data))
-                )
-            self.snapshots[guid] = snapshots
-        return self.snapshots[guid]
+    def note(self, guid: str, revision: int, reason: str) -> None:
+        """Record why a snapshot gets no import record (logged and kept in
+        ``workspace_meta.gpp_provenance_unrecorded``)."""
+        _LOG.warning(
+            "gpp provenance: GPO %s revision %s records nothing: %s", guid, revision, reason
+        )
+        if len(self.unrecorded) < _MAX_NOTES:
+            self.unrecorded.append(
+                {"gpo": guid, "revision": revision, "reason": reason[:300]}
+            )
 
-    def verified_at_creation(self, guid: str, visiting: frozenset[str] = frozenset()) -> set[
-        tuple[str, ...]
-    ]:
-        """The legacy keys of revision 1 recorded as imported (see the module doc)."""
+    def snapshot(self, guid: str, revision: int) -> tuple[str, dict[str, Any]] | None:
+        row = self.conn.execute(
+            "SELECT created_at, snapshot_json FROM revisions WHERE gpo_guid=? AND revision=?",
+            (guid, revision),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return str(row[0]), json.loads(row[1])
+        except ValueError as error:
+            self.note(guid, revision, f"snapshot is not JSON: {error}")
+            return None
+
+    def keys_at(self, guid: str, revision: int) -> set[tuple[str, ...]] | None:
+        loaded = self.snapshot(guid, revision)
+        if loaded is None:
+            return None
+        try:
+            return _legacy_keys(_load_collections(guid, loaded[1]))
+        except _Unloadable as error:
+            self.note(guid, revision, str(error))
+            return None
+
+    def verified_at_creation(
+        self, guid: str, visiting: frozenset[str] = frozenset()
+    ) -> set[tuple[str, ...]]:
+        """The legacy keys of revision 1 recorded as imported (see the module doc).
+
+        Revision 1 is read first, and nothing else unless it is an import or a
+        fork: a GPO that was neither records nothing whatever its history holds.
+        """
         if guid in self.first_verified:
             return self.first_verified[guid]
         verified: set[tuple[str, ...]] = set()
-        history = self.revisions(guid)
-        first = history[0] if history and history[0].revision == 1 else None
-        if first is not None:
-            keys = _legacy_keys(first.collections)
-            kind = _creation(guid, first.data)
-            if kind == "import":
+        first = self.snapshot(guid, 1)
+        kind = _creation(guid, first[1]) if first is not None else "none"
+        if first is not None and kind != "none":
+            keys = self.keys_at(guid, 1)
+            if keys and kind == "import":
                 verified = keys
-            elif kind == "fork":
-                parent = _norm_guid(first.data.get("source_guid"))
+            elif keys and kind == "fork":
+                parent = _norm_guid(first[1].get("source_guid"))
                 if parent in self.guids and parent != guid and parent not in visiting:
                     parent_verified = self.verified_at_creation(parent, visiting | {guid})
-                    at_fork = [
-                        snapshot
-                        for snapshot in self.revisions(parent)
-                        if snapshot.created_at <= first.created_at
-                    ]
-                    if at_fork:
-                        verified = keys & _legacy_keys(at_fork[-1].collections) & parent_verified
+                    row = self.conn.execute(
+                        "SELECT MAX(revision) FROM revisions WHERE gpo_guid=? AND created_at<=?",
+                        (parent, first[0]),
+                    ).fetchone()
+                    if parent_verified and row is not None and row[0] is not None:
+                        at_fork = self.keys_at(parent, int(row[0]))
+                        if at_fork is not None:
+                            verified = keys & at_fork & parent_verified
         self.first_verified[guid] = verified
         return verified
+
+
+_MAX_NOTES = 200
 
 
 def _record(
@@ -200,7 +250,13 @@ def _record(
 
 
 def migrate_retained_provenance(conn: sqlite3.Connection) -> None:
-    """Run once per workspace, inside the caller's transaction."""
+    """Run once per workspace, inside the caller's transaction.
+
+    Never fatal for stored data (DeepSeek final-r14 B1): a snapshot the
+    current model cannot load, or loads only with problems, records nothing
+    and is noted with its reason; the head and history stay readable, and a
+    refusal comes only at export (`validation` reports the load problems).
+    """
     tables = {
         str(row[0])
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
@@ -212,29 +268,54 @@ def migrate_retained_provenance(conn: sqlite3.Connection) -> None:
     ).fetchone()
     if done is not None:
         return
-    history = _History(conn)
+    unrecorded: list[dict[str, Any]] = []
+    history = _History(conn, unrecorded)
     for guid in sorted(history.guids):
-        verified = history.verified_at_creation(guid)
-        if not verified:
-            continue  # nothing recorded: every snapshot of this GPO stays as it is
-        for snapshot in history.revisions(guid):
-            if not _record(snapshot.collections, verified, snapshot.data):
-                continue
-            conn.execute(
-                "UPDATE revisions SET snapshot_json=? WHERE gpo_guid=? AND revision=?",
-                (
-                    json.dumps(snapshot.data, separators=(",", ":"), sort_keys=True),
-                    guid,
-                    snapshot.revision,
-                ),
-            )
-        row = conn.execute("SELECT snapshot_json FROM gpos WHERE guid=?", (guid,)).fetchone()
-        head = json.loads(row[0])
-        if _record(_load_collections(guid, head), verified, head):
-            conn.execute(
-                "UPDATE gpos SET snapshot_json=? WHERE guid=?",
-                (json.dumps(head, separators=(",", ":"), sort_keys=True), guid),
-            )
+        try:
+            _migrate_gpo(conn, history, guid)
+        except Exception as error:  # one GPO's history never blocks the workspace
+            history.note(guid, 0, f"{type(error).__name__}: {error}")
     conn.execute(
         "INSERT OR REPLACE INTO workspace_meta(key, value) VALUES (?, ?)", (META_KEY, META_VALUE)
     )
+    if unrecorded:
+        conn.execute(
+            "INSERT OR REPLACE INTO workspace_meta(key, value) VALUES (?, ?)",
+            (UNRECORDED_KEY, json.dumps(unrecorded, sort_keys=True)),
+        )
+
+
+def _migrate_gpo(conn: sqlite3.Connection, history: _History, guid: str) -> None:
+    verified = history.verified_at_creation(guid)
+    if not verified:
+        return  # nothing recorded: every snapshot of this GPO stays as it is
+    rows = conn.execute(
+        "SELECT revision FROM revisions WHERE gpo_guid=? ORDER BY revision", (guid,)
+    ).fetchall()
+    for (revision,) in rows:
+        loaded = history.snapshot(guid, int(revision))
+        if loaded is None:
+            continue
+        data = loaded[1]
+        try:
+            collections = _load_collections(guid, data)
+        except _Unloadable as error:
+            history.note(guid, int(revision), str(error))
+            continue
+        if _record(collections, verified, data):
+            conn.execute(
+                "UPDATE revisions SET snapshot_json=? WHERE gpo_guid=? AND revision=?",
+                (json.dumps(data, separators=(",", ":"), sort_keys=True), guid, revision),
+            )
+    row = conn.execute("SELECT snapshot_json FROM gpos WHERE guid=?", (guid,)).fetchone()
+    head = json.loads(row[0])
+    try:
+        collections = _load_collections(guid, head)
+    except _Unloadable as error:
+        history.note(guid, 0, str(error))
+        return
+    if _record(collections, verified, head):
+        conn.execute(
+            "UPDATE gpos SET snapshot_json=? WHERE guid=?",
+            (json.dumps(head, separators=(",", ":"), sort_keys=True), guid),
+        )

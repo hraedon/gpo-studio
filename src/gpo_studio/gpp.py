@@ -7,9 +7,11 @@ format so that output is interoperable with GPMC.
 
 from __future__ import annotations
 
+import logging
 import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import MISSING, dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, assert_never
@@ -27,6 +29,8 @@ from .ilt import IltError, IltFilter, IltOsCriteria, IltPredicate, parse_ilt, se
 from .numeric import coerce_dword_qword
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
 from .xml_safety import parse_xml_bounded
+
+_LOG = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .gpp_adapters import (
@@ -288,12 +292,40 @@ def _capture_unknown_children(
     )
 
 
+#: Problems a TOLERANT load recorded instead of raising (final-r14), or ``None``
+#: outside one. See `gpp_collection_from_dict_tolerant`.
+_TOLERATED: ContextVar[list[tuple[str, str]] | None] = ContextVar(
+    "gpp_tolerated_load_problems", default=None
+)
+
+
+def _tolerate(error: GppError, severity: str = "error") -> bool:
+    """Record *error* if a tolerant load is running; ``False`` otherwise."""
+    problems = _TOLERATED.get()
+    if problems is None:
+        return False
+    problems.append((severity, str(error)))
+    return True
+
+
 def _validate_unknown_attrs(
     unknown: tuple[tuple[str, str], ...],
     reserved: frozenset[str],
     context: str,
 ) -> None:
     """Raise GppError if any unknown attr local name collides with a reserved name."""
+    try:
+        _check_unknown_attrs(unknown, reserved, context)
+    except GppError as error:
+        if not _tolerate(error):
+            raise
+
+
+def _check_unknown_attrs(
+    unknown: tuple[tuple[str, str], ...],
+    reserved: frozenset[str],
+    context: str,
+) -> None:
     for name, _value in unknown:
         if _local_name(name) in reserved:
             raise GppError(
@@ -308,6 +340,18 @@ def _validate_unknown_children(
     context: str,
 ) -> None:
     """Raise GppError if any unknown child local name collides with a reserved name."""
+    try:
+        _check_unknown_children(unknown, reserved, context)
+    except GppError as error:
+        if not _tolerate(error):
+            raise
+
+
+def _check_unknown_children(
+    unknown: tuple[str, ...],
+    reserved: frozenset[str],
+    context: str,
+) -> None:
     for raw in unknown:
         data = raw.encode("utf-8")
         if len(data) > _MAX_GPP_XML_SIZE:
@@ -667,6 +711,10 @@ class GppCollection:
     #: keeps. A retained fragment without one is unverified. Persisted;
     #: bookkeeping, outside ==.
     retained_provenance: tuple[str, ...] = field(default=(), compare=False)
+    #: ``(severity, message)`` for each check a tolerant load of STORED data
+    #: recorded instead of raising (final-r14, `gpp_collection_from_dict_tolerant`).
+    #: Validation reports them; never persisted.
+    load_problems: tuple[tuple[str, str], ...] = field(default=(), compare=False)
     source_files: tuple[tuple[str, bytes], ...] = ()
 
 
@@ -1395,10 +1443,12 @@ def _namespaced_raw(raw: str) -> str | None:
 def _refuse_namespaced(value: Any, context: str) -> None:
     found = namespaced_content(value)
     if found is not None:
-        raise GppError(
+        error = GppError(
             f"{context} uses an XML namespace or prefix ({found}); no native GPP "
             "capture does, and Studio would write it back verbatim"
         )
+        if not _tolerate(error):
+            raise error
 
 
 def item_carries_cpassword(key: str, item: Any, scope: GppScope = "computer") -> bool:
@@ -2404,11 +2454,15 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
             if not isinstance(ids, list) or len(ids) not in (0, len(items)) or not all(
                 isinstance(i, str) and i and len(i) <= 64 for i in ids
             ):
-                raise GppError("ilt_filter.ids must hold one short string id per predicate")
+                # Server bookkeeping: malformed ids are re-derived on load
+                # (`store.gpo_from_dict`), never fatal (final-r14).
+                _LOG.warning("ignoring malformed targeting predicate ids in a stored item")
+                ids = []
             try:
                 return IltFilter(items=tuple(items), ids=tuple(ids))
-            except IltError as error:
-                raise GppError(str(error)) from error
+            except IltError:
+                _LOG.warning("ignoring duplicate targeting predicate ids in a stored item")
+                return IltFilter(items=tuple(items))
         predicates_data = data.get("predicates", [])
         unknown = tuple(data.get("unknown_predicates", []))
         predicates: list[IltPredicate] = []
@@ -2480,6 +2534,17 @@ def _common_options_from_dict(data: Any) -> GppCommonOptions:
 
 
 def _native_xml_from_dict(raw: object, key: str, context: str) -> str:
+    try:
+        return _checked_native_xml(raw, key, context)
+    except GppError as error:
+        if not _tolerate(error):
+            raise
+        # Kept as stored: refused at export (the load problem is an error),
+        # never silently dropped.
+        return raw if isinstance(raw, str) else ""
+
+
+def _checked_native_xml(raw: object, key: str, context: str) -> str:
     """Load a stored ``native_xml`` (absent before WI-080: ``""``).
 
     It is written back verbatim wherever the model has not changed, so it is
@@ -2967,20 +3032,66 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         ),
         retained_provenance=_provenance_from_dict(data.get("retained_provenance")),
     )
-    _validate_document_positions(collection)
+    try:
+        _validate_document_positions(collection)
+    except GppError as error:
+        if not _tolerate(error, "warning"):
+            raise
+        # The stored order is not one an import wrote; the writer's own order
+        # stands in for it, so the GPO stays readable and writable.
+        collection = _without_document_positions(collection)
     _refuse_namespaced(collection, f"stored {scope} preference collection")
     return collection
 
 
 def _provenance_from_dict(raw: object) -> tuple[str, ...]:
+    """Stored import records; a malformed list is dropped, never trusted and
+    never fatal: its fragments read as unverified (final-r14)."""
     if raw is None:
         return ()
     if not isinstance(raw, list) or not all(
         isinstance(d, str) and len(d) == 64 and all(c in "0123456789abcdef" for c in d)
         for d in raw
     ):
-        raise GppError("retained_provenance must be a list of SHA-256 hex digests")
+        _LOG.warning("ignoring malformed retained_provenance records in a stored collection")
+        return ()
     return tuple(sorted(set(raw)))
+
+
+def _without_document_positions(collection: GppCollection) -> GppCollection:
+    from .gpp_adapters import ADAPTER_KEYS
+
+    def strip(items: tuple[Any, ...]) -> tuple[Any, ...]:
+        return tuple(replace(item, document_position=None) for item in items)
+
+    adapters: dict[str, Any] = {key: strip(getattr(collection, key)) for key in ADAPTER_KEYS}
+    return replace(
+        collection,
+        groups=strip(collection.groups),
+        registry=strip(collection.registry),
+        root_unknown_positions=(),
+        **adapters,
+    )
+
+
+def gpp_collection_from_dict_tolerant(data: dict[str, Any]) -> GppCollection:
+    """`gpp_collection_from_dict` for STORED data (final-r14).
+
+    Stored data must never stop a workspace opening or a GPO being read: a
+    1.0.0 workspace may hold retained content a later release refuses (a
+    namespaced child, a reserved-name collision, an element record that no
+    longer validates). Those checks are recorded as ``load_problems`` instead
+    of raising; validation reports each as an error, so exports refuse the GPO
+    with the reason, and the operator can delete the item. The content itself
+    is kept as stored. Anything else still raises.
+    """
+    problems: list[tuple[str, str]] = []
+    token = _TOLERATED.set(problems)
+    try:
+        collection = gpp_collection_from_dict(data)
+    finally:
+        _TOLERATED.reset(token)
+    return replace(collection, load_problems=tuple(problems)) if problems else collection
 
 
 def _validate_document_positions(collection: GppCollection) -> None:

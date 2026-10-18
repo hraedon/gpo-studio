@@ -147,7 +147,8 @@ class IltPredicate:
     os_criteria: IltOsCriteria | None = None
 
 
-#: The predicate types the API and the workbench author. The model reads every
+#: The predicate types the API and the workbench author (static/js/gpp.mjs
+#: ILT_TYPES holds the same set; a test holds them equal). The model reads every
 #: type in `IltPredicateType`; the others (``FilterDate``, ``FilterUser`` ...)
 #: are kept, reordered or deleted, never authored (final-r13).
 AUTHORABLE_PREDICATE_TYPES: frozenset[str] = frozenset({

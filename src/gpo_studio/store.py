@@ -27,7 +27,8 @@ from .gpp import (
     GppRegistryValue,
     GppScope,
     ensure_editor_ids,
-    gpp_collection_from_dict,
+    gpp_collection_from_dict_tolerant,
+    gpp_collection_to_dict,
     registry_action_edit,
     serialize_gpp,
 )
@@ -191,21 +192,32 @@ def _wmi_filter(data: dict[str, Any]) -> WmiFilter:
 
 
 def _gpp_collection(data: dict[str, Any]) -> GppCollection:
-    return gpp_collection_from_dict(data)
+    # Stored data is read tolerantly (final-r14): retained content a later
+    # rule refuses is reported and refused at export, never fatal on read.
+    return gpp_collection_from_dict_tolerant(data)
 
 
 @dataclass
 class _Grants:
-    """What one mutation may add beyond what the GPO held (final-r13).
+    """What one mutation may add beyond what the GPO held (final-r13), per scope.
 
-    ``fragments``: retained fragments (digests, `gpp_provenance`) the mutation
-    may introduce -- a clone's copy, a restored item or revision. ``records``:
-    the provenance records it may carry with them. Every other mutation adds
-    neither: it can only keep or drop what is stored.
+    ``fragments[scope]``: retained fragments (digests, `gpp_provenance`) the
+    mutation may introduce into that scope's collection -- a clone's copy, a
+    restored item or revision. ``records[scope]``: the provenance records it
+    may carry with them there. Every other mutation adds neither: it can only
+    keep or drop what is stored.
+
+    Keyed by scope because a digest does not name its scope: a record pooled
+    across scopes let a whole-revision restore give an unverified user-side
+    fragment the record of an identical computer-side one (Sol final-r14 B1).
     """
 
-    fragments: set[str] = field(default_factory=set)
-    records: set[str] = field(default_factory=set)
+    fragments: dict[str, set[str]] = field(default_factory=dict)
+    records: dict[str, set[str]] = field(default_factory=dict)
+
+    def grant(self, scope: str, fragments: Iterable[str], records: Iterable[str]) -> None:
+        self.fragments.setdefault(scope, set()).update(fragments)
+        self.records.setdefault(scope, set()).update(records)
 
 
 def _provenance_refusal(added: list[provenance.Fragment]) -> ValidationError:
@@ -239,10 +251,23 @@ def _keep_provenance(before: GPO, after: GPO, grants: _Grants | None) -> GPO:
         if collection is previous:
             collections.append(collection)
             continue
-        added = provenance.new_fragments(collection, previous, grants.fragments)
+        scope = collection.scope
+        added = provenance.new_fragments(
+            collection, previous, grants.fragments.get(scope, set())
+        )
         if added:
             raise _provenance_refusal(added)
-        kept = provenance.keep_records(collection, previous, grants.records)
+        kept = provenance.keep_records(collection, previous, grants.records.get(scope, set()))
+        if kept.load_problems:
+            # What a tolerant load reported belongs to the stored data; after
+            # this mutation only what the new collection still holds stands
+            # (deleting the offending item clears it).
+            kept = replace(
+                kept,
+                load_problems=gpp_collection_from_dict_tolerant(
+                    gpp_collection_to_dict(replace(kept, load_problems=()))
+                ).load_problems,
+            )
         changed = changed or kept is not collection
         collections.append(kept)
     if not changed:
@@ -1711,11 +1736,10 @@ class WorkspaceStore:
                 if isinstance(copy, GppRegistry)
                 else copy
             )
-            grants.fragments |= {
-                provenance.digest(key) for key, _text in provenance.item_fragments(kind, copy)
-            }
-            grants.records |= provenance.carried_records(
-                kind, source, copy, provenance.records(existing)
+            grants.grant(
+                scope,
+                {provenance.digest(key) for key, _text in provenance.item_fragments(kind, copy)},
+                provenance.carried_records(kind, source, copy, provenance.records(existing)),
             )
             if isinstance(copy, GppGroup):
                 new_collection = replace(existing, groups=existing.groups + (copy,))
@@ -1760,12 +1784,11 @@ class WorkspaceStore:
             raise NotFoundError(
                 f"GPP {kind} item {item_id} not found in revision {from_revision}"
             )
-        grants = _Grants(
-            fragments={
-                provenance.digest(key)
-                for key, _text in provenance.item_fragments(kind, restored)
-            },
-            records=set(provenance.item_records(old_found[1], kind, restored)),
+        grants = _Grants()
+        grants.grant(
+            scope,
+            {provenance.digest(key) for key, _text in provenance.item_fragments(kind, restored)},
+            provenance.item_records(old_found[1], kind, restored),
         )
 
         def mutate(gpo: GPO) -> GPO:
@@ -2315,18 +2338,13 @@ class WorkspaceStore:
 
         # The revision's retained content and its provenance records come back
         # with it; the restore creates no record (final-r13).
-        grants = _Grants(
-            fragments={
-                key
-                for collection in historical.gpp_collections
-                for key in provenance.fragments(collection)
-            },
-            records={
-                key
-                for collection in historical.gpp_collections
-                for key in provenance.records(collection)
-            },
-        )
+        grants = _Grants()
+        for collection in historical.gpp_collections:
+            grants.grant(
+                collection.scope,
+                provenance.fragments(collection),
+                provenance.records(collection),
+            )
 
         def mutate(current: GPO) -> GPO:
             return replace(

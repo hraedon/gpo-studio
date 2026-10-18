@@ -122,6 +122,15 @@ def _assert_superset(legacy: Any, current: Any, path: str = "") -> None:
             assert key in current, f"{path}/{key} was served by 1.0.0 and is gone"
             _assert_superset(value, current[key], f"{path}/{key}")
         for key in current.keys() - legacy.keys():
+            if key == "ids" and path.endswith("/ilt_filter"):
+                # Server bookkeeping since final-r13: one stable id per
+                # targeting predicate, derived on load for a 1.0.0 snapshot.
+                # Pinned as bookkeeping, not content: one non-empty string per
+                # predicate 1.0.0 served.
+                ids = current[key]
+                assert isinstance(ids, list) and len(ids) == len(current.get("items", [])), path
+                assert all(isinstance(i, str) and i for i in ids), path
+                continue
             assert _is_empty(current[key]), (
                 f"{path}/{key} is new since 1.0.0 and holds {current[key]!r}: "
                 "the upgrade invented content"

@@ -224,3 +224,64 @@ test("restores an imported group from a revision", async ({
     (await request.get(`/api/gpos/${seeded.guid}/export.zip`)).status(),
   ).toBe(200);
 });
+
+test("shows each predicate's AND/OR join and warns when a move regroups it", async ({
+  page,
+  request,
+}, testInfo) => {
+  // An OR join is authored through the API (the editor writes AND only).
+  const name = `OR joins ${testInfo.project.name} ${Date.now()}`;
+  const created = await request.post("/api/gpos", {
+    data: { name, actor: "browser-test", reason: "Seed an OR join" },
+  });
+  const gpo = (await created.json()).gpo;
+  const added = await request.post(`/api/gpos/${gpo.guid}/preferences/groups`, {
+    data: {
+      expected_revision: gpo.revision,
+      actor: "browser-test",
+      reason: "Seed an OR join",
+      scope: "computer",
+      group: {
+        name: "Joined",
+        sid: "S-1-5-32-544",
+        ilt_filter: {
+          items: [
+            { type: "ou", value: "OU=A,DC=studio,DC=local" },
+            { type: "group", value: "S-1-5-32-545", bool_op: "OR" },
+          ],
+        },
+      },
+    },
+  });
+  expect(added.status()).toBe(201);
+
+  await page.goto("/");
+  await page.locator(".gpo-item", { hasText: name }).click();
+  await page.getByRole("tab", { name: /Preferences/ }).click();
+  await page.getByRole("button", { name: "Edit group Joined" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit group" });
+  const rows = dialog.locator("#gpp-ilt-list .gpp-row");
+  await expect(rows.nth(1).locator(".gpp-connector")).toHaveText("OR");
+  await expect(dialog.locator("#gpp-ilt-preview")).toHaveText(
+    "Member of OU=A,DC=studio,DC=local OR [imported: Member of group S-1-5-32-545]",
+  );
+  await rows
+    .nth(1)
+    .getByRole("button", { name: "Move ILT predicate earlier" })
+    .click();
+  await expect(dialog.locator(".gpp-move-warning")).toContainText(
+    "changed how AND and OR group the expression",
+  );
+  await expect(dialog.locator("#gpp-ilt-preview")).toHaveText(
+    "[imported: Member of group S-1-5-32-545] AND Member of OU=A,DC=studio,DC=local",
+  );
+  await dialog.getByRole("button", { name: "Save group" }).click();
+  await expect(dialog).toBeHidden();
+  const stored = await request.get(`/api/gpos/${gpo.guid}`);
+  const items = (await stored.json()).gpo.gpp_collections[0].groups[0]
+    .ilt_filter.items;
+  expect(items.map((item) => [item.type, item.bool_op])).toEqual([
+    ["group", "OR"],
+    ["ou", "AND"],
+  ]);
+});

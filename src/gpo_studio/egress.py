@@ -568,14 +568,19 @@ def gpp_file_element_problems(
             found = gpp_element_problems(f"{where}:{side}/{relative}", content, verified)
             if found and collection is not None:
                 unverified = gpp_provenance.element_names(collection, families, verified=False)
-                items = gpp_provenance.unverified_items(collection, families)
                 found = [
                     replace(
                         problem,
                         problem=(
                             f"{problem.problem}: it is retained content with no import "
-                            f"record ({', '.join(items[:5])}). Re-import the GPO from its "
-                            "source backup, or delete these items"
+                            "record ("
+                            + ", ".join(
+                                gpp_provenance.unverified_items(
+                                    collection, families, problem.name
+                                )[:5]
+                            )
+                            + "). Re-import the GPO from its source backup, or delete "
+                            "these items"
                         ),
                     )
                     if problem.name in unverified

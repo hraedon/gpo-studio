@@ -5,9 +5,12 @@ import {
   gppCloneRequest,
   gppRestoreRequest,
   iltOperatorWarning,
+  iltExpression,
   iltRows,
   memberEntry,
+  moveChangesGrouping,
   moveGppItemIds,
+  osCriteriaFromText,
   predicateEntry,
   retainedSummary,
 } from "../../src/gpo_studio/static/js/gpp.mjs";
@@ -222,5 +225,76 @@ describe("the id-based edit protocol (final-r13)", () => {
       "no import record",
     );
     expect(retainedSummary({ unknown_attrs: [] })).toBe("");
+  });
+});
+
+describe("joins and operating systems (final-r14)", () => {
+  test("a predicate is editable only when its join is AND", () => {
+    const rows = iltRows({
+      items: [
+        { type: "ou", negate: false, value: "OU=A", bool_op: "AND" },
+        { type: "ou", negate: false, value: "OU=B", bool_op: "X" },
+        { type: "ou", negate: false, value: "OU=C", bool_op: "OR" },
+        '<FilterBattery bool="OR" not="0" />',
+      ],
+      ids: ["a", "b", "c", "d"],
+    });
+    expect(rows.map((row) => [row.editable, row.bool])).toEqual([
+      [true, "AND"],
+      [false, "X"],
+      [false, "OR"],
+      [false, "OR"],
+    ]);
+  });
+
+  test("an operating system predicate is authored as five criteria", () => {
+    expect(osCriteriaFromText("NT/WINTHRESHOLD/WS/NE/NE")).toEqual({
+      os_class: "NT",
+      version: "WINTHRESHOLD",
+      product_type: "WS",
+      edition: "NE",
+      service_pack: "NE",
+    });
+    expect(osCriteriaFromText("NT/WINTHRESHOLD")).toBeNull();
+    expect(
+      predicateEntry({
+        id: "p",
+        type: "os",
+        negate: false,
+        value: "NT/WIN8/WS/NE/NE",
+      }),
+    ).toEqual({
+      id: "p",
+      type: "os",
+      negate: false,
+      value: "",
+      bool_op: "AND",
+      os_criteria: {
+        os_class: "NT",
+        version: "WIN8",
+        product_type: "WS",
+        edition: "NE",
+        service_pack: "NE",
+      },
+    });
+  });
+
+  test("the expression shows which predicate each join connects", () => {
+    expect(
+      iltExpression([
+        { bool: "AND", text: "Member of OU=A" },
+        { bool: "OR", text: "[imported FilterBattery]" },
+        { bool: "AND", text: "Member of group S-1-5-32-544" },
+      ]),
+    ).toBe(
+      "Member of OU=A OR [imported FilterBattery] AND Member of group S-1-5-32-544",
+    );
+  });
+
+  test("a move is flagged when an OR join is in effect", () => {
+    expect(moveChangesGrouping(["AND", "AND", "AND"], 0, 1)).toBe(false);
+    expect(moveChangesGrouping(["AND", "OR"], 1, 0)).toBe(true);
+    expect(moveChangesGrouping(["AND", "AND", "OR"], 0, 1)).toBe(true);
+    expect(moveChangesGrouping(["OR", "AND"], 0, 0)).toBe(false);
   });
 });

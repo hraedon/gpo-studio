@@ -619,7 +619,55 @@ Operator-facing:
     no checked builder produced to the closed vocabulary. The writer refuses a
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
-    echoes its value.
+    echoes its value (final-r14 extends this to wrong-shape values).
+- After the fourteenth review (final-r14):
+  - **Stored data never blocks a workspace.** The r13 provenance migration
+    parsed every stored revision with the current model, so a 1.0.0
+    workspace holding a namespaced retained child in one historical
+    revision -- legal in 1.0.0 -- could no longer be opened. Now revision 1
+    is read first and nothing else for a GPO that was not imported or
+    forked; a snapshot the model cannot load, or loads only with problems,
+    records nothing, and the reason is logged and listed in
+    `workspace_meta.gpp_provenance_unrecorded`. Stored preference data is
+    read tolerantly everywhere: retained content a current rule refuses (a
+    namespace, a reserved-name collision, an element record that no longer
+    validates) is kept as stored and reported as a validation error
+    (`stored_preferences_refused`), so the GPO and its history stay readable
+    and every export refuses it with the remedy -- delete the item, or
+    re-import from the source backup. A colliding stored document order is
+    dropped with a warning. Malformed predicate ids or provenance records
+    are ignored (ids re-derived, content unverified), never fatal.
+  - **No import record crosses a scope.** A record's digest does not name
+    its scope, and the r13 whole-revision restore granted every
+    collection's records to every collection: an unverified user-side
+    fragment took the record of an identical computer-side one. Grants are
+    now per scope.
+  - The workbench edits a predicate only when its join is AND (a save kept
+    rewriting another stored `bool` to AND), authors an operating-system
+    predicate as class/version/type/edition/service pack (the workbench and
+    the API now author the same seven types, held equal by a test), shows
+    each predicate's AND/OR join in the row and in the expression preview,
+    and warns when a move regroups an expression with an OR.
+  - A 422 never echoes a value of the wrong shape inside a GPP request body
+    (raw XML where a member or a registry value belongs), as well as a field
+    the request may not carry. A refusal of unverified content names only the
+    items that hold the refused element.
+  - The 1.0.0 upgrade invariant pins `ilt_filter.ids` as bookkeeping, and a
+    1.0.0 snapshot with targeting keeps its derived ids stable and stays
+    byte-identical.
+  - **Downgrade note.** A 1.1.0 release candidate (the same schema, 4) can
+    open a workspace this build has opened; it ignores the import records
+    and predicate ids and drops them when it writes. That can only leave
+    imported content unverified -- exports then refuse its
+    out-of-vocabulary elements until the GPO is re-imported -- never verify
+    anything. To go back, restore the pre-upgrade backup
+    ([workspace recovery](docs/workspace-recovery.md#upgrading-and-rolling-back-across-a-schema-change)).
+  - Lane cost: `src/gpo_studio/gpp.py` is bound by six lane verdicts
+    (fdeploy, firewall, publication, report-parity, scripts-metadata, wp1b;
+    `docs/plan-033/bound-source-cost.md`), and `validation.py` by three of
+    the same (firewall, publication, scripts-metadata); this branch edits
+    both, so those six verdicts are expired until the next estate batch
+    re-runs them, with the others already pending requalification.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

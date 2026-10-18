@@ -1118,6 +1118,20 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
         case _:
             assert_never(collection.scope)
     scope = collection.scope
+    # What a tolerant load of stored data refused to raise for (final-r14):
+    # the GPO stays readable, and an error here refuses its exports.
+    for severity, message in collection.load_problems:
+        issues.append(
+            ValidationIssue(
+                "error" if severity == "error" else "warning",
+                "stored_preferences_refused",
+                f"{message}. Studio kept it as stored but will not export it: delete "
+                "the item holding it, or re-import the GPO from its source backup."
+                if severity == "error"
+                else f"{message}. Studio writes these items in its own order instead.",
+                f"gpp_collections/{scope}",
+            )
+        )
     seen_group_names: set[str] = set()
     seen_group_ids: set[str] = set()
     for idx, group in enumerate(collection.groups):

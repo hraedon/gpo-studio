@@ -3,10 +3,13 @@ import {api,toast,audit,showPersistentError} from './api.mjs';
 import {clearFormErrors,showFormErrors,handleFormFailure} from './errors.mjs';
 import {renderAll,renderList} from './render.mjs';
 
-const ILT_TYPES=["ou","group","registry","ip_range","environment","wmi_query"];
-const ILT_LABELS={ou:"OU",group:"Group",registry:"Registry",ip_range:"IP range",environment:"Environment",wmi_query:"WMI query"};
-const ILT_HINTS={ou:"Distinguished name, e.g. OU=Servers,DC=studio,DC=local",group:"Group SID or name, e.g. S-1-5-32-544",registry:"Key\\ValueName path",ip_range:"CIDR (10.0.0.0/8) or range (10.0.0.1-10.0.0.99)",environment:"NAME=value",wmi_query:"WQL query (SELECT ... FROM ...)"};
-const ILT_PREVIEW={ou:v=>"Member of "+v,group:v=>"Member of group "+v,registry:v=>"Registry "+v+" matches",ip_range:v=>"IP in "+v,environment:v=>"Environment "+v,wmi_query:v=>"WMI query: "+v};
+// The authored predicate types: the same set as ilt.AUTHORABLE_PREDICATE_TYPES
+// (tests/test_gpp_clone_restore.py holds them equal). An OS predicate is
+// edited as class/version/type/edition/service pack.
+export const ILT_TYPES=["ou","group","registry","ip_range","environment","wmi_query","os"];
+const ILT_LABELS={ou:"OU",group:"Group",registry:"Registry",ip_range:"IP range",environment:"Environment",wmi_query:"WMI query",os:"Operating system"};
+const ILT_HINTS={ou:"Distinguished name, e.g. OU=Servers,DC=studio,DC=local",group:"Group SID or name, e.g. S-1-5-32-544",registry:"Key\\ValueName path",ip_range:"CIDR (10.0.0.0/8) or range (10.0.0.1-10.0.0.99)",environment:"NAME=value",wmi_query:"WQL query (SELECT ... FROM ...)",os:"class/version/type/edition/sp, e.g. NT/WINTHRESHOLD/WS/NE/NE"};
+const ILT_PREVIEW={ou:v=>"Member of "+v,group:v=>"Member of group "+v,registry:v=>"Registry "+v+" matches",ip_range:v=>"IP in "+v,environment:v=>"Environment "+v,wmi_query:v=>"WMI query: "+v,os:v=>"Operating system "+v};
 const REG_TYPES=["REG_SZ","REG_EXPAND_SZ","REG_BINARY","REG_DWORD","REG_MULTI_SZ","REG_QWORD"];
 const REG_VALUE_HINTS={REG_SZ:"Text value",REG_EXPAND_SZ:"Text with %VAR% expansion",REG_BINARY:"Hex bytes, e.g. 01FFA0",REG_DWORD:"Non-negative decimal integer",REG_MULTI_SZ:"Semicolon or newline-separated values",REG_QWORD:"Non-negative decimal integer"};
 const REG_VALUE_ACTIONS=["create","replace","update","delete"];
@@ -50,16 +53,54 @@ export function iltRows(filter){
   const ids=filter?.ids||[];
   return items.map((item,index)=>{
     const raw=typeof item!=="object";
-    const editable=!raw&&ILT_TYPES.includes(item.type)&&item.bool_op!=="OR";
-    return {id:ids[index]||"",item,raw,editable};
+    // Editable only when its join is AND: the editor writes AND, so a save
+    // never rewrites another join (DeepSeek final-r14 N1).
+    const editable=!raw&&ILT_TYPES.includes(item.type)&&item.bool_op==="AND";
+    const bool=raw?rawBool(item):item.bool_op;
+    return {id:ids[index]||"",item,raw,editable,bool};
   });
+}
+
+function rawBool(text){
+  const match=/\sbool="([^"]*)"/.exec(text);
+  return match?match[1]:"AND";
+}
+
+export function osCriteriaText(criteria){
+  return criteria?`${criteria.os_class}/${criteria.version}/${criteria.product_type}/${criteria.edition}/${criteria.service_pack}`:"";
+}
+
+// "class/version/type/edition/sp" -> os_criteria, or null when it is not five parts.
+export function osCriteriaFromText(text){
+  const parts=String(text).split("/").map(part=>part.trim());
+  if(parts.length!==5||parts.some(part=>!part))return null;
+  const [os_class,version,product_type,edition,service_pack]=parts;
+  return {os_class,version,product_type,edition,service_pack};
 }
 
 export function predicateEntry(row){
   if(row.readonly)return {id:row.id};
-  const entry={type:row.type,negate:row.negate,value:row.value,bool_op:"AND"};
+  const entry={type:row.type,negate:row.negate,value:row.type==="os"?"":row.value,bool_op:"AND"};
+  if(row.type==="os")entry.os_criteria=osCriteriaFromText(row.value);
   if(row.id)entry.id=row.id;
   return entry;
+}
+
+// The expression the rows make, in order: each predicate joins what precedes it
+// with its own AND/OR (the first one's join is unused).
+export function iltExpression(parts){
+  return parts.map((part,index)=>index===0?part.text:`${part.bool} ${part.text}`).join(" ");
+}
+
+// Moving a row changes how AND and OR group the expression whenever an OR join
+// is in effect before or after the move (a join on the first row is unused).
+export function moveChangesGrouping(bools,from,to){
+  if(from===to)return false;
+  const moved=[...bools];
+  const [item]=moved.splice(from,1);
+  moved.splice(to,0,item);
+  const hasOr=list=>list.slice(1).includes("OR");
+  return hasOr(bools)||hasOr(moved);
 }
 
 export function memberEntry(member){
@@ -221,6 +262,8 @@ async function submitGppGroup(event){
   event.preventDefault();
   if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
   const f=event.currentTarget,scope=f.scope.value;
+  const groupOsProblem=osProblem("gpp-ilt-list");
+  if(groupOsProblem){showFormErrors(f,{issues:[{message:groupOsProblem}]});return}
   const partialMember=[...$("#gpp-members-list").querySelectorAll(".gpp-row")].find(row=>row.querySelector('[data-field=name]').value.trim()&&!row.querySelector('[data-field=sid]').value.trim());
   if(partialMember){showFormErrors(f,{issues:[{message:"Each member with a name must also have a SID."}]});return}
   const group={name:f.name.value.trim(),sid:f.sid.value.trim(),action:f.action.value,description:f.description.value.trim(),remove_all_users:f.remove_all_users.checked,remove_all_groups:f.remove_all_groups.checked,members:collectMembers(),ilt_filter:collectIlt("gpp-ilt-list")};
@@ -353,6 +396,8 @@ async function submitGppRegistry(event){
   const value=collectValue();
   if(!value){showFormErrors(f,{issues:[{message:"A registry value is required."}]});return}
   if(!value.default&&String(value.value).trim()&&!value.name.trim()&&value.registry_type){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
+  const registryOsProblem=osProblem("gpp-ilt-registry-list");
+  if(registryOsProblem){showFormErrors(f,{issues:[{message:registryOsProblem}]});return}
   const commonIlt=collectIlt("gpp-ilt-registry-list");
   const badDword=(value.action!=="delete"&&(value.registry_type==="REG_DWORD"||value.registry_type==="REG_QWORD")&&!/^(?:0|[1-9][0-9]*)$/.test(value.value));
   if(badDword){showFormErrors(f,{issues:[{message:`${value.registry_type} value for "${value.name||"(default)"}" must be a non-negative decimal integer.`}]});return}
@@ -372,7 +417,7 @@ function addPredicateRow(listId,previewId,row=null){
   const list=$("#"+listId);
   const el=document.createElement("div");
   el.className="gpp-row";
-  el.innerHTML=`<select data-field="type">${ILT_TYPES.map(t=>`<option value="${t}">${ILT_LABELS[t]}</option>`).join("")}</select><label><input type="checkbox" data-field="negate"> NOT</label><input data-field="value" placeholder="${ILT_HINTS.ou}"><button type="button" class="quiet" data-move="-1">↑</button><button type="button" class="quiet" data-move="1">↓</button><button type="button" class="quiet" data-remove>×</button>`;
+  el.innerHTML=`<span class="gpp-connector mono" aria-hidden="true"></span><select data-field="type">${ILT_TYPES.map(t=>`<option value="${t}">${ILT_LABELS[t]}</option>`).join("")}</select><label><input type="checkbox" data-field="negate"> NOT</label><input data-field="value" placeholder="${ILT_HINTS.ou}"><button type="button" class="quiet" data-move="-1">↑</button><button type="button" class="quiet" data-move="1">↓</button><button type="button" class="quiet" data-remove>×</button>`;
   const typeSel=el.querySelector('[data-field=type]');
   const valueInput=el.querySelector('[data-field=value]');
   const negateBox=el.querySelector('[data-field=negate]');
@@ -380,13 +425,15 @@ function addPredicateRow(listId,previewId,row=null){
   typeSel.onchange=update;
   valueInput.oninput=()=>updateIltPreview(listId,previewId);
   negateBox.onchange=()=>updateIltPreview(listId,previewId);
+  el.dataset.bool=row?.bool||"AND";
   if(row)el.dataset.id=row.id||"";
   const predicate=row?.item;
-  const readonly=(text,title)=>{el.dataset.readonly="true";typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;el.title=title;const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent=text;el.insertBefore(warn,el.querySelector("[data-move]"))};
-  if(row&&row.raw){valueInput.value="[unsupported predicate]";readonly("⚠ Unknown — kept on save","Unknown predicate: kept as imported; it can be moved or removed, not edited")}
-  else if(row&&!row.editable&&ILT_TYPES.includes(predicate.type)){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate;readonly("⚠ OR — kept on save","Predicate joined with OR: kept as imported; it can be moved or removed, not edited here")}
-  else if(row&&!row.editable){const unsupportedOption=document.createElement("option");unsupportedOption.value=predicate.type;unsupportedOption.textContent=predicate.type==="os"?"Operating system":predicate.type;typeSel.appendChild(unsupportedOption);typeSel.value=predicate.type;const criteria=predicate.os_criteria;valueInput.value=criteria?`${criteria.os_class}/${criteria.version}/${criteria.product_type}/${criteria.edition}/${criteria.service_pack}`:predicate.value;negateBox.checked=predicate.negate;const operatorWarning=iltOperatorWarning(predicate);readonly(operatorWarning||"Unsupported — kept on save",operatorWarning||"Unsupported predicate type: kept as imported; it can be moved or removed, not edited")}
-  else if(row){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate}
+  const warn=text=>{const span=document.createElement("span");span.className="gpp-readonly-warn";span.textContent=text;el.insertBefore(span,el.querySelector("[data-move]"))};
+  const readonly=(text,title)=>{el.dataset.readonly="true";typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;el.title=title;warn(text)};
+  if(row&&row.raw){valueInput.value="[unsupported predicate]";el.dataset.label=`imported ${(/^<\s*([\w:.-]+)/.exec(predicate)||[])[1]||"predicate"}`;readonly("⚠ Unknown — kept on save","Unknown predicate: kept as imported; it can be moved or removed, not edited")}
+  else if(row&&!row.editable&&ILT_TYPES.includes(predicate.type)){typeSel.value=predicate.type;valueInput.value=predicate.type==="os"?osCriteriaText(predicate.os_criteria):predicate.value;negateBox.checked=predicate.negate;readonly(`⚠ ${predicate.bool_op||"?"} — kept on save`,`Predicate joined with ${predicate.bool_op||"an unknown operator"}: kept as imported; it can be moved or removed, not edited here`)}
+  else if(row&&!row.editable){const unsupportedOption=document.createElement("option");unsupportedOption.value=predicate.type;unsupportedOption.textContent=predicate.type;typeSel.appendChild(unsupportedOption);typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate;readonly("Unsupported — kept on save","Unsupported predicate type: kept as imported; it can be moved or removed, not edited")}
+  else if(row){typeSel.value=predicate.type;valueInput.value=predicate.type==="os"?osCriteriaText(predicate.os_criteria):predicate.value;negateBox.checked=predicate.negate;const operatorWarning=iltOperatorWarning(predicate);if(operatorWarning){el.title=operatorWarning;warn(operatorWarning)}}
   update();
   const removeButton=el.querySelector("[data-remove]");
   removeButton.setAttribute("aria-label",el.dataset.readonly==="true"?"Remove imported ILT predicate":"Remove ILT predicate");
@@ -394,9 +441,21 @@ function addPredicateRow(listId,previewId,row=null){
   el.querySelectorAll("[data-move]").forEach(button=>{
     const offset=Number(button.dataset.move);
     button.setAttribute("aria-label",offset<0?"Move ILT predicate earlier":"Move ILT predicate later");
-    button.onclick=()=>{const sibling=offset<0?el.previousElementSibling:el.nextElementSibling;if(!sibling)return;if(offset<0)sibling.before(el);else sibling.after(el);updateIltPreview(listId,previewId)};
+    button.onclick=()=>{
+      const rows=[...list.querySelectorAll(".gpp-row")];
+      const from=rows.indexOf(el),to=from+offset;
+      if(to<0||to>=rows.length)return;
+      const regroups=moveChangesGrouping(rows.map(r=>r.dataset.bool||"AND"),from,to);
+      if(offset<0)rows[to].before(el);else rows[to].after(el);
+      updateIltPreview(listId,previewId,regroups?"Moving this predicate changed how AND and OR group the expression. Check the expression below before saving.":"");
+    };
   });
   list.appendChild(el);
+}
+
+function osProblem(listId){
+  const bad=[...$("#"+listId).querySelectorAll(".gpp-row")].find(row=>row.dataset.readonly!=="true"&&row.querySelector('[data-field=type]').value==="os"&&!osCriteriaFromText(row.querySelector('[data-field=value]').value));
+  return bad?"An operating system predicate needs class/version/type/edition/service pack, e.g. NT/WINTHRESHOLD/WS/NE/NE.":"";
 }
 
 function collectIlt(listId){
@@ -411,20 +470,29 @@ function collectIlt(listId){
   return {items};
 }
 
-function updateIltPreview(listId,previewId){
-  const rows=$("#"+listId).querySelectorAll(".gpp-row");
-  const editableParts=[...rows].filter(row=>row.dataset.readonly!=="true").map(row=>{
+function updateIltPreview(listId,previewId,moveWarning=null){
+  const rows=[...$("#"+listId).querySelectorAll(".gpp-row")];
+  const parts=[];
+  rows.forEach((row,index)=>{
+    const bool=row.dataset.bool||"AND";
+    const connector=row.querySelector(".gpp-connector");
+    if(connector)connector.textContent=index===0?"":bool;
     const type=row.querySelector('[data-field=type]').value;
     const negate=row.querySelector('[data-field=negate]').checked;
     const value=row.querySelector('[data-field=value]').value.trim();
-    if(!value)return "";
-    let text=ILT_PREVIEW[type](value);
+    let text;
+    if(row.dataset.label)text=`[${row.dataset.label}]`;
+    else if(!value)return;
+    else text=(ILT_PREVIEW[type]||(v=>`${type} ${v}`))(value);
+    if(row.dataset.readonly==="true"&&!row.dataset.label)text=`[imported: ${text}]`;
     if(negate)text="NOT "+text;
-    return text;
-  }).filter(Boolean);
-  const readonlyCount=[...rows].filter(row=>row.dataset.readonly==="true").length;
-  const parts=[];
-  if(editableParts.length)parts.push(editableParts.join(" AND "));
-  if(readonlyCount)parts.push(`${readonlyCount} imported expression part${readonlyCount===1?' is':'s are'} preserved read-only`);
-  $("#"+previewId).textContent=parts.join(" · ");
+    parts.push({bool,text});
+  });
+  const preview=$("#"+previewId);
+  preview.textContent=iltExpression(parts);
+  let warning=preview.parentElement?.querySelector(`[data-move-warning="${previewId}"]`);
+  if(moveWarning!==null){
+    if(!warning&&moveWarning){warning=document.createElement("p");warning.className="gpp-note gpp-move-warning";warning.setAttribute("role","status");warning.dataset.moveWarning=previewId;preview.insertAdjacentElement("afterend",warning)}
+    if(warning){warning.textContent=moveWarning;warning.hidden=!moveWarning}
+  }
 }

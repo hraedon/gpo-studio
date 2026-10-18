@@ -131,6 +131,19 @@ So rolling back an upgrade is a **restore**, not a downgrade:
 4. Start the older release and confirm that `/api/health` reports the older
    `version` and the expected `schema_version`.
 
+**Retained-content import records (1.1.0).** The first time 1.1.0 opens a
+workspace it also records which retained (imported) preference content an
+import acquired, by a conservative rule over each GPO's revision history
+(`provenance_migration`); content it cannot show to be imported is kept but
+exports hold it to Studio's element vocabulary. This keeps schema 4, so a
+1.1.0 release candidate can still open the workspace afterwards -- but it
+ignores the records and drops them when it writes, which leaves that content
+unverified (exports may refuse it until the GPO is re-imported from its
+backup). Records are never created by a downgrade, only lost. To return to a
+release candidate without that loss, restore the pre-upgrade backup as below.
+A revision the current release cannot load is never fatal: it records nothing
+and its reason is listed in `workspace_meta.gpp_provenance_unrecorded`.
+
 Restore does not migrate. A pre-upgrade backup restored by the *newer* release
 stays at its old schema until a server opens it. This is how the release
 rehearsal (`scripts/rehearse_upgrade_rollback.py`) proves that the same backup

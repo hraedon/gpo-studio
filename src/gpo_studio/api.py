@@ -2676,8 +2676,11 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
-#: A raw predicate sent where a targeting entry belongs fails as one of these.
+#: A value of the wrong shape -- raw XML where a targeting entry, a member or a
+#: registry value belongs -- fails as one of these. Inside a GPP request body
+#: it is never echoed (DeepSeek final-r14 N2).
 _UNECHOED_INPUT_TYPES = frozenset({"model_type", "model_attributes_type", "dict_type"})
+_GPP_BODY_KEYS = frozenset({"group", "registry", "member", "value"})
 
 
 def _sanitize_validation_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
@@ -2686,8 +2689,12 @@ def _sanitize_validation_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
         if not isinstance(issue, dict):
             sanitized.append({"issue": str(issue)})
             continue
+        loc = tuple(issue.get("loc", ()))
         if issue.get("type") == "extra_forbidden" or (
-            issue.get("type") in _UNECHOED_INPUT_TYPES and "ilt_filter" in issue.get("loc", ())
+            issue.get("type") in _UNECHOED_INPUT_TYPES
+            and len(loc) > 1
+            and loc[0] == "body"
+            and loc[1] in _GPP_BODY_KEYS
         ):
             # A field the request may not carry, or a value in a shape it may
             # not take -- retained content, a raw filter (final-r13) -- is

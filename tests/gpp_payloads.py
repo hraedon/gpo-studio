@@ -13,10 +13,14 @@ from __future__ import annotations
 from typing import Any
 
 #: The predicate types the workbench's editor authors (static/js/gpp.mjs ILT_TYPES).
-WORKBENCH_ILT_TYPES = frozenset({"ou", "group", "registry", "ip_range", "environment", "wmi_query"})
+WORKBENCH_ILT_TYPES = frozenset(
+    {"ou", "group", "registry", "ip_range", "environment", "wmi_query", "os"}
+)
 
 
 def workbench_ilt(ilt: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Each predicate the editor edits (an AND predicate of a type it authors)
+    as a typed entry with its id; every other one as its id alone."""
     if not ilt or not ilt.get("items"):
         return None
     entries: list[dict[str, Any]] = []
@@ -24,17 +28,18 @@ def workbench_ilt(ilt: dict[str, Any] | None) -> dict[str, Any] | None:
         if (
             isinstance(item, dict)
             and item["type"] in WORKBENCH_ILT_TYPES
-            and item.get("bool_op", "AND") != "OR"
+            and item.get("bool_op") == "AND"
         ):
-            entries.append(
-                {
-                    "id": predicate_id,
-                    "type": item["type"],
-                    "negate": item["negate"],
-                    "value": item["value"],
-                    "bool_op": "AND",
-                }
-            )
+            entry = {
+                "id": predicate_id,
+                "type": item["type"],
+                "negate": item["negate"],
+                "value": "" if item["type"] == "os" else item["value"],
+                "bool_op": "AND",
+            }
+            if item["type"] == "os":
+                entry["os_criteria"] = item["os_criteria"]
+            entries.append(entry)
         else:
             entries.append({"id": predicate_id})
     return {"items": entries}

@@ -235,13 +235,18 @@ def element_names(
     return frozenset(names)
 
 
-def unverified_items(collection: Any, families: Iterable[str]) -> list[str]:
+def unverified_items(
+    collection: Any, families: Iterable[str], element: str | None = None
+) -> list[str]:
     """A label per item (or file root) holding retained content without an
-    import record, for an actionable refusal."""
+    import record -- with *element*, only those whose unrecorded content holds
+    that element (DeepSeek final-r14 N9) -- for an actionable refusal."""
     held = records(collection)
     labels: list[str] = []
-    for key, ((family, owner, *_rest), _text) in fragments(collection, families).items():
+    for key, ((family, owner, *_rest), text) in fragments(collection, families).items():
         if key in held:
+            continue
+        if element is not None and (text is None or element not in _element_names(text)):
             continue
         label = f"{family} {'file root' if owner == ROOT else owner}"
         if label not in labels:
