@@ -274,6 +274,7 @@ def test_a_candidate_tag_needs_candidate_status_not_approval(tmp_path: Path) -> 
         ("1.1.0rc1", "v1.1.0"),
         ("1.1.0rc1", "v1.1.0rc1"),
         ("1.1.0", "v1.1.0-rc.1"),
+        ("1.1.0", "v1.1.0\n"),
     ],
 )
 def test_tag_must_equal_the_package_version(tmp_path: Path, version: str, tag: str) -> None:
@@ -512,6 +513,10 @@ _DROP = object()
         _report(freeze={**FREEZE, "batch_manifest": "docs/plan-033/final.json"}),
         _report(freeze={**FREEZE, "batch_manifest": "docs/plan-033/../x-batch.json"}),
         _report(freeze={**FREEZE, "batch_manifest": "docs/final-batch.json"}),
+        # Sol final-r4 B1: `$` with match() accepted a trailing newline.
+        _report(freeze={**FREEZE, "commit": "1" * 40 + "\n"}),
+        _report(freeze={**FREEZE, "batch_manifest": "docs/plan-033/final-batch.json\n"}),
+        _report(version="1.1.0\n"),
     ],
 )
 def test_the_report_schema_is_exact(tmp_path: Path, report: dict[str, object]) -> None:

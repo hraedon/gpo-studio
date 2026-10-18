@@ -648,7 +648,7 @@ data. Each is pinned by a test:
    publication (`release-identity`, `ci`, `identifier-gate`, `verify`) passed
    in that run, since `publish` runs only after they succeed; that `verify`
    checked branch coverage against the floor; and the wheel, sdist and SBOM
-   hashes. The per-job run IDs and the measured coverage total are in that
+   hashes. The job IDs and the tagged run's measured coverage total are in that
    workflow run itself (its jobs and the `verify` log), not in the assets. It
    refuses to publish if any of that is missing or the placeholder is not
    resolved. A closes this item by saying so.

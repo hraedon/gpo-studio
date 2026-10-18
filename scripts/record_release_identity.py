@@ -19,17 +19,27 @@ that run, which is true because ``publish`` runs only after ``release-identity``
 coverage against the floor (the measured total stays in that job's log; it is
 not carried to this job, so it is not recorded); and the artifact hashes.
 
+``GITHUB_SHA`` may be the pushed tag's commit or, for an annotated tag, the tag
+object (not verified against GitHub's documentation here), so the commit is
+resolved with ``git rev-parse --verify GITHUB_SHA^{commit}`` in the publish
+job's full checkout and recorded as ``source_commit``; a tag object that differs
+is recorded beside it as ``tag_object``. The manifest's ``Source commit`` header
+(line 4) is filled in with that commit.
+
 It fails closed, before writing anything, if a GitHub variable it records is
-missing or malformed, if the placeholder paragraph is not there exactly once,
-if the report already carries ``automated_evidence``, or if a placeholder
-survives the rewrite.
+missing or malformed (each validated with ``fullmatch``: a trailing newline is
+malformed), if ``GITHUB_SHA`` does not resolve to a commit, if the placeholder
+paragraph is not in its section exactly once, if the header line is not there,
+if the report already carries ``automated_evidence``, or if any placeholder
+text is left anywhere in either published file.
 
     GITHUB_SHA=... GITHUB_REF_NAME=... GITHUB_RUN_ID=... GITHUB_RUN_ATTEMPT=... \\
     GITHUB_SERVER_URL=... GITHUB_REPOSITORY=... GITHUB_WORKFLOW_REF=... \\
         python scripts/record_release_identity.py
 
-Moved out of an inline ``python -`` heredoc in ``release.yml`` unchanged:
-``tests/workflow_grammar.py`` refuses inline interpreter code.
+First moved out of an inline ``python -`` heredoc in ``release.yml``
+(``tests/workflow_grammar.py`` refuses inline interpreter code), and extended
+since (final-r3, final-r4).
 """
 
 from __future__ import annotations
@@ -38,6 +48,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -73,15 +84,35 @@ def run_identity(environ: dict[str, str]) -> dict[str, str]:
     found: dict[str, str] = {}
     for name, pattern in _ENV.items():
         value = environ.get(name, "")
-        if not pattern.match(value):
+        if not pattern.fullmatch(value):
             raise RecordError(f"{name} is missing or malformed ({value!r}); refusing to record")
         found[name] = value
     return found
 
 
-def resolve_manifest(text: str, record: str) -> str:
-    """Replace the Automated evidence placeholder paragraph with ``record``."""
+#: Text that means "not filled in yet"; none may survive in a published file.
+UNRESOLVED = (PLACEHOLDER, "To be resolved", "resolved by the tagged release workflow")
+SOURCE_HEADER = "> **Source commit:** "
+
+
+def resolve_commit(root: Path, sha: str) -> str:
+    """The commit ``sha`` names (itself, or the commit an annotated tag peels to)."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}"],
+        cwd=root, capture_output=True, text=True, timeout=60, check=False,
+    )
+    commit = result.stdout.strip()
+    if result.returncode != 0 or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise RecordError(f"GITHUB_SHA {sha} does not resolve to a commit in this checkout")
+    return commit
+
+
+def resolve_manifest(text: str, record: str, commit: str) -> str:
+    """Fill in the Source commit header and replace the placeholder paragraph."""
     lines = text.split("\n")
+    if len(lines) < 4 or not lines[3].startswith(SOURCE_HEADER):
+        raise RecordError(f"line 4 of the manifest is not the {SOURCE_HEADER.strip()!r} header")
+    lines[3] = f"{SOURCE_HEADER}`{commit}`"
     if lines.count(SECTION) != 1:
         raise RecordError(f"the manifest has {lines.count(SECTION)} {SECTION!r} headings")
     start = lines.index(SECTION)
@@ -90,8 +121,9 @@ def resolve_manifest(text: str, record: str) -> str:
     found = [i for i, line in enumerate(section) if line.startswith(PLACEHOLDER)]
     if len(found) != 1 or text.count(PLACEHOLDER) != 1:
         raise RecordError(
-            f"the {SECTION!r} section must hold the placeholder paragraph exactly once; "
-            f"found {text.count(PLACEHOLDER)}"
+            f"the {SECTION!r} section must hold the placeholder paragraph exactly once, and "
+            f"the manifest nowhere else; found {len(found)} in the section and "
+            f"{text.count(PLACEHOLDER)} in the whole manifest"
         )
     first = found[0]
     last = first
@@ -99,18 +131,25 @@ def resolve_manifest(text: str, record: str) -> str:
         last += 1
     section[first : last + 1] = record.rstrip("\n").split("\n")
     resolved = "\n".join([*lines[: start + 1], *section, *lines[end:]])
-    if "To be resolved" in "\n".join(section):
-        raise RecordError(f"a placeholder survived in the {SECTION!r} section")
+    _refuse_unresolved(resolved, "the published manifest")
     return resolved
 
 
-def automated_record(identity: dict[str, str], run_url: str, hashes: dict[str, str]) -> str:
+def _refuse_unresolved(text: str, where: str) -> None:
+    left = [marker for marker in UNRESOLVED if marker in text]
+    if left:
+        raise RecordError(f"placeholder text survived in {where}: {left}")
+
+
+def automated_record(
+    identity: dict[str, str], commit: str, run_url: str, hashes: dict[str, str]
+) -> str:
     jobs = ", ".join(f"`{job}`" for job in GATING_JOBS)
     return (
         "Recorded by the tagged release workflow run that published these assets:\n"
         f"[run {identity['GITHUB_RUN_ID']}]({run_url}), attempt "
         f"{identity['GITHUB_RUN_ATTEMPT']}, workflow `{identity['GITHUB_WORKFLOW_REF']}`,\n"
-        f"tag `{identity['GITHUB_REF_NAME']}` at commit `{identity['GITHUB_SHA']}`. That\n"
+        f"tag `{identity['GITHUB_REF_NAME']}` at commit `{commit}`. That\n"
         f"run's publish job runs only after the {jobs} jobs\n"
         "succeed, so each passed in that run (`ci` is every `ci.yml` job, `test-windows`\n"
         "included); its `verify` job checked branch coverage against the floor\n"
@@ -124,6 +163,7 @@ def automated_record(identity: dict[str, str], run_url: str, hashes: dict[str, s
 
 def record(root: Path, environ: dict[str, str]) -> None:
     identity = run_identity(environ)
+    commit = resolve_commit(root, identity["GITHUB_SHA"])
     run_url = (
         f"{identity['GITHUB_SERVER_URL']}/{identity['GITHUB_REPOSITORY']}/actions/runs/"
         f"{identity['GITHUB_RUN_ID']}/attempts/{identity['GITHUB_RUN_ATTEMPT']}"
@@ -147,16 +187,19 @@ def record(root: Path, environ: dict[str, str]) -> None:
     # Everything that can refuse runs before the first write.
     manifest = resolve_manifest(
         manifest_path.read_text(encoding="utf-8"),
-        automated_record(identity, run_url, artifacts),
+        automated_record(identity, commit, run_url, artifacts),
+        commit,
     )
     report["release_identity"] = {
-        "source_commit": identity["GITHUB_SHA"],
+        "source_commit": commit,
         "tag": identity["GITHUB_REF_NAME"],
         "workflow_ref": identity["GITHUB_WORKFLOW_REF"],
         "run_id": identity["GITHUB_RUN_ID"],
         "run_attempt": identity["GITHUB_RUN_ATTEMPT"],
         "run_url": run_url,
     }
+    if identity["GITHUB_SHA"] != commit:
+        report["release_identity"]["tag_object"] = identity["GITHUB_SHA"]
     report["artifact_hashes"].update(artifacts)
     report["artifact_hashes"].pop("evidence_report_sha256", None)
     evidence["automated_evidence"] = {
@@ -167,10 +210,11 @@ def record(root: Path, environ: dict[str, str]) -> None:
         "artifact_hashes": dict(artifacts),
     }
     report_text = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+    _refuse_unresolved(report_text, "the published report")
     report_path.write_text(report_text, encoding="utf-8")
     manifest += (
         "\n## Resolved release identity\n\n"
-        f"- Source commit: `{identity['GITHUB_SHA']}`\n"
+        f"- Source commit: `{commit}`\n"
         f"- Tag: `{identity['GITHUB_REF_NAME']}`\n"
         f"- Workflow run: {run_url}\n"
         f"- Wheel `{wheels[0].name}` SHA-256: `{artifacts['wheel_sha256']}`\n"

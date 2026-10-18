@@ -330,7 +330,7 @@ def report_problems(data: bytes, manifest_rel: str) -> tuple[list[str], dict[str
         REPORT_SCHEMA_VERSION
     ):
         problems.append(f"report_version must be the integer {REPORT_SCHEMA_VERSION}")
-    if not is_str(report["version"]) or _VERSION.match(report["version"]) is None:
+    if not is_str(report["version"]) or _VERSION.fullmatch(report["version"]) is None:
         problems.append("version must be a string 'X.Y.Z' or 'X.Y.ZrcN'")
     if not is_str(report["status"]) or report["status"] not in STATUS_LINES:
         problems.append(f"status must be one of {sorted(STATUS_LINES)}")
@@ -354,9 +354,9 @@ def report_problems(data: bytes, manifest_rel: str) -> tuple[list[str], dict[str
         not isinstance(freeze, dict)
         or set(freeze) != FREEZE_KEYS
         or not is_str(freeze["commit"])
-        or _FULL_SHA.match(freeze["commit"]) is None
+        or _FULL_SHA.fullmatch(freeze["commit"]) is None
         or not is_str(freeze["batch_manifest"])
-        or _BATCH_MANIFEST.match(freeze["batch_manifest"]) is None
+        or _BATCH_MANIFEST.fullmatch(freeze["batch_manifest"]) is None
     ):
         problems.append(
             "freeze must be null or an object with exactly 'commit' (a full lower-case "
@@ -525,7 +525,7 @@ def manifest_paths(base_version: str) -> tuple[str, str]:
 
 def check(root: Path, tag: str) -> ReleaseManifest:
     version = package_version(root)
-    parsed = _VERSION.match(version)
+    parsed = _VERSION.fullmatch(version)
     if parsed is None:
         raise ReleaseGateError(
             f"refusing to release version {version!r}: only X.Y.Z and X.Y.ZrcN are releasable"
@@ -537,7 +537,7 @@ def check(root: Path, tag: str) -> ReleaseManifest:
             "re-publishes a version. Bump __version__ for a new release"
         )
     expected_tag = f"v{base}" + (f"-rc.{rc}" if rc else "")
-    if _TAG.match(tag) is None or tag != expected_tag:
+    if _TAG.fullmatch(tag) is None or tag != expected_tag:
         raise ReleaseGateError(
             f"tag {tag!r} does not match package version {version!r} (expected {expected_tag!r})"
         )
@@ -637,7 +637,7 @@ def remote_tag_names(root: Path, remote: str, tag: str) -> tuple[str, str]:
     named = refs.get(ref)
     if peeled is None or named is None:
         raise ReleaseGateError(f"{remote} has no {ref}")
-    if not _SHA.match(peeled) or not _SHA.match(named):
+    if not _SHA.fullmatch(peeled) or not _SHA.fullmatch(named):
         raise ReleaseGateError(f"{remote} reported an unreadable object name for {ref}: {peeled!r}")
     return peeled, named
 
@@ -649,7 +649,7 @@ def verify_remote_tag(root: Path, remote: str, tag: str, expected_sha: str) -> N
     ``gh release create --verify-tag`` would still find a tag of that name and
     attach this run's artifacts to a release for another commit.
     """
-    if not _SHA.match(expected_sha):
+    if not _SHA.fullmatch(expected_sha):
         raise ReleaseGateError(f"expected commit {expected_sha!r} is not a full SHA-1")
     actual, tag_object = remote_tag_names(root, remote, tag)
     # Accept the commit the tag peels to, or the annotated tag object itself:
@@ -749,7 +749,7 @@ _PACK_VERDICT = re.compile(
 #: importable only from a directory on sys.path, and none of these is: no code at
 #: the tag adds a pack directory to it, every test is byte-identical to F, and
 #: both distributions exclude the packs (DeepSeek final-r2 N1).
-_LOADABLE = re.compile(r"\.(?:py|pyc|pyo|pyd|pyw|pth|so)$", re.IGNORECASE)
+_LOADABLE = re.compile(r"\.(?:py|pyc|pyo|pyd|pyw|pth|so)\Z", re.IGNORECASE)
 #: The post-batch directory check's two files, relative to docs/plan-033.
 _CLEANUP_FILE = re.compile(r"^[a-z0-9][a-z0-9.-]*-cleanup/(?:collector\.ps1|directory\.json)$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -815,6 +815,8 @@ def _json_file(path: Path, where: str, *, bom: bool = False) -> Any:
 def _safe_relative(relative: object) -> bool:
     if type(relative) is not str or not relative or "\\" in relative:
         return False
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in relative):
+        return False
     parts = PurePosixPath(relative).parts
     return not relative.startswith("/") and all(p not in ("", ".", "..") for p in parts)
 
@@ -866,8 +868,8 @@ def _batch(root: Path, relative: str, freeze: str) -> _Batch:
     if (
         not isinstance(cleanup, dict)
         or not cleanup
-        or not all(type(k) is str and _CLEANUP_FILE.match(k) for k in cleanup)
-        or not all(type(v) is str and _SHA256.match(v) for v in cleanup.values())
+        or not all(type(k) is str and _CLEANUP_FILE.fullmatch(k) for k in cleanup)
+        or not all(type(v) is str and _SHA256.fullmatch(v) for v in cleanup.values())
     ):
         raise ReleaseGateError(
             f"{relative}: post_batch_cleanup must hash the batch's post-batch directory check"
@@ -880,7 +882,7 @@ def _batch(root: Path, relative: str, freeze: str) -> _Batch:
             raise ReleaseGateError(f"{relative}: every run needs a distinct lane name: {name!r}")
         assert isinstance(run, dict)
         verdict = run.get("verdict")
-        match = _PACK_VERDICT.match(verdict) if type(verdict) is str else None
+        match = _PACK_VERDICT.fullmatch(verdict) if type(verdict) is str else None
         if (
             match is None
             or match["lane"] != name
@@ -896,14 +898,14 @@ def _batch(root: Path, relative: str, freeze: str) -> _Batch:
                 f"freeze commit {freeze}"
             )
         run_id = run.get("run_id")
-        if type(run_id) is not str or _RUN_ID.match(run_id) is None:
+        if type(run_id) is not str or _RUN_ID.fullmatch(run_id) is None:
             raise ReleaseGateError(f"lane {name!r}: run_id {run_id!r} is not a run id")
         files = run.get("files")
         if (
             not isinstance(files, dict)
             or PurePosixPath(verdict).name not in files
             or not all(_safe_relative(k) for k in files)
-            or not all(type(v) is str and _SHA256.match(v) for v in files.values())
+            or not all(type(v) is str and _SHA256.fullmatch(v) for v in files.values())
         ):
             raise ReleaseGateError(f"lane {name!r}: the batch does not hash its pack's files")
         loadable = sorted(k for k in files if _LOADABLE.search(k))
@@ -945,7 +947,7 @@ def _records(base: str) -> set[str]:
 
 
 def _is_record(path: str, base: str) -> bool:
-    return path in _records(base) or bool(_RESULTS_RECORD.match(path))
+    return path in _records(base) or bool(_RESULTS_RECORD.fullmatch(path))
 
 
 def _refuse_paths(where: str, refused: list[str]) -> None:
@@ -1175,7 +1177,7 @@ def _load_registry_blob(data: bytes, where: str) -> dict[str, Any]:
         or not _safe_relative(wp0)
     ):
         raise ReleaseGateError(f"{where}: does not match the registry schema")
-    bad = sorted({v for v in lanes.values() if _FINALIZER_NAME.match(v) is None})
+    bad = sorted({v for v in lanes.values() if _FINALIZER_NAME.fullmatch(v) is None})
     if bad:
         raise ReleaseGateError(f"{where}: finalizers must be bare finalize_*.py names: {bad}")
     return registry

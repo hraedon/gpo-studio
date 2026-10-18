@@ -210,6 +210,15 @@ Operator-facing:
   it is not recorded); and the artifact hashes. It refuses, writing nothing,
   if a GitHub variable is missing or malformed or the placeholder is not
   there exactly once, and if one survives the rewrite.
+- After the fourth review (final-r4): the release-identity writer validates
+  each GitHub variable with `fullmatch` (a trailing newline was accepted), as
+  do the gate's anchored validators; it records the commit `GITHUB_SHA`
+  resolves to (with the tag object beside it when an annotated tag was
+  pushed), and `finalize_sbom.py` derives the SBOM serial from that commit
+  too; it fills in the published manifest's `Source commit` header and
+  refuses if placeholder text is left anywhere in either published file; and
+  a test pins that it runs before the published files are hashed, attested
+  and released.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

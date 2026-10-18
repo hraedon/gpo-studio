@@ -11,6 +11,8 @@ uv sync --extra dev
 npm ci
 ```
 
+Work from a git checkout: the sdist carries no `tests/` (see `AGENTS.md`).
+
 Python 3.13 and 3.14 are supported. Node 24 is needed only for the frontend
 tests; the shipped browser application does not depend on Node.
 
