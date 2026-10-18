@@ -105,7 +105,7 @@ def route_problems(
 
 def test_every_route_is_declared() -> None:
     assert route_problems(list(app.routes), ROUTE_ARTIFACTS, NO_ARTIFACT_ROUTES) == []
-    assert len(ROUTE_ARTIFACTS) == 15 and len(NO_ARTIFACT_ROUTES) == 94
+    assert len(ROUTE_ARTIFACTS) == 15 and len(NO_ARTIFACT_ROUTES) == 98
 
 
 def test_every_artifact_format_has_a_validator() -> None:
@@ -1085,6 +1085,39 @@ def test_the_element_vocabulary_covers_the_corpus() -> None:
     for source, collection in gpp_corpus():
         for path, data in serialize_gpp(collection).items():
             assert gpp_element_problems(path, data) == [], (source, path)
+
+
+def test_the_vocabulary_holds_the_sourced_microsoft_names() -> None:
+    """The vocabulary's Microsoft names are sourced, not invented (DeepSeek
+    final-r12 N4): every targeting element in the Plan 021 capability
+    inventory, and the GPP item tags `oracle_evidence` lists."""
+    import re
+
+    from gpo_studio.emit_integrity import GPP_ELEMENTS, MICROSOFT_FILTER_ELEMENTS
+    from gpo_studio.oracle_evidence import _GPP_ITEM_TAGS
+
+    inventory = Path(__file__).resolve().parents[1] / "docs/plan-021/capability-inventory.md"
+    named = set(re.findall(r"\bFilter[A-Z][A-Za-z]+", inventory.read_text(encoding="utf-8")))
+    assert len(named) >= 28
+    assert named == MICROSOFT_FILTER_ELEMENTS
+    every = set().union(*GPP_ELEMENTS.values())
+    assert named <= every
+    for tag in ("LocalPrinter", "PortPrinter", "ImmediateTask"):
+        assert tag in _GPP_ITEM_TAGS and tag in every, tag
+
+
+def test_a_retained_element_passes_egress_only_with_its_gpo() -> None:
+    """Retained structure is judged by provenance (final-r12): an element the
+    GPO's imported content holds is exported as imported; the vocabulary
+    judges everything else."""
+    from gpo_studio.emit_integrity import gpp_element_problems
+
+    data = (
+        b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}"><Group clsid="x" name="G">'
+        b'<Properties action="U" groupName="G"/><Payload/></Group></Groups>'
+    )
+    assert gpp_element_problems("Groups.xml", data, frozenset({"Payload"})) == []
+    assert gpp_element_problems("Groups.xml", data, frozenset({"Other"})) != []
 
 
 def test_a_continuation_line_is_never_returned_raw() -> None:

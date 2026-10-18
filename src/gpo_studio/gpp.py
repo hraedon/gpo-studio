@@ -1661,8 +1661,9 @@ def _serialize_gpp_file(
     root_tag, root_clsid = _root_identity(path, families[0])
     root = ET.Element(_ns(root_tag))
     root.set("clsid", root_clsid)
-    for name, value in _root_unknowns(collection, path, families).attrs:
-        root.set(name, value)
+    # Retained root attributes go through the same no-override guard as item
+    # attributes: a retained ``clsid`` must not replace the root's own (DS final-r12 N1).
+    _apply_unknown_attrs(root, _root_unknowns(collection, path, families).attrs)
     elements: dict[str, list[ET.Element]] = {
         key: _family_elements(collection, key) for key in families
     }

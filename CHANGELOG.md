@@ -488,9 +488,11 @@ Operator-facing:
     would overwrite one it has already set -- the reserved set is whatever the
     typed serializer wrote, for every GPP type -- and egress refuses a GPP file
     with an element outside its vocabulary, or one whose items do not read back
-    with the GPO's common options and targeting. Imported content with an
-    element Studio has not seen is kept, but not exported. The workbench sends
-    retained content back as it received it, so its edits are unaffected.
+    with the GPO's common options and targeting. (As released in r11, imported
+    content with an element outside the vocabulary was kept but could not be
+    exported; final-r12 replaces that with the provenance rule below.) The
+    workbench sends retained content back as it received it, so its edits are
+    unaffected.
   - **The plan grammar is written out and proved complete.** Round 10 compared
     each plan line with lines from a few reference GPOs and so refused the
     writer's own `$desiredApply = @()` (read-only security filtering) and
@@ -515,6 +517,40 @@ Operator-facing:
     and written as a row. The refusal cache is locked (an eviction between a
     lookup and its read raised under concurrent reads) and tolerates a GPO it
     cannot hash.
+- After the twelfth review (final-r12):
+  - **Retained content is judged by provenance, not vocabulary.** The r11
+    element vocabulary refused valid Microsoft GPP an import had stored (a
+    `FilterBattery` predicate, a `LocalPrinter`, `PortPrinter` or
+    `ImmediateTask` item), so those GPOs could not be exported. The store now
+    enforces that retained content only comes from an import: a preference
+    mutation may keep or drop each retained attribute, child, raw predicate
+    and imported element record, never add one (`raw_content_not_accepted`),
+    and only an import, a fork, a clone or an item restore copies it. Egress
+    allows an element the GPO's retained content holds and applies the closed
+    vocabulary to everything else, which is what the typed writers write. The
+    vocabulary also gains the 28 targeting elements of the Plan 021 inventory
+    and the `LocalPrinter`, `PortPrinter` and `ImmediateTask` item tags, each
+    from a source in the repository; a test holds it to those sources. Tests
+    import GPMC captures carrying those elements and require `export.zip` and
+    `gpmc-backup` to write them unchanged.
+  - **Clone and Restore run on the server.** The workbench's Clone sent the
+    whole item, retained content included, to the add route, which refuses
+    it since r11. `POST .../preferences/{groups,registry}/{id}/clone` now
+    copies the stored item under the store lock with fresh ids (a group may
+    take a new name; the imported `uid`, element record and run-once id stay
+    with the original), and `POST .../{id}/restore` with a `revision` puts the
+    item back as that revision stored it. Neither takes item content.
+  - **"Exactly as stored" means equal, order included.** A retained targeting
+    sequence (raw predicates in place, and each typed predicate's retained
+    attributes) must equal the stored one or be empty; a reordered, moved,
+    partial or duplicated one is refused. Changing a typed predicate's type
+    drops the retained attributes of its old type rather than refusing the
+    edit.
+  - The writer refuses a retained targeting-predicate or file-root attribute
+    that would overwrite one it has set, as it already did for items.
+  - The mutation responses now carry `unknown_props_children` for groups and
+    registry items. They left it out, so the workbench's next edit sent it
+    back empty and dropped an imported item's retained `Properties` children.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

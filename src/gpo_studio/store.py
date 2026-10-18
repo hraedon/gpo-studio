@@ -193,6 +193,65 @@ def _gpp_collection(data: dict[str, Any]) -> GppCollection:
     return gpp_collection_from_dict(data)
 
 
+_RETAINED_ITEM_FIELDS = (
+    "unknown_attrs",
+    "unknown_props_attrs",
+    "unknown_children",
+    "unknown_props_children",
+)
+
+
+def _retained_fragments(collection: GppCollection | None) -> set[tuple[Any, ...]]:
+    """Every retained piece a collection holds: each retained attribute pair,
+    child, raw targeting predicate, typed predicate's retained attribute, and
+    imported element record, on every item and the file roots.
+
+    The provenance invariant (Sol final-r12 B1): a preference mutation may
+    keep or drop these, never add one. Only an import creates retained
+    content; a fork, a server-side clone or an item restore copies it from
+    the stored GPO or a named revision. So retained structure in an export
+    can be judged by where it came from rather than by a vocabulary.
+    """
+    import dataclasses
+
+    from .ilt import IltPredicate
+
+    found: set[tuple[Any, ...]] = set()
+    if collection is None:
+        return found
+
+    def add_item(family: str, item: Any) -> None:
+        for name in _RETAINED_ITEM_FIELDS:
+            for piece in getattr(item, name, ()) or ():
+                found.add((family, name, piece))
+        native = getattr(item, "native_xml", "")
+        if native:
+            found.add((family, "native_xml", native))
+        ilt = getattr(item, "ilt_filter", None)
+        for predicate in ilt.items if ilt is not None else ():
+            if isinstance(predicate, IltPredicate):
+                for pair in predicate.unknown_attrs:
+                    found.add((family, "ilt_attr", predicate.type, pair))
+            else:
+                found.add((family, "ilt_raw", predicate))
+        for member in getattr(item, "members", ()) or ():
+            for pair in member.unknown_attrs:
+                found.add((family, "member_attr", pair))
+        value = getattr(item, "value", None)
+        for pair in getattr(value, "unknown_attrs", ()) or ():
+            found.add((family, "value_attr", pair))
+
+    for field in dataclasses.fields(collection):
+        content = getattr(collection, field.name)
+        if field.name.endswith(("_unknown_attrs", "_unknown_children")):
+            for piece in content or ():
+                found.add(("root", field.name, piece))
+        elif isinstance(content, tuple) and content and dataclasses.is_dataclass(content[0]):
+            for item in content:
+                add_item(field.name, item)
+    return found
+
+
 def _keep_document_position[T: (GppGroup, GppRegistry)](edited: T, existing: T) -> T:
     """An edit replaces an item's content, not its place or its import record.
 
@@ -1424,6 +1483,8 @@ class WorkspaceStore:
         self,
         collection: GppCollection,
         before: tuple[int, GppCollection] | None = None,
+        *,
+        retained_from: GppCollection | None = None,
     ) -> None:
         """Refuse a preference mutation that leaves an error it did not find.
 
@@ -1435,6 +1496,24 @@ class WorkspaceStore:
         or deleting one, always passes, and adding or keeping-and-adding a bad
         value does not.
         """
+        stored_pieces = _retained_fragments(before[1] if before is not None else None)
+        stored_pieces |= _retained_fragments(retained_from)
+        new_pieces = _retained_fragments(collection) - stored_pieces
+        if new_pieces:
+            raise ValidationError(
+                [
+                    ValidationIssue(
+                        severity="error",
+                        code="raw_content_not_accepted",
+                        message=(
+                            "Retained content (attributes, children, raw targeting, imported "
+                            "elements) only comes from an import; a mutation may keep or drop "
+                            f"it, not add it: {sorted(map(str, new_pieces))[:3]}"
+                        ),
+                        path="gpp_collections",
+                    )
+                ]
+            )
         errors = [
             issue
             for issue in validate_gpp_collection(collection)
@@ -1569,6 +1648,121 @@ class WorkspaceStore:
             identity=identity,
             reason=reason,
         )
+
+    def clone_gpp_item(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        kind: Literal["groups", "registry"],
+        item_id: str,
+        *,
+        name: str | None = None,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        """Copy a stored GPP group or registry item, server-side and under the store
+        lock, as a new item after the existing ones (Sol and DeepSeek final-r12).
+
+        Retained content stays exactly as stored -- it is copied here, never
+        supplied by the caller. What makes the copy a new item is reset: editor
+        ids, the imported element record and its document slot, the run-once id
+        and the retained ``uid`` (each identifies the original to Windows), and
+        a registry item's typed ``uid``. A group may take a new name.
+        """
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            source = None
+            if found is not None:
+                source = next(
+                    (item for item in getattr(found[1], kind) if item.id == item_id), None
+                )
+            if found is None or source is None:
+                raise NotFoundError(f"GPP {kind} item {item_id} not found")
+            idx, existing = found
+            copy: GppGroup | GppRegistry = replace(
+                source,
+                id="",
+                native_xml="",
+                document_position=None,
+                common=replace(source.common, run_once_id=""),
+                unknown_attrs=tuple(pair for pair in source.unknown_attrs if pair[0] != "uid"),
+            )
+            if isinstance(copy, GppGroup):
+                copy = replace(
+                    copy,
+                    name=name if name is not None else copy.name,
+                    members=tuple(replace(m, id="") for m in copy.members),
+                )
+                new_collection = replace(existing, groups=existing.groups + (copy,))
+            else:
+                copy = replace(copy, uid="", value=replace(copy.value, id=""))
+                new_collection = replace(existing, registry=existing.registry + (copy,))
+            new_collection = ensure_editor_ids(new_collection)
+            self._validate_gpp(new_collection, before=found)
+            return replace(gpo, gpp_collections=self._replace_collection(gpo, idx, new_collection))
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def restore_gpp_item(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        kind: Literal["groups", "registry"],
+        item_id: str,
+        from_revision: int,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        """Put back one GPP item exactly as a named revision stored it.
+
+        The item replaces the current item with the same id (or is appended if
+        it has since been deleted). Its retained content comes from that
+        revision, the only source besides the current GPO a mutation may draw
+        retained content from (Sol and DeepSeek final-r12).
+        """
+        historical = gpo_from_dict(self.get_revision(guid, from_revision).snapshot)
+        old_found = self._find_collection(historical, scope)
+        restored = None
+        if old_found is not None:
+            restored = next(
+                (item for item in getattr(old_found[1], kind) if item.id == item_id), None
+            )
+        if old_found is None or restored is None:
+            raise NotFoundError(f"GPP {kind} item {item_id} not found in revision {from_revision}")
+        historical_collection = old_found[1]
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                new_collection = (
+                    GppCollection(scope=scope, groups=(restored,))
+                    if kind == "groups"
+                    else GppCollection(scope=scope, registry=(restored,))
+                )
+                collections = gpo.gpp_collections + (new_collection,)
+            else:
+                idx, existing = found
+                items = list(getattr(existing, kind))
+                for index, item in enumerate(items):
+                    if item.id == item_id:
+                        items[index] = restored
+                        break
+                else:
+                    items.append(restored)
+                new_collection = (
+                    replace(existing, groups=tuple(items))
+                    if kind == "groups"
+                    else replace(existing, registry=tuple(items))
+                )
+                collections = self._replace_collection(gpo, idx, new_collection)
+            self._validate_gpp(new_collection, before=found, retained_from=historical_collection)
+            return replace(gpo, gpp_collections=collections)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
     def put_gpp_group(
         self,

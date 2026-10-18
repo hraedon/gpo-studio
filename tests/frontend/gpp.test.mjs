@@ -2,10 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import {
   findRevisionGppItem,
+  gppCloneRequest,
+  gppRestoreRequest,
   iltOperatorWarning,
   moveGppItemIds,
-  prepareGppGroupClone,
-  prepareGppRegistryClone,
 } from "../../src/gpo_studio/static/js/gpp.mjs";
 
 describe("OS targeting warnings", () => {
@@ -23,61 +23,53 @@ describe("OS targeting warnings", () => {
   });
 });
 
-describe("GPP clone shaping", () => {
-  test("gives a group and its members new editor identities without losing content", () => {
-    const source = {
-      id: "group-original",
-      name: "Administrators",
-      members: [
-        {
-          id: "member-original",
-          sid: "S-1-5-32-545",
-          unknown_attrs: [["synthetic", "preserved"]],
-        },
-      ],
-      unknown_children: ["<Synthetic preserved='1' />"],
-      ilt_filter: {
-        items: [{ type: "ou", value: "OU=Lab,DC=studio,DC=test" }],
+describe("GPP clone and restore requests", () => {
+  // Clone and restore run on the server, which copies the stored item --
+  // members, targeting and retained (imported) content included -- so the
+  // browser sends the item's identity and the copy's name, never its content.
+  // tests/test_gpp_clone_restore.py holds the copy itself.
+  const group = {
+    id: "group-original",
+    name: "Administrators",
+    members: [
+      {
+        id: "member-original",
+        sid: "S-1-5-32-545",
+        unknown_attrs: [["synthetic", "preserved"]],
       },
-    };
+    ],
+    unknown_children: ["<Synthetic preserved='1' />"],
+  };
 
-    const cloned = prepareGppGroupClone(source, [
+  test("clones a group by id, under a free copy name, sending no content", () => {
+    const request = gppCloneRequest("gpo-1", "computer", "groups", group, [
       "Administrators",
       "Administrators (copy)",
     ]);
 
-    expect(cloned).toMatchObject({
-      id: "",
-      name: "Administrators (copy 2)",
-      members: [{ id: "", sid: "S-1-5-32-545" }],
-      unknown_children: ["<Synthetic preserved='1' />"],
+    expect(request).toEqual({
+      path: "/api/gpos/gpo-1/preferences/groups/group-original/clone",
+      body: { scope: "computer", name: "Administrators (copy 2)" },
     });
-    expect(cloned.ilt_filter).toEqual(source.ilt_filter);
-    expect(source.members[0].id).toBe("member-original");
+    expect(group.members[0].id).toBe("member-original");
   });
 
-  test("gives a registry item, UID, and nested value new identities", () => {
-    const source = {
-      id: "registry-original",
-      uid: "uid-original",
-      key: String.raw`Software\Studio`,
-      value: {
-        id: "value-original",
-        name: "Enabled",
-        registry_type: "REG_DWORD",
-        value: "1",
-        unknown_attrs: [["synthetic", "preserved"]],
-      },
-      unknown_children: ["<Synthetic preserved='1' />"],
-    };
-
-    expect(prepareGppRegistryClone(source)).toEqual({
-      ...source,
-      id: "",
-      uid: "",
-      value: { ...source.value, id: "" },
+  test("clones a registry item by id", () => {
+    expect(
+      gppCloneRequest("gpo-1", "user", "registry", { id: "registry-original" }),
+    ).toEqual({
+      path: "/api/gpos/gpo-1/preferences/registry/registry-original/clone",
+      body: { scope: "user" },
     });
-    expect(source.value.id).toBe("value-original");
+  });
+
+  test("restores an item from a named revision, sending no content", () => {
+    expect(
+      gppRestoreRequest("gpo-1", "computer", "groups", "group-1", 3),
+    ).toEqual({
+      path: "/api/gpos/gpo-1/preferences/groups/group-1/restore",
+      body: { scope: "computer", revision: 3 },
+    });
   });
 });
 

@@ -302,6 +302,13 @@ def _serialize_predicate(pred: IltPredicate) -> ET.Element:
     elem.set("not", _not_attr(pred.negate))
     elem.set("bool", pred.bool_op)
     for name, value in pred.unknown_attrs:
+        # Never over a typed attribute: the reserved set is what this writer
+        # has already set, not a hand-kept list (DS final-r12 N1).
+        if name in elem.attrib:
+            raise IltError(
+                f"Retained attribute {name!r} would override the typed attribute "
+                f"{elem.tag.rsplit('}', 1)[-1]}@{name}"
+            )
         elem.set(name, value)
     return elem
 

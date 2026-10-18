@@ -16,7 +16,7 @@ import threading
 import time
 import uuid as uuid_module
 import zipfile
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
@@ -968,6 +968,25 @@ class GppRegistryValueMutation(Audit):
     )
 
 
+class GppCloneMutation(Audit):
+    """Clone a stored GPP item server-side (final-r12). The caller names the
+    copy; everything else, retained content included, is copied from the store."""
+
+    scope: Literal["computer", "user"]
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GppItemRestoreMutation(Audit):
+    """Put one GPP item back as a named revision stored it (final-r12)."""
+
+    scope: Literal["computer", "user"]
+    revision: StrictInt = Field(ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class GppDeleteMutation(Audit):
     scope: Literal["computer", "user"]
 
@@ -1124,6 +1143,11 @@ class GppGroupResponse(BaseModel):
     common: GppCommonOptionsResponse = Field(default_factory=GppCommonOptionsResponse)
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    # Every retained field the edit routes take back must be in the response:
+    # the workbench edits from the last mutation's payload, and a field missing
+    # here was sent back empty -- which "exact or empty" accepts as a drop
+    # (final-r12; found by the restore route test).
+    unknown_props_children: list[str] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
@@ -1139,6 +1163,7 @@ class GppRegistryResponse(BaseModel):
     ilt_filter: IltFilterResponse | None = None
     common: GppCommonOptionsResponse = Field(default_factory=GppCommonOptionsResponse)
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_props_children: list[str] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
@@ -1848,16 +1873,49 @@ _RAW_ITEM_FIELDS = (
 )
 
 
-def _ilt_raw(ilt_filter: IltFilter | None) -> Counter[tuple[Any, ...]]:
-    """The raw parts of a targeting filter: raw predicates, and the retained
-    attributes of typed ones."""
-    found: Counter[tuple[Any, ...]] = Counter()
+def _ilt_retained(ilt_filter: IltFilter | None) -> tuple[tuple[Any, ...], ...]:
+    """The retained parts of a targeting filter, in order and in place: each raw
+    predicate with the number of typed predicates before it, and each typed
+    predicate's retained attributes with its typed position. Exact equality of
+    this signature is "exactly as stored" -- a reordered, moved or partial
+    retained sequence differs (Sol final-r12 B3)."""
+    signature: list[tuple[Any, ...]] = []
+    typed = 0
     for item in ilt_filter.items if ilt_filter is not None else ():
         if isinstance(item, str):
-            found[("raw", item)] += 1
-        elif item.unknown_attrs:
-            found[("attrs", item.type, item.unknown_attrs)] += 1
-    return found
+            signature.append(("raw", typed, item))
+        else:
+            if item.unknown_attrs:
+                signature.append(("attrs", typed, item.unknown_attrs))
+            typed += 1
+    return tuple(signature)
+
+
+def _typed_predicates(ilt_filter: IltFilter | None) -> list[IltPredicate]:
+    return [
+        item
+        for item in (ilt_filter.items if ilt_filter is not None else ())
+        if isinstance(item, IltPredicate)
+    ]
+
+
+def _drop_retained_of_changed_type(new: Any, stored: Any) -> Any:
+    """A typed predicate whose type the edit changed loses the retained
+    attributes of its old type: they belonged to another element (DeepSeek
+    final-r12 N3). The server drops them, here and in the comparison."""
+    new_filter = getattr(new, "ilt_filter", None)
+    if new_filter is None or stored is None:
+        return new
+    old_typed = _typed_predicates(getattr(stored, "ilt_filter", None))
+    items: list[IltPredicate | str] = []
+    index = 0
+    for item in new_filter.items:
+        if isinstance(item, IltPredicate):
+            if index < len(old_typed) and item.type != old_typed[index].type:
+                item = replace(item, unknown_attrs=())
+            index += 1
+        items.append(item)
+    return replace(new, ilt_filter=IltFilter(items=tuple(items)))
 
 
 def _raw_problems(new: Any, stored: Any, path: str) -> list[str]:
@@ -1868,8 +1926,25 @@ def _raw_problems(new: Any, stored: Any, path: str) -> list[str]:
         and getattr(new, name) != (getattr(stored, name, ()) if stored is not None else ())
     ]
     if hasattr(new, "ilt_filter"):
-        stored_raw = _ilt_raw(stored.ilt_filter) if stored is not None else Counter()
-        if _ilt_raw(new.ilt_filter) - stored_raw:
+        new_retained = _ilt_retained(new.ilt_filter)
+        stored_retained = _ilt_retained(stored.ilt_filter) if stored is not None else ()
+        if stored is not None:
+            # Retained attributes the server dropped for a type change.
+            changed = {
+                index
+                for index, (old, now) in enumerate(
+                    zip(
+                        _typed_predicates(stored.ilt_filter),
+                        _typed_predicates(new.ilt_filter),
+                        strict=False,  # positions present in both
+                    )
+                )
+                if old.type != now.type
+            }
+            stored_retained = tuple(
+                part for part in stored_retained if not (part[0] == "attrs" and part[1] in changed)
+            )
+        if new_retained and new_retained != stored_retained:
             problems.append(f"{path}.ilt_filter")
     return problems
 
@@ -2712,6 +2787,10 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("PUT", "/api/gpos/{guid}/preferences/groups/{group_id}"): _GPO_PAYLOAD,
     ("DELETE", "/api/gpos/{guid}/preferences/groups/{group_id}"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/preferences/registry"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/groups/{group_id}/clone"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/registry/{registry_id}/clone"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/groups/{group_id}/restore"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/registry/{registry_id}/restore"): _GPO_PAYLOAD,
     ("PUT", "/api/gpos/{guid}/preferences/registry/{registry_id}"): _GPO_PAYLOAD,
     ("DELETE", "/api/gpos/{guid}/preferences/registry/{registry_id}"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/preferences/groups/{group_id}/members"): _GPO_PAYLOAD,
@@ -3700,12 +3779,9 @@ def edit_gpp_group(
 ) -> dict[str, Any]:
     group = _gpp_group_data_to_model(body.group)
     group = replace(group, id=group_id)
-    _refuse_new_raw_content(
-        group,
-        _stored_gpp_item(request, guid, body.scope, "groups", group_id),
-        "group",
-        members=True,
-    )
+    stored_group = _stored_gpp_item(request, guid, body.scope, "groups", group_id)
+    group = _drop_retained_of_changed_type(group, stored_group)
+    _refuse_new_raw_content(group, stored_group, "group", members=True)
     gpo = _store(request).put_gpp_group(
         guid,
         body.expected_revision,
@@ -3763,12 +3839,9 @@ def edit_gpp_registry(
 ) -> dict[str, Any]:
     registry = _gpp_registry_data_to_model(body.registry)
     registry = replace(registry, id=registry_id)
-    _refuse_new_raw_content(
-        registry,
-        _stored_gpp_item(request, guid, body.scope, "registry", registry_id),
-        "registry",
-        value=True,
-    )
+    stored_registry = _stored_gpp_item(request, guid, body.scope, "registry", registry_id)
+    registry = _drop_retained_of_changed_type(registry, stored_registry)
+    _refuse_new_raw_content(registry, stored_registry, "registry", value=True)
     gpo = _store(request).put_gpp_registry(
         guid,
         body.expected_revision,
@@ -3778,6 +3851,95 @@ def edit_gpp_registry(
         reason=body.reason,
         must_exist=True,
         common_edits=_common_edits(body.registry.common),
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.post(
+    "/api/gpos/{guid}/preferences/groups/{group_id}/clone",
+    status_code=201,
+    response_model=GpoPayloadResponse,
+)
+def clone_gpp_group(
+    request: Request, guid: str, group_id: str, body: GppCloneMutation
+) -> dict[str, Any]:
+    """Copy a stored group, members and retained content included, as a new group.
+
+    Server-side so retained content is copied from the store, never sent: the
+    add route accepts none (final-r11), and the workbench's Clone used to send
+    the whole item to it (Sol and DeepSeek final-r12)."""
+    gpo = _store(request).clone_gpp_item(
+        guid,
+        body.expected_revision,
+        body.scope,
+        "groups",
+        group_id,
+        name=body.name,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.post(
+    "/api/gpos/{guid}/preferences/registry/{registry_id}/clone",
+    status_code=201,
+    response_model=GpoPayloadResponse,
+)
+def clone_gpp_registry(
+    request: Request, guid: str, registry_id: str, body: GppCloneMutation
+) -> dict[str, Any]:
+    """Copy a stored GPP registry item, retained content included, as a new item."""
+    gpo = _store(request).clone_gpp_item(
+        guid,
+        body.expected_revision,
+        body.scope,
+        "registry",
+        registry_id,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.post(
+    "/api/gpos/{guid}/preferences/groups/{group_id}/restore",
+    response_model=GpoPayloadResponse,
+)
+def restore_gpp_group(
+    request: Request, guid: str, group_id: str, body: GppItemRestoreMutation
+) -> dict[str, Any]:
+    """Put one group back exactly as a named revision stored it."""
+    gpo = _store(request).restore_gpp_item(
+        guid,
+        body.expected_revision,
+        body.scope,
+        "groups",
+        group_id,
+        body.revision,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.post(
+    "/api/gpos/{guid}/preferences/registry/{registry_id}/restore",
+    response_model=GpoPayloadResponse,
+)
+def restore_gpp_registry(
+    request: Request, guid: str, registry_id: str, body: GppItemRestoreMutation
+) -> dict[str, Any]:
+    """Put one GPP registry item back exactly as a named revision stored it."""
+    gpo = _store(request).restore_gpp_item(
+        guid,
+        body.expected_revision,
+        body.scope,
+        "registry",
+        registry_id,
+        body.revision,
+        identity=_identity(body.actor),
+        reason=body.reason,
     )
     return _gpo_payload(gpo, request)
 

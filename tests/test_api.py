@@ -1760,8 +1760,9 @@ def test_gpp_group_ilt_filter_items_round_trip(tmp_path) -> None:
     that echoes it, in order beside the typed ones; an edit adding another is
     refused.
     """
-    from gpo_studio.gpp import GppGroup
+    from gpo_studio.gpp import GppCollection, GppGroup, ensure_editor_ids
     from gpo_studio.ilt import IltFilter, IltPredicate
+    from gpo_studio.model import ValidationError
 
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
@@ -1792,25 +1793,56 @@ def test_gpp_group_ilt_filter_items_round_trip(tmp_path) -> None:
         assert refused.status_code == 422
         assert refused.json()["error"]["issues"][0]["code"] == "raw_content_not_accepted"
 
-        # As an import would store it.
-        imported = store.put_gpp_group(
-            gpo["guid"],
-            gpo["revision"],
-            "computer",
-            GppGroup(
-                name="Administrators",
-                sid="S-1-5-32-544",
-                ilt_filter=IltFilter(
-                    items=(
-                        IltPredicate(type="ou", value="OU=Test,DC=example,DC=com"),
-                        raw,
-                        IltPredicate(type="group", value="S-1-5-32-544", negate=True, bool_op="OR"),
+        # As an import stores it: retained content enters only through
+        # create (import/fork), clone or restore -- never a typed mutation.
+        imported = store.create_gpo(
+            "ILT items imported",
+            identity="import",
+            reason="import",
+            gpp_collections=(
+                ensure_editor_ids(
+                    GppCollection(
+                        scope="computer",
+                        groups=(
+                            GppGroup(
+                                name="Administrators",
+                                sid="S-1-5-32-544",
+                                ilt_filter=IltFilter(
+                                    items=(
+                                        IltPredicate(type="ou", value="OU=Test,DC=example,DC=com"),
+                                        raw,
+                                        IltPredicate(
+                                            type="group",
+                                            value="S-1-5-32-544",
+                                            negate=True,
+                                            bool_op="OR",
+                                        ),
+                                    )
+                                ),
+                            ),
+                        ),
                     )
                 ),
             ),
-            identity="import",
-            reason="import",
         )
+        gpo = {"guid": imported.guid}
+        try:
+            store.put_gpp_group(
+                imported.guid,
+                imported.revision,
+                "computer",
+                GppGroup(
+                    name="Other",
+                    sid="S-1-5-32-545",
+                    ilt_filter=IltFilter(items=('<FilterRunOnce id="x"/>',)),
+                ),
+                identity="tester",
+                reason="a typed mutation cannot add retained content",
+            )
+        except ValidationError as error:
+            assert error.issues[0].code == "raw_content_not_accepted"
+        else:
+            raise AssertionError("the store accepted new retained content")
         group_id = imported.gpp_collections[0].groups[0].id
         edited = client.put(
             f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}",

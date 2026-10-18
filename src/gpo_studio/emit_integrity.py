@@ -401,18 +401,32 @@ GPP_XML: XmlTable = {
     ("ScheduledTasks", "Description", "#text"): _TEXT,
 }
 
-#: Every element a GPP file may contain, by file root: what the writers emit
-#: over the native captures and synthetic inputs (``tests/test_emit_integrity``
-#: derives it again and fails on a difference), plus the weekday names the
-#: task synthesizer can write. Egress refuses an element outside it -- a raw
-#: predicate or retained child supplying a ``FilterRunOnce`` the typed options
-#: did not ask for was accepted before (Sol final-r11 B1). Imported content
-#: with an element Studio has not seen is kept, but not exported.
-_FILTER_ELEMENTS = frozenset({
-    "Filters", "FilterCollection", "FilterComputerName", "FilterDate", "FilterDiskSpace",
-    "FilterDomain", "FilterFile", "FilterFolder", "FilterGroup", "FilterIpRange",
-    "FilterLanguage", "FilterOrgUnit", "FilterOs", "FilterRegistry", "FilterRunOnce",
-    "FilterService", "FilterUser", "FilterVariable", "FilterWmi",
+#: The elements Studio's typed writers produce, by GPP file root, and the
+#: Microsoft names this repository sources: the 28 item-level targeting
+#: elements of the Plan 021 inventory (docs/plan-021/capability-inventory.md,
+#: from MS-GPPREF and the GPMC targeting reference) and the GPP item tags
+#: `oracle_evidence._GPP_ITEM_TAGS` lists (``ImmediateTask``, ``LocalPrinter``,
+#: ``PortPrinter``). It judges what the typed writers write. Retained content --
+#: what an import stored, and only an import can add (the store's provenance
+#: invariant, `store._retained_fragments`) -- is judged by that provenance at
+#: egress instead: its elements are allowed because the GPO holds them
+#: (`egress.retained_element_names`), so a valid Microsoft element the list
+#: does not name is still exported as imported (Sol and DeepSeek final-r12).
+#: ``tests/test_egress.py`` holds the list to the writers' output over the
+#: corpus and to the sourced names.
+MICROSOFT_FILTER_ELEMENTS = frozenset({
+    "FilterCollection", "FilterBattery", "FilterComputer", "FilterCpu", "FilterDate",
+    "FilterDisk", "FilterDomain", "FilterVariable", "FilterFile", "FilterIpRange",
+    "FilterLanguage", "FilterLdap", "FilterMacRange", "FilterMsi", "FilterDialup",
+    "FilterOs", "FilterOrgUnit", "FilterPcmcia", "FilterPortable", "FilterProcessingMode",
+    "FilterRam", "FilterRegistry", "FilterGroup", "FilterSite", "FilterTerminalSession",
+    "FilterTime", "FilterUser", "FilterWmi",
+})
+_FILTER_ELEMENTS = MICROSOFT_FILTER_ELEMENTS | frozenset({
+    # What Studio's writers and GPMC's captures add: the container, the
+    # apply-once filter, and the names Studio's typed predicates write.
+    "Filters", "FilterComputerName", "FilterDiskSpace", "FilterFolder", "FilterRunOnce",
+    "FilterService",
 })
 _TASK_PAYLOAD_ELEMENTS = frozenset({
     "Actions", "AllowHardTerminate", "AllowStartOnDemand", "April", "Arguments", "August",
@@ -447,17 +461,22 @@ GPP_ELEMENTS: Mapping[str, frozenset[str]] = {
         "NTServices": {"NTService"},
         "NetworkShareSettings": {"NetShare"},
         "PowerOptions": {"GlobalPowerOptionsV2", "PowerScheme"},
-        "Printers": {"SharedPrinter"},
+        "Printers": {"SharedPrinter", "LocalPrinter", "PortPrinter"},
         "Regional": {"RegionalOptions"},
         "RegistrySettings": {"Registry", "Value", "Values"},
-        "ScheduledTasks": {"TaskV2", "ImmediateTaskV2", "Task", *_TASK_PAYLOAD_ELEMENTS},
+        "ScheduledTasks": {
+            "TaskV2", "ImmediateTaskV2", "Task", "ImmediateTask", *_TASK_PAYLOAD_ELEMENTS,
+        },
         "Shortcuts": {"Shortcut"},
     }.items()
 }
 
 
-def gpp_element_problems(where: str, data: bytes) -> list[EmitProblem]:
-    """Every element of a GPP file outside its root's vocabulary."""
+def gpp_element_problems(
+    where: str, data: bytes, retained: frozenset[str] = frozenset()
+) -> list[EmitProblem]:
+    """Every element of a GPP file outside its root's vocabulary and the
+    *retained* element names the GPO's imported content holds."""
     size = max(len(data), 1)
     root = parse_xml_bounded(data, max_size=size, max_attr_length=size, max_text_length=size)
     name = _local(root.tag)
@@ -467,7 +486,7 @@ def gpp_element_problems(where: str, data: bytes) -> list[EmitProblem]:
     return [
         EmitProblem(where, _local(element.tag), "", f"is not an element of {name}")
         for element in root.iter()
-        if _local(element.tag) not in allowed
+        if _local(element.tag) not in allowed and _local(element.tag) not in retained
     ]
 
 

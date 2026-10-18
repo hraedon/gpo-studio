@@ -13,7 +13,6 @@ const REG_VALUE_ACTIONS=["create","replace","update","delete"];
 const GROUP_ACTIONS=["add","replace","remove","update"];
 function applyCurrent(data){applyPayload(data);renderAll();renderList()}
 
-function copy(value){return JSON.parse(JSON.stringify(value))}
 
 function copyName(name,existingNames){
   const used=new Set(existingNames.map(value=>value.trim().toLocaleLowerCase()));
@@ -24,20 +23,20 @@ function copyName(name,existingNames){
   }
 }
 
-export function prepareGppGroupClone(group,existingNames=[]){
-  const cloned=copy(group);
-  cloned.id="";
-  cloned.name=copyName(cloned.name,existingNames);
-  cloned.members=(cloned.members||[]).map(member=>({...member,id:""}));
-  return cloned;
+// Clone and item restore run on the server (final-r12): retained content an
+// imported item carries is copied there from the store, never sent by the
+// browser, because the add and edit routes accept retained content only as the
+// stored item already holds it. The browser names the copy and nothing else.
+export function gppCloneRequest(guid,scope,kind,item,existingNames=[]){
+  const segment=kind==="groups"?"groups":"registry";
+  const body={scope};
+  if(kind==="groups")body.name=copyName(item.name,existingNames);
+  return {path:`/api/gpos/${guid}/preferences/${segment}/${item.id}/clone`,body};
 }
 
-export function prepareGppRegistryClone(registry){
-  const cloned=copy(registry);
-  cloned.id="";
-  cloned.uid="";
-  if(cloned.value)cloned.value.id="";
-  return cloned;
+export function gppRestoreRequest(guid,scope,kind,id,revision){
+  const segment=kind==="groups"?"groups":"registry";
+  return {path:`/api/gpos/${guid}/preferences/${segment}/${id}/restore`,body:{scope,revision}};
 }
 
 export function findRevisionGppItem(snapshot,scope,kind,id){
@@ -85,7 +84,7 @@ export function renderGpp(){
   $("#gpp-groups-empty").hidden=groups.length>0;
   $$("[data-edit-gpp-group]").forEach(el=>el.onclick=()=>{const grp=groups.find(g=>g.id===el.dataset.editGppGroup);openGppGroup(scope,grp)});
   $$("[data-move-gpp-group]").forEach(el=>el.onclick=()=>moveGppItem(scope,"groups",el.dataset.moveGppGroup,Number(el.dataset.offset)));
-  $$("[data-clone-gpp-group]").forEach(el=>el.onclick=()=>{const grp=groups.find(g=>g.id===el.dataset.cloneGppGroup);if(grp)openGppGroup(scope,prepareGppGroupClone(grp,groups.map(g=>g.name)),true)});
+  $$("[data-clone-gpp-group]").forEach(el=>el.onclick=()=>{const grp=groups.find(g=>g.id===el.dataset.cloneGppGroup);if(grp)cloneGppItem(scope,"groups",grp,groups.map(g=>g.name))});
   $$("[data-restore-gpp-group]").forEach(el=>el.onclick=()=>restoreGppItem(scope,"groups",el.dataset.restoreGppGroup));
   $$("[data-delete-gpp-group]").forEach(el=>el.onclick=()=>deleteGppGroup(scope,el.dataset.deleteGppGroup));
   $("#gpp-registry-table").innerHTML=registry.map((reg,index)=>{
@@ -97,7 +96,7 @@ export function renderGpp(){
   $("#gpp-registry-empty").hidden=registry.length>0;
   $$("[data-edit-gpp-registry]").forEach(el=>el.onclick=()=>{const reg=registry.find(r=>r.id===el.dataset.editGppRegistry);openGppRegistry(scope,reg)});
   $$("[data-move-gpp-registry]").forEach(el=>el.onclick=()=>moveGppItem(scope,"registry",el.dataset.moveGppRegistry,Number(el.dataset.offset)));
-  $$("[data-clone-gpp-registry]").forEach(el=>el.onclick=()=>{const reg=registry.find(r=>r.id===el.dataset.cloneGppRegistry);if(reg)openGppRegistry(scope,prepareGppRegistryClone(reg),true)});
+  $$("[data-clone-gpp-registry]").forEach(el=>el.onclick=()=>{const reg=registry.find(r=>r.id===el.dataset.cloneGppRegistry);if(reg)cloneGppItem(scope,"registry",reg)});
   $$("[data-restore-gpp-registry]").forEach(el=>el.onclick=()=>restoreGppItem(scope,"registry",el.dataset.restoreGppRegistry));
   $$("[data-delete-gpp-registry]").forEach(el=>el.onclick=()=>deleteGppRegistry(scope,el.dataset.deleteGppRegistry));
 }
@@ -210,6 +209,20 @@ export async function moveGppItem(scope,kind,id,offset){
   }catch(error){showPersistentError(error.message)}
 }
 
+export async function cloneGppItem(scope,kind,item,existingNames=[]){
+  const label=kind==="groups"?"group":"registry item";
+  try{
+    const request=gppCloneRequest(state.current.guid,scope,kind,item,existingNames);
+    const data=await api(request.path,{method:"POST",body:JSON.stringify({...request.body,...audit(`Clone GPP ${label}`)})});
+    applyCurrent(data);toast(`GPP ${label} cloned`);
+    // Open the copy (the last item) for editing, as Clone did before.
+    const collection=(state.current.gpp_collections||[]).find(entry=>entry.scope===scope);
+    const items=collection?.[kind]||[];
+    const copied=items[items.length-1];
+    if(copied){if(kind==="groups")openGppGroup(scope,copied);else openGppRegistry(scope,copied)}
+  }catch(error){showPersistentError(error.message)}
+}
+
 export async function restoreGppItem(scope,kind,id){
   const revisionText=prompt("Revision containing the item version to restore:");
   if(revisionText===null)return;
@@ -223,10 +236,9 @@ export async function restoreGppItem(scope,kind,id){
     const current=(currentCollection?.[kind]||[]).find(entry=>entry.id===id);
     const label=kind==="groups"?(current?.name||item.name):(current?.key||item.key);
     if(!confirm(`Restore ${kind==="groups"?"group":"registry item"} "${label}" from revision ${revision}?\n\nOnly this item will be overwritten. The restore is appended as a new revision; all other current policy content remains unchanged.`))return;
-    const segment=kind==="groups"?"groups":"registry";
     const property=kind==="groups"?"group":"registry";
-    const body={scope,...audit(`Restore GPP ${property} from revision ${revision}`),[property]:copy(item)};
-    const data=await api(`/api/gpos/${state.current.guid}/preferences/${segment}/${id}`,{method:"PUT",body:JSON.stringify(body)});
+    const request=gppRestoreRequest(state.current.guid,scope,kind,id,revision);
+    const data=await api(request.path,{method:"POST",body:JSON.stringify({...request.body,...audit(`Restore GPP ${property} from revision ${revision}`)})});
     applyCurrent(data);toast(`${kind==="groups"?"Group":"Registry item"} restored from revision ${revision}`);
   }catch(error){showPersistentError(error.message)}
 }

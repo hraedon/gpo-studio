@@ -519,8 +519,63 @@ def zip_problems(
                 side, relative = _gpp_side(name)
                 gpp_files.setdefault(side, {})[relative] = content
     if model is not None and not problems:
+        # The element vocabulary needs the GPO: retained elements are allowed
+        # because the GPO's imported content holds them (provenance), so it is
+        # checked where the GPO is known -- the checked builders the routes and
+        # capabilities call -- not by the route-level backstop.
+        retained = {
+            collection.scope: retained_element_names(collection)
+            for collection in model.gpp_collections
+        }
+        for side, files in sorted(gpp_files.items()):
+            for relative, content in sorted(files.items()):
+                problems += gpp_element_problems(
+                    f"{where}:{side}/{relative}", content, retained.get(side, frozenset())
+                )
         problems += gpp_agreement_problems(where, model, gpp_files)
     return problems
+
+
+def retained_element_names(collection: Any) -> frozenset[str]:
+    """Every element name in a collection's retained content: retained children,
+    raw targeting predicates, imported element records and task payloads.
+
+    Only an import puts retained content in a GPO (`store._retained_fragments`
+    holds every mutation to keep or drop it, never add it), so an element named
+    here is one an import stored, and egress exports it as imported.
+    """
+    import dataclasses
+
+    from .xml_safety import parse_xml_bounded
+
+    fragments: list[str] = []
+    for field in dataclasses.fields(collection):
+        content = getattr(collection, field.name)
+        if field.name.endswith("_unknown_children"):
+            fragments += list(content or ())
+        elif isinstance(content, tuple) and content and dataclasses.is_dataclass(content[0]):
+            for item in content:
+                fragments += list(getattr(item, "unknown_children", ()) or ())
+                fragments += list(getattr(item, "unknown_props_children", ()) or ())
+                for text in (getattr(item, "native_xml", ""), getattr(item, "task_xml", "")):
+                    if text:
+                        fragments.append(text)
+                ilt = getattr(item, "ilt_filter", None)
+                fragments += [
+                    p for p in (ilt.items if ilt is not None else ()) if isinstance(p, str)
+                ]
+    names: set[str] = set()
+    for fragment in fragments:
+        data = fragment.encode("utf-8")
+        size = max(len(data), 1)
+        try:
+            root = parse_xml_bounded(
+                data, max_size=size, max_attr_length=size, max_text_length=size
+            )
+        except ValueError:
+            continue  # not well formed: the writer and xml_problems refuse it
+        names.update(element.tag.rsplit("}", 1)[-1] for element in root.iter())
+    return frozenset(names)
 
 
 def _gpp_side(name: str) -> tuple[str, str]:
@@ -608,10 +663,7 @@ def _member_problems(where: str, kind: str, content: bytes) -> list[EmitProblem]
         return registry_pol_egress_problems(where, content)
     if kind in ("gpp", "backup"):
         try:
-            problems = xml_problems(GPP_XML if kind == "gpp" else BACKUP_XML, where, content)
-            if kind == "gpp":
-                problems += gpp_element_problems(where, content)
-            return problems
+            return xml_problems(GPP_XML if kind == "gpp" else BACKUP_XML, where, content)
         except ValueError as error:
             return [EmitProblem(where, "xml", "", f"does not parse: {error}")]
     if kind == "ini":
