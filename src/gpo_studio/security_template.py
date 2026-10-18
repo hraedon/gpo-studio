@@ -15,7 +15,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Literal
 
-from .emit_integrity import EmitProblem, inf_problems, inf_text_problems
+from .emit_integrity import ROW_LINE, EmitProblem, inf_problems, inf_text_problems
 from .model import ValidationIssue
 
 _UTF16LE_BOM = b"\xff\xfe"
@@ -224,6 +224,12 @@ def parse_security_template(text: str) -> SecurityTemplate:
             continue
         if current_name is None:
             warnings.append(f"Line outside any section: {stripped}")
+            continue
+        if current_name.casefold() in _ROW_SECTIONS and ROW_LINE.fullmatch(stripped):
+            # A row: its quoted key may hold '=' (a registry key name can), so it
+            # is not split as `key = value` (DeepSeek final-r11 N5).
+            unknown.append(stripped)
+            warnings.append(f"Unparseable line in section '{current_name}': {stripped}")
             continue
         if "=" in stripped:
             if len(entries) >= _MAX_SECTION_ENTRIES:

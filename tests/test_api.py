@@ -1754,52 +1754,82 @@ def test_gpp_group_rejects_reserved_unknown_child(tmp_path) -> None:
 
 
 def test_gpp_group_ilt_filter_items_round_trip(tmp_path) -> None:
+    """A raw predicate is kept as imported, never supplied (Sol final-r11 B1).
+
+    An add carrying one is refused; a stored (imported) one survives an edit
+    that echoes it, in order beside the typed ones; an edit adding another is
+    refused.
+    """
+    from gpo_studio.gpp import GppGroup
+    from gpo_studio.ilt import IltFilter, IltPredicate
+
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
     app.state.owns_store = False
+    raw = "<FilterBattery not=\"0\" bool=\"AND\"/>"
+    items = [
+        {"type": "ou", "value": "OU=Test,DC=example,DC=com", "negate": False, "bool_op": "AND"},
+        raw,
+        {"type": "group", "value": "S-1-5-32-544", "negate": True, "bool_op": "OR"},
+    ]
     with TestClient(app) as client:
-        gpo = client.post(
-            "/api/gpos", json={"name": "ILT items round-trip"}
-        ).json()["gpo"]
-        resp = client.post(
-            f"/api/gpos/{gpo['guid']}/preferences/groups",
-            json={
-                "expected_revision": gpo["revision"],
-                "actor": "tester",
-                "reason": "add group with items-format ILT",
-                "scope": "computer",
-                "group": {
-                    "name": "Administrators",
-                    "sid": "S-1-5-32-544",
-                    "action": "update",
-                    "ilt_filter": {
-                        "items": [
-                            {
-                                "type": "ou",
-                                "value": "OU=Test,DC=example,DC=com",
-                                "negate": False,
-                                "bool_op": "AND",
-                            },
-                            "<FilterBattery not=\"0\" bool=\"AND\"/>",
-                            {
-                                "type": "group",
-                                "value": "S-1-5-32-544",
-                                "negate": True,
-                                "bool_op": "OR",
-                            },
-                        ]
-                    },
-                },
+        gpo = client.post("/api/gpos", json={"name": "ILT items round-trip"}).json()["gpo"]
+        body = {
+            "actor": "tester",
+            "reason": "items-format ILT",
+            "scope": "computer",
+            "group": {
+                "name": "Administrators",
+                "sid": "S-1-5-32-544",
+                "action": "update",
+                "ilt_filter": {"items": items},
             },
+        }
+        refused = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={**body, "expected_revision": gpo["revision"]},
         )
-        assert resp.status_code == 201
-        result = resp.json()["gpo"]
-        group = result["gpp_collections"][0]["groups"][0]
-        assert group["ilt_filter"] is not None
+        assert refused.status_code == 422
+        assert refused.json()["error"]["issues"][0]["code"] == "raw_content_not_accepted"
+
+        # As an import would store it.
+        imported = store.put_gpp_group(
+            gpo["guid"],
+            gpo["revision"],
+            "computer",
+            GppGroup(
+                name="Administrators",
+                sid="S-1-5-32-544",
+                ilt_filter=IltFilter(
+                    items=(
+                        IltPredicate(type="ou", value="OU=Test,DC=example,DC=com"),
+                        raw,
+                        IltPredicate(type="group", value="S-1-5-32-544", negate=True, bool_op="OR"),
+                    )
+                ),
+            ),
+            identity="import",
+            reason="import",
+        )
+        group_id = imported.gpp_collections[0].groups[0].id
+        edited = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}",
+            json={**body, "expected_revision": imported.revision},
+        )
+        assert edited.status_code == 200, edited.text
+        group = edited.json()["gpo"]["gpp_collections"][0]["groups"][0]
         assert len(group["ilt_filter"]["items"]) == 3
         assert group["ilt_filter"]["items"][0]["type"] == "ou"
-        assert group["ilt_filter"]["items"][1] == "<FilterBattery not=\"0\" bool=\"AND\"/>"
+        assert group["ilt_filter"]["items"][1] == raw
         assert group["ilt_filter"]["items"][2]["bool_op"] == "OR"
+
+        added = dict(body["group"])
+        added["ilt_filter"] = {"items": [*items, "<FilterRunOnce id=\"x\"/>"]}
+        refused_edit = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}",
+            json={**body, "group": added, "expected_revision": edited.json()["gpo"]["revision"]},
+        )
+        assert refused_edit.status_code == 422
 
 
 def test_gpp_os_ilt_criteria_round_trip_through_api(tmp_path) -> None:

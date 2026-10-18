@@ -20,26 +20,43 @@ Formats, and what "valid" means for each:
 * PowerShell -- the plan (``plan.ps1``, ``apply.ps1``) and the AD discovery
   scripts: tokenized as PowerShell tokenizes them (all five single-quote
   characters, doubled-quote escapes, double-quoted strings, comments); every
-  string literal closes on the line it opens; and after every literal and
-  every ``[char]`` concatenation term is replaced by a placeholder, the
-  script's structure is one the writer produces from neutral input -- each
-  plan line one of the plan's line shapes, each discovery script exactly its
-  generator's shape. A value that leaves its literal changes the structure.
-  The plan also passes `ps_plan_validator.validate_plan`.
+  string literal closes on the line it opens. Each plan line, with its holes
+  abstracted (a literal or ``[char]`` term, a literal array of any length, a
+  number, a byte array), must be a statement of :data:`PLAN_GRAMMAR`; a
+  discovery script must have exactly its generator's shape. The plan also
+  passes `ps_plan_validator.validate_plan`.
 * ``GptTmpl.inf`` (``inf_text`` and ``inf_base64``): every physical line one
-  line, nothing outside a section, the parse free of `inf_problems`, the text
-  a fixed point of parse-and-format, and ``inf_base64`` its encoding.
+  line, no continuation, nothing outside a section, the parse free of
+  `inf_problems`, exactly the sections the response declares, and
+  ``inf_base64`` its encoding.
 * ``scripts.ini`` / ``psscripts.ini``: UTF-16LE with BOM, CRLF lines, each a
   section header or a ``key=value`` the Scripts table accepts.
-* GPP XML and the GPMC backup documents: parsed, every attribute and text value
-  held to `emit_integrity.GPP_XML` / `BACKUP_XML`.
+* GPP XML: every attribute and text value held to `emit_integrity.GPP_XML`,
+  every element in its file's vocabulary (`emit_integrity.GPP_ELEMENTS`), and
+  -- where the route has the GPO -- the files read back as the GPO's
+  preferences: each item's common options and targeting as the model holds
+  them. The GPMC backup documents: `BACKUP_XML`.
 * ``Registry.pol``: parses, and re-serializes to the same bytes.
-* ZIP (``export.zip``, the GPMC backups): every member name safe (no
-  traversal, no control character, no absolute path), every member one of the
-  export's known kinds, validated by its format; an unknown member is refused.
+* ZIP (``export.zip``, the GPMC backups): read entry by entry (a duplicate
+  name is refused, so it cannot hide an earlier member); every member name
+  safe and of a known kind; every member the export must hold present exactly
+  once; an empty archive refused; each member validated by its format.
 * ``report.txt``: every line one line.
 * Firewall rule strings: one line per field, and the registry settings decode
   through the firewall codec and re-encode to the same settings.
+
+The routes that build a GPO's plan, Studio bundle and GPMC backup call
+:func:`checked_plan`, :func:`checked_studio_bundle` and
+:func:`checked_gpmc_backup`, and the GPO's artifact capabilities are whether
+those same functions refuse (:func:`plan_refusal` and its siblings), so a
+capability and its download cannot disagree.
+
+**What egress does not establish.** It checks that an artifact is well formed
+and that user data stays in its place: no value becomes a statement, entry,
+row, element or member. It does not check that a writer meant what it wrote:
+a broken writer that adds a statement of an allowed shape, a valid registry
+record, a valid report line or a member of a known kind passes. That class is
+the writers' unit tests, the execution tests and the Windows lanes.
 """
 
 from __future__ import annotations
@@ -50,9 +67,8 @@ import io
 import json
 import re
 import zipfile
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
-from functools import lru_cache
 from typing import Any, Literal, assert_never
 
 from .emit_integrity import (
@@ -61,6 +77,7 @@ from .emit_integrity import (
     PS_SINGLE_QUOTES,
     EmitError,
     EmitProblem,
+    gpp_element_problems,
     inf_problems,
     inf_text_problems,
     line_problem,
@@ -97,7 +114,7 @@ _TERM = re.compile(
     r"\((?:''|\x00S|\[char\](?:0x[0-9A-F]{4}|::ConvertFromUtf32\(0x[0-9A-F]{1,6}\)))"
     r"(?: \+ (?:\x00S|\[char\](?:0x[0-9A-F]{4}|::ConvertFromUtf32\(0x[0-9A-F]{1,6}\))))+\)"
 )
-_ARRAY = re.compile(r"@\(\x00S(?:, \x00S)*\)")
+_ARRAY = re.compile(r"@\((?:\x00S(?:, \x00S)*)?\)")
 _BYTES = re.compile(r"\(\[byte\[\]\]\((?:0x[0-9A-Fa-f]{2})(?:,0x[0-9A-Fa-f]{2})*\)\)")
 _NUMBER = re.compile(r"(?<![\w$.\[])\d+(?![\w])")
 
@@ -166,79 +183,78 @@ def ps_skeleton(text: str) -> tuple[list[str], list[EmitProblem]]:
     return skeleton, problems
 
 
-def _reference_plan_gpos() -> Iterable[Any]:
-    """Neutral GPOs that exercise every statement the plan writer has."""
-    from .model import GPO, GPOLink, RegistrySetting, SecurityFilter, WmiFilter
-
-    def setting(
-        n: int, kind: str, value: object, action: str = "set", side: str = "computer"
-    ) -> RegistrySetting:
-        hive = "HKLM" if side == "computer" else "HKCU"
-        return RegistrySetting(
-            f"s{n}",
-            side,  # type: ignore[arg-type]
-            hive,  # type: ignore[arg-type]
-            "Software\\Neutral",
-            f"V{n}",
-            kind,  # type: ignore[arg-type]
-            value,  # type: ignore[arg-type]
-            action,  # type: ignore[arg-type]
-        )
-
-    settings = (
-        setting(1, "REG_SZ", "text"),
-        setting(2, "REG_EXPAND_SZ", "%x%"),
-        setting(3, "REG_MULTI_SZ", ["a", "b"]),
-        setting(4, "REG_DWORD", 1),
-        setting(5, "REG_QWORD", 2),
-        setting(6, "REG_BINARY", "0A0B"),
-        setting(7, "REG_BINARY", ""),
-        setting(8, "REG_SZ", "line\nbreak"),
-        setting(9, "REG_SZ", "", "delete"),
-        setting(10, "REG_SZ", "", "delete_all_values", "user"),
+#: The plan's statement grammar: every line the plan writer can produce, with
+#: typed holes -- ``<s>`` a single-quoted literal or ``[char]`` concatenation
+#: term, ``@(<s>)`` a literal array of any length (empty included), ``<n>`` a
+#: number, ``<bytes>`` a byte array -- and ``#`` a comment. Written out rather
+#: than derived from the writer at run time; ``tests/test_egress.py`` holds it
+#: equal to the shapes the writer produces over an exhaustive generator
+#: (``tests/plan_corpus.py``) and a hypothesis-generated set, so it is complete
+#: for the writer and has no dead entry (DeepSeek final-r11 B1: a reference
+#: corpus missed ``$desiredApply = @()`` and an empty REG_MULTI_SZ, and egress
+#: refused the writer's own output).
+PLAN_GRAMMAR: frozenset[str] = frozenset(
+    line.replace("<s>", _LITERAL)
+    for line in (
+        "",
+        "        $desiredApply -notcontains $perm.Trustee.Name -and",
+        "        $protected -notcontains $perm.Trustee.Name) {",
+        "        Set-GPPermission -Guid $gpo.Id -PermissionLevel None -TargetName $perm.Trustee.Name -TargetType $perm.Trustee.SidType -ErrorAction SilentlyContinue",  # noqa: E501
+        "    $gpo = Get-GPO -Name <s> -ErrorAction SilentlyContinue",
+        "    $gpo = New-GPO -Name <s> -Comment <s>",
+        "    Rename-GPO -Guid $gpo.Id -TargetName <s> | Out-Null",
+        "    Where-Object { $_.GpoId -eq $gpo.Id }",
+        "    if ($perm.Permission -eq <s> -and",
+        "    }",
+        "  <s>, <s>, <s>)",
+        "#",
+        "$ErrorActionPreference = <s>",
+        "$desiredApply = @(<s>)",
+        "$existing = Get-GPPermission -Guid $gpo.Id -All -ErrorAction SilentlyContinue",
+        "$existing = Get-GPRegistryValue -Guid $gpo.Id -Key <s> -ErrorAction SilentlyContinue",
+        "$existingLink = (Get-GPInheritance -Target <s>).GpoLinks |",
+        "$gpo = Get-GPO -Guid <s> -ErrorAction SilentlyContinue",
+        "$gpo.GpoStatus = <s>",
+        "$protected = @(<s>, <s>,",
+        "Remove-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -ErrorAction SilentlyContinue",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoApply -TargetName <s> -TargetType Computer -Replace | Out-Null",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoApply -TargetName <s> -TargetType Group -Replace | Out-Null",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoApply -TargetName <s> -TargetType User -Replace | Out-Null",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName <s> -TargetType Computer -Replace | Out-Null",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName <s> -TargetType Group -Replace | Out-Null",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName <s> -TargetType User -Replace | Out-Null",  # noqa: E501
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type Binary -Value ([byte[]]@(<s>))",  # noqa: E501
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type Binary -Value <bytes>",
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type DWord -Value <n>",
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type ExpandString -Value <s>",
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type MultiString -Value @(<s>)",
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type QWord -Value <n>",
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type String -Value <s>",
+        "[CmdletBinding(SupportsShouldProcess=$true)]",
+        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced No -Order <n> | Out-Null }",  # noqa: E501
+        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced Yes -Order <n> | Out-Null }",  # noqa: E501
+        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced No -Order <n> | Out-Null }",  # noqa: E501
+        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced Yes -Order <n> | Out-Null }",  # noqa: E501
+        "elseif ($gpo.DisplayName -ne <s>) {",
+        "foreach ($perm in $existing) {",
+        "if ($existing) { $existing | ForEach-Object { Remove-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName $_.ValueName -ErrorAction SilentlyContinue } }",  # noqa: E501
+        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced No -Order <n> | Out-Null }",  # noqa: E501
+        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced Yes -Order <n> | Out-Null }",  # noqa: E501
+        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced No -Order <n> | Out-Null }",  # noqa: E501
+        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced Yes -Order <n> | Out-Null }",  # noqa: E501
+        "if (-not $gpo) {",
+        "param()",
+        "}",
     )
-    guid = "{0B0D0080-0000-4000-8000-000000000000}"
-    filters = tuple(
-        SecurityFilter(f"f{index}", f"NEUTRAL\\P{index}", permission=permission, target_type=kind)  # type: ignore[arg-type]
-        for index, (permission, kind) in enumerate(
-            (p, k) for p in ("apply", "read") for k in ("user", "group", "computer")
-        )
-    )
-    links = tuple(
-        GPOLink(f"l{index}", "OU=Neutral,DC=studio,DC=local", enabled=e, enforced=f)
-        for index, (e, f) in enumerate((e, f) for e in (True, False) for f in (True, False))
-    )
-    base = GPO(guid=guid, name="Neutral", settings=settings, links=links, security_filters=filters)
-    yield base
-    yield replace(
-        base,
-        description="Neutral\ndescription",
-        wmi_filter=WmiFilter("w", "W", query="SELECT * FROM Win32_OperatingSystem"),
-    )
-    for computer, user in ((True, False), (False, True), (False, False)):
-        yield replace(GPO(guid=guid, name="Neutral"), computer_enabled=computer, user_enabled=user)
-
-
-@lru_cache(maxsize=1)
-def plan_line_shapes() -> frozenset[str]:
-    """Every line shape the plan writer produces from neutral input."""
-    from .export import powershell_plan
-
-    shapes: set[str] = set()
-    for gpo in _reference_plan_gpos():
-        skeleton, problems = ps_skeleton(powershell_plan(gpo))
-        assert not problems, problems
-        shapes.update(skeleton)
-    return frozenset(shapes)
+)
 
 
 def powershell_plan_problems(text: str, where: str = "plan.ps1") -> list[EmitProblem]:
     from .ps_plan_validator import validate_plan
 
     skeleton, problems = ps_skeleton(text)
-    shapes = plan_line_shapes()
     for number, shape in enumerate(skeleton, start=1):
-        if shape not in shapes:
+        if shape not in PLAN_GRAMMAR:
             problems.append(
                 EmitProblem(
                     where,
@@ -434,20 +450,57 @@ _GPMC_MEMBERS: tuple[tuple[re.Pattern[str], str], ...] = (
 _SAFE_NAME = re.compile(r"[A-Za-z0-9{}._/-]+")
 
 
-def zip_problems(data: bytes, kind: Literal["studio", "gpmc"]) -> list[EmitProblem]:
+#: Members each export must hold (Sol final-r11 B3): an empty or partial archive
+#: is not the artifact, whatever a writer returned.
+_STUDIO_REQUIRED = (
+    re.compile(r"manifest\.json"),
+    re.compile(r"apply\.ps1"),
+    re.compile(r"Machine/Registry\.pol"),
+    re.compile(r"User/Registry\.pol"),
+)
+_GPMC_REQUIRED = (
+    re.compile(r"manifest\.xml"),
+    re.compile(rf"{_GUID_DIR}/Backup\.xml"),
+    re.compile(rf"{_GUID_DIR}/bkupInfo\.xml"),
+)
+
+
+def zip_problems(
+    data: bytes, kind: Literal["studio", "gpmc"], model: Any = None
+) -> list[EmitProblem]:
+    """An export ZIP, member by member: by its `ZipInfo`, so a duplicate name
+    cannot hide an earlier entry (``read(name)`` returns the last); every name
+    safe, unique and of a known kind; every required member present; each
+    member valid by its format; and, given the GPO, its preference files reading
+    back as the GPO's preferences."""
     members = _STUDIO_MEMBERS if kind == "studio" else _GPMC_MEMBERS
+    required = _STUDIO_REQUIRED if kind == "studio" else _GPMC_REQUIRED
     where = "export.zip" if kind == "studio" else "gpmc-backup"
     problems: list[EmitProblem] = []
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile as error:
         return [EmitProblem(where, "archive", "", f"is not a ZIP: {error}")]
+    gpp_files: dict[str, dict[str, bytes]] = {}
     with archive:
-        for name in archive.namelist():
+        infos = archive.infolist()
+        if not infos:
+            return [EmitProblem(where, "archive", "", "is empty")]
+        names = [info.filename for info in infos]
+        for name in sorted({n for n in names if names.count(n) > 1}):
+            problems.append(EmitProblem(where, "member name", name, "appears more than once"))
+        for pattern in required:
+            if sum(1 for name in names if pattern.fullmatch(name)) != 1:
+                problems.append(
+                    EmitProblem(where, "member", pattern.pattern, "is not present exactly once")
+                )
+        for info in infos:
+            name = info.filename
             if (
                 not _SAFE_NAME.fullmatch(name)
                 or name.startswith("/")
                 or any(part in ("", ".", "..") for part in name.split("/"))
+                or info.is_dir()
             ):
                 problems.append(
                     EmitProblem(where, "member name", name, "is not a safe member name")
@@ -459,8 +512,82 @@ def zip_problems(data: bytes, kind: Literal["studio", "gpmc"]) -> list[EmitProbl
                     EmitProblem(where, "member", name, "is not a member this export writes")
                 )
                 continue
-            content = archive.read(name)
+            with archive.open(info) as handle:
+                content = handle.read()
             problems += _member_problems(f"{where}:{name}", kinds[0], content)
+            if kinds[0] == "gpp":
+                side, relative = _gpp_side(name)
+                gpp_files.setdefault(side, {})[relative] = content
+    if model is not None and not problems:
+        problems += gpp_agreement_problems(where, model, gpp_files)
+    return problems
+
+
+def _gpp_side(name: str) -> tuple[str, str]:
+    """(scope, path under Preferences/) of a GPP member."""
+    side, _, relative = name.partition("/Preferences/")
+    return ("computer" if side.endswith("Machine") else "user"), relative
+
+
+def _typed_projection(collection: Any) -> dict[str, list[tuple[Any, ...]]]:
+    """Per family, per item: the common options, the typed targeting predicates
+    and the number of raw ones -- what a retained attribute or a raw predicate
+    could otherwise change behind the model (Sol final-r11 B1)."""
+    import dataclasses
+
+    from .ilt import IltPredicate
+
+    projection: dict[str, list[tuple[Any, ...]]] = {}
+    for field in dataclasses.fields(collection):
+        items = getattr(collection, field.name)
+        if not (isinstance(items, tuple) and items and hasattr(items[0], "common")):
+            continue
+        rows: list[tuple[Any, ...]] = []
+        for item in items:
+            predicates = item.ilt_filter.items if item.ilt_filter is not None else ()
+            rows.append(
+                (
+                    item.common,
+                    # The writer strips a padded IP range (validation does too);
+                    # compare what it means, not its padding.
+                    tuple(
+                        replace(p, value=p.value.strip())
+                        for p in predicates
+                        if isinstance(p, IltPredicate)
+                    ),
+                    sum(1 for p in predicates if isinstance(p, str)),
+                )
+            )
+        projection[field.name] = rows
+    return projection
+
+
+def gpp_agreement_problems(
+    where: str, gpo: Any, files_by_side: Mapping[str, Mapping[str, bytes]]
+) -> list[EmitProblem]:
+    """The exported preference files must read back as the GPO's preferences:
+    each item's common options and targeting as the model holds them."""
+    from .gpp import GppError, parse_gpp_collection
+
+    problems: list[EmitProblem] = []
+    model = {collection.scope: collection for collection in gpo.gpp_collections}
+    for side in sorted(set(model) | set(files_by_side)):
+        files = dict(files_by_side.get(side, {}))
+        try:
+            written = parse_gpp_collection(side, files)  # type: ignore[arg-type]
+        except (GppError, ValueError) as error:
+            problems.append(EmitProblem(where, side, "", f"preferences do not read back: {error}"))
+            continue
+        expected = _typed_projection(model[side]) if side in model else {}
+        if _typed_projection(written) != expected:
+            problems.append(
+                EmitProblem(
+                    where,
+                    f"{side} preferences",
+                    "",
+                    "do not read back as the GPO's preferences (common options or targeting)",
+                )
+            )
     return problems
 
 
@@ -481,7 +608,10 @@ def _member_problems(where: str, kind: str, content: bytes) -> list[EmitProblem]
         return registry_pol_egress_problems(where, content)
     if kind in ("gpp", "backup"):
         try:
-            return xml_problems(GPP_XML if kind == "gpp" else BACKUP_XML, where, content)
+            problems = xml_problems(GPP_XML if kind == "gpp" else BACKUP_XML, where, content)
+            if kind == "gpp":
+                problems += gpp_element_problems(where, content)
+            return problems
         except ValueError as error:
             return [EmitProblem(where, "xml", "", f"does not parse: {error}")]
     if kind == "ini":
@@ -586,3 +716,80 @@ def check(format: Format, result: Any) -> None:
             assert_never(format)
     if problems:
         raise EmitError(problems)
+
+
+# ---------------------------------------------------------------------------
+# Checked artifacts: what the routes return AND what the capabilities ask
+# ---------------------------------------------------------------------------
+#
+# One function per artifact builds it with the writer and validates it here,
+# with the GPO, so the preference files must also read back as the model. The
+# route returns its result; the capability is whether it raises. A capability
+# and a download can therefore never disagree (DeepSeek final-r11 B1: the plan
+# capability asked only the writer, and egress refused what it advertised).
+
+
+def checked_plan(gpo: Any) -> str:
+    from . import export
+
+    text = export.powershell_plan(gpo)
+    problems = powershell_plan_problems(text)
+    if problems:
+        raise EmitError(problems)
+    return text
+
+
+def checked_studio_bundle(gpo: Any) -> bytes:
+    from . import export
+
+    data = export.export_bundle(gpo)
+    problems = zip_problems(data, "studio", gpo)
+    if problems:
+        raise EmitError(problems)
+    return data
+
+
+def checked_gpmc_backup(gpo: Any, scripts: Mapping[str, Any] | None = None) -> bytes:
+    from . import export
+
+    data = export.gpmc_backup_bundle(gpo, scripts=scripts)
+    problems = zip_problems(data, "gpmc", gpo)
+    if problems:
+        raise EmitError(problems)
+    return data
+
+
+def _refusal(build: Callable[[], Any], gpo: Any, path: str, *, blocked_first: bool) -> Any:
+    """Why *build* would refuse, or ``None`` -- by running it."""
+    from .export import _plan_precondition, _writer_refusal
+    from .model import ValidationError
+    from .validation import validate_gpo
+
+    if blocked_first:
+        precondition = _plan_precondition(gpo)
+        if precondition is not None:
+            return precondition
+        if any(issue.severity == "error" for issue in validate_gpo(gpo)):
+            return None  # reported by validation: the caller's `blocked`
+    try:
+        build()
+    except (ValidationError, ValueError) as error:
+        return _writer_refusal(error, path)
+    return None
+
+
+def plan_refusal(gpo: Any) -> Any:
+    """Why `checked_plan` refuses this GPO, or ``None`` (the route's own function)."""
+    return _refusal(lambda: checked_plan(gpo), gpo, "plan.ps1", blocked_first=True)
+
+
+def studio_export_refusal(gpo: Any) -> Any:
+    """Why `checked_studio_bundle` refuses this GPO, or ``None``."""
+    return _refusal(lambda: checked_studio_bundle(gpo), gpo, "export.zip", blocked_first=True)
+
+
+def gpmc_backup_refusal(gpo: Any, scripts: Mapping[str, Any] | None = None) -> Any:
+    """Why `checked_gpmc_backup` refuses this GPO, or ``None``."""
+    return _refusal(
+        lambda: checked_gpmc_backup(gpo, scripts), gpo, "gpmc-backup", blocked_first=False
+    )

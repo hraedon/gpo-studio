@@ -401,6 +401,76 @@ GPP_XML: XmlTable = {
     ("ScheduledTasks", "Description", "#text"): _TEXT,
 }
 
+#: Every element a GPP file may contain, by file root: what the writers emit
+#: over the native captures and synthetic inputs (``tests/test_emit_integrity``
+#: derives it again and fails on a difference), plus the weekday names the
+#: task synthesizer can write. Egress refuses an element outside it -- a raw
+#: predicate or retained child supplying a ``FilterRunOnce`` the typed options
+#: did not ask for was accepted before (Sol final-r11 B1). Imported content
+#: with an element Studio has not seen is kept, but not exported.
+_FILTER_ELEMENTS = frozenset({
+    "Filters", "FilterCollection", "FilterComputerName", "FilterDate", "FilterDiskSpace",
+    "FilterDomain", "FilterFile", "FilterFolder", "FilterGroup", "FilterIpRange",
+    "FilterLanguage", "FilterOrgUnit", "FilterOs", "FilterRegistry", "FilterRunOnce",
+    "FilterService", "FilterUser", "FilterVariable", "FilterWmi",
+})
+_TASK_PAYLOAD_ELEMENTS = frozenset({
+    "Actions", "AllowHardTerminate", "AllowStartOnDemand", "April", "Arguments", "August",
+    "Author", "Body", "CalendarTrigger", "Command", "Count", "Day", "DaysInterval",
+    "DaysOfMonth", "DaysOfWeek", "December", "DeleteExpiredTaskAfter", "Description",
+    "DisallowStartIfOnBatteries", "Duration", "Enabled", "EndBoundary", "Exec",
+    "ExecutionTimeLimit", "February", "From", "HeaderFields", "Hidden", "IdleSettings",
+    "Interval", "January", "July", "June", "LogonType", "March", "May", "Months",
+    "MultipleInstancesPolicy", "November", "October", "Principal", "Principals", "Priority",
+    "RegistrationInfo", "RestartOnFailure", "RestartOnIdle", "RunLevel", "RunOnlyIfIdle",
+    "RunOnlyIfNetworkAvailable", "ScheduleByDay", "ScheduleByMonth", "ScheduleByWeek",
+    "SendEmail", "September", "Server", "SessionStateChangeTrigger", "Settings",
+    "ShowMessage", "StartBoundary", "StartWhenAvailable", "StateChange",
+    "StopIfGoingOnBatteries", "StopOnIdleEnd", "Subject", "Task", "TimeTrigger", "Title",
+    "To", "Triggers", "UserId", "WaitTimeout", "WakeToRun", "WeeksInterval",
+    "WorkingDirectory",
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+})
+GPP_ELEMENTS: Mapping[str, frozenset[str]] = {
+    root: frozenset({root, "Properties", *_FILTER_ELEMENTS, *items})
+    for root, items in {
+        "Applications": {"Application"},
+        "DataSources": {"DataSource"},
+        "Devices": {"Device"},
+        "Drives": {"Drive"},
+        "EnvironmentVariables": {"EnvironmentVariable"},
+        "Files": {"File"},
+        "FolderOptions": {"GlobalFolderOptionsVista"},
+        "Folders": {"Folder"},
+        "Groups": {"Group", "Member", "Members", "User"},
+        "IniFiles": {"Ini"},
+        "NTServices": {"NTService"},
+        "NetworkShareSettings": {"NetShare"},
+        "PowerOptions": {"GlobalPowerOptionsV2", "PowerScheme"},
+        "Printers": {"SharedPrinter"},
+        "Regional": {"RegionalOptions"},
+        "RegistrySettings": {"Registry", "Value", "Values"},
+        "ScheduledTasks": {"TaskV2", "ImmediateTaskV2", "Task", *_TASK_PAYLOAD_ELEMENTS},
+        "Shortcuts": {"Shortcut"},
+    }.items()
+}
+
+
+def gpp_element_problems(where: str, data: bytes) -> list[EmitProblem]:
+    """Every element of a GPP file outside its root's vocabulary."""
+    size = max(len(data), 1)
+    root = parse_xml_bounded(data, max_size=size, max_attr_length=size, max_text_length=size)
+    name = _local(root.tag)
+    allowed = GPP_ELEMENTS.get(name)
+    if allowed is None:
+        return [EmitProblem(where, name, "", "is not a GPP file root Studio writes")]
+    return [
+        EmitProblem(where, _local(element.tag), "", f"is not an element of {name}")
+        for element in root.iter()
+        if _local(element.tag) not in allowed
+    ]
+
+
 BACKUP_XML: XmlTable = {
     ("*", "*", "type"): _TOKEN_F,
     ("*", "*", "version"): _TOKEN_F,
@@ -590,7 +660,7 @@ def inf_key_problem(section: str, key: str, *, vocabulary: bool = False) -> str 
 #: descriptor alone is a row (final-r9 N4, final-r10).
 _ROW_VALUE = re.compile(r'[0-9]+,"[^"]+"', re.ASCII)
 #: A preserved row line in those sections, as Windows writes it.
-_ROW_LINE = re.compile(r'"[^"]*"\s*,\s*[0-9]+\s*,\s*"[^"]*"', re.ASCII)
+ROW_LINE = re.compile(r'"[^"]*"\s*,\s*[0-9]+\s*,\s*"[^"]*"', re.ASCII)
 
 
 def inf_problems(sections: tuple[tuple[str, tuple[tuple[str, str], ...], tuple[str, ...]], ...],
@@ -648,9 +718,11 @@ def inf_problems(sections: tuple[tuple[str, tuple[tuple[str, str], ...], tuple[s
             # active grant (Sol final-r9 B2).
             if stripped.startswith("[") and stripped.endswith("]"):
                 note(name, line, "would read back as a section header")
+            elif row and ROW_LINE.fullmatch(stripped):
+                pass  # a row; a quoted key may hold '=' (DeepSeek final-r11 N5)
             elif "=" in stripped:
                 note(name, line, "would read back as a key = value entry")
-            elif row and not _ROW_LINE.fullmatch(stripped):
+            elif row:
                 note(name, line, 'is not a row ("key",code,"descriptor")')
             elif not row:
                 note(name, line, "is not a comment, and only row sections preserve rows")
@@ -676,6 +748,12 @@ def inf_text_problems(text: str) -> list[EmitProblem]:
         if problem is not None:
             problems.append(EmitProblem("GptTmpl.inf", f"line {number}", body, problem))
         stripped = body.strip()
+        if stripped.endswith("\\"):
+            # The parser joins it with the next line, which the per-line check
+            # then never sees whole (DeepSeek final-r11 N4).
+            problems.append(
+                EmitProblem("GptTmpl.inf", f"line {number}", body, "is a continuation line")
+            )
         if stripped.startswith("[") and stripped.endswith("]"):
             in_section = True
         elif stripped and not in_section and not stripped.startswith(";"):

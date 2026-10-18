@@ -476,6 +476,45 @@ Operator-facing:
     capabilities are cached by the GPO's content: on a GPO with 3,000 settings
     and 300 groups a read took about 2.5 s every time; the first now does, and
     later reads of the same revision take about 0.5 s.
+- After the eleventh review (final-r11):
+  - **Retained content is kept, never supplied.** A GPP item imported from
+    GPMC carries what Studio does not type (attributes, children, raw
+    targeting predicates); the group, member, registry and registry-value
+    routes now accept those fields only as the stored item already holds them,
+    or empty, and refuse new or changed ones (`raw_content_not_accepted`).
+    Before, a request could pass `unknown_attrs: [["disabled","0"]]` beside
+    `common.disabled: true` and ship `disabled="0"`, or add a raw
+    `FilterRunOnce` element. The writer also refuses a retained attribute that
+    would overwrite one it has already set -- the reserved set is whatever the
+    typed serializer wrote, for every GPP type -- and egress refuses a GPP file
+    with an element outside its vocabulary, or one whose items do not read back
+    with the GPO's common options and targeting. Imported content with an
+    element Studio has not seen is kept, but not exported. The workbench sends
+    retained content back as it received it, so its edits are unaffected.
+  - **The plan grammar is written out and proved complete.** Round 10 compared
+    each plan line with lines from a few reference GPOs and so refused the
+    writer's own `$desiredApply = @()` (read-only security filtering) and
+    `-Value @()` (an empty `REG_MULTI_SZ`), while the GPO advertised both
+    artifacts. The plan's statements are now a closed grammar with typed holes
+    (`egress.PLAN_GRAMMAR`); a test holds it equal to what the writer produces
+    over an exhaustive generator and a property test over random GPOs.
+  - **A capability is its download.** The plan, Studio bundle and GPMC backup
+    routes return `egress.checked_plan` / `checked_studio_bundle` /
+    `checked_gpmc_backup` (the writer, then egress, with the GPO), and the
+    capabilities ask exactly those functions; a test drives the routes for a
+    matrix of GPOs, the released 1.0.0 workspace and every GPP family.
+  - **ZIP egress reads entries, not names**: a duplicate member name, a missing
+    required member (`manifest.json`, `apply.ps1` and both `Registry.pol` files;
+    `manifest.xml`, `Backup.xml`, `bkupInfo.xml`) and an empty archive are
+    refused.
+  - **Mounted applications are walked.** The route enumeration descends into
+    mounts with their prefixes; the one mount, `/assets`, is accepted only as
+    Studio's own static-files application over its package directory.
+  - `GptTmpl.inf`: a continuation line is never returned unchanged, and a
+    `[Registry Keys]`/`[File Security]` row whose quoted key holds `=` is read
+    and written as a row. The refusal cache is locked (an eviction between a
+    lookup and its read raised under concurrent reads) and tolerates a GPO it
+    cannot hash.
 - **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
   metadata said `>=3.13`, which now admits Python 3.15, but some locked
   dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no

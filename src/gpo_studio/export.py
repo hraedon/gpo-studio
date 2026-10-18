@@ -7,7 +7,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
-from typing import Protocol, assert_never
+from typing import Protocol, assert_never, cast
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from .canonical import (
@@ -181,37 +181,22 @@ def _writer_refusal(error: Exception, path: str) -> ValidationIssue:
 def plan_refusal(gpo: GPO) -> ValidationIssue | None:
     """Why this GPO can get no PowerShell plan, or ``None`` if it can.
 
-    Asks the writer (final-r9, Sol B3 and DeepSeek N6): after the stated
-    preconditions it generates the plan and reports whatever the generator
-    refuses, so the capability and the download cannot disagree. A GPO with a
-    validation error is reported by `validate_gpo` (the caller's ``blocked``),
-    not here.
+    The plan route's own function decides (`egress.plan_refusal`, which runs
+    `egress.checked_plan`: the writer, then egress), so the capability and the
+    download cannot disagree (WI-044; DeepSeek final-r11 B1). A GPO with a
+    validation error is reported by `validate_gpo` (the caller's ``blocked``).
     """
-    precondition = _plan_precondition(gpo)
-    if precondition is not None:
-        return precondition
-    if any(issue.severity == "error" for issue in validate_gpo(gpo)):
-        return None
-    try:
-        powershell_plan(gpo)
-    except (ValidationError, ValueError) as error:
-        return _writer_refusal(error, "plan.ps1")
-    return None
+    from .egress import plan_refusal as checked
+
+    return cast(ValidationIssue | None, checked(gpo))
 
 
 def studio_export_refusal(gpo: GPO) -> ValidationIssue | None:
-    """Why this GPO can get no Studio bundle (`export_bundle`), asked of the
-    bundle writer itself -- the plan, Registry.pol and every preference file."""
-    precondition = _plan_precondition(gpo)
-    if precondition is not None:
-        return precondition
-    if any(issue.severity == "error" for issue in validate_gpo(gpo)):
-        return None
-    try:
-        export_bundle(gpo)
-    except (ValidationError, ValueError) as error:
-        return _writer_refusal(error, "export.zip")
-    return None
+    """Why this GPO can get no Studio bundle, or ``None``: `egress.checked_studio_bundle`
+    decides, as the route does."""
+    from .egress import studio_export_refusal as checked
+
+    return cast(ValidationIssue | None, checked(gpo))
 
 
 def _plan_precondition(gpo: GPO) -> ValidationIssue | None:
@@ -1203,14 +1188,9 @@ def native_backup_refusal(
     conditions is precisely how the deny case drifted (WI-044), so the same
     mistake is not repeated one capability along.
     """
-    try:
-        gpmc_backup_bundle(gpo, scripts=scripts)
-    except (ValidationError, ValueError) as error:
-        # A writer's own refusal (EmitError, a Registry.pol or GPP error) is
-        # reported, never raised: this runs on every GPO read and after every
-        # mutation commits (DeepSeek final-r9 B2).
-        return _writer_refusal(error, "gpmc-backup")
-    return None
+    from .egress import gpmc_backup_refusal
+
+    return cast(ValidationIssue | None, gpmc_backup_refusal(gpo, scripts))
 
 
 def gpmc_backup_bundle(

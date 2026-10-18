@@ -12,10 +12,11 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid as uuid_module
 import zipfile
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
@@ -79,6 +80,14 @@ from .delegation import (
 from .diff import diff_gpos, three_way_diff
 from .egress import Format as EgressFormat
 from .egress import check as egress_check
+from .egress import (
+    checked_gpmc_backup,
+    checked_plan,
+    checked_studio_bundle,
+    gpmc_backup_refusal,
+    plan_refusal,
+    studio_export_refusal,
+)
 from .emit_integrity import CHECKS, EmitError, line_problem
 from .estate import parse_estate
 from .export import (
@@ -89,14 +98,9 @@ from .export import (
     _SCRIPTS_CSE_GUID,
     _SCRIPTS_TOOL_GUID,
     _ZERO_GUID,
-    export_bundle,
     extension_registration,
-    gpmc_backup_bundle,
     native_backup_id,
     native_backup_refusal,
-    plan_refusal,
-    powershell_plan,
-    studio_export_refusal,
 )
 from .fdeploy import (
     FLAGS_ARE_UNDECODED,
@@ -1836,6 +1840,87 @@ def _refuse_cpassword_attrs(unknown: tuple[tuple[str, str], ...], context: str) 
         ])
 
 
+_RAW_ITEM_FIELDS = (
+    "unknown_attrs",
+    "unknown_props_attrs",
+    "unknown_props_children",
+    "unknown_children",
+)
+
+
+def _ilt_raw(ilt_filter: IltFilter | None) -> Counter[tuple[Any, ...]]:
+    """The raw parts of a targeting filter: raw predicates, and the retained
+    attributes of typed ones."""
+    found: Counter[tuple[Any, ...]] = Counter()
+    for item in ilt_filter.items if ilt_filter is not None else ():
+        if isinstance(item, str):
+            found[("raw", item)] += 1
+        elif item.unknown_attrs:
+            found[("attrs", item.type, item.unknown_attrs)] += 1
+    return found
+
+
+def _raw_problems(new: Any, stored: Any, path: str) -> list[str]:
+    problems = [
+        f"{path}.{name}"
+        for name in _RAW_ITEM_FIELDS
+        if getattr(new, name, ())
+        and getattr(new, name) != (getattr(stored, name, ()) if stored is not None else ())
+    ]
+    if hasattr(new, "ilt_filter"):
+        stored_raw = _ilt_raw(stored.ilt_filter) if stored is not None else Counter()
+        if _ilt_raw(new.ilt_filter) - stored_raw:
+            problems.append(f"{path}.ilt_filter")
+    return problems
+
+
+def _refuse_new_raw_content(
+    new: Any, stored: Any, path: str, *, members: bool = False, value: bool = False
+) -> None:
+    """Retained import content is kept, never supplied (Sol final-r11 B1).
+
+    An item imported from GPMC carries what Studio does not type -- attributes,
+    children, raw targeting predicates -- and an edit may keep it exactly as
+    stored, or drop it. It may not add or change it: a caller-supplied
+    ``disabled="0"`` overwrote the typed ``disabled`` the same request set, and
+    a raw ``FilterRunOnce`` predicate added an element. A new item carries none.
+    """
+    problems = _raw_problems(new, stored, path)
+    if members:
+        stored_members = {m.id: m for m in getattr(stored, "members", ())}
+        for index, member in enumerate(new.members):
+            problems += _raw_problems(
+                member, stored_members.get(member.id), f"{path}.members[{index}]"
+            )
+    if value:
+        problems += _raw_problems(new.value, getattr(stored, "value", None), f"{path}.value")
+    if problems:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="raw_content_not_accepted",
+                message=(
+                    "Content Studio does not type (retained attributes, children, raw "
+                    "targeting predicates) can be kept as imported, or dropped, but not "
+                    "supplied or changed through the API: " + ", ".join(problems)
+                ),
+                path=path,
+            )
+        ])
+
+
+def _stored_gpp_item(
+    request: Request, guid: str, scope: str, family: str, item_id: str
+) -> Any:
+    gpo = _store(request).get_gpo(guid)
+    for collection in gpo.gpp_collections:
+        if collection.scope == scope:
+            for item in getattr(collection, family):
+                if item.id == item_id:
+                    return item
+    return None
+
+
 def _gpp_member_data_to_model(data: GppGroupMemberData) -> GppGroupMember:
     member = GppGroupMember(
         sid=data.sid,
@@ -2013,20 +2098,37 @@ _REFUSAL_CACHE: OrderedDict[tuple[str, int, str], _Refusals] = OrderedDict()
 _REFUSAL_CACHE_SIZE = 256
 
 
+_REFUSAL_LOCK = threading.Lock()
+
+
 def _artifact_refusals(gpo: GPO) -> _Refusals:
+    """The three capabilities' refusals, each the route's own function
+    (`egress.plan_refusal`, `studio_export_refusal`, `gpmc_backup_refusal`).
+
+    The cache is guarded by a lock: synchronous endpoints run in a thread pool,
+    and an eviction between a hit's check and its read raised ``KeyError``
+    (DeepSeek final-r11 N3). Computing happens outside the lock; two threads
+    computing the same entry is harmless. A GPO whose dict cannot be hashed
+    (legacy text, or bytes, N6) is not cached.
+    """
     try:
         content = hashlib.sha256(canonical_json_bytes(gpo.to_dict())).hexdigest()
-    except UnicodeError:  # legacy text that cannot be encoded: not cached
+    except (UnicodeError, TypeError, ValueError):
         content = None
     key = (gpo.guid, gpo.revision, content) if content is not None else None
-    if key is not None and key in _REFUSAL_CACHE:
-        _REFUSAL_CACHE.move_to_end(key)
-        return _REFUSAL_CACHE[key]
-    refusals = (plan_refusal(gpo), studio_export_refusal(gpo), native_backup_refusal(gpo))
     if key is not None:
-        _REFUSAL_CACHE[key] = refusals
-        while len(_REFUSAL_CACHE) > _REFUSAL_CACHE_SIZE:
-            _REFUSAL_CACHE.popitem(last=False)
+        with _REFUSAL_LOCK:
+            cached = _REFUSAL_CACHE.get(key)
+            if cached is not None:
+                _REFUSAL_CACHE.move_to_end(key)
+                return cached
+    refusals = (plan_refusal(gpo), studio_export_refusal(gpo), gpmc_backup_refusal(gpo))
+    if key is not None:
+        with _REFUSAL_LOCK:
+            _REFUSAL_CACHE[key] = refusals
+            _REFUSAL_CACHE.move_to_end(key)
+            while len(_REFUSAL_CACHE) > _REFUSAL_CACHE_SIZE:
+                _REFUSAL_CACHE.popitem(last=False)
     return refusals
 
 
@@ -3579,6 +3681,7 @@ def add_gpp_group(
 ) -> dict[str, Any]:
     group = _gpp_group_data_to_model(body.group)
     group = replace(group, id="")
+    _refuse_new_raw_content(group, None, "group", members=True)
     gpo = _store(request).put_gpp_group(
         guid,
         body.expected_revision,
@@ -3597,6 +3700,12 @@ def edit_gpp_group(
 ) -> dict[str, Any]:
     group = _gpp_group_data_to_model(body.group)
     group = replace(group, id=group_id)
+    _refuse_new_raw_content(
+        group,
+        _stored_gpp_item(request, guid, body.scope, "groups", group_id),
+        "group",
+        members=True,
+    )
     gpo = _store(request).put_gpp_group(
         guid,
         body.expected_revision,
@@ -3634,6 +3743,7 @@ def add_gpp_registry(
     request: Request, guid: str, body: GppRegistryMutation
 ) -> dict[str, Any]:
     registry = _gpp_registry_data_to_model(body.registry)
+    _refuse_new_raw_content(registry, None, "registry", value=True)
     registry = replace(registry, id="")
     gpo = _store(request).put_gpp_registry(
         guid,
@@ -3653,6 +3763,12 @@ def edit_gpp_registry(
 ) -> dict[str, Any]:
     registry = _gpp_registry_data_to_model(body.registry)
     registry = replace(registry, id=registry_id)
+    _refuse_new_raw_content(
+        registry,
+        _stored_gpp_item(request, guid, body.scope, "registry", registry_id),
+        "registry",
+        value=True,
+    )
     gpo = _store(request).put_gpp_registry(
         guid,
         body.expected_revision,
@@ -3697,6 +3813,7 @@ def add_gpp_member(
 ) -> dict[str, Any]:
     member = _gpp_member_data_to_model(body.member)
     member = replace(member, id="")
+    _refuse_new_raw_content(member, None, "member")
     gpo = _store(request).put_gpp_member(
         guid,
         body.expected_revision,
@@ -3722,6 +3839,12 @@ def edit_gpp_member(
 ) -> dict[str, Any]:
     member = _gpp_member_data_to_model(body.member)
     member = replace(member, id=member_id)
+    stored_group = _stored_gpp_item(request, guid, body.scope, "groups", group_id)
+    _refuse_new_raw_content(
+        member,
+        next((m for m in getattr(stored_group, "members", ()) if m.id == member_id), None),
+        "member",
+    )
     gpo = _store(request).put_gpp_member(
         guid,
         body.expected_revision,
@@ -3771,6 +3894,7 @@ def add_gpp_registry_value(
 ) -> dict[str, Any]:
     value = _gpp_registry_value_data_to_model(body.value)
     value = replace(value, id="")
+    _refuse_new_raw_content(value, None, "value")
     gpo = _store(request).put_gpp_registry_value(
         guid,
         body.expected_revision,
@@ -3796,6 +3920,13 @@ def edit_gpp_registry_value(
 ) -> dict[str, Any]:
     value = _gpp_registry_value_data_to_model(body.value)
     value = replace(value, id=value_id)
+    stored_registry = _stored_gpp_item(request, guid, body.scope, "registry", registry_id)
+    stored_value = getattr(stored_registry, "value", None)
+    _refuse_new_raw_content(
+        value,
+        stored_value if getattr(stored_value, "id", None) == value_id else None,
+        "value",
+    )
     gpo = _store(request).put_gpp_registry_value(
         guid,
         body.expected_revision,
@@ -3960,7 +4091,7 @@ def bundle(request: Request, guid: str) -> Response:
         raise ValidationError(errors)
     fname = f"{_safe_filename(gpo.guid)}-publication.zip"
     headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
-    return Response(export_bundle(gpo), media_type="application/zip", headers=headers)
+    return Response(checked_studio_bundle(gpo), media_type="application/zip", headers=headers)
 
 
 @app.get("/api/gpos/{guid}/plan.ps1")
@@ -3970,7 +4101,7 @@ def plan(request: Request, guid: str) -> Response:
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
     if errors:
         raise ValidationError(errors)
-    return Response(powershell_plan(gpo), media_type="text/plain; charset=utf-8")
+    return Response(checked_plan(gpo), media_type="text/plain; charset=utf-8")
 
 
 @app.get("/api/gpos/{guid}/report.txt")
@@ -4171,7 +4302,7 @@ def gpmc_backup(request: Request, guid: str) -> Response:
         "Content-Disposition": f'attachment; filename="{fname}"',
         "X-GPO-Backup-Id": backup_id,
     }
-    return Response(gpmc_backup_bundle(gpo), media_type="application/zip", headers=headers)
+    return Response(checked_gpmc_backup(gpo), media_type="application/zip", headers=headers)
 
 
 @app.post("/api/estate/import")
@@ -6129,7 +6260,7 @@ def _scripts_export(
     refusal = native_backup_refusal(gpo, scripts=policies)
     if refusal is not None:
         raise ValidationError([refusal])
-    bundle = gpmc_backup_bundle(gpo, scripts=policies)
+    bundle = checked_gpmc_backup(gpo, scripts=policies)
     warnings = [issue for issue in validation if issue.severity == "warning"]
     return gpo, policies, bundle, warnings
 

@@ -330,7 +330,20 @@ def _validate_unknown_children(
 
 
 def _apply_unknown_attrs(elem: ET.Element, unknown: tuple[tuple[str, str], ...]) -> None:
+    """Write retained attributes after the typed ones -- never over one.
+
+    The reserved set is whatever the typed writer has already set on *elem*,
+    so it is derived from the serializer itself rather than kept by hand: a
+    retained ``disabled="0"`` overwrote the typed ``disabled="1"`` the request
+    asked for, because a hand-kept reserved list omitted the common options
+    (Sol final-r11 B1).
+    """
     for name, value in unknown:
+        if name in elem.attrib:
+            raise GppError(
+                f"Retained attribute {name!r} would override the typed attribute "
+                f"{elem.tag.rsplit('}', 1)[-1]}@{name}"
+            )
         elem.set(name, value)
 
 
