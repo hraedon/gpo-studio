@@ -1,6 +1,14 @@
 # Scripts metadata lane (R10)
 
-**Current qualification (2026-10-09):** `scripts-r10-20261009080318-5148`, 20/20, on
+**Current qualification (2026-10-19):** `scripts-r10-20261019155712-3835`, 20/20, on
+clean freeze commit `765b30405f59e12f05c518ae16ddcc8437be5cd3`
+([evidence](wp1b-evidence/release110-final-20261019/scripts-metadata/verification.json),
+[release 1.1.0 final batch](release110-final-batch.md)), tagged
+`evidence/scripts-r10-20261019155712-3835`. It replaces the run below, which stopped
+binding when the 2026-10-17 whole-value validator sweep changed files every
+lane binds; its pack and tag are kept.
+
+**Previous qualification (2026-10-09):** `scripts-r10-20261009080318-5148`, 20/20, on
 clean frozen `99405618105edaa4b408be92047f83b6a24dd217`
 ([evidence](wp1b-evidence/release110-rerun-20261009/scripts-metadata/verification.json),
 [release 1.1.0 successor batch](release110-successors-batch.md)), tagged

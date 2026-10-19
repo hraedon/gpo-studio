@@ -1,6 +1,14 @@
 # Object-security serialization lane
 
-**Current qualification (2026-10-09):** `object-security-20261009001510-7162`, 20/20, on
+**Current qualification (2026-10-19):** `object-security-20261019155637-6032`, 20/20, on
+clean freeze commit `765b30405f59e12f05c518ae16ddcc8437be5cd3`
+([evidence](wp3-evidence/release110-final-20261019/object-security/verification.json),
+[release 1.1.0 final batch](release110-final-batch.md)), tagged
+`evidence/object-security-20261019155637-6032`. It replaces the run below, which stopped
+binding when the 2026-10-17 whole-value validator sweep changed files every
+lane binds; its pack and tag are kept.
+
+**Previous qualification (2026-10-09):** `object-security-20261009001510-7162`, 20/20, on
 clean frozen `de9736ed3a4148b91cf2267fbe4640e260cc232f`
 ([evidence](wp3-evidence/release110-20261009/object-security/verification.json),
 [release 1.1.0 batch](release110-batch.md)), tagged

@@ -1,0 +1,15 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=computer-security-filtering
+built rsop candidate for computer-security-filtering (4 GPOs) in /home/itadmin/gpo-batch-110f/tmp/rsop-candidate-20261019161618
+  predicted winners: AllowOnly=1(Studio-RSOP-CompFilterAllow), Control=present(Studio-RSOP-Control), Filter=allow(Studio-RSOP-CompFilterAllow)
+  predicted denied:  Studio-RSOP-CompFilterDeny(security_filter_denied), Studio-RSOP-CompFilterReadOnly(security_filter_mismatch)
+RUN_ID=rsop-author-20261019161653-8779
+WORK_DIR=C:\gpo-studio\out\rsop-author-20261019161653-8779
+RUN_ID=rsop-observe-20261019161659-3576
+WORK_DIR=C:\gpo-studio\out\rsop-observe-20261019161659-3576
+--- authoring cleanup ---
+{"run_id":"rsop-author-20261019161653-8779","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":null,"user_restored":null,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/home/itadmin/gpo-batch-110f/tmp/rsop-run-20261019161618
+CANDIDATE_DIR=/home/itadmin/gpo-batch-110f/tmp/rsop-candidate-20261019161618
+
+run rsop-observe-20261019161659-3576: state=pass (source 765b30405f59e12f05c518ae16ddcc8437be5cd3, dirty=False)

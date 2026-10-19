@@ -1,0 +1,17 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=computer-security-filtering-group-deny
+built rsop candidate for computer-security-filtering-group-deny (3 GPOs) in /home/itadmin/gpo-batch-110f/tmp/rsop-candidate-20261019163531
+  predicted winners: AllowOnly=1(Studio-RSOP-CompFilterAllow), Control=present(Studio-RSOP-Control), Filter=allow(Studio-RSOP-CompFilterAllow)
+  predicted denied:  Studio-RSOP-CompFilterDenyGroup(security_filter_denied)
+RUN_ID=rsop-author-20261019163607-2525
+WORK_DIR=C:\gpo-studio\out\rsop-author-20261019163607-2525
+--- client reboot: the machine token must carry the group the run just authored ---
+client back after reboot (attempt 1)
+RUN_ID=rsop-observe-20261019163644-2281
+WORK_DIR=C:\gpo-studio\out\rsop-observe-20261019163644-2281
+--- authoring cleanup ---
+{"run_id":"rsop-author-20261019163607-2525","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":null,"user_restored":null,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/home/itadmin/gpo-batch-110f/tmp/rsop-run-20261019163531
+CANDIDATE_DIR=/home/itadmin/gpo-batch-110f/tmp/rsop-candidate-20261019163531
+
+run rsop-observe-20261019163644-2281: state=pass (source 765b30405f59e12f05c518ae16ddcc8437be5cd3, dirty=False)

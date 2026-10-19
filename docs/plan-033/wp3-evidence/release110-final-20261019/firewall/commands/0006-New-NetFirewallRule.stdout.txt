@@ -1,0 +1,29 @@
+﻿
+
+Name                          : StudioFwLane-04
+DisplayName                   : StudioFwLane icmpv6 any
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Allow
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+
+
+

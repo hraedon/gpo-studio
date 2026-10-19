@@ -1,0 +1,234 @@
+{
+  "cases": [
+    {
+      "backup_id": "{AD093115-48AC-5D4E-B5CA-F2A7675FAC29}",
+      "case_dir": "c1",
+      "case_id": "r3-flags-1021",
+      "display_name": "zz-studio-fdeploy-r3-flags-1021",
+      "expected_reader": [
+        {
+          "flags": 1021,
+          "flags_text": "1021",
+          "folder_guid": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+          "full_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+          "principal": "s-1-1-0"
+        }
+      ],
+      "expected_report": [
+        [
+          "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+          "s-1-1-0",
+          "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents"
+        ]
+      ],
+      "fdeploy1": {
+        "bom": "fffe",
+        "cr_count": 9,
+        "crlf_only": true,
+        "lf_count": 9,
+        "sha256": "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800",
+        "size": 458,
+        "utf16le_bom": true
+      },
+      "flags": 1021,
+      "marker": {
+        "bom": "fffe",
+        "cr_count": 2,
+        "crlf_only": true,
+        "lf_count": 2,
+        "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+        "size": 20,
+        "utf16le_bom": true
+      },
+      "probe_20261008_options": {
+        "ApplyToDownLevel": "false",
+        "ConfigurationControl": "GP",
+        "DoNotCare": "false",
+        "FollowParent": "false",
+        "GrantExclusiveRights": "false",
+        "MoveContents": "true",
+        "PolicyRemovalBehavior": "RestoreContents",
+        "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+        "RedirectToLocal": "false"
+      },
+      "source_gpo_id": "{ea1ed0df-ef71-50a3-bcc4-7c05fa457bd5}",
+      "verbatim_r3": true
+    },
+    {
+      "backup_id": "{6BBEDEBE-A82B-5173-B436-FA97B684E005}",
+      "case_dir": "c2",
+      "case_id": "r3-flags-1020",
+      "display_name": "zz-studio-fdeploy-r3-flags-1020",
+      "expected_reader": [
+        {
+          "flags": 1020,
+          "flags_text": "1020",
+          "folder_guid": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+          "full_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+          "principal": "s-1-1-0"
+        }
+      ],
+      "expected_report": [
+        [
+          "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+          "s-1-1-0",
+          "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents"
+        ]
+      ],
+      "fdeploy1": {
+        "bom": "fffe",
+        "cr_count": 9,
+        "crlf_only": true,
+        "lf_count": 9,
+        "sha256": "dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b",
+        "size": 458,
+        "utf16le_bom": true
+      },
+      "flags": 1020,
+      "marker": {
+        "bom": "fffe",
+        "cr_count": 2,
+        "crlf_only": true,
+        "lf_count": 2,
+        "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+        "size": 20,
+        "utf16le_bom": true
+      },
+      "probe_20261008_options": {
+        "ApplyToDownLevel": "false",
+        "ConfigurationControl": "GP",
+        "DoNotCare": "false",
+        "FollowParent": "false",
+        "GrantExclusiveRights": "false",
+        "MoveContents": "false",
+        "PolicyRemovalBehavior": "RestoreContents",
+        "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+        "RedirectToLocal": "false"
+      },
+      "source_gpo_id": "{cf44419e-cb92-58e8-b1e5-e26c7b884784}",
+      "verbatim_r3": false
+    },
+    {
+      "backup_id": "{F8E47D97-5D79-5D54-ACE8-DD2F8A2FDBCF}",
+      "case_dir": "c3",
+      "case_id": "r3-flags-1023",
+      "display_name": "zz-studio-fdeploy-r3-flags-1023",
+      "expected_reader": [
+        {
+          "flags": 1023,
+          "flags_text": "1023",
+          "folder_guid": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+          "full_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+          "principal": "s-1-1-0"
+        }
+      ],
+      "expected_report": [
+        [
+          "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+          "s-1-1-0",
+          "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents"
+        ]
+      ],
+      "fdeploy1": {
+        "bom": "fffe",
+        "cr_count": 9,
+        "crlf_only": true,
+        "lf_count": 9,
+        "sha256": "6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb",
+        "size": 458,
+        "utf16le_bom": true
+      },
+      "flags": 1023,
+      "marker": {
+        "bom": "fffe",
+        "cr_count": 2,
+        "crlf_only": true,
+        "lf_count": 2,
+        "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+        "size": 20,
+        "utf16le_bom": true
+      },
+      "probe_20261008_options": {
+        "ApplyToDownLevel": "false",
+        "ConfigurationControl": "GP",
+        "DoNotCare": "false",
+        "FollowParent": "true",
+        "GrantExclusiveRights": "false",
+        "MoveContents": "true",
+        "PolicyRemovalBehavior": "RestoreContents",
+        "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+        "RedirectToLocal": "false"
+      },
+      "source_gpo_id": "{9bc8afda-a613-566b-92d3-7387823dbe23}",
+      "verbatim_r3": false
+    },
+    {
+      "backup_id": "{1AF21B71-65B2-5F02-B0F3-A69C417770AE}",
+      "case_dir": "c4",
+      "case_id": "r3-flags-3069",
+      "display_name": "zz-studio-fdeploy-r3-flags-3069",
+      "expected_reader": [
+        {
+          "flags": 3069,
+          "flags_text": "3069",
+          "folder_guid": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+          "full_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+          "principal": "s-1-1-0"
+        }
+      ],
+      "expected_report": [
+        [
+          "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+          "s-1-1-0",
+          "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents"
+        ]
+      ],
+      "fdeploy1": {
+        "bom": "fffe",
+        "cr_count": 9,
+        "crlf_only": true,
+        "lf_count": 9,
+        "sha256": "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b",
+        "size": 458,
+        "utf16le_bom": true
+      },
+      "flags": 3069,
+      "marker": {
+        "bom": "fffe",
+        "cr_count": 2,
+        "crlf_only": true,
+        "lf_count": 2,
+        "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+        "size": 20,
+        "utf16le_bom": true
+      },
+      "probe_20261008_options": {
+        "ApplyToDownLevel": "false",
+        "ConfigurationControl": "GP",
+        "DoNotCare": "false",
+        "FollowParent": "false",
+        "GrantExclusiveRights": "false",
+        "MoveContents": "true",
+        "PolicyRemovalBehavior": "RestoreContents",
+        "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+        "RedirectToLocal": "true"
+      },
+      "source_gpo_id": "{a4b082ea-9add-5879-b2d7-c6e5e619c754}",
+      "verbatim_r3": false
+    }
+  ],
+  "domain": "synthetic.test",
+  "excluded_flags": {
+    "0, 509, 893, 957, 989": "report renders no Folder: ExtensionData carries 'FRSettingRead failed with -2147467259'",
+    "1005, 1013, 1017, 5117": "rendered DestinationPath = FullPath in the probe; not run, to keep the lane to the values the ruling named",
+    "765, 2045": "report renders the Folder with an empty DestinationPath while the file carries FullPath"
+  },
+  "flags_note": "Flags is carried verbatim: one capture (R3) shows one value, which attributes no bit to any option. WI-066 owes the capture that would.",
+  "longest_guest_path": 174,
+  "recorded_not_asserted": [
+    "Windows option rendering per Flags value (WI-066 data)",
+    "gPCUserExtensionNames after Import-GPO"
+  ],
+  "schema_version": 1,
+  "user_extension_pair": "[{25537BA6-77A8-11D2-9B6C-0000F8080861}{88E729D6-BDC1-11D1-BD2A-00C04FB9603F}]"
+}

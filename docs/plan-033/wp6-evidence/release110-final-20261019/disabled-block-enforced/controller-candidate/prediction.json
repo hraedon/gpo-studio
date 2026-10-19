@@ -1,0 +1,81 @@
+{
+  "applied_gpos": [
+    "Studio-RSOP-ChildGPO",
+    "Studio-RSOP-Control",
+    "Studio-RSOP-DomainEnforced",
+    "Studio-RSOP-UserSideOff"
+  ],
+  "computer_group_memberships": [],
+  "denied_gpos": [
+    {
+      "gpo": "Studio-RSOP-DomainPlain",
+      "reasons": [
+        "blocked_by_inheritance"
+      ]
+    }
+  ],
+  "expect_finding": "",
+  "loopback_mode": "disabled",
+  "out_of_scope_gpos": [],
+  "query_id": "wp6b-disabled-block-enforced",
+  "scenario_id": "disabled-block-enforced",
+  "scope": "computer",
+  "target": {
+    "computer_name": "LabCL01",
+    "domain": "ad.labdomain.dev",
+    "site_name": "Default-First-Site-Name",
+    "user_name": ""
+  },
+  "unevaluable_gpos": [],
+  "user_group_memberships": [],
+  "warnings": [
+    "GPO 00000000-0000-0000-0000-00000000d791 is linked at the domain root DC=ad,DC=labdomain,DC=dev",
+    "GPO 00000000-0000-0000-0000-00000000d7e2 is enforced at domain DC=ad,DC=labdomain,DC=dev",
+    "GPO 00000000-0000-0000-0000-00000000d7e2 is linked at the domain root DC=ad,DC=labdomain,DC=dev",
+    "block_inheritance on target OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev blocks inherited links from parent scopes."
+  ],
+  "winners": [
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [
+        "00000000-0000-0000-0000-00000000c41e"
+      ],
+      "value": "domainEnforced",
+      "value_name": "Block",
+      "winning_gpo": "Studio-RSOP-DomainEnforced"
+    },
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "present",
+      "value_name": "Control",
+      "winning_gpo": "Studio-RSOP-Control"
+    },
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "1",
+      "value_name": "EnforcedOnly",
+      "winning_gpo": "Studio-RSOP-DomainEnforced"
+    },
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "1",
+      "value_name": "MachineVal",
+      "winning_gpo": "Studio-RSOP-UserSideOff"
+    },
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "computer",
+      "value_name": "Side",
+      "winning_gpo": "Studio-RSOP-ChildGPO"
+    }
+  ]
+}

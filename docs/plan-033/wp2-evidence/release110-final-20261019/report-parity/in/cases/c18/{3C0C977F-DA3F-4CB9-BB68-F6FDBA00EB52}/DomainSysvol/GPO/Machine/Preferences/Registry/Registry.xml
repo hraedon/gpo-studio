@@ -1,0 +1,95 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="CreateString" status="CreateString" image="0" changed="2026-10-08 11:29:53" uid="{13125420-EF26-4BE3-81E7-ED8528D941E1}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Create" name="CreateString" type="REG_SZ" value="alpha" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="CreateExpandString" status="CreateExpandString" image="0" changed="2026-10-08 11:29:53" uid="{3C49B637-8D58-406A-947C-0A56EBBACC37}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Create" name="CreateExpandString" type="REG_EXPAND_SZ" value="%SystemRoot%\x" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="CreateDWord" status="CreateDWord" image="0" changed="2026-10-08 11:29:53" uid="{1477F1E7-6C1C-4EFF-B9AE-BF6E321DB409}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Create" name="CreateDWord" type="REG_DWORD" value="0000002A" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="CreateQWord" status="CreateQWord" image="0" changed="2026-10-08 11:29:53" uid="{124D8E44-042D-4558-9B0E-B84AC122E842}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Create" name="CreateQWord" type="REG_QWORD" value="0000000100000000" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="CreateMultiString" status="CreateMultiString" image="0" changed="2026-10-08 11:29:53" uid="{9583BF01-0F1B-4DAB-BE81-1E73962D89DA}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Create" name="CreateMultiString" type="REG_MULTI_SZ" value="one two">
+      <Values>
+        <Value>one</Value>
+        <Value>two</Value>
+      </Values>
+    </Properties>
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="CreateBinary" status="CreateBinary" image="0" changed="2026-10-08 11:29:53" uid="{80E427F1-A773-4870-B540-236B4913252B}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Create" name="CreateBinary" type="REG_BINARY" value="CAFE0001" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="ReplaceString" status="ReplaceString" image="1" changed="2026-10-08 11:29:54" uid="{63099419-C1CA-4869-AE3C-9DF13D0AD43D}" disabled="0">
+    <Properties action="R" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Replace" name="ReplaceString" type="REG_SZ" value="alpha" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="ReplaceExpandString" status="ReplaceExpandString" image="1" changed="2026-10-08 11:29:54" uid="{7E8F387E-14CA-4B5B-98D7-251FCAEEDB96}" disabled="0">
+    <Properties action="R" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Replace" name="ReplaceExpandString" type="REG_EXPAND_SZ" value="%SystemRoot%\x" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="ReplaceDWord" status="ReplaceDWord" image="1" changed="2026-10-08 11:29:54" uid="{D595FD59-743A-4CD4-A284-F1DCEA5FE959}" disabled="0">
+    <Properties action="R" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Replace" name="ReplaceDWord" type="REG_DWORD" value="0000002A" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="ReplaceQWord" status="ReplaceQWord" image="1" changed="2026-10-08 11:29:54" uid="{7198AA60-8553-4349-9129-AD87CAC42C71}" disabled="0">
+    <Properties action="R" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Replace" name="ReplaceQWord" type="REG_QWORD" value="0000000100000000" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="ReplaceMultiString" status="ReplaceMultiString" image="1" changed="2026-10-08 11:29:54" uid="{72F6D8AD-278F-4E99-BD30-CF8D7B8248DA}" disabled="0">
+    <Properties action="R" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Replace" name="ReplaceMultiString" type="REG_MULTI_SZ" value="one two">
+      <Values>
+        <Value>one</Value>
+        <Value>two</Value>
+      </Values>
+    </Properties>
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="ReplaceBinary" status="ReplaceBinary" image="1" changed="2026-10-08 11:29:54" uid="{42653C5A-D548-4549-BAC7-A81DA219C4E1}" disabled="0">
+    <Properties action="R" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Replace" name="ReplaceBinary" type="REG_BINARY" value="CAFE0001" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="UpdateString" status="UpdateString" image="2" changed="2026-10-08 11:29:54" uid="{34F25F95-AB8C-405E-BA5B-E2654AF4827B}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Update" name="UpdateString" type="REG_SZ" value="alpha" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="UpdateExpandString" status="UpdateExpandString" image="2" changed="2026-10-08 11:29:54" uid="{9EA27C61-4255-49EB-8A47-EF5EE3021B0D}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Update" name="UpdateExpandString" type="REG_EXPAND_SZ" value="%SystemRoot%\x" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="UpdateDWord" status="UpdateDWord" image="2" changed="2026-10-08 11:29:54" uid="{71D66CE5-E108-4D76-8B9F-583757EA23D6}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Update" name="UpdateDWord" type="REG_DWORD" value="0000002A" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="UpdateQWord" status="UpdateQWord" image="2" changed="2026-10-08 11:29:54" uid="{534577B0-28F5-4F06-B9F3-4184DE644471}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Update" name="UpdateQWord" type="REG_QWORD" value="0000000100000000" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="UpdateMultiString" status="UpdateMultiString" image="2" changed="2026-10-08 11:29:54" uid="{3211B5A9-709C-4129-8046-E68DDD65C8F9}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Update" name="UpdateMultiString" type="REG_MULTI_SZ" value="one two">
+      <Values>
+        <Value>one</Value>
+        <Value>two</Value>
+      </Values>
+    </Properties>
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="UpdateBinary" status="UpdateBinary" image="2" changed="2026-10-08 11:29:54" uid="{1C544294-C6C6-42A8-B2DB-166E7908AA33}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Update" name="UpdateBinary" type="REG_BINARY" value="CAFE0001" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="DeleteString" status="DeleteString" image="3" changed="2026-10-08 11:29:55" uid="{796ADBC9-1D8C-4E29-80AA-22B5C1862AC2}" disabled="0">
+    <Properties action="D" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Delete" name="DeleteString" type="REG_SZ" value="alpha" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="DeleteExpandString" status="DeleteExpandString" image="3" changed="2026-10-08 11:29:55" uid="{CE73736F-701E-487C-A371-0BD8B65068E1}" disabled="0">
+    <Properties action="D" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Delete" name="DeleteExpandString" type="REG_EXPAND_SZ" value="%SystemRoot%\x" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="DeleteDWord" status="DeleteDWord" image="3" changed="2026-10-08 11:29:55" uid="{F1FF7005-AC94-40C8-A9C0-BE93216AED87}" disabled="0">
+    <Properties action="D" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Delete" name="DeleteDWord" type="REG_DWORD" value="0000002A" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="DeleteQWord" status="DeleteQWord" image="3" changed="2026-10-08 11:29:55" uid="{E6771998-734F-4270-85B7-6003823252D2}" disabled="0">
+    <Properties action="D" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Delete" name="DeleteQWord" type="REG_QWORD" value="0000000100000000" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="DeleteMultiString" status="DeleteMultiString" image="3" changed="2026-10-08 11:29:55" uid="{4368AE54-3721-4ABF-9537-6649E590318B}" disabled="0">
+    <Properties action="D" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Delete" name="DeleteMultiString" type="REG_MULTI_SZ" value="one two">
+      <Values>
+        <Value>one</Value>
+        <Value>two</Value>
+      </Values>
+    </Properties>
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="DeleteBinary" status="DeleteBinary" image="3" changed="2026-10-08 11:29:55" uid="{DB8896F8-B4C3-404E-AAE7-0B2FE775DAFF}" disabled="0">
+    <Properties action="D" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppMatrix\Delete" name="DeleteBinary" type="REG_BINARY" value="CAFE0001" />
+  </Registry>
+</RegistrySettings>

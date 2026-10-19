@@ -1,6 +1,14 @@
 # fdeploy lane results
 
-**Current qualification (2026-10-09):** `fd-20261009080824-4244`, 29/29, on
+**Current qualification (2026-10-19):** `fd-20261019160401-3653`, 29/29, on
+clean freeze commit `765b30405f59e12f05c518ae16ddcc8437be5cd3`
+([evidence](wp4-evidence/release110-final-20261019/fdeploy/verification.json),
+[release 1.1.0 final batch](release110-final-batch.md)), tagged
+`evidence/fd-20261019160401-3653`. It replaces the run below, which stopped
+binding when the 2026-10-17 whole-value validator sweep changed files every
+lane binds; its pack and tag are kept.
+
+**Previous qualification (2026-10-09):** `fd-20261009080824-4244`, 29/29, on
 clean frozen `99405618105edaa4b408be92047f83b6a24dd217`
 ([evidence](wp4-evidence/release110-rerun-20261009/fdeploy/verification.json),
 [release 1.1.0 successor batch](release110-successors-batch.md)), tagged

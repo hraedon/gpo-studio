@@ -1,0 +1,42 @@
+{
+  "control_gpo": "Studio-RSOP-UserControl",
+  "control_value_name": "Control",
+  "endpoint_user": "labauto1",
+  "expect_finding": "",
+  "group_member": "user",
+  "group_name": "StudioRsopGroup",
+  "loopback_mode": "disabled",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-FilterDenyGroup",
+      "isolates": "WI-049's related gap: a deny that matches THROUGH THE GROUP in the principal's token rather than by name, which is unit-tested in both directions and measured in neither. The group is the same disposable one the nesting row uses, so the observation half's two independent token collections corroborate the membership this prediction rests on. DenyGroupOnly ABSENT and Filter NOT denyGroup => a group-matched deny blocks, as the model says. PRESENT => the model blocks a GPO Windows applies, and every nesting claim in this corpus rests on the same membership resolution."
+    },
+    {
+      "gpo": "Studio-RSOP-FilterDenyApplyComp",
+      "isolates": "WI-049, the off-diagonal APPLY cell: a deny on Apply Group Policy naming the COMPUTER, resolved on the USER side, with the user's own Apply allow intact. The model says APPLIES on reasoning alone -- Apply is evaluated against the principal the policy applies TO -- and the pre-WI-047 union said BLOCKS. DenyApplyCompOnly PRESENT and Filter=denyApplyComp winning => the reasoning holds. ABSENT => the model has been over-promising this cell since WI-047, which is the WI-033 failure direction and the reason this item was opened."
+    },
+    {
+      "gpo": "Studio-RSOP-FilterDeny",
+      "isolates": "An explicit deny on Apply dominates the allow, so Windows will not apply this GPO. WI-033 gave SecurityFilter its polarity and the model now says so too; before that fix the model was told only about the allow, predicted that it applied, and -- at the top link order -- that it WON the conflict. The gap was demonstrated by rsop-user-observe-20260804065525-9254 (expected-finding); the fix was certified as an ordinary agreement by rsop-user-observe-20260804150527-3868."
+    },
+    {
+      "gpo": "Studio-RSOP-FilterAllow",
+      "isolates": "Read + Apply for the principal: applies, and wins the conflict at order 1"
+    },
+    {
+      "gpo": "Studio-RSOP-FilterReadOnly",
+      "isolates": "Read WITHOUT Apply: the principal can see the GPO and must not receive it. ReadOnlyOnly must be ABSENT"
+    },
+    {
+      "gpo": "Studio-RSOP-FilterNested",
+      "isolates": "Apply granted to a GROUP the principal belongs to: applies through the token. NestedOnly must be present"
+    },
+    {
+      "gpo": "Studio-RSOP-UserControl",
+      "isolates": "CONTROL: default Authenticated Users Read+Apply, unconflicted. Absent => the experiment did not run, and every absence above means nothing."
+    }
+  ],
+  "scenario_id": "user-security-filtering-deny",
+  "scope": "user"
+}

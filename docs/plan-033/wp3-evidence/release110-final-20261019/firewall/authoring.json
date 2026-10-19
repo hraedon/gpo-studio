@@ -1,0 +1,199 @@
+{
+  "profiles": [
+    {
+      "DefaultInboundAction": "Block",
+      "DefaultOutboundAction": "Allow",
+      "Enabled": "True",
+      "LogAllowed": "False",
+      "LogBlocked": "True",
+      "LogFileName": "%systemroot%\\system32\\LogFiles\\Firewall\\StudioFwLane-domain.log",
+      "LogMaxSizeKilobytes": 8192,
+      "Name": "Domain"
+    },
+    {
+      "DefaultInboundAction": "Block",
+      "Enabled": "True",
+      "LogAllowed": "True",
+      "Name": "Private",
+      "NotifyOnListen": "False"
+    }
+  ],
+  "rules": [
+    {
+      "Action": "Allow",
+      "Direction": "Inbound",
+      "DisplayName": "StudioFwLane in tcp allow",
+      "Enabled": "True",
+      "LocalPort": "65001",
+      "Name": "StudioFwLane-01",
+      "Profile": [
+        "Domain"
+      ],
+      "Protocol": "TCP"
+    },
+    {
+      "Action": "Block",
+      "Direction": "Outbound",
+      "DisplayName": "StudioFwLane out udp block range",
+      "Enabled": "True",
+      "Name": "StudioFwLane-02",
+      "Profile": [
+        "Domain",
+        "Private"
+      ],
+      "Protocol": "UDP",
+      "RemotePort": [
+        "65002-65003",
+        "65010"
+      ]
+    },
+    {
+      "Action": "Allow",
+      "Direction": "Inbound",
+      "DisplayName": "StudioFwLane icmpv4 echo",
+      "Enabled": "True",
+      "IcmpType": "8:0",
+      "Name": "StudioFwLane-03",
+      "Profile": [
+        "Any"
+      ],
+      "Protocol": "ICMPv4"
+    },
+    {
+      "Action": "Allow",
+      "Direction": "Inbound",
+      "DisplayName": "StudioFwLane icmpv6 any",
+      "Enabled": "True",
+      "Name": "StudioFwLane-04",
+      "Profile": [
+        "Any"
+      ],
+      "Protocol": "ICMPv6"
+    },
+    {
+      "Action": "Block",
+      "Direction": "Inbound",
+      "DisplayName": "StudioFwLane any protocol addresses",
+      "Enabled": "True",
+      "LocalAddress": "198.51.100.7",
+      "Name": "StudioFwLane-05",
+      "Profile": [
+        "Any"
+      ],
+      "RemoteAddress": [
+        "192.0.2.0/24",
+        "2001:db8::/32"
+      ]
+    },
+    {
+      "Action": "Allow",
+      "Direction": "Outbound",
+      "DisplayName": "StudioFwLane program",
+      "Enabled": "True",
+      "Name": "StudioFwLane-06",
+      "Profile": [
+        "Any"
+      ],
+      "Program": "%ProgramFiles%\\StudioFwLane\\probe.exe",
+      "Protocol": "TCP",
+      "RemotePort": [
+        "65011"
+      ]
+    },
+    {
+      "Action": "Allow",
+      "Direction": "Inbound",
+      "DisplayName": "StudioFwLane service",
+      "Enabled": "True",
+      "LocalPort": "65004",
+      "Name": "StudioFwLane-07",
+      "Profile": [
+        "Any"
+      ],
+      "Protocol": "TCP",
+      "Service": "StudioFwLaneSvc"
+    },
+    {
+      "Action": "Allow",
+      "Direction": "Inbound",
+      "DisplayName": "StudioFwLane rpc keyword",
+      "Enabled": "True",
+      "LocalPort": "RPC",
+      "Name": "StudioFwLane-08",
+      "Profile": [
+        "Any"
+      ],
+      "Protocol": "TCP",
+      "RemoteAddress": [
+        "LocalSubnet"
+      ]
+    },
+    {
+      "Action": "Allow",
+      "Direction": "Inbound",
+      "DisplayName": "StudioFwLane rpc epmap",
+      "Enabled": "True",
+      "LocalPort": "RPCEPMap",
+      "Name": "StudioFwLane-09",
+      "Profile": [
+        "Any"
+      ],
+      "Protocol": "TCP"
+    },
+    {
+      "Action": "Allow",
+      "Description": "synthetic probe rule",
+      "Direction": "Inbound",
+      "DisplayName": "StudioFwLane disabled grouped",
+      "Enabled": "False",
+      "Group": "StudioFwLane Group",
+      "LocalPort": "65005",
+      "Name": "StudioFwLane-10",
+      "Profile": [
+        "Any"
+      ],
+      "Protocol": "TCP"
+    },
+    {
+      "Action": "Allow",
+      "Direction": "Inbound",
+      "DisplayName": "StudioFwLane edge and interface",
+      "EdgeTraversalPolicy": "Allow",
+      "Enabled": "True",
+      "InterfaceType": "Wired",
+      "LocalPort": "65006",
+      "Name": "StudioFwLane-11",
+      "Profile": [
+        "Any"
+      ],
+      "Protocol": "UDP"
+    },
+    {
+      "Action": "Block",
+      "Direction": "Outbound",
+      "DisplayName": "StudioFwLane protocol number",
+      "Enabled": "True",
+      "Name": "StudioFwLane-12",
+      "Profile": [
+        "Any"
+      ],
+      "Protocol": "47"
+    },
+    {
+      "Action": "Allow",
+      "Authentication": "Required",
+      "Direction": "Inbound",
+      "DisplayName": "StudioFwLane override block",
+      "Enabled": "True",
+      "LocalPort": "65007",
+      "Name": "StudioFwLane-13",
+      "OverrideBlockRules": true,
+      "Profile": [
+        "Any"
+      ],
+      "Protocol": "TCP",
+      "RemoteMachine": "D:(A;;CC;;;WD)"
+    }
+  ],
+  "schema_version": 1
+}

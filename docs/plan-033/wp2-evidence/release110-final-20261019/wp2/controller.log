@@ -1,0 +1,103 @@
+REAPED_ORPHANS=0 
+What if: Import the GPO backup named "{043ea4bf-4dc1-5374-8557-b85e805b5ce0}" at "C:\gpo-studio\runs\20261019155354-1076108\out\wp2-native-import-20261019155422-5328\input" to the GPO named "WP2-NativeImport-20261019-155423-1799" in the AD.LABDOMAIN.DEV domain. (Import-GPO)
+LOCAL_RUN_DIR=/tmp/opencode/wp2-oracle-run-20261019155354-1076108
+CANDIDATE_DIR=/tmp/opencode/wp2-candidate-20261019155354-1076108
+{
+  "artifacts": {
+    "candidate.zip": "410626b54f0091b79f42ece01a8aa8890f1b2c1b3718aa99f626750b855ac25c",
+    "commands/backup-gpo.stdout.txt": "ea742e6aaa7335b55352e0ffb66fb5dd996a70e0b56efd26364666fe0235337a",
+    "commands/get-gpo.stdout.txt": "6ef256f2bbcafab796a53a90eceac11c063b6c274e759b02f4c6c941ebff6082",
+    "commands/import-actual.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import-actual.stdout.txt": "b056e084309c6e1a6774aa712d1b12667f500dddda3db8f2da2fbf6f70f4e172",
+    "commands/import-whatif.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import-whatif.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "deployed/run-wp2-import.ps1": "aa200b2386de9c9b99a53565f0e076d0fc3c8d520403564721345cd14ffcefce",
+    "expected.json": "1fa355796f76ed31b8179d90fb6ac983f442b1ab666fb01b3e7b4447602448af",
+    "gpreport-after-import.xml": "82a43677332f7927217154446a6ac582fada95262d093360d73e2133809fdde9",
+    "input/manifest.xml": "cacb5ac8fb3fe6f69880b0f21aa97cd5757c0ef7ef6a8f051ea4af4abfbd1b13",
+    "input/{043EA4BF-4DC1-5374-8557-B85E805B5CE0}/Backup.xml": "5f05ac0cc371c09dd4f5be94f1214395f2b83aaa83d76bb0bd7361b4e9b53dce",
+    "input/{043EA4BF-4DC1-5374-8557-B85E805B5CE0}/DomainSysvol/GPO/Machine/registry.pol": "f8dea3be075fc11c60877dd29c1a8ddd58506829aa8baa6c8f4de16a7950ce37",
+    "input/{043EA4BF-4DC1-5374-8557-B85E805B5CE0}/DomainSysvol/GPO/User/registry.pol": "6ab052452b6453f4b2153cc7486d2cd025c8ef802e311a5f4fdccf4644bed23e",
+    "input/{043EA4BF-4DC1-5374-8557-B85E805B5CE0}/bkupInfo.xml": "8a7ba5bba3e5dd92b54a824f62fc44c4133db5644d95372ecc10db0f6694eec1",
+    "rebackup/manifest.xml": "e80a35a51f80a62c5a78c7557f9907db781c1ec1bce7cbe5a0abd1afb9c4791c",
+    "rebackup/{D55B842C-3E9D-41A7-859B-78549976D2B2}/Backup.xml": "1c331c10935093f003a597c9f1c842061e7a7d5770ad029c10d8a2e9da00541f",
+    "rebackup/{D55B842C-3E9D-41A7-859B-78549976D2B2}/DomainSysvol/GPO/Machine/registry.pol": "f8dea3be075fc11c60877dd29c1a8ddd58506829aa8baa6c8f4de16a7950ce37",
+    "rebackup/{D55B842C-3E9D-41A7-859B-78549976D2B2}/DomainSysvol/GPO/User/registry.pol": "6ab052452b6453f4b2153cc7486d2cd025c8ef802e311a5f4fdccf4644bed23e",
+    "rebackup/{D55B842C-3E9D-41A7-859B-78549976D2B2}/bkupInfo.xml": "55ee2616b60070b82e2fc4808988d5679b488e81f755bab6ab408fa292966dee",
+    "rebackup/{D55B842C-3E9D-41A7-859B-78549976D2B2}/gpreport.xml": "4c7734d4511b3b4ae7c7fd7d5c982b94b631f2e28c6d8cf97ebafc9806f934c0",
+    "result.json": "caa583dbcc46b2a396ffb5b2b80f097cfa3095c82b38ac08aad681ddb9811e62"
+  },
+  "candidate_delivery": {
+    "candidate.zip": {
+      "controller_sha256": "410626b54f0091b79f42ece01a8aa8890f1b2c1b3718aa99f626750b855ac25c",
+      "guest_copy_matches": true
+    },
+    "expected.json": {
+      "controller_sha256": "1fa355796f76ed31b8179d90fb6ac983f442b1ab666fb01b3e7b4447602448af",
+      "guest_copy_matches": true
+    }
+  },
+  "checks": {
+    "actual_import_succeeded": true,
+    "backup_id_distinct": true,
+    "backup_id_matches": true,
+    "candidate_delivered_intact": true,
+    "cleanup_state_restored": true,
+    "cleanup_succeeded": true,
+    "computer_versions_synchronized": true,
+    "environment_matches_frozen_spec": true,
+    "group_policy_readback_matches": true,
+    "harness_matches_source": true,
+    "rebackup_has_one_gpo": true,
+    "rebackup_machine_version_matches": true,
+    "rebackup_user_version_matches": true,
+    "source_tree_clean": true,
+    "user_versions_synchronized": true,
+    "whatif_succeeded": true,
+    "whatif_target_absent": true,
+    "windows_rebackup_matches": true
+  },
+  "environment": {
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.33438",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "environment_violations": [],
+  "passed": true,
+  "rebackup_error": null,
+  "run_id": "wp2-native-import-20261019155422-5328",
+  "schema_version": 2,
+  "source": {
+    "banked_copies": [
+      "run-wp2-import.ps1"
+    ],
+    "commit": "765b30405f59e12f05c518ae16ddcc8437be5cd3",
+    "dirty": false,
+    "files": {
+      "build-wp2-candidate.py": "e07136eac9a60b011c6f13d571c2967d938d81dccef74e3ea1ebac7018619db1",
+      "deterministic_zip.py": "334eee3fabceacb0a96189ea9d6734122328b2d2d06ecc3d8b9150874a90094c",
+      "export.py": "3833c4a14d4df105f1714e5d0521c1271a3a535b4e54544a7b238c55b4e5bd20",
+      "finalize_wp2_import_run.py": "8fd4edb52a213f7c96abfdaa99c7d3446327269bac1d91b284fb1ef32beee6f9",
+      "oracle_evidence.py": "337e6443c978b0981fa46e70b7aaa627903922577b4347a6abc8a522441fd3f2",
+      "psdirect.ps1": "d2fb2ffd09869f1214ca916bdc3ea5c31c149b4d98ebcc322d1af7c29410aeb3",
+      "run-wp2-import.ps1": "aa200b2386de9c9b99a53565f0e076d0fc3c8d520403564721345cd14ffcefce",
+      "run-wp2-oracle.sh": "f4391890e43c27d3633727fd76f89f470689a5a816ea059960a9be169ab15359"
+    },
+    "paths": {
+      "build-wp2-candidate.py": "scripts/plan-033/build-wp2-candidate.py",
+      "deterministic_zip.py": "src/gpo_studio/deterministic_zip.py",
+      "export.py": "src/gpo_studio/export.py",
+      "finalize_wp2_import_run.py": "scripts/windows-oracle/finalize_wp2_import_run.py",
+      "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+      "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+      "run-wp2-import.ps1": "scripts/windows-oracle/run-wp2-import.ps1",
+      "run-wp2-oracle.sh": "scripts/windows-oracle/run-wp2-oracle.sh"
+    }
+  },
+  "transport": "psdirect"
+}
+EVIDENCE_TAG=created evidence/wp2-native-import-20261019155422-5328 at 765b30405f59 — push it: git push origin evidence/wp2-native-import-20261019155422-5328

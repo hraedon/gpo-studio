@@ -10,9 +10,165 @@
     "sdist_sha256": "resolved by the tagged release workflow",
     "sbom_sha256": "resolved by the tagged release workflow"
   },
-  "freeze": null,
+  "freeze": {
+    "commit": "765b30405f59e12f05c518ae16ddcc8437be5cd3",
+    "batch_manifest": "docs/plan-033/release110-final-batch.json"
+  },
   "evidence": {
     "requalification": {
+      "note": "docs/plan-033/release110-final-batch.md",
+      "batch_manifest": "docs/plan-033/release110-final-batch.json",
+      "executed_utc": "2026-10-19",
+      "frozen_commit": "765b30405f59e12f05c518ae16ddcc8437be5cd3",
+      "lanes_started": 26,
+      "runs_passed": 26,
+      "not_passed": [],
+      "successors": [],
+      "runs": [
+        {
+          "name": "wp0",
+          "run_id": "live-synthetic-registry-basic-20261019155134-6415",
+          "checks": "pass"
+        },
+        {
+          "name": "wp1b",
+          "run_id": "wp1b-writer-20261019155315-9046",
+          "checks": "pass"
+        },
+        {
+          "name": "wp2",
+          "run_id": "wp2-native-import-20261019155422-5328",
+          "checks": "18/18"
+        },
+        {
+          "name": "wp3-member",
+          "run_id": "wp3-security-template-20261019155513-8477",
+          "checks": "20/20"
+        },
+        {
+          "name": "wp3-dc",
+          "run_id": "wp3-security-template-20261019155452-1648",
+          "checks": "20/20"
+        },
+        {
+          "name": "object-security",
+          "run_id": "object-security-20261019155637-6032",
+          "checks": "20/20"
+        },
+        {
+          "name": "scripts-metadata",
+          "run_id": "scripts-r10-20261019155712-3835",
+          "checks": "20/20"
+        },
+        {
+          "name": "publication",
+          "run_id": "publication-completeness-20261019155758-4530",
+          "checks": "21/21"
+        },
+        {
+          "name": "lifecycle",
+          "run_id": "lifecycle-20261019155839-7141-cbc99747b80b4645",
+          "checks": "73/73"
+        },
+        {
+          "name": "report-parity",
+          "run_id": "report-parity-20261019155932-2646",
+          "checks": "26/26"
+        },
+        {
+          "name": "firewall",
+          "run_id": "firewall-20261019160121-1083478",
+          "checks": "36/36"
+        },
+        {
+          "name": "fdeploy",
+          "run_id": "fd-20261019160401-3653",
+          "checks": "29/29"
+        },
+        {
+          "name": "endpoint",
+          "run_id": "endpoint-observe-20261019160520-5888",
+          "checks": "pass"
+        },
+        {
+          "name": "lsdou-precedence",
+          "run_id": "rsop-observe-20261019160859-9265",
+          "checks": "pass"
+        },
+        {
+          "name": "disabled-block-enforced",
+          "run_id": "rsop-observe-20261019161122-7582",
+          "checks": "pass"
+        },
+        {
+          "name": "wmi-filtering",
+          "run_id": "rsop-observe-20261019161318-7026",
+          "checks": "pass"
+        },
+        {
+          "name": "wmi-filtering-error",
+          "run_id": "rsop-observe-20261019161509-1243",
+          "checks": "pass"
+        },
+        {
+          "name": "computer-security-filtering",
+          "run_id": "rsop-observe-20261019161659-3576",
+          "checks": "pass"
+        },
+        {
+          "name": "computer-security-filtering-deny-read",
+          "run_id": "rsop-observe-20261019161851-1960",
+          "checks": "pass"
+        },
+        {
+          "name": "loopback-merge",
+          "run_id": "rsop-user-observe-20261019162047-3911",
+          "checks": "pass"
+        },
+        {
+          "name": "loopback-replace",
+          "run_id": "rsop-user-observe-20261019162306-2809",
+          "checks": "pass"
+        },
+        {
+          "name": "user-side-disabled",
+          "run_id": "rsop-user-observe-20261019162524-3630",
+          "checks": "pass"
+        },
+        {
+          "name": "user-security-filtering",
+          "run_id": "rsop-user-observe-20261019162824-9670",
+          "checks": "pass"
+        },
+        {
+          "name": "user-security-filtering-deny",
+          "run_id": "rsop-user-observe-20261019163131-5611",
+          "checks": "pass"
+        },
+        {
+          "name": "user-security-filtering-read-deny",
+          "run_id": "rsop-user-observe-20261019163359-6458",
+          "checks": "pass"
+        },
+        {
+          "name": "computer-security-filtering-group-deny",
+          "run_id": "rsop-observe-20261019163644-2281",
+          "checks": "pass"
+        }
+      ],
+      "post_batch_directory_check": {
+        "result": "clean",
+        "captured_utc": "2026-10-19T16:38:09Z",
+        "directory": "docs/plan-033/release110-final-cleanup/directory.json",
+        "collector": "docs/plan-033/release110-final-cleanup/collector.ps1"
+      },
+      "retired": [
+        "every release candidate verdict, pending requalification since the 2026-10-17 whole-value validator sweep: the 19 lane verdicts and WP-0's manifest still cited from the release 1.1.0 batch at de9736ed3a4148b91cf2267fbe4640e260cc232f and the six successor runs at 99405618105edaa4b408be92047f83b6a24dd217"
+      ],
+      "pending_requalification": [],
+      "run_id_stamps": "every run id's stamp falls inside its lane's driver window except wp3-dc's, 39 seconds before that window: the DC guest stamps it with its own clock, which ran at least that far behind the controller's (see the batch note)"
+    },
+    "release_candidate_requalification": {
       "note": "docs/plan-033/release110-batch.md",
       "batch_manifest": "docs/plan-033/release110-batch.json",
       "executed_utc": "2026-10-09",
@@ -233,7 +389,8 @@
           "directory": "docs/plan-033/release110-rerun-cleanup/directory.json",
           "collector": "docs/plan-033/release110-rerun-cleanup/collector.ps1"
         }
-      }
+      },
+      "superseded_by": "docs/plan-033/release110-final-batch.json"
     },
     "workspace_upgrade": {
       "from_release": "1.0.0",
@@ -252,13 +409,13 @@
       "security_template_axe_finding_fixed": "scrollable-region-focusable (serious), in a 360-pixel-wide window: the validation-issue table; it and the rendered GptTmpl.inf block are now focusable, named regions",
       "hands_on_screen_reader": "not run: the owner waived the hands-on NVDA acceptance for 1.1.0 on 2026-10-17; it was not passed, and no screen-reader result is claimed for the interface added since 1.0"
     },
-    "lane_verdicts": "requalified by the release 1.1.0 batch at de9736ed3a4148b91cf2267fbe4640e260cc232f, six of them re-run by its successor batch at 99405618105edaa4b408be92047f83b6a24dd217; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",
+    "lane_verdicts": "requalified by the release 1.1.0 final batch at the freeze commit 765b30405f59e12f05c518ae16ddcc8437be5cd3, every lane at that one commit; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",
     "lanes_first_batched": [
       {
         "lane": "fdeploy (read target)",
-        "run_id": "fd-20261009080824-4244",
+        "run_id": "fd-20261019160401-3653",
         "checks": "29/29",
-        "commit": "99405618105edaa4b408be92047f83b6a24dd217",
+        "commit": "765b30405f59e12f05c518ae16ddcc8437be5cd3",
         "results": "docs/plan-033/fdeploy-results.md",
         "surfaces": [
           "POST /api/folder-redirection/fdeploy",
@@ -279,9 +436,9 @@
       },
       {
         "lane": "firewall",
-        "run_id": "firewall-20261009080610-2829523",
+        "run_id": "firewall-20261019160121-1083478",
         "checks": "36/36",
-        "commit": "99405618105edaa4b408be92047f83b6a24dd217",
+        "commit": "765b30405f59e12f05c518ae16ddcc8437be5cd3",
         "results": "docs/plan-033/firewall-results.md",
         "surfaces": [
           "POST /api/network-security/firewall/render",
@@ -297,9 +454,9 @@
       },
       {
         "lane": "lifecycle (same-domain)",
-        "run_id": "lifecycle-20261009001644-6217-f2f5047fed814807",
+        "run_id": "lifecycle-20261019155839-7141-cbc99747b80b4645",
         "checks": "73/73 (all 30 SCOPE_SURVIVAL cells)",
-        "commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
+        "commit": "765b30405f59e12f05c518ae16ddcc8437be5cd3",
         "results": "docs/plan-033/lifecycle-results.md",
         "surfaces": [
           "POST /api/lifecycle/restore-plan"
@@ -311,9 +468,9 @@
       },
       {
         "lane": "report-parity",
-        "run_id": "report-parity-20261009080432-2383",
+        "run_id": "report-parity-20261019155932-2646",
         "checks": "26/26 (30 corpus cases plus a guest-authored GPO)",
-        "commit": "99405618105edaa4b408be92047f83b6a24dd217",
+        "commit": "765b30405f59e12f05c518ae16ddcc8437be5cd3",
         "results": "docs/plan-033/report-parity-results.md",
         "surfaces": [
           "POST /api/backups/import",

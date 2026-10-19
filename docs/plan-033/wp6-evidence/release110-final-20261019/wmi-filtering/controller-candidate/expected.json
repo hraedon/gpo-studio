@@ -1,0 +1,26 @@
+{
+  "control_gpo": "Studio-RSOP-Control",
+  "control_value_name": "Control",
+  "endpoint_user": "",
+  "expect_finding": "",
+  "group_member": "",
+  "group_name": "",
+  "loopback_mode": "disabled",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-WmiFalse",
+      "isolates": "a WMI filter that evaluates FALSE must keep its GPO off the machine"
+    },
+    {
+      "gpo": "Studio-RSOP-WmiTrue",
+      "isolates": "CONTROL: a WMI filter that evaluates TRUE must let its GPO apply"
+    },
+    {
+      "gpo": "Studio-RSOP-Control",
+      "isolates": "CONTROL: no WMI filter at all. Absent => the experiment did not run."
+    }
+  ],
+  "scenario_id": "wmi-filtering",
+  "scope": "computer"
+}

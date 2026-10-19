@@ -32,9 +32,8 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**5 open.**
+**4 open.**
 
-- [WI-083](#wi-083--live-verdicts-are-fresh-only-for-a-hand-written-subset-of-what-they-execute) - **blocks 1.1.0 final**; for 1.1.0 it closes by construction (owner decision 2026-10-17): every live lane requalified at the freeze commit F, banked in an evidence-only child of F, tagged on a records-only approval, which the release gate checks. WP-0 moved to WI-084.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
@@ -3825,8 +3824,18 @@ these fail except the add.
 ## WI-083 — live verdicts are fresh only for a hand-written subset of what they execute
 
 **Opened:** 2026-10-13 (measuring change cost for [Plan 036](../plans/036-change-cost.md)).
-**Status:** open. **Blocks the 1.1.0 final tag**: accepted as a blocker by the
-owner on 2026-10-13, with Plan 036 ("Your recommendations are fine: no qualms
+**Status:** closed 2026-10-19 for 1.1.0, by construction, as the owner decided
+on 2026-10-17: all 26 live lanes were requalified at the freeze commit `F`,
+`765b30405f59e12f05c518ae16ddcc8437be5cd3`, by the
+[release 1.1.0 final batch](plan-033/release110-final-batch.md) (label
+`release110-final-20261019`, 26 of 26 passed, clean post-batch directory
+check), banked in the evidence-only commit `B` whose parent is `F`. Every
+earlier live verdict is retired, so every live verdict and the WP-0 manifest
+name `F`; the release evidence report records `F` and the batch manifest; and
+`check_release_manifest.py` accepts `v1.1.0` on the records-only approval
+commit `A` that follows `B`. The hand-written binding it describes is
+unchanged and stays WI-084's (WP-0, post-1.1.0). It was accepted as a 1.1.0
+final blocker by the owner on 2026-10-13, with Plan 036 ("Your recommendations are fine: no qualms
 about the plan detailed in 106"). On 2026-10-17 the owner, on the
 coordinator's recommendation, changed how it closes for 1.1.0: by construction
 (every lane requalified at the freeze commit), not by Plan 036's WP-0, which

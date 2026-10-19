@@ -1,6 +1,14 @@
 # Publication completeness — Windows results
 
-**Current qualification (2026-10-09):** `publication-completeness-20261009080352-5754`, 21/21, on
+**Current qualification (2026-10-19):** `publication-completeness-20261019155758-4530`, 21/21, on
+clean freeze commit `765b30405f59e12f05c518ae16ddcc8437be5cd3`
+([evidence](wp1b-evidence/release110-final-20261019/publication/verification.json),
+[release 1.1.0 final batch](release110-final-batch.md)), tagged
+`evidence/publication-completeness-20261019155758-4530`. It replaces the run below, which stopped
+binding when the 2026-10-17 whole-value validator sweep changed files every
+lane binds; its pack and tag are kept.
+
+**Previous qualification (2026-10-09):** `publication-completeness-20261009080352-5754`, 21/21, on
 clean frozen `99405618105edaa4b408be92047f83b6a24dd217`
 ([evidence](wp1b-evidence/release110-rerun-20261009/publication/verification.json),
 [release 1.1.0 successor batch](release110-successors-batch.md)), tagged

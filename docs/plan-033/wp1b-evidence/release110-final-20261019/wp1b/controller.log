@@ -1,0 +1,23 @@
+built 8 WP-1B candidates in /tmp/opencode/wp1b-candidates-20261019155250-1075155
+REAPED_ORPHANS=0 
+What if: Import the GPO backup named "{62917a0f-cd9b-5172-a068-84c0bd54917e}" at "C:\gpo-studio\runs\20261019155250-1075155\out\wp1b-writer-20261019155315-9046\registry-both\input" to the GPO named "WP1B-registry-both-20261019-155315-7151" in the AD.LABDOMAIN.DEV domain. (Import-GPO)
+What if: Import the GPO backup named "{5659232e-17fc-50fc-ac6d-ae4c1bd8842c}" at "C:\gpo-studio\runs\20261019155250-1075155\out\wp1b-writer-20261019155315-9046\drives-user\input" to the GPO named "WP1B-drives-user-20261019-155323-5607" in the AD.LABDOMAIN.DEV domain. (Import-GPO)
+What if: Import the GPO backup named "{a842e8cd-71aa-565a-8076-f9d3f567f36c}" at "C:\gpo-studio\runs\20261019155250-1075155\out\wp1b-writer-20261019155315-9046\groups-machine\input" to the GPO named "WP1B-groups-machine-20261019-155324-8960" in the AD.LABDOMAIN.DEV domain. (Import-GPO)
+What if: Import the GPO backup named "{df49401f-85c1-55bb-a2de-cab0a6e5600d}" at "C:\gpo-studio\runs\20261019155250-1075155\out\wp1b-writer-20261019155315-9046\localusers-machine\input" to the GPO named "WP1B-localusers-machine-20261019-155325-9964" in the AD.LABDOMAIN.DEV domain. (Import-GPO)
+What if: Import the GPO backup named "{fc1a2e50-3c24-5d7c-af9c-126796565f8f}" at "C:\gpo-studio\runs\20261019155250-1075155\out\wp1b-writer-20261019155315-9046\scheduledtasks-machine\input" to the GPO named "WP1B-scheduledtasks-machine-20261019-155326-1503" in the AD.LABDOMAIN.DEV domain. (Import-GPO)
+What if: Import the GPO backup named "{f6f5914c-d377-5c47-a177-838e79089159}" at "C:\gpo-studio\runs\20261019155250-1075155\out\wp1b-writer-20261019155315-9046\services-machine\input" to the GPO named "WP1B-services-machine-20261019-155328-2541" in the AD.LABDOMAIN.DEV domain. (Import-GPO)
+What if: Import the GPO backup named "{2310a8c0-36f7-5eb5-a814-206822dab27a}" at "C:\gpo-studio\runs\20261019155250-1075155\out\wp1b-writer-20261019155315-9046\gppregistry-both\input" to the GPO named "WP1B-gppregistry-both-20261019-155329-7827" in the AD.LABDOMAIN.DEV domain. (Import-GPO)
+What if: Import the GPO backup named "{fb31be82-6337-5926-b9de-5eedea48c8ae}" at "C:\gpo-studio\runs\20261019155250-1075155\out\wp1b-writer-20261019155315-9046\mixed-all\input" to the GPO named "WP1B-mixed-all-20261019-155330-2675" in the AD.LABDOMAIN.DEV domain. (Import-GPO)
+LOCAL_RUN_DIR=/tmp/opencode/wp1b-oracle-run-20261019155250-1075155
+CANDIDATE_DIR=/tmp/opencode/wp1b-candidates-20261019155250-1075155
+PASS         registry-both
+PASS         drives-user
+PASS         groups-machine
+PASS         localusers-machine
+PASS         scheduledtasks-machine
+PASS         services-machine
+PASS         gppregistry-both
+PASS         mixed-all
+
+run wp1b-writer-20261019155315-9046: passed=True (source 765b30405f59e12f05c518ae16ddcc8437be5cd3, dirty=False)
+EVIDENCE_TAG=created evidence/wp1b-writer-20261019155315-9046 at 765b30405f59 — push it: git push origin evidence/wp1b-writer-20261019155315-9046
