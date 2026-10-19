@@ -277,7 +277,7 @@ def _restore_script() -> list[str]:
     """The restore script of docs/workspace-recovery.md, exactly as written."""
     text = (Path(__file__).resolve().parents[1] / "docs" / "workspace-recovery.md").read_text(
         encoding="utf-8"
-    )
+    ).replace("\r\n", "\n")  # a checkout may have converted the line ends
     section = text.split("### Putting a deleted GPO back", 1)[1]
     script = section.split("```sql\n", 1)[1].split("```", 1)[0]
     return [statement.strip() for statement in script.split(";") if statement.strip()]
@@ -659,7 +659,7 @@ def _preshape_delete(store: WorkspaceStore, guid: str, deleted_at: str) -> None:
 def _preshape_restore_script() -> list[str]:
     text = (Path(__file__).resolve().parents[1] / "docs" / "workspace-recovery.md").read_text(
         encoding="utf-8"
-    )
+    ).replace("\r\n", "\n")  # a checkout may have converted the line ends
     section = text.split("### Archive tables set aside", 1)[1]
     script = section.split("```sql\n", 1)[1].split("```", 1)[0]
     return [statement.strip() for statement in script.split(";") if statement.strip()]
@@ -785,6 +785,11 @@ def test_two_spellings_of_the_instance_directory_are_refused(
     from gpo_studio.backup import BackupError, read_backup
 
     client, store, tmp_path = workspace
+    if _case_insensitive(tmp_path):
+        pytest.skip(
+            "this filesystem cannot hold two spellings of one name (Windows, macOS by "
+            "default); `test_two_listed_spellings_are_refused` covers the reader there"
+        )
     guid = _import(client, _inbox(tmp_path, "WI01A-DriveMaps-GPMC")).json()["gpo"]["guid"]
     _unreadable_from_revision_1(store, guid)
     store._connection.execute("UPDATE gpos SET name='Renamed' WHERE guid=?", (guid,))
@@ -813,3 +818,36 @@ def test_two_spellings_of_the_instance_directory_are_refused(
     assert replaced.status_code == 422, replaced.text[:300]
     assert store.get_gpo(guid).revision == 1
     assert len(store.list_gpos()) == 1
+
+
+def _case_insensitive(directory: Path) -> bool:
+    """Whether *directory*'s filesystem folds case -- detected, not assumed
+    from the platform."""
+    probe = directory / "case-probe"
+    probe.write_text("", encoding="utf-8")
+    try:
+        return (directory / "CASE-PROBE").exists()
+    finally:
+        probe.unlink()
+
+
+def test_two_listed_spellings_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reader's rule on any filesystem: a listing with two spellings of
+    the instance ID -- which a case-insensitive one cannot hold, so the
+    listing is given -- is ambiguous, refused."""
+    from gpo_studio import backup
+
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    real = Path.iterdir
+
+    def listing(self: Path) -> Any:
+        if self == backup_dir:
+            return iter([backup_dir / INSTANCE, backup_dir / INSTANCE.lower()])
+        return real(self)
+
+    monkeypatch.setattr(Path, "iterdir", listing)
+    with pytest.raises(backup.BackupError, match="Ambiguous backup instance directory"):
+        backup._instance_directory(backup_dir, INSTANCE)

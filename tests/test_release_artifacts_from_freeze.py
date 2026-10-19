@@ -23,6 +23,8 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
 
@@ -66,8 +68,18 @@ def _tree_copy(target: Path) -> None:
         if not re.match(r"docs/plan-033/[^/]+-evidence/", relative)
     ]
     target.mkdir(parents=True, exist_ok=True)
+    # Windows keeps a path under MAX_PATH (260) unless long paths are enabled,
+    # which neither git nor Python can count on there: git refuses the write
+    # ("Filename too long", exit 1) and Python cannot read it back. The copy is
+    # rooted where every path fits (`_short_root`); say so if one ever does not.
+    longest = max(wanted, key=len)
+    if os.name == "nt" and len(str(target)) + 1 + len(longest) >= 260:
+        pytest.fail(f"{target / longest} would exceed Windows' MAX_PATH; shorten the root")
     subprocess.run(
-        ["git", "checkout-index", "-z", "--stdin", f"--prefix={target.as_posix()}/"],
+        [
+            "git", "-c", "core.longpaths=true", "checkout-index", "-z", "--stdin",
+            f"--prefix={target.as_posix()}/",
+        ],
         cwd=ROOT, input="\0".join(wanted).encode("utf-8"), capture_output=True, check=True,
     )
     missing = [relative for relative in wanted if not (target / relative).exists()]
@@ -119,9 +131,26 @@ def _changed_paths(tree: Path) -> list[str]:
     return records + results
 
 
+def _short_root() -> Path:
+    """A fresh directory directly under the system temp directory.
+
+    pytest's own base (``...\\Temp\\pytest-of-<user>\\pytest-<n>\\artifacts0``)
+    is about 70 characters on a Windows runner, which with the longest tracked
+    fixture path (173) passes MAX_PATH; the system temp directory alone is
+    about 40, which leaves room (test-windows, run 39182659419)."""
+    return Path(tempfile.mkdtemp(prefix="rel-"))
+
+
 @pytest.fixture(scope="module")
-def builds(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, bytes]]:
-    base = tmp_path_factory.mktemp("artifacts")
+def builds() -> Iterator[dict[str, dict[str, bytes]]]:
+    base = _short_root()
+    try:
+        yield _builds(base)
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def _builds(base: Path) -> dict[str, dict[str, bytes]]:
     frozen, banked, readme = base / "frozen", base / "banked", base / "readme"
     _tree_copy(frozen)
     shutil.copytree(frozen, banked)

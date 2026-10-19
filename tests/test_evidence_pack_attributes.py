@@ -25,13 +25,19 @@ NEW_LABEL = "final-20991231"
 
 
 def _attributes(paths: list[str]) -> dict[str, dict[str, str]]:
+    """git's ``text``, ``whitespace`` and ``eol`` for each path.
+
+    The paths go to git on stdin, NUL-separated (``--stdin -z``), not on the
+    command line: over a thousand of them passed Windows' command-line limit
+    (WinError 206, test-windows run 39182659419)."""
     out = subprocess.run(
-        ["git", "check-attr", "text", "whitespace", "eol", "--", *paths],
-        cwd=ROOT, capture_output=True, text=True, check=True,
-    ).stdout
+        ["git", "check-attr", "--stdin", "-z", "text", "whitespace", "eol"],
+        cwd=ROOT, input="\0".join(paths).encode("utf-8"), capture_output=True, check=True,
+    ).stdout.decode("utf-8")
+    fields = out.split("\0")
     found: dict[str, dict[str, str]] = {}
-    for line in out.splitlines():
-        path, attribute, value = line.rsplit(": ", 2)
+    for index in range(0, len(fields) - 2, 3):
+        path, attribute, value = fields[index : index + 3]
         found.setdefault(path, {})[attribute] = value
     return found
 
