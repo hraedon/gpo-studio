@@ -613,7 +613,7 @@ data. Each is pinned by a test:
 
 - Workspace schema version: 4
 - Application version: 1.1.0
-- Package version of this candidate: 1.1.0rc1 (tag `v1.1.0-rc.1`)
+- Package version: 1.1.0 (the candidate was 1.1.0rc1, tag `v1.1.0-rc.1`)
 - Source commit: resolved in the release attachment by the tagged workflow
 - Wheel SHA-256: resolved in the release attachment and `SHA256SUMS`
 - Source distribution SHA-256: resolved in the release attachment and `SHA256SUMS`
@@ -633,13 +633,12 @@ data. Each is pinned by a test:
    two batches' live runs. The
    tagged commit's CI must still show that they bind its source
    (`tests/test_committed_evidence.py`).
-2. **Done for the candidate (2026-10-09).** `__version__` is `1.1.0rc1`, the
-   JSON report and line 5 are marked for a candidate, `CHANGELOG.md` has a
-   dated `1.1.0-rc.1` section, and `SECURITY.md` describes the candidate and
-   the planned `1.1.x` line without making it the supported line. Final
-   approval repeats this for `1.1.0`: the version, a dated `1.1.0` changelog
-   section, and `SECURITY.md`'s supported-versions table and compatibility
-   policy for `1.1.x`.
+2. **Done at the freeze commit (2026-10-19).** `__version__` and the JSON
+   report's `version` are `1.1.0` (the report's `status` stays `candidate` until
+   the approval commit), `CHANGELOG.md` has a dated `1.1.0` section, and
+   `SECURITY.md`'s supported-versions table and compatibility policy are for the
+   `1.1.x` line. For the candidate (2026-10-09) the same item was done for
+   `1.1.0rc1` and `1.1.0-rc.1`, with `1.0.x` still the supported line.
 3. **Waived; not run (owner decision, 2026-10-17).** The owner's hands-on
    NVDA acceptance was planned for after the candidate (decided 2026-10-09).
    On 2026-10-17 the owner waived it for 1.1.0. It is recorded as not run,

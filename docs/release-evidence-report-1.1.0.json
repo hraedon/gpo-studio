@@ -1,7 +1,7 @@
 {
   "report_type": "GPO Studio release evidence report",
   "report_version": 3,
-  "version": "1.1.0rc1",
+  "version": "1.1.0",
   "status": "candidate",
   "manifest": "docs/release-evidence-1.1.0.md",
   "workspace_schema_version": 4,
@@ -219,6 +219,7 @@
         "the six release 1.1.0 verdicts the successor batch replaced (at de9736ed3a4148b91cf2267fbe4640e260cc232f)"
       ],
       "pending_requalification": [],
+      "pending_requalification_note": "empty as of the 2026-10-09 batches recorded here; since 2026-10-17 every release candidate verdict is pending requalification (the current list is docs/plan-033/verdict-registry.json), and the batch at the freeze commit retires them all",
       "successor_batch": {
         "note": "docs/plan-033/release110-successors-batch.md",
         "batch_manifest": "docs/plan-033/release110-successors-batch.json",
@@ -336,14 +337,14 @@
         "not_certified": [
           "six uncaptured preference families (Regional Options, Devices, Folder Options, Data Sources, Network Shares, Applications)",
           "ADMX policy rendering, Scripts, links, security filtering, WMI filters",
-          "property-level equivalence of preference items: the lane compares element, name, uid, action and document order, not other Properties attributes (unmodeled ones such as Drives' thisDrive and allDrives are dropped by the adapters)"
+          "property-level equivalence of preference items: the lane compares element, name, uid, action and document order, not other Properties attributes (unmodeled ones such as Drives' thisDrive and allDrives are not certified by this lane; WI-080 preserves them as imported, pinned by offline tests, not by a Windows lane)"
         ],
         "accepted_defects": []
       }
     ],
     "remaining_before_approval": [
       "owner's hands-on NVDA acceptance: waived for 1.1.0 by the owner on 2026-10-17; not run",
-      "freeze commit F with __version__ 1.1.0 and the preparation release-evidence-1.1.0.md lists (pending)",
+      "freeze commit F with __version__ 1.1.0 and the preparation release-evidence-1.1.0.md lists: done at the freeze commit (2026-10-19)",
       "all 26 live lanes requalified at F in one batch, banked in commit B whose parent is F, evidence and records only, with freeze set in this report (pending)",
       "automated evidence, recorded after A by the tagged release workflow run, not a precondition of approval: the published release-evidence.md and release-evidence-report.json carry the tag, source commit, workflow run URL, id, attempt and ref, and the wheel, sdist and SBOM hashes, and state that release-identity, ci, identifier-gate and verify passed before publish and that verify checked coverage against the floor; the job ids and that run's coverage total are in the workflow run itself, not in the assets",
       "final approval in a records-only commit A after B: version 1.1.0, status approved, manifest line 5; tag v1.1.0 on A, on main (pending)"

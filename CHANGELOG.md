@@ -5,68 +5,517 @@ All notable changes to GPO Studio are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current version: `1.1.0rc1` (release candidate). The latest final release is
-`1.0.0`.
+Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-19
+
+> **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the
+> work done on it since: security fixes (below), a hardening of everything
+> Studio writes and stores, three GPP preservation fixes (WI-080, WI-081,
+> WI-082), and a new release process. This section lists what changed since
+> `1.1.0-rc.1`. Everything else that is new in 1.1.0 since 1.0.0 is recorded,
+> unchanged, in the [1.1.0-rc.1](#110-rc1---2026-10-09) section below, which
+> also carries the upgrade notes from 1.0.0.
+>
+> The release's live evidence (the requalification of every lane at the
+> release's freeze commit, and what 1.1.0 does and does not claim) is in the
+> [1.1.0 evidence manifest](docs/release-evidence-1.1.0.md). The owner's
+> hands-on NVDA acceptance was waived for 1.1.0 and is recorded there as not
+> run.
+>
+> The changes since the candidate were developed and reviewed on PR #107, in
+> review rounds `final-r1` to `final-r24`. In outline: rounds 1 to 5 built the
+> release gate and its preparation and swept whole-value validators; rounds 6
+> to 10 moved identity checking into one place, made every writer check what it
+> writes, and made egress validation the boundary; rounds 11 to 13 redesigned
+> how imported (retained) GPP content is kept and edited; rounds 14 to 19 made
+> stored data read by its type and refused content never break a read; rounds
+> 20 to 24 gave a GPO whose stored values cannot be read a way out and bound a
+> replacing import to its source GPO. The entries below are grouped by theme
+> and state the final behaviour; where a later round replaced an earlier one,
+> only the later behaviour is described.
+
 ### Security
 
-- **A value can no longer change the structure of an artifact Studio writes
-  (final-r8).** Studio's line- and record-oriented writers wrote values as
-  given. A value holding a line break, or another control, format or
-  separator character, therefore became structure: in the `GptTmpl.inf` that
-  `POST /api/security-template/policy-families` renders, a user-right
-  principal or right name became an additional `[Privilege Rights]` entry,
-  granting a right the request did not name; in
-  `POST /api/security-template/object-security`, a service name, registry or
-  file path, or security descriptor became an additional row. Separately,
-  the PowerShell plan (`plan.ps1`, and `apply.ps1` in `export.zip`) escaped
-  only the ASCII `'` inside its single-quoted literals, while PowerShell also
-  reads U+2018 to U+201B as single quotes, so a value holding one could end
-  the literal and the rest of the value would run as code when the plan was
-  run. The AD discovery scripts (`GET /api/discovery/*/script`, which an
-  administrator is told to run on a domain-joined machine) had the same
-  quoting: a typographic quote in the domain, search base, search term or
-  object class closed its `param()` default and ran the rest as code. The
-  render endpoints are new in 1.1.0; the plan and discovery-script quoting is
-  pre-existing. Every writer now checks each name and value as it writes it
-  and refuses what its format cannot carry intact (see Changed); every
-  PowerShell value goes through one quoting function that doubles every
-  PowerShell single-quote character, the plan validator reads them as
-  PowerShell does, and a test runs each generated script under PowerShell
-  with these values and checks that nothing in them runs.
+The release candidate `1.1.0rc1` (published as `v1.1.0-rc.1`) contained the
+defects below, and the second and third classes also affect `1.0.0`. Affected
+releases were checked against the `v1.0.0` and `v1.1.0-rc.1` tags. No
+`1.0.x` patch is planned for them: `1.0.x` is no longer a supported line (see
+`SECURITY.md`), so run `1.1.0` or later.
+
+- **A value could change the structure of an artifact Studio writes.**
+  Studio's line- and record-oriented writers wrote values as given, so a value
+  holding a line break, a NUL or another control, format or separator
+  character became structure. Three classes:
+  - **`GptTmpl.inf` line injection (`1.1.0rc1` only).** In the `GptTmpl.inf`
+    that `POST /api/security-template/policy-families` and
+    `POST /api/security-template/object-security` render, a user-right
+    principal or right name became an additional `[Privilege Rights]` entry,
+    granting a right the request did not name, and a service name, registry or
+    file path, or security descriptor became an additional row. These
+    endpoints and their writer are new in 1.1.0; `1.0.0` has neither.
+  - **PowerShell code execution from typographic quotes (`1.0.0` and
+    `1.1.0rc1` for `plan.ps1` and `apply.ps1`; `1.1.0rc1` only for the AD
+    discovery scripts).** The PowerShell plan (`plan.ps1`, and `apply.ps1` in
+    `export.zip`) escaped only the ASCII `'` inside its single-quoted
+    literals, while PowerShell also reads U+2018 to U+201B as single quotes,
+    so a value holding one could end the literal and the rest of the value
+    would run as code when the plan was run. In `1.0.0` the plan's own
+    validator accepted such a value. The AD discovery scripts
+    (`GET /api/discovery/*/script`, which an administrator is told to run on a
+    domain-joined machine) had the same quoting: a typographic quote in the
+    domain, search base, search term or object class closed its `param()`
+    default and ran the rest as code. The discovery scripts are new in 1.1.0.
+  - **`Registry.pol` record splitting (`1.0.0` only).** `1.0.0`'s validation
+    refused a control character in a registry key but not in a registry value
+    name, and the writer wrote the name as given. Windows reads a name up to
+    its NUL, so such a name could end early and the rest of it be read as
+    further policy records. `1.1.0rc1`'s serializer still lacked its own NUL
+    check, but its validation refused NUL in every text field before a value
+    could be stored or exported, so the released candidate was not affected.
+
+  Fixed: every writer now checks each name and value as it writes it and
+  refuses what its format cannot carry intact (see the behaviour changes
+  below); every PowerShell value goes through one quoting function that
+  doubles every PowerShell single-quote character, the plan validator reads
+  literals as PowerShell does, and a test runs each generated script under
+  PowerShell with these values and checks that nothing in them runs; the
+  `Registry.pol` writer refuses a NUL in a name and the store refuses a
+  control, format or separator character in a registry key or value name.
+  Operators who generated a plan or an `export.zip` with `1.0.0` or
+  `1.1.0rc1`, or a `Registry.pol` with `1.0.0`, from GPOs whose names,
+  descriptions or values came from an untrusted source should regenerate them
+  with 1.1.0 and review them before applying; Studio never runs a plan itself.
+  This section is the disclosure for these issues: no separate advisory is
+  published, and no `1.0.x` patch is planned.
+
+### Behaviour changes
+
+Read these before moving from `1.1.0rc1`. Unless a note says otherwise,
+workspaces load unchanged and nothing is migrated (the schema is still 4).
+
+- **Every identity Studio writes is checked as written.**
+  `src/gpo_studio/identity_values.py` holds one validator per kind: SID,
+  distinguished name (RFC 4514: escapes, a dangling or incomplete `\`, an
+  unescaped leading or trailing space; an unescaped `=` in a value is refused
+  too, stricter than the RFC; a multi-valued RDN such as `CN=a+OU=b,DC=x` is a
+  DN), GUID, trigger time, date-time (a real day, no 31 February; a UTC offset
+  at most 14:00 in total, so `+14:59` is refused), date, and account or group
+  name. Each judges the whole value and refuses control, format, line and
+  paragraph separator characters and every space but the ASCII one (a
+  non-breaking space among them); a trailing newline was previously accepted
+  by many patterns that ended in `$`. The store, the publication preview, GPMC
+  backup import, estate import, AD discovery, lifecycle, migration and object
+  security call these instead of their own patterns, and the whole-value
+  matching also covers the workflow grammar, the restore plan, the estate GUID
+  check, the firewall thumbprint check, lane scope names and the publication
+  remote parser. The release gate's path check refuses every Unicode control
+  and format character (a bidirectional override among them).
+  **What operators see:** a GPP group or member SID, security-filter SID or
+  principal, link DN, user, service account, task `runAs`, task trigger time
+  and times (`StartBoundary`, `EndBoundary`), `UserId` or `GroupId`, and an
+  item-level targeting group, user, OU, computer, domain or date value with
+  such a character is an error, as is an item `uid`, `FilterRunOnce@id` or
+  `clsid` that is not a braced GUID and a power scheme's `nameGuid` or
+  `schemeGuid` that is not a GUID. A malformed group or security-filter SID is
+  an error, not a warning, and a lowercase `s-1-...` in a principal field is a
+  malformed SID (a migration table's lowercase SID is still read as a SID). A
+  preference mutation or GPMC backup import that carries one is refused (422),
+  as is an estate import whose GUID, link or security filter does. The store
+  refuses such a link or filter outright (other draft errors still wait for
+  the ready transition). A scheduled task's trigger time with whitespace or a
+  control character is refused (`unwritable_preferences`) instead of becoming
+  a `StartBoundary` Windows silently rejects, and an empty TaskV2
+  `StartBoundary`, `EndBoundary`, `UserId` or `GroupId` is refused rather than
+  skipped. Identity error messages name the value, so the store's "only new
+  errors" rule no longer lets one stored bad value be swapped for a
+  different one.
+- **Existing GPOs with a newly invalid value.** Nothing is migrated and every
+  workspace loads. A GPO stored before this release that holds a value these
+  rules now refuse (a link, security filter or preference value with a control
+  character, a malformed identity, a GPO name or GPP value with a control
+  character, a registry name holding a control character, a malformed
+  item uid) keeps it, but its `export.zip`, `gpmc-backup` and `plan.ps1`
+  answer 422 naming the field or value, and it cannot move to ready, until it
+  is corrected. Correct it through the API as any edit: `PUT` the link,
+  security filter or preference item with the corrected value, or delete it
+  (`DELETE`). An edit is refused only for an error it adds, so fixing or
+  deleting one bad item of several succeeds while the rest remain, and an
+  unrelated edit is not blocked; a link or filter edit is checked for its own
+  values only. A GPMC backup holding such a value has to be corrected at its
+  source (or in GPMC) before it is imported again. The security-template render
+  endpoints are stateless: only the request changes.
+- **Every writer refuses what its format cannot carry.**
+  `src/gpo_studio/emit_integrity.py` holds one table per output format and each
+  writer checks what it emits against it: the GPP XML writer (typed items,
+  retained native elements and attributes, imported files), the GPMC backup
+  documents, `GptTmpl.inf` (policy families and object security), `scripts.ini`
+  and `psscripts.ini`, the PowerShell plan, `Registry.pol` and the plain-text
+  report. JSON outputs are not listed: JSON escapes every control character.
+  Every value refuses Unicode controls, format characters, line and paragraph
+  separators and lone surrogates, except where the format encodes them
+  explicitly: TAB and LF in an XML value classified as multi-line text (a
+  description, a message body); any character in the plan's `-Comment` and
+  registry data (each control is written as a `[char]` code, and a character
+  above U+FFFF as `[char]::ConvertFromUtf32(...)`, because `[char]` is one
+  UTF-16 unit and an astral format character was previously an invalid cast
+  that stopped the plan with earlier statements applied); any character but
+  NUL in `Registry.pol` names and string data; and the report writes each as a
+  visible `\uXXXX` (`\UXXXXXXXX` above U+FFFF). Firewall rule fields and script
+  command lines refuse every control, format and separator character. A name a
+  table does not classify (a vendor attribute retained from an import) is held
+  to a one-line rule, and a service name, task name and every other free-text
+  value must be one line.
+  **Error codes.** A GPP value a writer refuses is `invalid_preference_value`
+  or `control_character_in_preference_value`; the message names the file, the
+  element and attribute, and the value. New validation errors:
+  `control_character_in_gpo_name`; `unwritable_registry_name` (a registry key
+  or value name holding NUL, which ends a `Registry.pol` name, or another
+  control, format or separator character, which the plan cannot write as one
+  line; a `;` is valid, see Fixed); `unwritable_registry_data` (string data
+  holding NUL); `value_outside_closed_set` (below).
+  **Security-template renders.** The two render endpoints answer 422
+  `unwritable_template_value` for a right name that is not a `Se...` constant,
+  a principal that is neither a starred SID (`*S-1-...`, which must be a SID)
+  nor a name without a comma or double quote, any value that is not one line, a
+  double quote inside a quoted row field, or anything the INF reader would
+  split, strip, continue or read as a comment; their request models refuse the
+  same first, and the object-security request models require the descriptor
+  (and a service's startup mode). Advisory issues (risk, an unparseable
+  descriptor) still do not block a render. `powershell_plan` validates its own
+  input, so no caller gets a plan for a GPO with a validation error, and the
+  plain-text report escapes such characters instead of writing them (a
+  description's own lines stay lines).
+- **AD discovery values are checked.** A discovery value must be of its kind (a
+  domain a name, a search base a DN, an object class a token) or the script
+  route answers 422, and the scripts quote through `emit_integrity.ps_literal`,
+  as the plan does.
+- **Egress is the boundary.** Every API route is declared: the 15 that return
+  or embed an artifact (`export.zip`, `plan.ps1`, `report.txt`, the GPMC
+  backups and their scripts preview, the six discovery scripts, the two
+  security-template renders, the firewall render) with the format their result
+  is validated against before the response leaves (`egress.py`), and the other
+  99 with the reason they return none. Mounted applications are walked
+  (the one mount, `/assets`, is accepted only as Studio's own static-files
+  application over its package directory). PowerShell is tokenized as
+  PowerShell reads it and its structure compared with what the writer produces
+  from neutral input, against a closed grammar with typed holes
+  (`egress.PLAN_GRAMMAR`), so the writer's own `$desiredApply = @()` and
+  `-Value @()` are accepted; `GptTmpl.inf` must parse to exactly the sections
+  the response declares, and `inf_base64` must be its encoding; INI, XML and
+  `Registry.pol` are re-read and held to their tables (`Registry.pol` must
+  re-serialize to the same bytes); a ZIP's entries, not only names, are read
+  (a duplicate member, a missing required member, `manifest.json`, `apply.ps1`
+  and both `Registry.pol` files, or `manifest.xml`, `Backup.xml` and
+  `bkupInfo.xml`, and an empty archive are refused), and each member is
+  validated by its format. A refusal is a 422 `unwritable_artifact_value` (from
+  the GPP writer, `gpp_content_refused`). **Only a writer's named refusal is a
+  422; nothing else is:** the catch is at the writer or builder call
+  (`egress.writer_boundary`) and only for the writers' named refusals
+  (`GppError`, `IltError`, `RegistryPolError`, `DeterministicZipError`,
+  `FdeployError`, `SecurityTemplateError`, `SddlError`,
+  `FirewallValidationError`), each answered with its own reason, sanitized (one
+  printable line, bounded) in the 422 and the log, which records the type and
+  that reason, not a traceback. Store access, validation and response building
+  keep their 500. A capability is its download: the plan, Studio bundle and
+  GPMC backup routes return `egress.checked_plan`, `checked_studio_bundle` and
+  `checked_gpmc_backup`, and the capabilities ask exactly those functions, so an
+  advertised artifact is one that writes, and a writer's refusal never breaks
+  a read (a GPO payload reports it as a disabled capability with its reason).
+  The route-level check also holds archive bytes no checked builder produced to
+  the closed vocabulary. The recorded refusals behind a GPO's capabilities are
+  cached by the GPO's content (on a GPO with 3,000 settings and 300 groups a
+  read took about 2.5 s every time; later reads of the same revision take about
+  0.5 s); the cache is locked and tolerates a GPO it cannot hash.
+- **Retained (imported) GPP content is kept, never supplied.** A GPP item
+  imported from GPMC carries what Studio does not type: attributes, children,
+  raw targeting predicates. Clients can no longer send it. The group, registry,
+  member and value add and edit bodies carry typed fields and ids only
+  (`extra="forbid"`: no `unknown_*`, raw predicate, item `id` or registry
+  `uid`), so a request that carries raw or retained content gets the generic,
+  sanitized request-validation 422 (`extra_forbidden`) and clients keep an
+  imported predicate by sending its id; the store also enforces, as an internal
+  invariant (`raw_content_not_accepted`), that retained content only ever comes
+  from an import. The server merges an edit onto the stored item
+  under the store lock (`gpp_edit`). Every item and every targeting predicate
+  (typed, of a type Studio does not author, or raw) has a stable
+  server-assigned id (`ilt_filter.ids` in responses). In a targeting list an
+  entry `{id}` keeps that predicate as stored, `{id, type, ...}` edits a
+  predicate of an authorable type (a type change drops that predicate's own
+  retained attributes), an entry without an id adds a new typed predicate, a
+  stored id left out is deleted with exactly its own retained content, and the
+  list order is the new order. Raw and non-authorable predicates can be kept,
+  moved or deleted, never edited, so an imported `FilterDate` no longer blocks
+  editing the rest of its item; members work the same way. Responses show
+  retained content read-only, and the mutation responses carry
+  `unknown_props_children` for groups and registry items. A 422 for a field a
+  request may not carry, or for a value of the wrong shape inside a GPP body
+  (raw XML where a member or registry value belongs), does not echo the value.
+  The writer refuses a retained attribute (item, targeting predicate,
+  file-root, member or registry value) that would overwrite one it has already
+  set. Before this, a request could pass `unknown_attrs: [["disabled","0"]]`
+  beside `common.disabled: true` and ship `disabled="0"`, or add a raw
+  `FilterRunOnce` element.
+  **Provenance is recorded at acquisition.** The backup import mints a record
+  (a digest bound to family, item and predicate, member or value id and scope)
+  for each retained fragment (`gpp_provenance`); a fork carries the records
+  with its items, a clone re-keys them onto the copy's fresh ids and gives the
+  copy a fresh run-once id, an item or whole-revision restore copies the records
+  the revision holds and creates none, and every other mutation keeps the
+  records of the fragments it keeps and can add neither a fragment nor a
+  record. No record crosses a scope. Egress allows an element outside the closed
+  vocabulary only where an import record holds it, per file (an element
+  retained in one file does not admit it in another file of the same side);
+  retained content without a record is kept and shown (`retained_unverified`)
+  but held to the vocabulary (which gains the 28 targeting elements of the
+  Plan 021 inventory and the `LocalPrinter`, `PortPrinter` and `ImmediateTask`
+  item tags, each from a source in the repository, so valid Microsoft GPP such
+  as `FilterBattery` exports), and a refusal names only the items that hold
+  the refused element, with the remedy: re-import the GPO from its source
+  backup, or delete them. For a Printers backup the refusal remains
+  `unsupported_native_gpp_extension` (unmeasured extension registration),
+  unchanged.
+  **Existing workspaces** are upgraded conservatively by a one-time migration
+  (`workspace_meta.gpp_provenance`): a fragment is recorded only if the
+  revision that first holds it is revision 1 and that revision was a backup
+  import (`archived`, provenance line `Imported from GPMC backup {GUID}`) or
+  estate import, or a fork whose parent held the fragment recorded at fork
+  time. Revision rows hold actor, free-text reason, timestamp and snapshot and
+  no operation name, so those revision-1 facts are what identify an import.
+  Everything else is unverified. The migration reads revision 1 first and
+  nothing else for a GPO that was not imported or forked, and a snapshot the
+  model cannot load, or loads only with problems, records nothing (the reason
+  is logged and listed in `workspace_meta.gpp_provenance_unrecorded`), so a
+  1.0.0 workspace holding a namespaced retained child in a historical revision
+  still opens. A snapshot that gains no record is left byte-identical;
+  predicate ids for one written before them are derived from its item on load.
+  A legacy raw `FilterRunOnce` predicate (stored by the pre-final-r11 API) is
+  read as the item's apply-once option and run-once id, so a clone of it gets
+  its own identity and exports.
+  **Downgrade note.** A 1.1.0 release candidate (the same schema, 4) can open a
+  workspace this build has opened; it ignores the import records and predicate
+  ids and drops them when it writes. That can only leave imported content
+  unverified (exports then refuse its out-of-vocabulary elements until the GPO
+  is re-imported), never verify anything. To go back, restore the pre-upgrade
+  backup ([workspace recovery](docs/workspace-recovery.md#upgrading-and-rolling-back-across-a-schema-change)).
+- **Stored data is read by its type, and a value that cannot be read blocks
+  the GPO instead of the server.** The typed load (`stored_types`) checks each
+  stored value against its field's annotation (every annotated field of a GPO,
+  its items, preferences and import records) and replaces a value of the wrong
+  type, a missing required field or an unreadable import record by its
+  default, reporting it as `stored_value_wrong_type` (an error), so the GPO is
+  blocked. Previously every loader read booleans by truthiness, so an estate
+  import of `"false"` stored and exported `true` for a GPO's sides, a link's
+  enabled and enforced flags and a security filter's flags, and an array in a
+  closed-set field crashed the membership check (500 on read, after a committed
+  mutation and on import). An estate import or an inline diff reference
+  carrying such a value is refused (422), as is a malformed estate member (a
+  link order of "x", an unknown permission). Because the read replaced the
+  value, Studio will not store a change over it (an edit, a fork, a derived
+  GPO, a copy of its settings or a restore of one of its items would store the
+  default and unblock the GPO) and each is refused (422) until the GPO is
+  re-imported or a revision without the value is restored. Out-of-range stored
+  values read and never refuse the read: a document position of -1 is a
+  replaced value, and a named loader refusal no tolerance covers reads its
+  collection as empty and replaced. Every field the model types as a closed set
+  (42 of them, `closed_sets`) is held to its set: validation reports a value
+  outside it as `value_outside_closed_set`, so imports and mutations refuse it
+  and a stored one blocks the GPO, and reading such a GPO tolerates the value
+  (a string outside its set is kept as stored; the closed-set check compares
+  types too). `GppRegistryValue.registry_type` is closed by validation (the six
+  types; `""` only for a key-only item) and `GppRegistry.hive` by the load (one
+  of the five `HKEY_` names; another is kept and blocks the GPO);
+  `IltPredicate.bool_op` is deliberately open, preserved verbatim from an
+  import. Older stored shapes are rewritten into the current one by the typed
+  load (`stored_types.LEGACY_REWRITES`): a bare array of targeting predicates,
+  the `predicates` and `unknown_predicates` shape, a printer's `use_local`, a
+  service's pre-WI-081 delay, recovery and `append_arguments` keys, and a
+  multi-value registry item (`values`). They read exactly as the loader they
+  replaced read them (an element `uid` and a value `default` are promoted as
+  before, a bare targeting array's predicates are read by their three keys
+  only, and a stored predicate's `negate` and `value` are required); a legacy
+  value of the wrong type is a replaced value like any other (`use_local:
+  "false"` exported `skipLocal="1"`), and a delay is scaled only when it is a
+  number, of any sign. One difference is declared, not matched: an `os`
+  predicate in a bare array keeps its version criterion (the old reading
+  silently broadened it, WI-021).
+- **Refused stored content never breaks a read and is never written.** Stored
+  preference data is read tolerantly everywhere. Retained content a current
+  rule refuses (a namespace, a reserved-name collision, an element record that
+  no longer validates) is kept as stored and reported as a validation error
+  (`stored_preferences_refused`), so the GPO and its history stay readable and
+  every content artifact refuses it with the remedy: delete the item, or
+  re-import from the source backup. A colliding stored document order is
+  dropped with a warning, and malformed predicate ids or provenance records are
+  ignored (ids re-derived, content unverified), never fatal. `plan.ps1`,
+  `export.zip` (with `apply.ps1`), both GPMC backups, the scripts preview and
+  the publication preview refuse such a GPO (422, with the validation errors,
+  before any artifact is built or digested); `report.txt` still renders, as the
+  diagnostic exception (it summarizes and escapes, never embeds retained
+  bytes, so the operator can see what is refused and the remedy, and its
+  capability stays enabled). A GPO's detail read, list, revision list and every
+  GPO-returning mutation call no preference writer, archive builder or
+  publication digester on such a GPO (every capability probe stops at a
+  validation error, and review digests, reports and diffs read marked records
+  raw), and the builders refuse first, not only their callers. Every mutation
+  and creation validates, and builds the payload it answers with, before it
+  commits (`store.register_answer_check`), so a failure cannot follow a durable
+  revision: the revision moves exactly when a mutation answers 2xx.
+  An empty change (`copy-settings` from a source with no settings, an empty bulk
+  policy change) makes the same expected-revision and defaulted-value checks as
+  any other, and no other mutation returns before them. The answer built before
+  a commit is handed back through the request (`store.answer_scope`) rather
+  than a process-global dictionary, and answering a GPO the request committed
+  with anything but the committed object raises. `report.txt` no longer fails
+  (500) on a stored 1.0.0-era raw targeting predicate that does not parse: a
+  tolerant load records it as refused content, and the report's inventory notes
+  any writer refusal instead of raising.
+- **A GPO whose stored values cannot be read has exactly three ways out**, and
+  the message names them (`stored_types.RECOVERIES`): restore a readable
+  earlier revision; replace the GPO's content from a fresh import of its source
+  backup (`POST /api/backups/import` with `replace_guid` and
+  `expected_revision`: a new revision whose content is wholly the import, with
+  freshly minted provenance records); or delete it
+  (`DELETE /api/gpos/{guid}?confirm={guid}`, which deletes only such a GPO and
+  only with its guid repeated as `confirm`). The deletion is not lossy: in its
+  transaction every stored row of the GPO (head, every revision snapshot with
+  the provenance records inside it, the retained documents they reference) is
+  copied byte for byte into additive `deleted_*` archive tables, created on
+  first use (the schema version is unchanged), and
+  [`docs/workspace-recovery.md`](docs/workspace-recovery.md) gives the restore
+  script, which a test runs as written. Each deletion has its own
+  `deletion_id`, carried with `deleted_at` by every archive row, so delete,
+  restore and delete again in one second do not collide; the runbook's restore
+  script inserts a row only where an identical one is not already there (a
+  second run changes nothing, and a different row under a restored key fails the
+  whole restore rather than being overwritten). Archive tables of an earlier
+  shape (the pre-release `5c6ea8a` wrote one without `deletion_id`) are
+  renamed to `<table>_preshape_<n>`, never dropped or changed, and the runbook
+  documents that shape and a restore script for it; a name taken by any schema
+  object (table, view, index, trigger), compared without regard to case, is
+  skipped.
+- **A replacing import must be of the very same source GPO.** A GPO GUID is not
+  unique across estates, so a replacement (`replace_guid`) now needs the source
+  GPO's whole identity: a native import records the GPO GUID, the domain DNS
+  name and the manifest's `GPODomainGuid` in its import record
+  (`BackupInventory`, kept only in the stored revision, never in the GPO the API
+  serves, an artifact, the export manifest or either digest), and a replacement
+  must match all three as revision 1, which is immutable, recorded them
+  (`replace_source_mismatch`). A GPO whose first import recorded no domain
+  identity (before 1.1.0, an estate entry, a Studio-format bundle) is refused
+  outright (`replace_source_unrecorded`), not half-checked, since a domain-only
+  match would still accept a rebuilt same-named domain; such a GPO keeps its
+  other recoveries. A replacement is refused for a readable GPO
+  (`replace_not_a_recovery`), as the delete is, and for a fork: only a GPO whose
+  first revision is the import qualifies (`replace_not_the_import`). Every
+  identity document in the backup (`manifest.xml`, a top-level `bkupInfo.xml`
+  and the `bkupInfo.xml` nested in the backup instance directory) must name the
+  same GPO GUID and, where stated, the same domain DNS name and domain GUID,
+  before an import model is built, for an import and a replacement alike. Every
+  entry whose name case-folds to the backup ID counts as the backup instance
+  directory; more than one is ambiguous, and the backup is refused, as is one
+  that is not a directory or is a symbolic link, and a directory that cannot be
+  listed fails the import with a backup error. A backup without content keeps
+  its domain GUID. The recorded identity is dropped at the serializer from every
+  response body (`model.without_stored_only`, scoped to import records), and a
+  replacement's mismatch message does not name it. The identity fields are left
+  out of a GPO's dict and digests when empty, so every earlier import keeps its
+  bytes and digests. A test holds the public dict, both digests, the Studio
+  bundle and its `manifest.json` of all 19 native captures to the SHA-256 that
+  `5c6ea8a`'s source produces (`tests/fixtures/native_artifacts_5c6ea8a.json`).
+- **The restore plan and the firewall surface cite the lane and the release
+  evidence document instead of a run id.** `POST /api/lifecycle/restore-plan`'s
+  `evidence` object loses `run_id`, `commit` and `verdict` and gains
+  `release_evidence`, the URL of the release evidence document at the running
+  version's tag
+  (`https://github.com/hraedon/gpo-studio/blob/vX.Y.Z/docs/release-evidence-X.Y.Z.md`),
+  which names the lane's certifying run and commit; `lane`, `cells_measured`
+  and `cells_agreeing` are unchanged, as is every survival cell. The firewall
+  endpoints' `policy_store_readback_not_application` limitation names the
+  `firewall-policy-gpmc` lane and that URL instead of a run id; its code is
+  unchanged. Shipped code named runs that the next batch retires, and the
+  final-tag gate forbids editing `src/` after the freeze commit to re-point
+  them. No frontend reads these fields.
+- **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
+  metadata said `>=3.13`, which admits Python 3.15, but some locked dependencies
+  (pydantic-core, and librt and pyyaml in the dev extra) have no 3.15 wheel and
+  installs refuse to build one. `uv.lock` was regenerated for the cap only:
+  every package version is unchanged.
+- **Performance.** Building each answer before its commit makes `create_gpo`
+  about 2.5 times slower at the store level for an empty GPO; a request did the
+  same work after the commit before, and the reviewers measured no material
+  change for a 200-GPO estate import.
+- **`Registry.pol` is read by the format.** Names are read up to their NUL and
+  then the separator is required, one UTF-16 code unit at a time; string data
+  must be NUL-terminated (two NULs for `REG_MULTI_SZ`) when read, which every
+  capture in the repository is. See Fixed for the `;` case this corrects.
+
+### Added
+
+- **Server-side Clone and Restore for GPP items.**
+  `POST .../preferences/{groups,registry}/{id}/clone` copies the stored item
+  under the store lock with fresh ids (a group may take a new name; a registry
+  clone takes none; the imported `uid`, element record and run-once id stay
+  with the original), and `POST .../{id}/restore` with a `revision` puts the
+  item back as that revision stored it. Neither takes item content. The
+  workbench's old Clone dialog mode is gone.
+- **An optional `common` object on group and registry add and edit**, and
+  `common` in group and registry responses (see WI-082 under Fixed).
+- **Workbench editing of retained content by id.** An imported read-only
+  predicate can be moved (up and down) or removed, the edit dialog shows the
+  item's retained content read-only, each predicate's AND or OR join is shown in
+  its row and in the expression preview, and a move that regroups an expression
+  with an OR is warned about. A predicate is edited only when its join is AND (a
+  save kept rewriting another stored `bool` to AND); a raw predicate's join is
+  read from the start tag in either quote style (`bool='OR'` previously showed
+  as AND and moved without a warning), a join it cannot read shows as `?` and is
+  treated as one that can regroup the expression; an operating-system predicate
+  is authored as class, version, type, edition and service pack (the workbench
+  and the API author the same seven types, held equal by a test) and needs at
+  least one criterion set (a stored, partly empty one still saves, without
+  forcing a change; a fully empty one is kept by its id but not re-sent). The
+  publication panel shows a 422's issues. A Playwright journey covers deleting
+  a typed predicate beside a raw one, editing an item holding `FilterDate`,
+  moving a raw OR, clone and restore.
+- **Releases publish `requirements-lock.txt`, and the Windows quickstart
+  installs from it.** The file is the runtime closure of `uv.lock`, pinned by
+  SHA-256, listed in `SHA256SUMS`, attested with the distributions and attached
+  to the release. The quickstart installs it with `pip install --require-hashes`,
+  then the wheel with `--no-deps --no-index`, and adds an optional
+  `gh attestation verify` step. A release without the file keeps the old
+  install.
 
 ### Fixed
 
-Operator-facing:
-
-- **An item-level targeting filter Studio cannot write is refused when it is
-  sent, instead of breaking the GPO.** A raw filter predicate that did not
-  parse (an undeclared prefix, malformed XML) was stored as given and failed
-  only when serialized: the request answered 500 after committing, and every
-  later read or export of that GPO answered 500. The group and registry routes
-  now refuse an unwritable raw predicate with `invalid_ilt_filter` (422). A
-  padded IP range (" 10.0.0.0/8 ") had the same effect, because validation
-  stripped it and the writer did not; the writer now strips it too. And as a
-  backstop, the store writes every changed preference collection before
-  committing it and refuses with `unwritable_preferences` (422) whatever the
-  writer cannot write, so no request can leave a GPO unreadable.
-  Pre-existing; found by the WI-080 reviews.
+- **An item-level targeting filter Studio cannot write can no longer break the
+  GPO.** A raw filter predicate that did not parse (an undeclared prefix,
+  malformed XML) was stored as given and failed only when serialized: the
+  request answered 500 after committing, and every later read or export of that
+  GPO answered 500. The group and registry routes now accept typed predicates
+  and stable ids only, so a raw predicate in a request is refused (the generic
+  request-validation 422, see Behaviour changes). A padded IP range
+  (" 10.0.0.0/8 ") had the same effect, because validation stripped it and the
+  writer did not; the writer now strips it too. And as a backstop, the store
+  writes every changed preference collection before committing it and refuses
+  with `unwritable_preferences` (422) whatever the writer cannot write, so no
+  request can leave a GPO unreadable. Pre-existing; found by the WI-080 reviews.
+  A raw predicate without `bool` joins with AND, as it is read.
 - **A stored GPO's preferences are exported as Windows wrote them, fixed and
-  requalified (WI-080).** Studio kept an imported GPO's
-  preference XML only in memory, so every export of a stored GPO (the GPMC
-  backup, `export.zip`, the publication planner) rebuilt it from the typed
-  model, edited or not. That dropped every `Properties` attribute the model
-  does not type, among them a printer's `default` ("set as the default
-  printer"), an environment variable's `partial`, a scheduled task's
-  `logonType`, a shortcut's `comment`, `shortcutKey`, `targetType` and `pidl`,
-  a drive's `thisDrive`, `allDrives` and `userName`, and a folder's `delete*`
-  options. It also minted a new `FilterRunOnce` id, so a migration through
-  Studio re-applied every apply-once item on every client; turned `window=""`
-  into `Normal`; dropped a filter group's name beside its SID; added
-  default-valued attributes the source never had; and reordered attributes.
-  Measured on the committed native captures: 18 of 19 changed.
+  requalified (WI-080).** Studio kept an imported GPO's preference XML only in
+  memory, so every export of a stored GPO (the GPMC backup, `export.zip`, the
+  publication planner) rebuilt it from the typed model, edited or not. That
+  dropped every `Properties` attribute the model does not type, among them a
+  printer's `default` ("set as the default printer"), an environment variable's
+  `partial`, a scheduled task's `logonType`, a shortcut's `comment`,
+  `shortcutKey`, `targetType` and `pidl`, a drive's `thisDrive`, `allDrives` and
+  `userName`, and a folder's `delete*` options. It also minted a new
+  `FilterRunOnce` id, so a migration through Studio re-applied every apply-once
+  item on every client; turned `window=""` into `Normal`; dropped a filter
+  group's name beside its SID; added default-valued attributes the source never
+  had; and reordered attributes. Measured on the committed native captures: 18
+  of 19 changed.
 
   Import now keeps each preference item's element as Windows wrote it
   (`native_xml`, all 20 families) and the imported run-once id
@@ -77,1075 +526,359 @@ Operator-facing:
   wherever the merge would not mean what the model means. Every element written
   for an edited item is also held to the model's intended values: a typed value
   the edit changed that would read back as the imported one is refused, never
-  exported, and that is checked per scalar: an edit must read back as itself.
-  A task's edited command is now written into its `<Task>` payload (a TaskV2's
+  exported, and that is checked per scalar: an edit must read back as itself. A
+  task's edited command is now written into its `<Task>` payload (a TaskV2's
   `arguments` edit was lost even before this fix), whether or not the task was
-  imported: without an import record the payload is the record, a set field
-  that differs from it is an edit, and an empty one is unset only when no
-  command field is set (a task built from a payload alone); next to a set
-  field it could be a deliberate clear, and the export is refused rather than
-  keeping the old value. A payload edit and
-  a command edit that disagree are refused, as is a typed field with no wire
-  form, such as a printer's generic `action` or a folder's `suppress`. A registry item's action as the workbench shows and
-  edits it, which was never written, is now read from the value's action on
-  import and applied to it by an API edit. The run-once id survives turning
-  apply-once off and on again. A cpassword is refused as an element as well as an attribute, at any
-  depth, in any case, namespace or encoding (UTF-16 in either byte order, with
-  or without a byte order mark), on import, at the API, on load and on every
-  export (before, the element form passed every check and reached
-  `export.zip`, and a UTF-16 file evaded the check entirely). The API neither serves nor accepts a retained element, in any JSON
-  body (revision snapshots and diffs included) or inline diff reference; a
-  stored one is validated on load (no `cpassword`, no XML namespace) and an
-  item in a namespace is not retained. No retained store -- unknown
-  attributes, unknown children, raw filter predicates -- may hold a namespaced
-  name, and every retained attribute name must be a plain NCName (no literal
-  `xmlns:x` or `x:extra` key): import, load and the API refuse one. The
-  credential check reads the local part after any prefix, so `x:cpassword` is
-  refused at intake. The review diff compares what a
-  retained element makes the export write, not the element itself, so a
-  re-import of Studio's own export is not a change. Workspaces need no
-  migration: a GPO stored before this fix keeps its digests and backup id, and
-  its export is byte for byte what 1.1.0rc1 wrote except where WI-081 below
-  corrected an attribute name or order (Files, Folders, Printers, Shortcuts,
-  immediate tasks), measured against the records that commit stored
-  (`tests/fixtures/gpp-store-baseline-bd84b3a`). Review digests change only
-  for a GPO imported from GPMC after the fix, because its export does
-  (re-importing Studio's own backup leaves them unchanged). The
-  report-parity inventory now reads the typed model alone (`gpp.model_only`),
-  as it always meant to.
-  Covered by `tests/test_gpp_native_preservation.py`, which compares every
-  native capture with Studio's output through import, storage and the public
-  `export.zip` and `gpmc-backup` routes, attribute by attribute and in order,
-  and fails on the code before the fix. The fix changes `gpp.py`,
-  `gpp_adapters.py`, `canonical.py` and `report_parity.py`, so the fdeploy,
-  firewall, publication, report-parity, scripts-metadata and WP-1B lanes must
-  re-run; every lane candidate builds byte for byte as before.
+  imported: without an import record the payload is the record, a set field that
+  differs from it is an edit, and an empty one is unset only when no command
+  field is set (a task built from a payload alone); next to a set field it could
+  be a deliberate clear, and the export is refused rather than keeping the old
+  value. A payload edit and a command edit that disagree are refused, as is a
+  typed field with no wire form, such as a printer's generic `action` or a
+  folder's `suppress`. A registry item's action as the workbench shows and edits
+  it, which was never written, is now read from the value's action on import and
+  applied to it by an API edit. The run-once id survives turning apply-once off
+  and on again. A cpassword is refused as an element as well as an attribute, at
+  any depth, in any case, namespace or encoding (UTF-16 in either byte order,
+  with or without a byte order mark), on import, at the API, on load and on every
+  export (before, the element form passed every check and reached `export.zip`,
+  and a UTF-16 file evaded the check entirely). The API neither serves nor
+  accepts a retained element, in any JSON body (revision snapshots and diffs
+  included) or inline diff reference; an item in a namespace is not retained on import. No new
+  retained store (unknown attributes, unknown children, raw filter predicates)
+  may hold a namespaced name, and every retained attribute name must be a plain
+  NCName (no literal `xmlns:x` or `x:extra` key): a new import and the API
+  refuse one. Content stored before this fix stays readable instead: it is
+  loaded as stored, reported as the validation error
+  `stored_preferences_refused`, and blocked from every content artifact until it
+  is repaired (see Behaviour changes). The credential check reads the local part after any prefix, so
+  `x:cpassword` is refused at intake. The review diff compares what a retained
+  element makes the export write, not the element itself, so a re-import of
+  Studio's own export is not a change. Workspaces need no migration: a GPO
+  stored before this fix keeps its digests and backup id, and its export is byte
+  for byte what `1.1.0rc1` wrote except where WI-081 below corrected an attribute
+  name or order (Files, Folders, Printers, Shortcuts, immediate tasks), measured
+  against the records that commit stored
+  (`tests/fixtures/gpp-store-baseline-bd84b3a`). Review digests change only for a
+  GPO imported from GPMC after the fix, because its export does (re-importing
+  Studio's own backup leaves them unchanged). The report-parity inventory now
+  reads the typed model alone (`gpp.model_only`), as it always meant to. Covered
+  by `tests/test_gpp_native_preservation.py`, which compares every native capture
+  with Studio's output through import, storage and the public `export.zip` and
+  `gpmc-backup` routes, attribute by attribute and in order, and fails on the
+  code before the fix. The fix changes `gpp.py`, `gpp_adapters.py`,
+  `canonical.py` and `report_parity.py`.
 - **A GPMC default printer reads as the default, and the GPP writer types only
-  attribute names Windows writes, fixed and requalified
-  (WI-081).** Printers' typed `set_default` and `use_local` were read and
-  written as `setDefault` and `useLocal`, which no capture contains; GPMC
-  writes `default` and `skipLocal`. So the model, the API, reports and diffs
-  showed a GPMC default printer as not the default, and an authored or edited
-  printer wrote attributes Windows has not been seen to read. They now read and
-  write GPMC's names, in GPMC's order, and the field is `skip_local`; Studio's
-  older output and stored items are still read under the old names, and
-  digests do not move. An audit of every writer against the native captures
-  found three more names none contains, now no longer written: Folders
-  `suppress`, Shortcuts `Properties@name` (a shortcut is named on its item, as
-  GPMC names it; the typed name is written there whenever set, so a rename
-  persists) and an immediate task's `program`, `arguments` and `startIn` where
-  its `<Task>` payload already holds them. `tests/test_gpp_typed_attribute_names.py`
-  pins the audit: every `Properties` attribute the writer types appears in a
-  capture. Families with no capture are not claimed. Every lane candidate
-  builds byte for byte as before.
+  attribute names Windows writes, fixed and requalified (WI-081).** Printers'
+  typed `set_default` and `use_local` were read and written as `setDefault` and
+  `useLocal`, which no capture contains; GPMC writes `default` and `skipLocal`.
+  So the model, the API, reports and diffs showed a GPMC default printer as not
+  the default, and an authored or edited printer wrote attributes Windows has not
+  been seen to read. They now read and write GPMC's names, in GPMC's order, and
+  the field is `skip_local`; Studio's older output and stored items are still
+  read under the old names, and digests do not move. An audit of every writer
+  against the native captures found three more names none contains, now no longer
+  written: Folders `suppress`, Shortcuts `Properties@name` (a shortcut is named
+  on its item, as GPMC names it; the typed name is written there whenever set, so
+  a rename persists) and an immediate task's `program`, `arguments` and `startIn`
+  where its `<Task>` payload already holds them.
+  `tests/test_gpp_typed_attribute_names.py` pins the audit: every `Properties`
+  attribute the writer types appears in a capture. Families with no capture are
+  not claimed.
 - **A workbench edit keeps a preference item's common options, fixed and
-  requalified (WI-082).** The group and registry edit payloads
-  carried no common options and the store replaced the item, so every edit
-  reset apply-once (dropping its run-once filter), disabled,
-  remove-when-not-applied, run-in-user-context and stop-on-error. An add or
-  edit now takes an optional `common` object; options it leaves out are carried
-  over from the item it replaces (defaults for a new item), as is the run-once
-  id, which the API cannot set. Group and registry responses now show
-  `common`. Covered through the real API for every option on both families
-  (`tests/test_gpp_common_option_edits.py`), and by saving every group and
-  registry item of every native capture back through the API, after which the
-  export must still equal the capture.
+  requalified (WI-082).** The group and registry edit payloads carried no common
+  options and the store replaced the item, so every edit reset apply-once
+  (dropping its run-once filter), disabled, remove-when-not-applied,
+  run-in-user-context and stop-on-error. An add or edit now takes an optional
+  `common` object; options it leaves out are carried over from the item it
+  replaces (defaults for a new item), as is the run-once id, which the API cannot
+  set. Group and registry responses now show `common`. Covered through the real
+  API for every option on both families (`tests/test_gpp_common_option_edits.py`),
+  and by saving every group and registry item of every native capture back
+  through the API, after which the export must still equal the capture.
+- **A `;` in a registry key or value name is valid.** MS-GPREG 2.2.1 terminates
+  each name with NUL and puts the separator after it, so a `;` inside a name is
+  data. The `Registry.pol` reader used to search for the first `;` byte pair,
+  which split such a name and could split a character whose bytes contain
+  `3B 00`; it now reads each name up to its NUL. The store still refuses a
+  control, format or separator character in a name, since the plan writes names
+  as single-line literals.
+- **Registry data with CRLF is accepted end to end.** The plan writes any
+  character of registry data or a description, each control as a `[char]` term,
+  so data the store accepts (a legal notice with line breaks) is no longer
+  refused by `plan.ps1` and `export.zip` after being advertised.
+- **Lone surrogates.** `Registry.pol` refuses one with a clean error instead of
+  a `UnicodeEncodeError`, and the report of a legacy GPO holding one renders,
+  saying why it has no digest, instead of failing.
+- **`GptTmpl.inf` writing and reading.** The check runs before the lossless path
+  that returns a parsed template's original text; that path returns the original
+  only when every physical line passes the one-line rule and none lies outside a
+  section (a continuation line is never returned unchanged), and otherwise the
+  template is rebuilt and checked; a preserved line may not read back as a
+  section header, an entry, a malformed row or a continuation, and what is
+  written must read back as the same sections and entries. A fixed section's key
+  is checked by shape against a closed Windows vocabulary or pattern
+  (`INF_KEYS`), derived from the writers by the completeness test, so a valid
+  Windows key (`EnableAdminAccount`, `NewGuestName`, `LSAAnonymousNameLookup`)
+  is written, never refused. A row is `"key",code,"descriptor"` with a
+  descriptor (secedit requires the three fields), a spaced row is a row, and a
+  `[Registry Keys]` or `[File Security]` row whose quoted key holds `=` is read
+  and written as a row. The family writers check each principal and group member
+  before joining the list; a service row needs a startup mode or a descriptor,
+  and a security option a value. A request-model refusal carries the documented
+  code `unwritable_template_value`.
+- **A GPO payload is built for a hostile stored GPO without 500s.** Fixes
+  found by type and closed-set fuzzing: no route answers 500 on a closed-set
+  string outside its set (an estate import stored `registry_type="REG_FOO"` and
+  the GPO's detail, plan and both bundles then answered 500); `GPO.to_dict` is
+  plain `asdict` for a GPO without load problems, so the Studio bundle's manifest
+  is the bytes it was (a GPO with them writes `load_problems: []`, and the
+  export manifest does not carry a tolerant load's derived problems);
+  `load_problems` is neither stored nor served; the digests catch only
+  `UnicodeError` (a writer's named refusal is read as the raw record inside
+  `retained_rendering`, a defect is a 500).
+- **Reading an upgraded or imported workspace.** The 1.0.0 upgrade invariant pins
+  `ilt_filter.ids` as bookkeeping, and a 1.0.0 snapshot with targeting keeps its
+  derived ids stable and stays byte-identical.
+- **`anyio` and `cryptography` are updated in `uv.lock`** (anyio 4.14.1 to
+  4.15.1, cryptography 49.0.0 to 50.0.2): `pip-audit --strict` against the
+  locked runtime set reported known vulnerabilities in both pinned versions (run
+  2026-10-09). The previous CI audit installed the wheel from its version ranges,
+  which pip resolves to the newest matching release, so it audited different
+  versions than the lock pins.
 
-### Changed
+### Release process
 
-- **Release process: 1.1.0 final is tagged on a records-only descendant of its
-  freeze commit, and the release gate checks it** (owner decision, 2026-10-17;
-  Plan 036, the D-9 addendum). Every live lane is requalified at one freeze
-  commit F (the full batch), banked in a commit whose parent is F that changes
-  only evidence and records, approved in a records-only commit after it, and
-  `v1.1.0` goes on that approval commit. This closes WI-083 for 1.1.0 by
-  construction instead of through Plan 036's WP-0, which moves to post-1.1.0
-  work under WI-084. The release evidence report gains `freeze` (the commit F
-  and its batch manifest; report schema 3), which an approved report must
-  carry. For a final tag only, `scripts/check_release_manifest.py` now
-  refuses unless the history from F is linear and is the banking commit, any
-  records-only commits and the approval commit (the tagged one, changing only
-  the approval); the tagged tree differs from F only in the batch's banked
-  files and a closed list of release records (so `src/`, `scripts/`,
-  `pyproject.toml`, `uv.lock`, `.github/`, `.gitattributes`, `README.md`,
-  `CHANGELOG.md` and every test are byte-identical to F); the verdict registry
-  only adds the batch's verdicts with their lanes' finalizers at F; and every
-  live verdict and the WP-0 manifest is the batch's run, recorded at F, with
-  its `evidence/` tag at F, covering every lane live at F. It proves the tree
-  is F plus consistent evidence recorded at F, not that the estate produced
+- **1.1.0 final is tagged on a records-only descendant of its freeze commit,
+  and the release gate checks it** (owner decision, 2026-10-17; Plan 036, the
+  D-9 addendum). Every live lane is requalified at one freeze commit F (the full
+  batch), banked in a commit whose parent is F that changes only evidence and
+  records, approved in a records-only commit after it, and `v1.1.0` goes on that
+  approval commit. This closes WI-083 for 1.1.0 by construction instead of
+  through Plan 036's WP-0, which moves to post-1.1.0 work under WI-084. The
+  release evidence report gains `freeze` (the commit F and its batch manifest;
+  report schema 3), which an approved report must carry. For a final tag only,
+  `scripts/check_release_manifest.py` refuses unless the history from F is
+  linear and is the banking commit, any records-only commits and the approval
+  commit (the tagged one, changing only the approval); the tagged tree differs
+  from F only in the batch's banked files and a closed list of release records
+  (so `src/`, `scripts/`, `pyproject.toml`, `uv.lock`, `.github/`,
+  `.gitattributes`, `README.md`, `CHANGELOG.md` and every test are byte-identical
+  to F); the verdict registry only adds the batch's verdicts with their lanes'
+  finalizers at F, and refuses a registry whose retired and pending lists overlap
+  or name an unregistered verdict; and every live verdict and the WP-0 manifest
+  is the batch's run, recorded at F, with its `evidence/` tag at F, covering
+  every lane live at F. A verdict pending requalification at F is accepted only
+  if that batch retires it (every release candidate verdict is pending, because
+  the identity-validation changes edited files every lane binds). It proves the
+  tree is F plus consistent evidence recorded at F, not that the estate produced
   the evidence, which rests on the controller transcripts and the banking
-  review. It needs full history, so the release
-  `publish` job now checks out with `fetch-depth: 0` as `release-identity`
-  already did; a shallow clone is refused. Release candidate tags are checked
-  as before. `tests/test_release_freeze_gate.py` holds each refusal against
-  temporary git repositories. The owner's hands-on NVDA acceptance is waived
-  for 1.1.0 and recorded as not run. `release-evidence-1.1.0.md` now gives one
-  approval sequence, which agrees with Plan 036.
-- **The restore plan and the firewall surface cite the lane and the release
-  evidence document instead of a run id.** `POST /api/lifecycle/restore-plan`'s
-  `evidence` object loses `run_id`, `commit` and `verdict` and gains
-  `release_evidence`, the URL of the release evidence document at the running
-  version's tag (`https://github.com/hraedon/gpo-studio/blob/vX.Y.Z/docs/release-evidence-X.Y.Z.md`),
-  which names the lane's certifying run and commit; `lane`,
-  `cells_measured` and `cells_agreeing` are unchanged, as is every survival
-  cell. The firewall endpoints' `policy_store_readback_not_application`
-  limitation names the `firewall-policy-gpmc` lane and that URL instead of a
-  run id; its code is unchanged. Shipped code named runs that the next
-  batch retires, and the final-tag gate forbids editing `src/` after the freeze
-  commit to re-point them. No frontend reads these fields.
-- Preparing the freeze commit: banked batches keep their bytes by a
+  review. It needs full history, so the release `publish` job checks out with
+  `fetch-depth: 0` as `release-identity` already did; a shallow clone is
+  refused. Release candidate tags are checked as before; an approved release
+  that still lists an item as pending is refused; the approval commit must keep
+  both remaining-item lists (non-empty, no item still marked pending) rather
+  than delete them, and the gate checks that, not that each item is truly
+  closed; an empty commit between the freeze commit and the tag is refused;
+  malformed JSON that Python itself cannot decode (an integer past the digit
+  limit, nesting past the recursion limit) is a clean gate refusal; and its
+  remote-tag check accepts the annotated tag object as well as the commit,
+  for whichever `GITHUB_SHA` carries. `tests/test_release_freeze_gate.py` holds
+  each refusal against temporary git repositories. The owner's hands-on NVDA
+  acceptance is waived for 1.1.0 and recorded as not run.
+  `release-evidence-1.1.0.md` gives one approval sequence, which agrees with
+  Plan 036.
+- **What the gate refuses in a banked pack.** A pack may not add importable
+  source or extension modules (`.py`, `.pyc`, `.pyo`, `.pyd`, `.pyw`, `.so`) or
+  `.pth` path hooks. Archives are allowed, and real packs bank the builder's
+  `candidate.zip` and `fdeploy-cases.zip`: an archive is importable only from a
+  directory on `sys.path`, none of the pack directories is on it, and every test
+  is byte-identical to F.
+- **Preparing the freeze commit.** Banked batches keep their bytes by a
   `.gitattributes` pattern instead of a rule per batch label (no tracked file's
-  attributes change); the evidence tests read "the current batch" from the
+  attributes change). The evidence tests read "the current batch" from the
   release evidence report's `freeze` (`tests/current_qualification.py`), so
-  banking a new batch needs no test edit, and new tests check a freeze batch
-  once one exists; a verdict that still matches the tree may be retired only
-  when its lane's freeze-batch run replaced it; the capability matrix header no
-  longer names `1.1.0` in prose (its test now ignores link destinations); and
-  `bank-requal-batch.py manifest` refuses to run without `--cleanup` (the
-  post-batch directory check the gate requires) unless told
-  `--without-cleanup`.
-- After the first review of that preparation (final-r1): the verdict tables
-  moved out of `tests/test_committed_evidence.py` into
-  `docs/plan-033/verdict-registry.json` (canonical ASCII JSON), so banking
-  edits data, never a Python file, and the module refuses to run a finalizer
-  that is not a bare `finalize_*.py` in `scripts/windows-oracle/`; the sdist
-  no longer carries the release records or any banked evidence (about 6,000
-  files), so the distributions built at a final tag are the ones built at its
-  freeze commit (`tests/test_release_artifacts_from_freeze.py`); `README.md`
-  names no run, and `retarget` no longer rewrites it (README is the wheel's
-  long description); the release gate refuses an approved release that still
-  lists an item as pending; and its remote-tag check accepts the annotated tag
-  object as well as the commit, for whichever `GITHUB_SHA` carries.
-- After the second review (final-r2): the sdist no longer ships `tests/` either
-  (it shipped tests without a fixture they read; nothing runs the sdist's
-  tests); malformed JSON that Python itself cannot decode (an integer past the
-  digit limit, nesting past the recursion limit) is a clean gate refusal, not a
-  traceback; the approval commit must keep both remaining-item lists
-  (non-empty, no item still marked pending) rather than delete them; the gate
-  checks that, not that each item is truly closed; an empty commit between the freeze
-  commit and the tag is refused; and the records say plainly which pack files
-  the gate refuses (importable modules and `.pth` files) and why archives are
-  allowed.
-- After the third review (final-r3): the tagged run now records the automated
-  evidence the approval says it does. `scripts/record_release_identity.py`
-  replaces the published manifest's "To be resolved" Automated evidence
-  paragraph, and adds `evidence.automated_evidence` and a fuller
-  `release_identity` to the published report: the workflow run's URL, id,
-  attempt and ref; that `release-identity`, `ci`, `identifier-gate` and
-  `verify` passed before publish (which `needs:` them); that `verify` checked
-  coverage against the floor (the total is not carried to the publish job, so
-  it is not recorded); and the artifact hashes. It refuses, writing nothing,
-  if a GitHub variable is missing or malformed or the placeholder is not
-  there exactly once, and if one survives the rewrite.
-- After the fourth review (final-r4): the release-identity writer validates
-  each GitHub variable with `fullmatch` (a trailing newline was accepted), as
-  do the gate's anchored validators; it records the commit `GITHUB_SHA`
-  resolves to (with the tag object beside it when an annotated tag was
-  pushed), and `finalize_sbom.py` derives the SBOM serial from that commit
-  too; it fills in the published manifest's `Source commit` header and
-  refuses if placeholder text is left anywhere in either published file; and
-  a test pins that it runs before the published files are hashed, attested
-  and released.
-- After the fifth review (final-r5), a sweep of whole-value validators: every
-  pattern ending in `$` called with `match()`/`search()` accepts a trailing
-  newline. The workflow grammar's action-input check (a YAML block scalar's
-  newline passed as the reviewed matrix expression), its pinned-action and
-  shell-parameter checks, the restore plan's provenance and GUID checks, the
-  AD discovery GUID/SID/CIDR checks, the estate GUID check, the firewall
-  thumbprint check, the lane-scope unit name and the publication plumbing's
-  remote parsing now match whole values. Lane-bound modules are left as they
-  are (an edit would expire live verdicts); `tests/test_whole_value_validators.py`
-  lists them, and fails on any new site. The release gate's path check now
-  refuses every Unicode control and format character (a bidirectional
-  override among them), not only ASCII ones.
-- After the sixth review (final-r6), the remaining lane-bound sites too. **What
-  operators see:** a GPP group or member SID, a security-filter SID or
-  principal, or a link DN with a control or format character (LF, CR, TAB, a
-  bidirectional override) or surrounding whitespace is now refused, and a
-  malformed group or security-filter SID is an error rather than a warning.
-  Before, `"S-1-5-32-544\n"` was stored and written into Groups.xml as
-  `groupSid="S-1-5-32-544&#10;"`, and a link DN ending in LF passed validation
-  and reached the PowerShell plan's `Get-GPInheritance -Target`. The store
-  refuses such a link or filter outright (other draft errors still wait for
-  the ready transition), and the publication preview refuses such a DN. A
-  scheduled task's trigger time with whitespace or a control character is
-  refused (`unwritable_preferences`) instead of becoming a StartBoundary
-  Windows silently rejects. The lane-bound parsers and finalizers (backup,
-  fdeploy, lifecycle, object security, the evidence contract, the lifecycle
-  finalizer) match whole values. Every lane's verdict is therefore pending
-  requalification (`docs/plan-033/verdict-registry.json`), cleared by the
-  batch at the freeze commit; the gate accepts a verdict pending at F only if
-  that batch retires it. `tests/test_whole_value_validators.py` now follows
-  annotated, concatenated, f-string, imported, constant-name and chained
-  patterns and keys inline sites by pattern; it leaves two sites, each a line
-  or over-match by design.
-- After the seventh review (final-r7), identity validation in one place.
-  `src/gpo_studio/identity_values.py` holds one validator per kind -- SID,
-  distinguished name (RFC 4514: escapes, a dangling or incomplete `\`, an
-  unescaped leading or trailing space; an unescaped `=` in a value is refused
-  too, stricter than the RFC), GUID, trigger time, date-time, date, and
-  account/group name -- each judging the whole value and refusing control,
-  format, line and paragraph separator characters and every space but the
-  ASCII one (a non-breaking space among them). The store, the publication
-  preview, GPMC backup import, estate import, AD discovery, lifecycle,
-  migration and object security call these instead of their own patterns.
-  **What operators see:** besides the typed fields final-r6 covered, every
-  identity Studio writes into preference XML is now checked as written
-  (an error; final-r8 below gives the codes): group and member SIDs and names, a local
-  user's `userName`/`newName`, a service's `accountName`, a task's `runAs`
-  and v1 `triggerTime`, a TaskV2 payload's `UserId`, `GroupId`,
-  `StartBoundary` and `EndBoundary` (also when retained from an import), and
-  item-level targeting's group, user, OU, computer, domain and date values.
-  So a preference mutation or GPMC backup import that carries one malformed
-  is refused (422), as is an estate import whose GUID, link or security filter
-  does, and a lowercase `s-1-...` in a principal field is a malformed SID, not
-  a name. The release gate also
-  refuses a verdict registry whose retired and pending lists overlap or name
-  an unregistered verdict, at the freeze commit and at the tag.
-
-  **Existing workspaces:** they load unchanged and nothing is migrated. A GPO
-  stored before this release that holds a value these rules now refuse keeps
-  it, but its `export.zip`, `gpmc-backup` and `plan.ps1` answer 422 naming
-  the field, and it cannot move to ready, until it is corrected. Correct it
-  through the API as any edit: `PUT` the link, security filter or preference
-  item with the corrected value, or delete it. A preference edit is refused
-  only for an error it adds, so editing or deleting one bad item of several
-  succeeds while the rest remain, and an unrelated edit is not blocked; a
-  link or filter edit is checked for its own values only. A GPMC backup
-  holding such a value has to be corrected at its source (or in GPMC) before
-  it is imported again. `tests/test_identity_fields.py` feeds each hostile
-  shape through each field and route and holds the repair path;
-  `tests/test_whole_value_validators.py` now also follows `pattern=`,
-  `import re as ...`, `from re import compile/match/search`, walrus bindings
-  and a compiled pattern passed to `re.match`.
-- After the eighth review (final-r8), the integrity rule moved from field
-  inventories into the writers. `src/gpo_studio/emit_integrity.py` holds one
-  table per output format, and each writer checks what it emits against it as
-  it emits it: the GPP XML writer (typed items, retained native elements,
-  retained attributes and imported files alike), the GPMC backup documents,
-  `GptTmpl.inf` (policy families and object security), `scripts.ini` and
-  `psscripts.ini`, the PowerShell plan, `Registry.pol` and the plain-text
-  report. JSON outputs are not listed: JSON escapes every control character.
-  Every value refuses Unicode controls, format characters, line and
-  paragraph separators and lone surrogates, except where a format encodes
-  one explicitly: TAB and LF in an XML value classified as multi-line text (a
-  description, a message body); any character in the plan's `-Comment` and
-  registry data, each control written as a `[char]` code (final-r9); any
-  character but NUL in `Registry.pol` names and string data; and the report
-  writes each as a visible `\uXXXX`.
-  Identity-typed values also go through the shared validators, so an item's
-  `uid`, `FilterRunOnce@id` and `clsid` must be braced GUIDs, a power scheme's
-  `nameGuid`/`schemeGuid` a GUID, a service name, task name and every other
-  free-text value one line. A name a table does not classify (a vendor
-  attribute retained from an import) is held to the one-line rule.
-  `tests/test_emit_integrity.py` runs every writer over the native captures,
-  the stored baselines, the lane candidates' templates and synthetic inputs
-  covering every typed family, targeting predicate and common option, and
-  fails on any emitted name the tables do not classify; this replaces round
-  7's test that compared one hand-written inventory with another.
-
-  **What operators see.** A GPP value a writer refuses is an error with code
-  `invalid_preference_value` or `control_character_in_preference_value`
-  (round 7 named these `*_preference_identity`); the message names the file,
-  the element and attribute, and the value. The two security-template render
-  endpoints answer 422 `unwritable_template_value` for a right name that is
-  not a `Se...` constant, a principal that is neither a starred SID
-  (`*S-1-...`, which must be a SID) nor a name without a comma or double
-  quote, any value that is not one line, a double quote inside a quoted row
-  field, or anything the INF reader would split, strip, continue or read as a
-  comment; their request models refuse the same first. Advisory issues (risk,
-  an unparseable descriptor) still do not block a render. A writer refusal
-  that reaches the API without validation having named it first is still a
-  422 (`unwritable_artifact_value`; from the GPP writer, `gpp_content_refused`).
-  New validation errors: `control_character_in_gpo_name`;
-  `unwritable_registry_name` (a registry key or value name holding NUL, which
-  ends a `Registry.pol` name, or another control, format or separator
-  character, which the plan cannot write as one line; a `;` is valid, see
-  final-r9); `unwritable_registry_data` (string data holding NUL).
-  An empty TaskV2 `StartBoundary`, `EndBoundary`, `UserId` or `GroupId` is
-  refused rather than skipped. Firewall rule fields and script command lines
-  refuse every control, format and separator character, not only line
-  breaks. `powershell_plan` validates its own input, so no caller gets a plan
-  for a GPO with a validation error. The plain-text report escapes such
-  characters instead of writing them; a description's own lines stay lines.
-  Validators: a date must be a real day (no 31 February), a UTC offset at
-  most 14:00, a multi-valued RDN (`CN=a+OU=b,DC=x`, RFC 4514) is a DN, a
-  starred template SID must be a SID, and a migration table's lower-case
-  `s-1-...` is a SID again, as before round 7. Identity error messages now
-  name the value, so the store's "only new errors" rule no longer lets one
-  stored bad value be swapped for a different bad value.
-
-  **Existing workspaces.** Nothing is migrated and every workspace loads.
-  A stored GPO holding a value these rules now refuse (a GPO name or GPP
-  value with a control character, a registry name with `;`, a malformed item
-  uid) keeps it, but its `export.zip`, `gpmc-backup` and `plan.ps1` answer 422
-  naming the value until it is corrected through the API (`PUT` the item, or
-  `DELETE` it), exactly as round 7 describes; a correcting edit is never
-  refused for errors it does not add. The render endpoints are stateless:
-  only the request changes. Every live lane's verdict remains pending
-  requalification at the freeze commit. Two lane inputs change with it: the
-  endpoint candidate no longer builds bisect row I (a bare `03:00:00`
-  `StartBoundary`, which three estate runs showed Windows never creates and
-  which Studio now refuses to write), and the conformance fixtures' synthetic
-  item uids (`{synth-uid-0}`) are deterministic braced GUIDs.
-- After the ninth review (final-r9):
-  - **One PowerShell quoting function.** The AD discovery scripts (see
-    Security) now quote through `emit_integrity.ps_literal`, as the plan does;
-    a discovery value must also be of its kind (a domain a name, a search base
-    a DN, an object class a token), or the script route answers 422.
-    `tests/test_powershell_execution.py` runs the plan and each discovery
-    script under `pwsh` with every single-quote character and code after it,
-    and skips where `pwsh` is absent. (This round also added a static scan of
-    the source to find every writer; round 10 replaced it with egress
-    validation, below.)
-  - **A `;` in a registry key or value name is valid again.** Round 8 refused
-    it on the premise that `Registry.pol` separates names with `;`; MS-GPREG
-    2.2.1 terminates each name with NUL and puts the separator after it, so a
-    `;` inside a name is data. The reader now reads each name up to its NUL
-    and then requires the separator, one UTF-16 code unit at a time (it used
-    to search for the first `;` byte pair, which split such a name and could
-    split a character whose bytes contain `3B 00`); the writer refuses only
-    NUL. The store still refuses a control, format or separator character in
-    a name, since the plan writes names as single-line literals.
-  - **Registry data with CRLF is accepted end to end.** The plan writes any
-    character of registry data or a description, each control as a `[char]`
-    term, so data the store accepts (a legal notice with line breaks) is no
-    longer refused by `plan.ps1` and `export.zip` after being advertised.
-    The plan and Studio-bundle capabilities are now asked of the writers
-    themselves, as the GPMC backup's already was, so an advertised artifact
-    is one that writes.
-  - **A writer's refusal never breaks a read.** The GPO payload of every read
-    and every mutation response reports a refusal from any writer as a
-    disabled capability with its reason; before, a backup writer's refusal
-    escaped and a `GET` answered 422, or a mutation committed and then
-    answered 422.
-  - **`GptTmpl.inf`**: the check runs before the lossless path that returns a
-    parsed template's original text; a preserved line may not read back as a
-    section header, an entry, a malformed row or a continuation, and what is
-    written must read back as the same sections and entries; each section's
-    keys are a closed Windows vocabulary or a pattern (`INF_KEYS`), checked
-    by the writer and derived from the writers by the completeness test; the
-    family writers check each principal and group member before joining the
-    list; a service row needs a startup mode or a descriptor and a security
-    option a value. A request-model refusal now carries the documented code
-    `unwritable_template_value`.
-  - A UTC offset is at most 14:00 in total (`+14:59` is refused), and
-    `emit_integrity`'s check table is exhaustive over its kinds.
-- After the tenth review (final-r10):
-  - **Egress is the boundary.** Every API route is declared: the 15 that
-    return or embed an artifact (`export.zip`, `plan.ps1`, `report.txt`, the
-    GPMC backups and their scripts preview, the six discovery scripts, the two
-    security-template renders, the firewall render) with the format their
-    result is validated against before the response leaves (`egress.py`), and
-    the other 94 with the reason they return none. `tests/test_egress.py`
-    enumerates the routes at run time and fails on one not declared, or an
-    artifact route not wrapped; for each artifact route it makes the writer
-    behind it emit something hostile and requires a 422
-    (`unwritable_artifact_value`). The validators work on the final form:
-    PowerShell is tokenized as PowerShell reads it and its structure compared
-    with what the writer produces from neutral input; `GptTmpl.inf` must parse
-    to exactly the sections the response declares, and `inf_base64` must be
-    its encoding; INI, XML and `Registry.pol` are re-read and held to their
-    tables (`Registry.pol` must re-serialize to the same bytes); a ZIP's members
-    must be safe names of known kinds, each validated by its format. This
-    replaces round 8's hand-kept writer list and round 9's static scan, both of
-    which ordinary Python bypassed; the per-writer checks stay as defence in
-    depth.
-  - **Characters above U+FFFF in the plan.** `[char]` is one UTF-16 unit, so
-    an astral format character (U+110BD, U+1D173, the U+E0000 tag block) in
-    registry data or a description was written as an invalid `[char]` cast,
-    and the plan stopped at that statement with earlier statements applied.
-    Such a character is now `[char]::ConvertFromUtf32(...)`; tests run it
-    under `pwsh`, with the U+FFFF/U+10000 boundary.
-  - **Lone surrogates.** `Registry.pol` refuses one with a clean error instead
-    of a `UnicodeEncodeError`; the report of a legacy GPO holding one renders,
-    saying why it has no digest, instead of failing; the report's escapes are
-    `\UXXXXXXXX` above U+FFFF.
-  - **`GptTmpl.inf`**: the lossless path returns the original text only when
-    every physical line passes the one-line rule and none lies outside a
-    section; otherwise the template is rebuilt (and checked). A fixed
-    section's key is checked by shape, so a valid Windows key (`EnableAdminAccount`,
-    `NewGuestName`, `LSAAnonymousNameLookup`, ...) is written, never refused;
-    the closed vocabulary is held by the completeness test to what Studio's
-    writers emit. A row is `"key",code,"descriptor"` with a descriptor (secedit
-    requires the three fields), a spaced row is a row, and the object-security
-    request models require the descriptor (and a service's startup mode).
-  - **`Registry.pol` string data must be NUL-terminated** (two NULs for
-    `REG_MULTI_SZ`) when read; every capture in the repository is.
-  - **Reads are cheaper.** The plan, bundle and backup refusals behind a GPO's
-    capabilities are cached by the GPO's content: on a GPO with 3,000 settings
-    and 300 groups a read took about 2.5 s every time; the first now does, and
-    later reads of the same revision take about 0.5 s.
-- After the eleventh review (final-r11):
-  - **Retained content is kept, never supplied.** A GPP item imported from
-    GPMC carries what Studio does not type (attributes, children, raw
-    targeting predicates); the group, member, registry and registry-value
-    routes now accept those fields only as the stored item already holds them,
-    or empty, and refuse new or changed ones (`raw_content_not_accepted`).
-    Before, a request could pass `unknown_attrs: [["disabled","0"]]` beside
-    `common.disabled: true` and ship `disabled="0"`, or add a raw
-    `FilterRunOnce` element. The writer also refuses a retained attribute that
-    would overwrite one it has already set -- the reserved set is whatever the
-    typed serializer wrote, for every GPP type -- and egress refuses a GPP file
-    with an element outside its vocabulary, or one whose items do not read back
-    with the GPO's common options and targeting. (As released in r11, imported
-    content with an element outside the vocabulary was kept but could not be
-    exported; final-r12 replaces that with the provenance rule below.) The
-    workbench sent retained content back as it received it -- except an
-    imported predicate of a type Studio does not author (`FilterDate` and eight
-    more), which the edit route refused, so such an item could not be edited
-    at all; final-r13 replaces the round trip with the id-based edit protocol
-    below.
-  - **The plan grammar is written out and proved complete.** Round 10 compared
-    each plan line with lines from a few reference GPOs and so refused the
-    writer's own `$desiredApply = @()` (read-only security filtering) and
-    `-Value @()` (an empty `REG_MULTI_SZ`), while the GPO advertised both
-    artifacts. The plan's statements are now a closed grammar with typed holes
-    (`egress.PLAN_GRAMMAR`); a test holds it equal to what the writer produces
-    over an exhaustive generator and a property test over random GPOs.
-  - **A capability is its download.** The plan, Studio bundle and GPMC backup
-    routes return `egress.checked_plan` / `checked_studio_bundle` /
-    `checked_gpmc_backup` (the writer, then egress, with the GPO), and the
-    capabilities ask exactly those functions; a test drives the routes for a
-    matrix of GPOs, the released 1.0.0 workspace and every GPP family.
-  - **ZIP egress reads entries, not names**: a duplicate member name, a missing
-    required member (`manifest.json`, `apply.ps1` and both `Registry.pol` files;
-    `manifest.xml`, `Backup.xml`, `bkupInfo.xml`) and an empty archive are
-    refused.
-  - **Mounted applications are walked.** The route enumeration descends into
-    mounts with their prefixes; the one mount, `/assets`, is accepted only as
-    Studio's own static-files application over its package directory.
-  - `GptTmpl.inf`: a continuation line is never returned unchanged, and a
-    `[Registry Keys]`/`[File Security]` row whose quoted key holds `=` is read
-    and written as a row. The refusal cache is locked (an eviction between a
-    lookup and its read raised under concurrent reads) and tolerates a GPO it
-    cannot hash.
-- After the twelfth review (final-r12):
-  - **Retained content is judged by provenance, not vocabulary.** The r11
-    element vocabulary refused valid Microsoft GPP an import had stored (a
-    `FilterBattery` predicate, a `LocalPrinter`, `PortPrinter` or
-    `ImmediateTask` item), so those GPOs could not be exported. The store now
-    enforces that retained content only comes from an import: a preference
-    mutation may keep or drop each retained attribute, child, raw predicate
-    and imported element record, never add one (`raw_content_not_accepted`),
-    and only an import, a fork, a clone or an item restore copies it. Egress
-    allows an element the GPO's retained content holds and applies the closed
-    vocabulary to everything else, which is what the typed writers write.
-    (As released in r12 this inferred provenance from presence: content an
-    older API had accepted, restored from a revision or carried by a workspace
-    upgrade counted as imported. final-r13 records provenance instead.) The
-    vocabulary also gains the 28 targeting elements of the Plan 021 inventory
-    and the `LocalPrinter`, `PortPrinter` and `ImmediateTask` item tags, each
-    from a source in the repository; a test holds it to those sources. Tests
-    import GPMC captures carrying those elements and require `export.zip` to
-    write them unchanged, and `gpmc-backup` too except for Printers, whose
-    backup is refused only for its unmeasured extension registration
-    (`unsupported_native_gpp_extension`, unchanged).
-  - **Clone and Restore run on the server.** The workbench's Clone sent the
-    whole item, retained content included, to the add route, which refuses
-    it since r11. `POST .../preferences/{groups,registry}/{id}/clone` now
-    copies the stored item under the store lock with fresh ids (a group may
-    take a new name; the imported `uid`, element record and run-once id stay
-    with the original), and `POST .../{id}/restore` with a `revision` puts the
-    item back as that revision stored it. Neither takes item content.
-  - **"Exactly as stored" means equal, order included.** A retained targeting
-    sequence (raw predicates in place, and each typed predicate's retained
-    attributes) must equal the stored one or be empty; a reordered, moved,
-    partial or duplicated one is refused. Changing a typed predicate's type
-    drops the retained attributes of its old type rather than refusing the
-    edit. (As released in r12 the predicates were matched by position, so
-    deleting a typed predicate was refused, or dropped a DIFFERENT predicate's
-    retained attributes and exported other targeting; final-r13 matches them
-    by id.)
-  - The writer refuses a retained targeting-predicate or file-root attribute
-    that would overwrite one it has set, as it already did for items.
-  - The mutation responses now carry `unknown_props_children` for groups and
-    registry items. They left it out, so the workbench's next edit sent it
-    back empty and dropped an imported item's retained `Properties` children.
-- After the thirteenth review (final-r13), a design change for retained
-  (imported) GPP content, the class rounds 11-13 patched:
-  - **Retained content never round-trips through a client.** Every item and
-    every targeting predicate (typed, of a type Studio does not author, or
-    raw) has a stable server-assigned id (`ilt_filter.ids` in responses).
-    The group, registry, member and value add/edit bodies carry typed fields
-    and ids only (`extra="forbid"`: no `unknown_*`, raw predicate, item `id`
-    or registry `uid`); the server merges an edit onto the stored item under
-    the store lock (`gpp_edit`). A targeting entry `{id}` keeps that predicate
-    as stored; `{id, type, ...}` edits a predicate of an authorable type (a
-    type change drops that predicate's own retained attributes); an entry
-    without an id adds a new typed predicate; a stored id left out is deleted
-    with exactly its own retained content; the list order is the new order.
-    Raw and non-authorable predicates can be kept, moved or deleted, never
-    edited, so an imported `FilterDate` no longer blocks editing the rest of
-    its item. Members work the same way. Responses still show retained
-    content, read-only. The positional matching of r12 and its
-    exact-or-empty comparison are gone.
-  - **Provenance is recorded at acquisition, not inferred from presence.**
-    The backup import mints a record (a digest bound to family, item and
-    predicate/member/value id) for each retained fragment
-    (`gpp_provenance`). A fork carries the records with its items; a clone
-    re-keys them onto the copy's fresh ids and gives the copy a fresh
-    run-once id; an item or whole-revision restore copies the records the
-    revision holds and creates none; every other mutation keeps the records
-    of the fragments it keeps and can add neither a fragment nor a record
-    (checked per item and per id, task payloads and run-once ids included).
-    Egress allows an element outside the closed vocabulary only where an
-    import record holds it, per file; retained content without one is kept and
-    shown (`retained_unverified`) but held to the vocabulary, and a refusal
-    names the items with the remedy: re-import the GPO from its source
-    backup, or delete them.
-  - **Workspaces from before this change are upgraded conservatively.** A
-    one-time migration (`workspace_meta.gpp_provenance`) records a fragment
-    only if the revision that first holds it is revision 1 and that revision
-    was a backup import (`archived`, provenance line `Imported from GPMC
-    backup {GUID}`) or estate import, or a fork whose parent held the fragment
-    recorded at fork time. Revision rows record actor, free-text reason,
-    timestamp and snapshot -- no operation name -- so those revision-1 facts
-    are what identify an import. Everything else is unverified. A snapshot
-    that gains no record is left byte-identical; predicate ids for one written
-    before them are derived from its item on load. A legacy raw
-    `FilterRunOnce` predicate (stored by the pre-r11 API) is read as the
-    item's apply-once option and run-once id, so a clone of it gets its own
-    identity and exports. The schema version is unchanged: a schema-4 build
-    reads the upgraded snapshots, and one that writes drops records, which
-    can only leave content unverified.
-  - The workbench edits by id: an imported read-only predicate can be moved
-    (↑/↓) or removed, the edit dialog shows the item's retained content
-    read-only, and the dead "Clone" dialog mode is gone; a registry clone
-    takes no name. A Playwright journey covers deleting a typed predicate
-    beside a raw one, editing an item holding `FilterDate`, clone and restore.
-  - Egress: an element retained in one preference file no longer admits it in
-    another file of the same side; the route-level check holds archive bytes
-    no checked builder produced to the closed vocabulary. The writer refuses a
-    retained member or registry-value attribute that would overwrite a typed
-    one (now tested). A 422 for a field a request may not carry no longer
-    echoes its value (final-r14 extends this to wrong-shape values).
-- CI on PR #107 (run 39182659419): the history secret scan's one finding --
-  `generic-api-key` on a vocabulary-table row of `emit_integrity.py` in
-  f728e22 (`secondFailure="token"`: "token" names a value kind) -- is
-  ignored by its exact fingerprint in `.gitleaksignore`; the scanner's rules
-  are unchanged. Windows: `scripts/check_safety.py` and
-  `scripts/generate_evidence_report.py` read UTF-8 explicitly, and a test now
-  holds every text open in `src/` and `scripts/` to an explicit encoding (the
-  evidence-bound firewall harness excepted, by name); the release-artifact
-  test copies the tree to a short temporary root, under MAX_PATH; the
-  attribute test passes paths to `git check-attr` on stdin; the two-spellings
-  test skips on a case-folding filesystem, detected, with the reader covered
-  by a given listing. Timeouts: `test` 25 to 40 min (3.13 measures branch
-  coverage with the C tracer, about 28 min), `test-windows` 40 to 60 min
-  (about 37 min measured).
-- After the twenty-fourth review (final-r24):
-  - **Every spelling of the backup instance directory counts (Sol B1,
-    DeepSeek N2).** The exact spelling was taken first, so a backup holding
-    both `{E9...}` and `{e9...}` was read from the one, the other -- with its
-    own identity or payload -- unread. Every entry whose name case-folds to
-    the backup ID now counts; more than one is ambiguous, and the backup is
-    refused (an import and a replacement alike), as is one that is not a
-    directory or is a symbolic link. A backup directory that cannot be listed
-    now fails the import with a backup error instead of reading no instance.
-  - The identity sweep opens every ZIP response and searches each member
-    decompressed, nested archives included, with a control that finds a
-    sentinel the raw archive bytes hide (Sol N1, DeepSeek N1).
-- After the twenty-third review (final-r23):
-  - **The recorded identity is left out at the serializer, for every route
-    (Sol B1, DeepSeek N1).** The revision detail served the stored snapshot,
-    identity and all. The API's JSON response class -- already the boundary
-    for retained native records -- now also drops every `backup_inventory`
-    object's stored-only fields from every body (`model.without_stored_only`,
-    scoped to import records: a lifecycle plan's own `source_gpo_guid` is
-    untouched), and a replacement's mismatch message no longer names the
-    recorded identity. A sweep plants sentinel identity values in a native
-    import and calls every route of the route table -- GETs and mutations,
-    with bodies that let the GPO routes work -- and finds none in any
-    response, JSON or artifact; a control shows it sees a leak.
-  - Setting an archive table aside skips a name taken by ANY schema object
-    -- view, index, trigger -- compared without regard to case (DeepSeek N2).
-  - The backup instance directory is matched without regard to case, for the
-    nested `bkupInfo.xml` and the content alike (a Windows backup read where
-    names are case sensitive; DeepSeek N3); a backup without content keeps its
-    domain GUID.
-- After the twenty-second review (final-r22):
-  - **The nested `bkupInfo.xml` is read and must agree (Sol B1).** A native
-    backup nests its `bkupInfo.xml` in the backup instance directory; only a
-    top-level one was read, so a nested one naming another domain GUID went
-    unchecked and the backup replaced the target. Every identity document --
-    `manifest.xml`, a top-level and the nested `bkupInfo.xml` -- must now name
-    the same GPO GUID and, where stated, the same domain DNS name and domain
-    GUID; a backup whose documents disagree is refused before an import model
-    is built, for an import and a replacement alike.
-  - **The source identity is provenance, never published (Sol B2 ruling).**
-    Recording it in final-r21 changed a clean native import's public dict,
-    review digest and Studio bundle. It is now kept only in the stored
-    revision (`GPO.to_stored_dict`), for the replacement check; the GPO the
-    API serves, every artifact, the export manifest and both digests leave it
-    out. A test holds the public dict, both digests, the Studio bundle and its
-    `manifest.json` of all 19 native captures to the SHA-256 that 5c6ea8a's
-    source produces (`tests/fixtures/native_artifacts_5c6ea8a.json`).
-  - **Archive tables of an earlier shape are set aside, kept (Sol B3,
-    DeepSeek B1).** A deletion that finds a `deleted_*` table in another shape
-    (the pre-release 5c6ea8a wrote one without `deletion_id`) renames it to
-    `<table>_preshape_<n>` -- never dropped or changed -- and creates the
-    current one; the runbook documents the earlier shape and a restore script
-    for it, which a test runs on tables written exactly as 5c6ea8a wrote them.
-  - **A fork is never replaced by its ancestor's backup (DeepSeek N1):** only
-    a GPO whose first revision IS the import (`replace_not_the_import`
-    otherwise). The unrecorded-identity message names a manifest without
-    `GPODomainGuid` (N2).
-- After the twenty-first review (final-r21):
-  - **A replacing import must be of the very same source GPO (Sol B1).** The
-    check compared GPO GUIDs only, and a GPO GUID is not unique across
-    estates: another forest's backup with the same GUID replaced the target.
-    A native import now records the source GPO's identity in its import
-    record (`BackupInventory`: GPO GUID, domain DNS name and the manifest's
-    `GPODomainGuid`, which the parser used to discard); a replacement must
-    match all three as revision 1 -- immutable -- recorded them
-    (`replace_source_mismatch`). A GPO whose first import recorded no domain
-    identity (before 1.1.0, an estate entry, a Studio-format bundle) is
-    refused outright (`replace_source_unrecorded`), not half-checked: a
-    domain-only match would still accept a rebuilt same-named domain, and
-    such a GPO keeps its other recoveries (a readable revision; a deletion,
-    archived, then a fresh import). The identity fields are left out of a
-    GPO's dict and digests when empty, so every earlier import keeps its
-    bytes and digests. A replacement is also refused for a readable GPO
-    (`replace_not_a_recovery`, DeepSeek N1), as the delete is.
-  - **Deletion archives are per event; the restore is idempotent (Sol N1,
-    DeepSeek N2/N4/N5).** Each deletion gets its own `deletion_id`, carried
-    with `deleted_at` by every archive row -- the retained documents now
-    included -- so delete, restore and delete again in one second no longer
-    collide. The runbook's restore script inserts a row only where an
-    identical one is not already there: a second run changes nothing, and a
-    different row under a restored key fails the whole restore rather than
-    being overwritten. Tests cover both runs, the conflict and the
-    same-second triple.
-  - **The oracle runs none of the current code (Sol N2, DeepSeek N3).** Its
-    whole 58b80aa import closure -- fifteen modules, each with its blob's
-    SHA-256 -- is vendored and served by an import hook that serves nothing
-    else; loading asserts that no oracle module holds anything of the
-    current package.
-- After the twentieth review (final-r20):
-  - **A GPO whose stored values cannot be read has a way out (Sol B1).** Its
-    message promised "re-import it, or restore a revision without it"; when
-    the value was already in revision 1, restoring revision 1 was refused
-    like the head and a re-import conflicted on the GPO's name, so the GPO
-    was frozen. The recoveries are now exactly three, and the message names
-    them (`stored_types.RECOVERIES`): restore a readable earlier revision;
-    replace the GPO's content from a fresh import of its source backup
-    (`POST /api/backups/import` with `replace_guid` and `expected_revision`:
-    a new revision whose content is wholly the import, with its freshly
-    minted provenance records; refused for a backup of another source GPO);
-    or delete it (`DELETE /api/gpos/{guid}?confirm={guid}`, which deletes
-    only such a GPO and only with its guid repeated as `confirm`). The
-    deletion is not lossy: in its transaction every stored row of the GPO --
-    head, every revision snapshot with the provenance records inside it, the
-    retained documents they reference -- is copied byte for byte into
-    additive `deleted_*` archive tables (created on first use; the schema
-    version is unchanged), and docs/workspace-recovery.md gives the restore
-    script, which a test runs as written. A test plants a named loader refusal -- the collection reads
-    empty -- in revision 1 and walks every artifact refusal, the refused
-    edit, fork, restore and plain re-import, then both recoveries.
-  - **The answer built before a commit is handed back through the request
-    (Sol B2).** It was kept in a process-global dictionary that failed
-    creations filled and that was cleared at 64 entries, so a committed
-    route could rebuild its answer after the commit and fail. The store now
-    hands each commit's answers back through a context variable scoped to
-    the request (`store.answer_scope`, opened per request), and answering a
-    GPO the request committed with anything but the committed object
-    raises. Tests run Sol's interleaving (failed creations before, after and
-    in another thread) with a builder that fails if called twice.
-  - **Legacy shapes read exactly as the loader they replaced read them
-    (DeepSeek B1).** A multi-value registry item with a `uid` on the entry
-    and among its first value's element attributes exported the value's uid
-    at 58b80aa and was refused after final-r19: the rewrite now makes the
-    old loader's promotions (an element `uid`, a value `default`) as it made
-    them, reads a bare targeting array's predicates by their three keys only,
-    and requires a stored predicate's `negate` and `value` as every loader
-    before did. A differential test runs the 58b80aa `gpp` and
-    `stored_types` -- vendored verbatim under tests/oracles with their
-    provenance and blob digests, checked against git where the commit is
-    present, so the test needs no history -- as an oracle and, over 835 generated legacy cases
-    (uids at entry and value level, missing and extra keys, every legacy key
-    of the loader-key table), requires the same model and identical bytes
-    wherever the old loader accepted well-typed input, a refusal wherever it
-    refused, and a refusal of every ill-typed one. One difference is
-    declared, not matched: an `os` predicate in a bare array keeps its
-    version criterion (the old reading silently broadened it, WI-021).
-  - Performance (DeepSeek N2): building each answer before its commit makes
-    `create_gpo` about 2.5x slower at the store level for an empty GPO; a
-    request did the same work after the commit before, and the reviewers
-    measured no material change for a 200-GPO estate import.
-- After the nineteenth review (final-r19):
-  - **An empty change makes the same checks as any other (Sol B1).**
-    `copy-settings` from a source with no settings, or none on the requested
-    side, and an empty bulk policy change returned before the expected
-    revision and the defaulted-value refusal were checked: a stale revision
-    or a GPO whose read replaced a value got a 200. The route now checks the
-    target first, and the store's empty paths check both (`_unchanged`).
-    No other mutation returns before `_mutate`'s checks.
-  - **No writer runs on stored content validation refuses (DeepSeek B1).** A
-    preference item holding a value outside its closed set beside a retained
-    native record reached the writer's `assert_never` through the digests:
-    the detail and the report answered 500, and a mutation committed before
-    its answer failed. Now (1) a collection holding such a value has its
-    records marked at load, as one holding refused content does, so every
-    hash and diff reads them raw and `serialize_gpp` refuses it; (2) a GPO
-    with any validation error has every retained record read raw by its
-    digests and its report (`gpp.raw_records`); (3) every mutation and
-    creation builds the payload it answers with BEFORE it commits
-    (`store.register_answer_check`) and answers with that payload, so an
-    answer that cannot be built rolls the change back (DeepSeek N3). The
-    digests' catch stays `UnicodeError` (DeepSeek N1): a writer's named
-    refusal is read as the raw record inside `retained_rendering`, a defect
-    is a 500, and a test holds both. `retained_rendering` no longer claims
-    it never raises (N4).
-  - **The legacy shapes are under the typed load (DeepSeek B2).** A bare
-    array of targeting predicates, the `predicates`/`unknown_predicates`
-    shape, a printer's `use_local`, a service's pre-WI-081 delay, recovery
-    and `append_arguments` keys, and a multi-value registry item (`values`)
-    are rewritten into the current shape by the typed load
-    (`stored_types.LEGACY_REWRITES`) and type-checked there; the loaders read
-    the current shape only. A legacy value of the wrong type is a replaced
-    value like any other -- `use_local: "false"` exported `skipLocal="1"`; it
-    now blocks the GPO and its edits -- and a delay is scaled only when it is
-    a number (final-r20: of any sign, as the old loader scaled it). A test
-    holds every key a loader reads to the model's fields and the rewrites'
-    keys, with a control.
-  - **Out-of-range stored values read, never refuse the read (DeepSeek N2).**
-    A document position of -1 answered 422 on the detail read; it is now a
-    replaced value (no slot), and a named loader refusal no tolerance covers
-    reads its collection as empty and replaced instead of failing. The type
-    fuzz plants -1 and 2^63 in every field that admits an integer; another
-    plants every JSON type and both integers in every legacy printer and
-    service key, and cases cover the legacy targeting and registry shapes
-    (missing keys, `negate: 1`/`"false"`, a non-array). A closed-set sweep plants a value outside its set in every
-    closed-set field of every preference item, each carrying a retained
-    record, and drives the load, payload, report, digests, a diff and a
-    committed edit; the exhaustive forms run in `type-fuzz-full`.
-- After the eighteenth review (final-r18):
-  - **A writer's refusal is a 422; nothing else is.** The final-r17 no-500
-    boundary wrapped whole endpoints and turned any exception -- a store
-    failure, a crash in validation, a programming defect -- into a "correct
-    this GPO value" 422 (Sol B1, DeepSeek B2). The catch is now only at the
-    writer or builder call (`egress.writer_boundary`) and only for the
-    writers' named refusals (`egress.writer_errors`: `GppError`, `IltError`,
-    `RegistryPolError`, `DeterministicZipError`, `FdeployError`,
-    `SecurityTemplateError`, `SddlError`, `FirewallValidationError`), each
-    answered with its own reason, sanitized (one printable line, bounded) in
-    both the 422 and the log, which records the type and that reason, not a
-    traceback (DeepSeek N5). Store access, validation and response building
-    keep their 500. The publication preview and the report's inventory catch
-    the same families; the GPP-content probe catches only those, and the
-    file digest only a decoding error (DeepSeek N4). A test injects a
-    `RuntimeError` into a writer and gets a 500.
-  - **Stored data is read by its type, never coerced.** Every loader read
-    booleans by truthiness, so an estate import of `"false"` stored -- and
-    exported -- `true` for a GPO's sides, a link's enabled/enforced and a
-    security filter's flags (Sol B3, DeepSeek N1), and an array in a
-    closed-set field crashed the membership check (500 on read, after a
-    committed mutation and on import; DeepSeek B1). The typed load
-    (`stored_types`) checks each stored value against its field's
-    annotation -- every annotated field of a GPO, its items, preferences
-    and import records (the legacy shapes the loaders still read were left
-    out until final-r19) -- and replaces one of the wrong type, a missing
-    required field
-    or an unreadable import record by its default, reporting it
-    (`stored_value_wrong_type`, an error), so the GPO is blocked; the
-    closed-set check compares types too. An estate import or an inline diff
-    reference carrying such a value is refused (422). Because the read
-    replaced the value, Studio will not store a change over it -- an edit, a
-    fork, a derived GPO, a copy of its settings or a restore of one of its
-    items would store the default and unblock the GPO -- so each is refused
-    (422) until the GPO is re-imported or a revision without the value is
-    restored. Values that keep their type but fall outside a set (an unknown
-    hive, a closed-set string) are kept as stored and block the GPO. A type
-    fuzz plants null, a boolean, a number, a string, an array and an object
-    in each of the 448 stored fields of a GPO holding every kind of item:
-    the load, validation and payload never raise, a wrong type blocks every
-    content export, every GPO route answers without a 500 for every field
-    outside the preference families and for each field of a group, member,
-    targeting predicate, common options and registry item and value, a
-    mutation commits exactly when it answers, and a stored boolean reaches
-    the plan exactly or the plan is refused. That exhaustive run takes over
-    ten minutes, so it runs in CI's own Linux job (`type-fuzz-full`,
-    `GPO_STUDIO_FULL_FUZZ=1`); the default suite plants every JSON type in
-    every field of a GPO cut down to that field's item, and drives every
-    route with one field of each kind (about 80 s).
-  - **Mutations validate before committing.** The response a mutation
-    returns validates the GPO it stored; it now validates it before the
-    commit, so a failure cannot follow a durable revision. A test runs six
-    mutations over each kind of bad stored value, and all of them at once:
-    each answers, and the revision moves exactly when it answered 2xx.
-  - **The builders refuse first, not only their callers (Sol B2).** The GPMC
-    backup builder validates its GPO before writing anything, every checked
-    builder does too, and `serialize_gpp` refuses a collection holding
-    refused content or a marked record. A test drives every raw builder
-    (`serialize_gpp`, the Studio and GPMC bundles, the plan, the publication
-    plan) over every refused shape -- Sol's invalid-scope probe included --
-    and none builds.
-  - **De-facto closed strings, decided (DeepSeek N2).** `closed_sets` covers
-    the `Literal` fields. `GppRegistryValue.registry_type` is closed by
-    validation (the six types; `""` only for a key-only item) and the
-    measured-shape rule; `GppRegistry.hive` is closed by the load (one of
-    the five `HKEY_` names; another is kept and blocks the GPO);
-    `IltPredicate.bool_op` is deliberately open, preserved verbatim from an
-    import. Documented in `closed_sets`.
-  - **The profiling test covers every GPO-payload route (DeepSeek N3)**,
-    enumerated from the route table and from every handler that builds a GPO
-    payload, with an assertion that none is missed; four that only ever
-    answer with a new GPO made from the request or a starter's settings are
-    named with the reason. The route table now classifies the ADMX configure
-    route as a GPO payload and the starter delete as a 204.
-- After the seventeenth review (final-r17):
-  - **Refused stored content is marked when it is loaded.** A collection a
-    tolerant load finds refused content in has its element records marked
-    (`gpp.RefusedRecord`); `retained_rendering` -- the one function that runs
-    the writer to see what a record writes, for every hash and every diff --
-    returns a marked record raw, without rendering or caching it. The
-    revision, ad-hoc and estate diffs rendered such a record (Sol final-r17
-    B1); no reader can now, whatever the route. The profiling test covers
-    reads, the report, every refused artifact route, the diffs (current
-    against a revision, two revisions, `/api/diff` by GUID, the estate diff),
-    a fork, and the GPO-returning mutations of each item kind (not every
-    mutation route: final-r18 enumerates them from the route table).
-  - **Every closed-set field is held to its set, and no route answered 500
-    on a closed-set string outside its set** (a value of another JSON type
-    still could, and a boolean was coerced: final-r18). An estate import read settings verbatim and stored
-    `registry_type="REG_FOO"`; the GPO's detail, plan and both bundles then
-    answered 500 (DeepSeek final-r17 B1). Validation now checks every field
-    the model types as a closed set -- found from the annotations, 42 of them
-    (`closed_sets`) -- and reports a value outside it
-    (`value_outside_closed_set`), so imports and mutations refuse it and a
-    stored one blocks the GPO; reading such a GPO tolerates the value. Every
-    artifact route, capability probe and the publication preview turned
-    whatever was raised into a 422 (`unwritable_artifact_value`, a generic
-    reason; the traceback was logged) -- too broad, narrowed in final-r18 to
-    the writers' named refusals. A fuzz plants a value
-    outside its set in each closed-set field of a stored GPO holding every
-    kind of item and requests every GPO route: none answers 500. A malformed
-    estate member (a link order of "x", an unknown permission) is a 422.
-  - `GPO.to_dict` is plain `asdict` again for a GPO without load problems,
-    so the Studio bundle's manifest is the bytes it was; a GPO with them
-    writes `load_problems: []` (checked on the released 1.0.0 workspace). The
-    publication panel's issue list is tested.
-- After the sixteenth review (final-r16): a GPO holding stored content a
-  current rule refuses builds no artifact on any payload path. Every GPO
-  payload (the detail read and every GPO-returning mutation) asked the GPMC
-  backup capability by building the backup -- preferences serialized, ZIP
-  assembled in memory with the refused content -- even though validation had
-  already disabled it. Every capability probe now stops at a validation
-  error (the scripted backup's included), validation no longer writes such a
-  collection to read it back, and its review digests use the raw element
-  records instead of rendering them. A profiling test over every refused
-  shape holds `GET /api/gpos/{guid}`, the list, the revision list and four
-  mutations (extended in final-r17) to calling no preference writer, archive
-  builder or publication digester. Folded in from DeepSeek's round: `report.txt` -- the diagnostic
-  exception -- no longer fails (500) on a stored 1.0.0-era raw targeting
-  predicate that does not parse: a tolerant load records it as refused
-  content like the other shapes, and the report's inventory notes any writer
-  refusal (an `IltError` included) instead of raising; the route matrix
-  covers it and a namespaced raw predicate too. The publication panel shows
-  a 422's issues; an operating-system predicate needs at least one criterion
-  set (a stored, partly empty one still saves; a fully empty one is kept by
-  its id but not re-sent); the export manifest no longer
-  carries a tolerant load's derived problems (`GPO.to_dict` drops them); a raw
-  predicate without `bool` joins with AND, as it is read; the preview's
-  writer-refusal branch catches every writer `ValueError` and is tested.
-- After the fifteenth review (final-r15):
-  - **The publication preview is guarded like an artifact route.** It names
-    the digest of every file it would copy, and it built those files for a
-    GPO whose stored content validation refuses: a namespaced or
-    invalid-element-record item got a `copy_gpp_xml` step and `refused:
-    false`, and a reserved-name collision or malformed child escaped as an
-    unhandled writer error. It now refuses (422, with the validation errors)
-    any GPO with a validation error before any artifact is built or
-    digested (validation's own read-back aside), and a writer
-    refusal is a 422 too. The route table names it as JSON that digests
-    artifacts; the other JSON routes were re-audited (the lifecycle restore
-    plan names a cmdlet over the backup Windows wrote and builds nothing of
-    Studio's; the fdeploy routes read uploads; GPO payloads only report
-    capability refusals).
-  - **Content artifacts refuse refused stored content; the policy report is
-    the diagnostic exception.** `plan.ps1`, `export.zip` (with `apply.ps1`),
-    both GPMC backups, the scripts preview and the publication preview refuse
-    a GPO holding retained content a current rule refuses. `report.txt` still
-    renders -- it summarizes and escapes, never embeds retained bytes -- so the
-    operator can see what is refused and the remedy, and its capability
-    stays enabled. A route matrix test covers namespace, reserved-name
-    collision, malformed child and invalid element record over all seven
-    routes, and asserts no response carries the refused content.
-  - **A raw predicate's join is read as XML reads it.** The workbench took
-    only `bool="..."`, so a 1.0.0-era raw predicate stored as `bool='OR'`
-    showed as AND, moved without a warning, and saved as the OR it was. The
-    join is now read from the start tag in either quote style (a join it
-    cannot read shows as `?` and is treated as one that can regroup the
-    expression); a browser journey moves a raw OR from first to second.
-  - The workbench saves an operating-system predicate whose stored criteria
-    has an empty field without forcing a change; `load_problems` is neither
-    stored nor served (its comment said so, and it was both).
-- After the fourteenth review (final-r14):
-  - **Stored data never blocks a workspace.** The r13 provenance migration
-    parsed every stored revision with the current model, so a 1.0.0
-    workspace holding a namespaced retained child in one historical
-    revision -- legal in 1.0.0 -- could no longer be opened. Now revision 1
-    is read first and nothing else for a GPO that was not imported or
-    forked; a snapshot the model cannot load, or loads only with problems,
-    records nothing, and the reason is logged and listed in
-    `workspace_meta.gpp_provenance_unrecorded`. Stored preference data is
-    read tolerantly everywhere: retained content a current rule refuses (a
-    namespace, a reserved-name collision, an element record that no longer
-    validates) is kept as stored and reported as a validation error
-    (`stored_preferences_refused`), so the GPO and its history stay readable
-    and every content artifact refuses it with the remedy -- delete the item,
-    or re-import from the source backup. (As released in r14 the publication
-    preview did not; see final-r15. The policy report is the stated diagnostic
-    exception.) A colliding stored document order is
-    dropped with a warning. Malformed predicate ids or provenance records
-    are ignored (ids re-derived, content unverified), never fatal.
-  - **No import record crosses a scope.** A record's digest does not name
-    its scope, and the r13 whole-revision restore granted every
-    collection's records to every collection: an unverified user-side
-    fragment took the record of an identical computer-side one. Grants are
-    now per scope.
-  - The workbench edits a predicate only when its join is AND (a save kept
-    rewriting another stored `bool` to AND), authors an operating-system
-    predicate as class/version/type/edition/service pack (the workbench and
-    the API now author the same seven types, held equal by a test), shows
-    each predicate's AND/OR join in the row and in the expression preview,
-    and warns when a move regroups an expression with an OR.
-  - A 422 never echoes a value of the wrong shape inside a GPP request body
-    (raw XML where a member or a registry value belongs), as well as a field
-    the request may not carry. A refusal of unverified content names only the
-    items that hold the refused element.
-  - The 1.0.0 upgrade invariant pins `ilt_filter.ids` as bookkeeping, and a
-    1.0.0 snapshot with targeting keeps its derived ids stable and stays
-    byte-identical.
-  - **Downgrade note.** A 1.1.0 release candidate (the same schema, 4) can
-    open a workspace this build has opened; it ignores the import records
-    and predicate ids and drops them when it writes. That can only leave
-    imported content unverified -- exports then refuse its
-    out-of-vocabulary elements until the GPO is re-imported -- never verify
-    anything. To go back, restore the pre-upgrade backup
-    ([workspace recovery](docs/workspace-recovery.md#upgrading-and-rolling-back-across-a-schema-change)).
-  - Lane cost: `src/gpo_studio/gpp.py` is bound by six lane verdicts
-    (fdeploy, firewall, publication, report-parity, scripts-metadata, wp1b;
-    `docs/plan-033/bound-source-cost.md`), and `validation.py` by three of
-    the same (firewall, publication, scripts-metadata); this branch edits
-    both (and, in final-r16, `canonical.py` and `model.py`, bound by lanes
-    of the same six), so those six verdicts are expired until the next estate
-    batch re-runs them, with the others already pending requalification.
-- **Python 3.13 and 3.14 only (`requires-python = ">=3.13,<3.15"`).** The
-  metadata said `>=3.13`, which now admits Python 3.15, but some locked
-  dependencies (pydantic-core, and librt and pyyaml in the dev extra) have no
-  3.15 wheel, and installs refuse to build one. `uv.lock` was regenerated for
-  the cap only: every package version is unchanged.
-- **Releases publish `requirements-lock.txt`, and the Windows quickstart
-  installs from it.** The file is the runtime closure of `uv.lock`, pinned by
-  SHA-256, and is listed in `SHA256SUMS`, attested with the distributions and
-  attached to the release. The quickstart installs it with
-  `pip install --require-hashes`, then the wheel with `--no-deps --no-index`,
-  and adds an optional `gh attestation verify` step. A release without the file
-  keeps the old install.
-- Every Python install in `ci.yml` and `release.yml` now resolves from
-  `uv.lock` (`uv sync --locked`, or the exported hash-pinned requirements for
+  banking a new batch needs no test edit, and new tests check a freeze batch once
+  one exists. The verdict tables moved out of `tests/test_committed_evidence.py`
+  into `docs/plan-033/verdict-registry.json` (canonical ASCII JSON), so banking
+  edits data, never a Python file, and the module refuses to run a finalizer that
+  is not a bare `finalize_*.py` in `scripts/windows-oracle/`. The sdist no longer
+  carries the release records, any banked evidence (about 6,000 files) or
+  `tests/`, so the distributions built at a final tag are the ones built at its
+  freeze commit (`tests/test_release_artifacts_from_freeze.py`). `README.md`
+  names no run, and `retarget` no longer rewrites it (README is the wheel's long
+  description). The capability matrix header no longer names `1.1.0` in prose
+  (its test ignores link destinations). `bank-requal-batch.py manifest` refuses
+  to run without `--cleanup` (the post-batch directory check the gate requires)
+  unless told `--without-cleanup`, and `retarget` no longer rewrites a commit
+  that lanes outside the new batch still bind (it rewrote all 19 unchanged lanes'
+  citations in `platforms.json` before this fix).
+- **The tagged run records the automated evidence the approval says it does.**
+  `scripts/record_release_identity.py` replaces the published manifest's
+  "To be resolved" Automated evidence paragraph, and adds
+  `evidence.automated_evidence` and a fuller `release_identity` to the published
+  report: the workflow run's URL, id, attempt and ref; that `release-identity`,
+  `ci`, `identifier-gate` and `verify` passed before publish (which `needs:`
+  them); that `verify` checked coverage against the floor (the total is not
+  carried to the publish job, so it is not recorded); and the artifact hashes.
+  It validates each GitHub variable with `fullmatch` (a trailing newline was
+  accepted, as the gate's anchored validators now also reject), records the
+  commit `GITHUB_SHA` resolves to (with the tag object beside it when an
+  annotated tag was pushed; `finalize_sbom.py` derives the SBOM serial from that
+  commit too), fills in the published manifest's `Source commit` header, and
+  refuses, writing nothing, if a GitHub variable is missing or malformed, if the
+  placeholder is not there exactly once, or if placeholder text survives
+  anywhere in either published file. A test pins that it runs before the
+  published files are hashed, attested and released.
+- **Every Python install in `ci.yml` and `release.yml` resolves from
+  `uv.lock`** (`uv sync --locked`, or the exported hash-pinned requirements for
   the clean-environment installs of the built wheel and sdist); before, only the
-  Windows test job did. Build, SBOM and audit tools come from a locked
-  `release` dependency group, the build uses its hatchling without isolation,
-  and CI runs `uv lock --check`. `tests/test_locked_installs.py` holds the rule
-  over the parsed workflows, the smoke script and the package.json scripts they
-  run: every command must equal one entry of a closed table of reviewed
-  templates (literal tokens and a few tightly patterned slots, each with its
-  reason), as must every `env:` entry, redirection target and PowerShell step,
-  and a command that needs a lock export, `npm ci` or a built wheel needs it
-  earlier in the same job, from a command whose failure would have failed it.
-  Matching is on the words as written, so a re-quoted variable is a different
-  command. No tracked file may configure the tools the templates run (`.npmrc`,
-  `pip.conf`, `uv.toml`, `sitecustomize.py`, ...). Substring matching, and then
-  three grammars that parsed program options, were each bypassed in review;
-  inline interpreter code is refused, so the few inline Python checks moved to
-  `scripts/`. It checks workflow text, not what the code it lets run does
-  (`tests/workflow_grammar.py` lists its limits).
-- CI no longer installs PSScriptAnalyzer from PSGallery by version: it fetches
-  the 1.25.0 package, checks its SHA-256 against the value in `ci.yml`, and
-  imports it from the job's temporary directory.
-- `package-lock.json` now carries `resolved` and `integrity` for every package:
-  84 of 148 entries had neither, so `npm ci` fetched them by version with
-  nothing to check them against. The values were taken from the registry for
-  the exact locked versions, and a clean `npm ci` verified them. CI runs
-  Playwright from `node_modules/.bin`, never through `npx`, and every Python
-  command in the workflows and the smoke script runs with `-I`, so a module in
-  the checkout cannot stand in for the locked tool it names. The files each
-  locked tool discovers on its own (pytest 9's `pytest.toml` among them) are
-  listed against the tool's locked version, and a version change fails a test
-  until the list is re-read. Names are compared as the Windows job's NTFS
-  compares them, tracked symlinks are refused, and every accepted script is
-  also traced through bash to confirm it runs nothing the check did not see.
-  CI's pip installs are wheel-only (`--only-binary :all:`; the project's own
-  sdist builds without isolation against the locked backend), every `uv.lock`
-  package has a wheel each CI platform accepts (judged by `packaging.tags`), and
-  `npm ci` runs with `--ignore-scripts`. `npm run lint` lists its files after
-  `--` instead of the `*.config.mjs` glob, which a tracked file named
-  `--config=…` could have turned into an ESLint option; no template may hold
-  such a glob, and no tracked name may start with `-`. The npm scripts call
-  their tools by local path (`node_modules/.bin/…`), and a checkout after an
-  install or build voids what the check knew it had produced. Each action is
-  allowed only at its reviewed revision, with its behaviour-selecting inputs
-  (setup-uv's `version`, setup-python's and setup-node's versions) required.
-- The project build itself now uses the locked backend too. An editable
-  `uv sync --locked` still built gpo-studio in an isolated environment that
-  resolved `[build-system].requires` (`hatchling`, unversioned) from the index;
-  `[tool.uv]` now turns isolation off for gpo-studio, lists every locked dependency
-  in `no-build-package` (so none is ever built, isolated or not), and makes the locked
-  `build-backend` group (hatchling, editables) a default group.
-  `scripts/check_locked_build_backend.py`, run in CI, proves it offline against
-  a cache holding only that group, with an isolated build failing as control.
-  Requirements exports use `--no-default-groups`, so the backend stays out of
-  `requirements-lock.txt`.
-- The dependency audit covers every platform's locked packages: pip-audit
-  evaluates markers against the Linux runner, so `colorama` (Windows only) was
-  not audited; the markers are now dropped from the audited copy. CI installs
+  Windows test job did. Build, SBOM and audit tools come from a locked `release`
+  dependency group, the build uses its hatchling without isolation, and CI runs
+  `uv lock --check`. The project build itself uses the locked backend too:
+  `[tool.uv]` turns isolation off for gpo-studio, lists every locked dependency
+  in `no-build-package`, and makes the locked `build-backend` group (hatchling,
+  editables) a default group, with requirements exports using
+  `--no-default-groups`; `scripts/check_locked_build_backend.py`, run in CI,
+  proves it offline against a cache holding only that group, with an isolated
+  build failing as control. `tests/test_locked_installs.py` holds the rule over
+  the parsed workflows, the smoke script and the package.json scripts they run:
+  every command must equal one entry of a closed table of reviewed templates
+  (literal tokens and a few tightly patterned slots, each with its reason), as
+  must every `env:` entry, redirection target and PowerShell step, and a command
+  that needs a lock export, `npm ci` or a built wheel needs it earlier in the
+  same job, and a checkout after an install or build invalidates the
+  prerequisite that install or build had established (a checkout can replace
+  what it produced). Matching is on the words as written; inline interpreter code is
+  refused (the few inline Python checks moved to `scripts/`); no tracked file may
+  configure the tools the templates run (`.npmrc`, `pip.conf`, `uv.toml`,
+  `sitecustomize.py`, ...); and it checks workflow text, not what the code it lets
+  run does (`tests/workflow_grammar.py` lists its limits). Each action is allowed
+  only at its reviewed revision, with its behaviour-selecting inputs (setup-uv's
+  `version`, setup-python's and setup-node's versions) required, and CI installs
   uv 0.12.0, the version that generated `uv.lock`, in every job.
-- `uv.lock` moves `anyio` 4.14.1 → 4.15.1 and `cryptography` 49.0.0 → 50.0.2:
-  `pip-audit --strict` against the locked runtime set reported known
-  vulnerabilities in both pinned versions (run 2026-10-09). The previous CI
-  audit installed the wheel from its version ranges, which pip resolves to the
-  newest matching release, so it audited different versions than the lock pins.
+- **Supply-chain details.** CI no longer installs PSScriptAnalyzer from PSGallery
+  by version: it fetches the 1.25.0 package, checks its SHA-256 against the value
+  in `ci.yml`, and imports it from the job's temporary directory.
+  `package-lock.json` now carries `resolved` and `integrity` for every package
+  (84 of 148 entries had neither, so `npm ci` fetched them by version with
+  nothing to check them against; the values were taken from the registry for the
+  exact locked versions, and a clean `npm ci` verified them). CI runs Playwright
+  from `node_modules/.bin`, never through `npx`, and every Python command in the
+  workflows and the smoke script runs with `-I`, so a module in the checkout
+  cannot stand in for the locked tool it names. The files each locked tool
+  discovers on its own (pytest 9's `pytest.toml` among them) are listed against
+  the tool's locked version, and a version change fails a test until the list is
+  re-read. Names are compared as the Windows job's NTFS compares them, tracked
+  symlinks are refused, and every accepted script is also traced through bash.
+  CI's pip installs are wheel-only (`--only-binary :all:`; the project's own sdist
+  builds without isolation against the locked backend), every `uv.lock` package
+  has a wheel each CI platform accepts (judged by `packaging.tags`), and `npm ci`
+  runs with `--ignore-scripts`. `npm run lint` lists its files after `--` instead
+  of the `*.config.mjs` glob (which a tracked file named `--config=...` could have
+  turned into an ESLint option); no template may hold such a glob, and no tracked
+  name may start with `-`. The npm scripts call their tools by local path
+  (`node_modules/.bin/...`). The dependency audit covers every platform's locked
+  packages (pip-audit evaluates markers against the Linux runner, so `colorama`,
+  Windows only, was not audited; the markers are now dropped from the audited
+  copy).
+- **CI on PR #107.** The history secret scan's one finding (`generic-api-key` on
+  a vocabulary-table row of `emit_integrity.py` in `f728e22`,
+  `secondFailure="token"`: "token" names a value kind) is ignored by its exact
+  fingerprint in `.gitleaksignore`; the scanner's rules are unchanged. Windows:
+  `scripts/check_safety.py` and `scripts/generate_evidence_report.py` read UTF-8
+  explicitly, and a test holds every text open in `src/` and `scripts/` to an
+  explicit encoding (the evidence-bound firewall harness excepted, by name); the
+  release-artifact test copies the tree to a short temporary root, under
+  MAX_PATH; the attribute test passes paths to `git check-attr` on stdin; the
+  two-spellings test skips on a case-folding filesystem, detected, with the
+  reader covered by a given listing. Timeouts: `test` 25 to 40 minutes (3.13
+  measures branch coverage with the C tracer, about 28 minutes), `test-windows`
+  40 to 60 minutes (about 37 minutes measured) and later 90 minutes.
 
 ### Evidence
 
-- `scripts/mutation_check_roundtrip.py`, run by a new `mutation-check` CI
-  job, restores 20 defects in throwaway copies of the tree (parsers that read
-  nothing, serialisers that drop what they were given, comparators that always
-  agree, the WI-080 and WI-081 export defects) and requires the tests named for
-  each to fail. Its first run found three survivors, and the two tests behind
-  them are strengthened: the fdeploy serializer guard never triggered the
-  2026-09-11 "return `raw_text` when it re-parses" defect it was written
-  against, and the unmodelled-attribute preservation test checked only an
-  attribute WI-081 had since typed, so it passed with the retained element
-  ignored entirely. Review then found two more survivors, now killed by new
-  tests and kept as mutants: Registry.pol `**del.` / `**delvals.` markers read
-  case-sensitively (every test spelled them in lower case), and report parity
-  dropping the GPP item UIDs Windows reported.
+- `scripts/mutation_check_roundtrip.py`, run by a new `mutation-check` CI job,
+  restores 20 defects in throwaway copies of the tree (parsers that read nothing,
+  serialisers that drop what they were given, comparators that always agree, the
+  WI-080 and WI-081 export defects) and requires the tests named for each to
+  fail. Its first run found three survivors, and the two tests behind them are
+  strengthened: the fdeploy serializer guard never triggered the 2026-09-11
+  "return `raw_text` when it re-parses" defect it was written against, and the
+  unmodelled-attribute preservation test checked only an attribute WI-081 had
+  since typed, so it passed with the retained element ignored entirely. Review
+  then found two more survivors, now killed by new tests and kept as mutants:
+  `Registry.pol` `**del.` and `**delvals.` markers read case-sensitively (every
+  test spelled them in lower case), and report parity dropping the GPP item UIDs
+  Windows reported.
 - `tests/test_release_downgrade_refusal.py` re-executes 1.0.0's own version
   guards, vendored verbatim from the tag (and compared with it when present),
   against what this tree writes: 1.0.0 refuses the upgraded workspace without
-  changing a byte of it, and refuses a backup of it from the sidecar this
-  tree's `backup_workspace` writes today. It also requires a release-written
-  workspace fixture for every schema a release left behind, and holds this
-  tree to refusing a newer workspace without writing to it.
-- **Banked the release 1.1.0 successor batch**
-  ([batch note](docs/plan-033/release110-successors-batch.md)). The WI-080,
+  changing a byte of it, and refuses a backup of it from the sidecar this tree's
+  `backup_workspace` writes today. It also requires a release-written workspace
+  fixture for every schema a release left behind, and holds this tree to refusing
+  a newer workspace without writing to it.
+- **The legacy-load oracle.** A differential test runs the `58b80aa` `gpp` and
+  `stored_types` (vendored verbatim under `tests/oracles` with their provenance
+  and blob digests, checked against git where the commit is present, so the test
+  needs no history) as an oracle and, over 800 generated legacy cases (uids at
+  entry and value level, missing and extra keys, every legacy key of the
+  loader-key table), requires the same model and identical bytes wherever the old
+  loader accepted well-typed input, a refusal wherever it refused, and a refusal
+  of every ill-typed one. The oracle runs none of the current code: its whole
+  `58b80aa` import closure (fifteen modules, each with its blob's SHA-256) is
+  vendored and served by an import hook that serves nothing else, and loading
+  asserts that no oracle module holds anything of the current package.
+- **Fuzzing and sweeps.** A type fuzz plants null, a boolean, a number, a string,
+  an array and an object in each of the 448 stored fields of a GPO holding every
+  kind of item: the load, validation and payload never raise, a wrong type blocks
+  every content export, every GPO route answers without a 500 for every field
+  outside the preference families and for each field of a group, member,
+  targeting predicate, common options and registry item and value, a mutation
+  commits exactly when it answers, and a stored boolean reaches the plan exactly
+  or the plan is refused. That exhaustive run takes over ten minutes, so it runs
+  in CI's own Linux job (`type-fuzz-full`, `GPO_STUDIO_FULL_FUZZ=1`); the default
+  suite plants every JSON type in every field of a GPO cut down to that field's
+  item and drives every route with one field of each kind (about 80 s). Further
+  tests plant -1 and 2^63 in every field that admits an integer, every JSON type
+  and both integers in every legacy printer and service key, and a value outside
+  its set in every closed-set field of every preference item carrying a retained
+  record (driving the load, payload, report, digests, a diff and a committed
+  edit; the exhaustive forms run in `type-fuzz-full`). A sweep plants sentinel
+  identity values in a native import and calls every route of the route table
+  (GETs and mutations, with bodies that let the GPO routes work), searching each
+  ZIP response's members decompressed, nested archives included, and finds none
+  in any response, JSON or artifact; a control shows it sees a leak. Profiling
+  tests hold the GPO-payload routes (enumerated from the route table and from
+  every handler that builds a GPO payload) to calling no writer on refused
+  content, and `tests/test_egress.py` enumerates the routes at run time and fails
+  on one not declared or an artifact route not wrapped, makes the writer behind
+  each artifact route emit something hostile and requires a 422; the plan grammar
+  is held equal to what the writer produces over an exhaustive generator and a
+  property test over random GPOs. `tests/test_emit_integrity.py` runs every writer
+  over the native captures, the stored baselines, the lane candidates' templates
+  and synthetic inputs covering every typed family, targeting predicate and
+  common option, and fails on any emitted name the tables do not classify.
+  `tests/test_powershell_execution.py` runs the plan and each discovery script
+  under `pwsh` with every single-quote character and code after it, and the
+  U+FFFF/U+10000 boundary, and skips where `pwsh` is absent.
+  `tests/test_identity_fields.py` feeds each hostile shape through each field and
+  route and holds the repair path, and `tests/test_whole_value_validators.py`
+  lists the lane-bound modules whose whole-value matching was swept and fails on
+  any new site.
+- **Requalification.** The release 1.1.0 successor batch is banked
+  ([batch note](docs/plan-033/release110-successors-batch.md)): the WI-080,
   WI-081 and WI-082 fix changed `gpp.py`, `gpp_adapters.py`, `canonical.py`,
   `report_parity.py` and `backup_inventory.py`, which exactly six release 1.1.0
-  verdicts bind. Those six lanes (WP-1B, scripts-metadata, publication, report
-  parity, firewall, fdeploy) re-ran at `9940561` and all passed (schema 3
-  manifest: `test_scope_tool` and `exec_failed` false on every row), with a
-  clean post-batch directory check. Their verdicts replace the six, which are
-  retired; the other 19 release 1.1.0 verdicts still bind the tree unchanged.
-  The lane evidence tests, `platforms.json`, the environment spec, the
-  capability matrix, the results headers and the 1.1.0 release-evidence
-  records cite the successor runs. WI-080, WI-081 and WI-082 close.
-- `scripts/plan-033/bank-requal-batch.py retarget` no longer rewrites a commit
-  that lanes outside the new batch still bind (it rewrote all 19 unchanged
-  lanes' citations in `platforms.json` before this fix).
+  verdicts bind, and those six lanes (WP-1B, scripts-metadata, publication,
+  report parity, firewall, fdeploy) re-ran at `9940561` and all passed (schema 3
+  manifest: `test_scope_tool` and `exec_failed` false on every row), with a clean
+  post-batch directory check; WI-080, WI-081 and WI-082 close. Later changes
+  (identity validation, the writers, egress, stored-data typing) edited files
+  every lane binds, so every release candidate verdict is pending
+  requalification, and 1.1.0's live evidence is the full 26-lane batch at the
+  freeze commit, recorded in
+  [the 1.1.0 evidence manifest](docs/release-evidence-1.1.0.md).
 
 ## [1.1.0-rc.1] - 2026-10-09
 

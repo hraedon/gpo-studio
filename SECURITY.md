@@ -16,28 +16,20 @@ reporting.
 
 ## Supported versions
 
-The stable line is `1.0.x`. Security fixes land on `main` and ship in the next
-`1.0.x` patch. Only the latest patch is supported.
+The stable line is `1.1.x`. Security fixes land on `main` and ship in the next
+`1.1.x` patch. Only the latest patch is supported.
 
 | Version | Supported |
 |---------|-----------|
-| 1.0.x (latest patch)   | Yes |
-| Older 1.0.x patches    | No — upgrade to the latest patch |
-| 1.1.0 release candidates (`1.1.0rc1` and later) | No — test builds; report findings against them, but run `1.0.x` in production |
+| 1.1.x (latest patch)   | Yes |
+| Older 1.1.x patches    | No — upgrade to the latest patch |
+| 1.1.0 release candidates (`1.1.0rc1`) | No — superseded by `1.1.0`; upgrade |
+| 1.0.x                  | No — upgrade to the latest `1.1.x` patch |
 | < 1.0 (dev builds, release candidates) | No |
 
-### The planned 1.1.x line
-
-`1.1.0rc1` is a release candidate, published as a GitHub prerelease for
-hands-on acceptance. It is not approved for production use, receives no
-backported fixes, and is superseded by any later candidate or by the final
-`1.1.0`. A vulnerability found in a candidate is still worth reporting: the
-fix lands on `main` and ships in the next candidate or in `1.1.0`.
-
-When `1.1.0` is approved, `1.1.x` becomes the stable line and this table and
-the policy below are updated for it. Until then `1.0.x` remains the supported
-line. Two compatibility facts for the planned line are already fixed by the
-candidate (see the [1.1.0 evidence manifest](docs/release-evidence-1.1.0.md)):
+`1.1.x` became the stable line with `1.1.0`, and `1.0.x` is no longer a
+supported line. Two compatibility facts matter to anyone moving from `1.0.x`
+(see the [1.1.0 evidence manifest](docs/release-evidence-1.1.0.md)):
 
 - `1.1.0` migrates a `1.0.x` workspace in place from schema 1 to schema 4,
   without making a backup, and `1.0.x` then refuses the file. Back up with
@@ -47,16 +39,16 @@ candidate (see the [1.1.0 evidence manifest](docs/release-evidence-1.1.0.md)):
   Registry wire values, and digests of GPOs with preference items). None of
   these loses data; the changelog lists each one.
 
-### Compatibility and deprecation in 1.0.x
+### Compatibility and deprecation in 1.1.x
 
-- `1.0.x` patches contain fixes only. They add no workspace schema migrations,
+- `1.1.x` patches contain fixes only. They add no workspace schema migrations,
   change no export or bundle format, and remove no documented CLI or API
   surface.
-- Every later `1.0.x` release can read workspace databases and exported
-  artifacts produced by any earlier `1.0.x` release.
+- Every later `1.1.x` release can read workspace databases and exported
+  artifacts produced by any earlier `1.1.x` release.
 - A deprecation is announced in the changelog, naming the replacement, at
   least one minor release before removal. Nothing is both deprecated and
-  removed within `1.0.x`.
+  removed within `1.1.x`.
 
 ## Trust boundary
 
