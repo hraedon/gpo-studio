@@ -104,7 +104,12 @@ jobs:
     # job was cancelled at 20m13s. Run 39182659419 (2026-10-19): 36m58s (3.13)
     # and 36m46s (3.14) of the old 40-min limit, pytest 36 min of each. 60 min
     # is about 1.6x that (owner approved raising CI timeouts, 2026-10-12).
-    timeout-minutes: 60
+    # Run 39191236939: 3.13 was cancelled at 60 min with pytest at 95 % (the
+    # fuzz files run last, and 3.13's branch coverage uses the slow C tracer,
+    # ~5.6x), so ~63-65 min in full; 3.14 took 36m10s. 90 min is ~1.4x the
+    # 3.13 estimate. Dropping branch coverage on 3.13 is the structural fix,
+    # left to an owner decision after 1.1.0.
+    timeout-minutes: 90
     strategy:
       matrix:
         python-version: ["3.13", "3.14"]
