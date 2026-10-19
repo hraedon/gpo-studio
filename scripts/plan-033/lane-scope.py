@@ -111,7 +111,7 @@ def read_proof(unit: str, proof: Path) -> Path:
     regular file owned by this user, writable by group or world, in a
     directory others can write, or naming a cgroup other than <unit>.scope.
     """
-    if not UNIT.match(unit):
+    if not UNIT.fullmatch(unit):
         raise Unknown(f"not a lane unit name: {unit!r}")
     _private_dir(proof.parent)
     try:
@@ -246,7 +246,7 @@ def _split(argv: list[str]) -> tuple[list[str], list[str]]:
 def start(argv: list[str]) -> int:
     head, command = _split(argv)
     unit, nonce, proof = head
-    if not UNIT.match(unit) or not command:
+    if not UNIT.fullmatch(unit) or not command:
         print(f"lane-scope: refusing unit name {unit!r}", file=sys.stderr)
         return UNKNOWN
     os.execvp(

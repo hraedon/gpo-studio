@@ -31,9 +31,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal, assert_never
 
+from .identity_values import security_principal_problem, sid_problem
 from .model import ValidationIssue
 from .sddl import SddlError, SecurityDescriptor, format_sddl, parse_sddl
-from .security_template import InfSection, SecurityTemplate
+from .security_template import InfSection, SecurityTemplate, SecurityTemplateError
 
 # ---------------------------------------------------------------------------
 # Type aliases and constants
@@ -220,7 +221,7 @@ def _object_section_rows(section: InfSection) -> tuple[tuple[str, str], ...]:
     for line in section.unknown_lines:
         if line.startswith(";"):
             continue
-        match = _OBJECT_ROW_RE.match(line)
+        match = _OBJECT_ROW_RE.fullmatch(line)
         if match is not None:
             path, code, sddl = match.groups()
             rows.append((path, f'{code},"{sddl}"'))
@@ -250,9 +251,6 @@ def _parse_member_list(value: str) -> tuple[RestrictedGroupMember, ...]:
     return tuple(result)
 
 
-# re.ASCII: `\d` alone matches any Unicode digit, so a look-alike such as
-# "S-1-5-32-٥٤٤" would be starred as a SID on the wire (review N7).
-_SID_PRINCIPAL = re.compile(r"S-1-\d+(?:-\d+)+", re.IGNORECASE | re.ASCII)
 
 
 def _principal_wire(principal: str) -> str:
@@ -265,11 +263,20 @@ def _principal_wire(principal: str) -> str:
     ``Power Users__Members = Administrator`` -- so the reader keeps whichever
     it was given and this puts the star back only where it belongs.
     """
-    return f"*{principal}" if _SID_PRINCIPAL.fullmatch(principal) else principal
+    # The shared SID validator (ASCII digits only, so "S-1-5-32-٥٤٤" is a name:
+    # review N7; final-r7: one validator per identity kind).
+    return f"*{principal}" if sid_problem(principal) is None else principal
 
 
 def _format_member_list(members: tuple[RestrictedGroupMember, ...]) -> str:
-    return ",".join(_principal_wire(m.sid) for m in members)
+    # Checked one by one before joining (DeepSeek final-r9 N2): a comma inside a
+    # member would otherwise read back as two members.
+    wired = [_principal_wire(m.sid) for m in members]
+    for member in wired:
+        problem = security_principal_problem(member)
+        if problem is not None:
+            raise SecurityTemplateError(f"group member {member!r} {problem}")
+    return ",".join(wired)
 
 
 def _parse_group_key(key: str) -> tuple[str, str | None]:

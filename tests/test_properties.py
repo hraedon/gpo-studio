@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 from contextlib import suppress
+from dataclasses import replace
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from gpo_studio.canonical import canonical_json
+from gpo_studio.emit_integrity import EmitError
 from gpo_studio.gpp import GppError, parse_gpp_groups, parse_gpp_registry
 from gpo_studio.registry_pol import PolRecord, RegistryPolError, parse, serialize
 
@@ -18,6 +21,14 @@ _TEXT = st.text(
         blacklist_categories=("Cs",),
         blacklist_characters=("\x00", ";"),
     ),
+    min_size=1,
+    max_size=32,
+)
+#: Key and value names: anything but NUL, which ends a Registry.pol name; a
+#: ';' is data (MS-GPREG 2.2.1, final-r9). Data keeps `_TEXT`: it is
+#: length-prefixed.
+_NAME = st.text(
+    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters=("\x00",)),
     min_size=1,
     max_size=32,
 )
@@ -48,8 +59,8 @@ def _pol_record(draw: st.DrawFn) -> PolRecord:
     else:
         value = draw(st.lists(_TEXT, max_size=12))
     return PolRecord(
-        key=draw(_TEXT),
-        value_name=draw(_TEXT),
+        key=draw(_NAME),
+        value_name=draw(_NAME),
         registry_type=registry_type,
         value=value,
     )
@@ -59,6 +70,14 @@ def _pol_record(draw: st.DrawFn) -> PolRecord:
 @given(_pol_record())
 def test_registry_pol_round_trip_property(record: PolRecord) -> None:
     assert parse(serialize([record])) == [record]
+
+
+@_FUZZ
+@given(_NAME, _NAME, st.sampled_from(["key", "value_name"]))
+def test_registry_pol_refuses_only_nul_in_a_name(name: str, tail: str, field: str) -> None:
+    record = PolRecord(key="Software\\X", value_name="V", registry_type="REG_SZ", value="x")
+    with pytest.raises(EmitError):
+        serialize([replace(record, **{field: name + "\x00" + tail})])
 
 
 @_FUZZ

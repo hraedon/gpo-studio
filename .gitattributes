@@ -145,6 +145,19 @@ docs/plan-033/release110-cleanup/** -text -whitespace
 docs/plan-033/*-evidence/release110-rerun-20261009/** -text -whitespace
 docs/plan-033/release110-rerun-cleanup/** -text -whitespace
 
+# Every requalification batch banked by scripts/plan-033/bank-requal-batch.py,
+# whatever its label: packs at docs/plan-033/<family>-evidence/<label>/<lane>/
+# and the post-batch directory check at docs/plan-033/<label>-cleanup/. Same
+# reason as the rules above (the batch manifest's SHA-256s cover the exact
+# native bytes), written as a pattern so a new batch needs no edit here: the
+# final-tag release gate holds this file byte-identical to the freeze commit,
+# so the 1.1.0 final batch, banked after F, cannot add its own rule (Plan 036,
+# the D-9 addendum). Every tracked file these patterns matched when they were
+# added was already -text -whitespace; tests/test_evidence_pack_attributes.py
+# keeps it so and checks a label that does not exist yet.
+docs/plan-033/*-evidence/*/*/** -text -whitespace
+docs/plan-033/*-cleanup/** -text -whitespace
+
 # Tool configurations tests/workflow_grammar.py reviews by SHA-256 of the checked-out
 # bytes (REVIEWED_CONFIG). The blobs are LF; without these rules the Windows test
 # job's checkout smudges them to CRLF and every reviewed digest fails. `text
@@ -155,3 +168,6 @@ PSScriptAnalyzerSettings.psd1 text eol=lf
 eslint.config.mjs text eol=lf
 playwright.config.mjs text eol=lf
 vitest.config.mjs text eol=lf
+# The vendored 58b80aa loader (tests/oracles/legacy_58b80aa.py): its bytes are
+# checked against the recorded SHA-256 of the git blob, which is LF.
+tests/oracles/legacy_58b80aa/*.txt text eol=lf

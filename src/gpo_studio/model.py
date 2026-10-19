@@ -72,6 +72,60 @@ class BackupInventory:
     backup_xml_base64: str
     report_xml_base64: str = ""
     files: tuple[CseFileEntry, ...] = field(default_factory=tuple)
+    #: The source GPO's identity as its backup's manifest states it, recorded
+    #: at import (final-r21): its GUID, its domain's DNS name and the domain's
+    #: GUID (``GPODomainGuid``). A GPO GUID alone is not unique across estates,
+    #: so a replacement from an import must match all three
+    #: (`WorkspaceStore.replace_from_import`). ``""``: not recorded -- an
+    #: import before 1.1.0, or a backup whose manifest has no domain GUID.
+    #: Provenance, not policy (final-r22): stored with the revision, never in
+    #: a GPO's public dict, an artifact or a digest (`inventory_dict`).
+    source_gpo_guid: str = ""
+    source_domain: str = ""
+    source_domain_guid: str = ""
+
+
+#: `BackupInventory`'s source-identity fields: stored, never published.
+INVENTORY_IDENTITY_FIELDS = ("source_gpo_guid", "source_domain", "source_domain_guid")
+
+
+def without_stored_only(value: Any) -> Any:
+    """*value* with every import record's stored-only fields left out, at any
+    depth: wherever a ``backup_inventory`` object appears -- a GPO, a revision
+    snapshot as stored, a diff -- its recorded source identity is dropped
+    (final-r23: the revision detail served the stored snapshot). The API's
+    JSON response class applies this to every body, so the boundary is the
+    serializer, not each route. Scoped to ``backup_inventory`` objects: the
+    same key names mean other things elsewhere (a lifecycle plan's
+    ``source_gpo_guid``). Lists, tuples and dicts are copied."""
+    if isinstance(value, dict):
+        return {
+            key: (
+                inventory_dict(without_stored_only(entry))
+                if key == "backup_inventory" and isinstance(entry, dict)
+                else without_stored_only(entry)
+            )
+            for key, entry in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [without_stored_only(entry) for entry in value]
+    return value
+
+
+def inventory_dict(data: dict[str, Any], *, stored: bool = False) -> dict[str, Any]:
+    """An inventory's dict (``asdict``) as it is published -- in a GPO's
+    public dict, an export manifest, a canonical model -- or, *stored*, as the
+    workspace keeps it.
+
+    The source identity is import provenance, not policy (final-r22 ruling):
+    the workspace keeps it, recorded, for `WorkspaceStore.replace_from_import`,
+    and nothing published carries it, so a native import's dict, digests and
+    export bytes are the ones they were before it was recorded."""
+    return {
+        key: value
+        for key, value in data.items()
+        if key not in INVENTORY_IDENTITY_FIELDS or (stored and value)
+    }
 
 
 TargetType = Literal["user", "group", "computer"]
@@ -137,9 +191,34 @@ class GPO:
     domain: str = "studio.local"
     created_at: str = ""
     updated_at: str = ""
+    #: ``(severity, message)`` for each stored value of the wrong JSON type a
+    #: load replaced by its field's default (`stored_types`, final-r18).
+    #: Validation reports them; never stored, served or exported.
+    load_problems: tuple[tuple[str, str], ...] = field(default=(), compare=False)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """The GPO's public dict: what the API serves and artifacts embed."""
+        return self._dict(stored=False)
+
+    def to_stored_dict(self) -> dict[str, Any]:
+        """The dict the workspace stores: the public one, plus the import
+        record's recorded source identity (`inventory_dict`)."""
+        return self._dict(stored=True)
+
+    def _dict(self, *, stored: bool) -> dict[str, Any]:
+        data = asdict(self)
+        # Never part of a GPO's dict: the key did not exist before final-r18,
+        # so a clean GPO's dict is the one it always was.
+        data.pop("load_problems", None)
+        if data.get("backup_inventory") is not None:
+            data["backup_inventory"] = inventory_dict(data["backup_inventory"], stored=stored)
+        for collection in data.get("gpp_collections", []):
+            # A tolerant load's derived `load_problems` are never stored, served
+            # or exported; emptied rather than dropped, so a GPO without any
+            # writes exactly the dict it always did (DeepSeek final-r17 N3).
+            if collection.get("load_problems"):
+                collection["load_problems"] = []
+        return data
 
 
 @dataclass(frozen=True, slots=True)

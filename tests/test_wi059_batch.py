@@ -57,7 +57,7 @@ def test_batch_replaces_all_live_verdicts_and_binds_wp0_inputs() -> None:
     assert replaced <= new_verdicts
     assert replaced <= registry["RETIRED_VERDICTS"]
     batch_verdicts = (new_verdicts - replaced) | replacements
-    pending = set(registry["PENDING_REQUALIFICATION"])
+    pending = set(registry["PENDING_REQUALIFICATION"]) & (new_verdicts | replacements)
     # WI-062 requalified this batch wholesale: every verdict it minted is now
     # retired except the ones the WI-062 batch could not re-run -- the
     # group-deny lane, parked as pending with its estate-repair reason.

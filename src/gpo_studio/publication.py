@@ -16,7 +16,6 @@ through the native GPMC backup and ``Import-GPO`` plus the reviewed
 from __future__ import annotations
 
 import hashlib
-import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Literal
@@ -25,6 +24,7 @@ from .canonical import canonical_json_bytes
 from .export import extension_registration
 from .gpmc_interop import InteropIssue
 from .gpp import serialize_gpp
+from .identity_values import dn_problem, guid_problem
 from .model import GPO, RegistrySetting, ValidationIssue
 from .registry_pol import PolRecord
 from .registry_pol import serialize as serialize_registry_pol
@@ -659,14 +659,14 @@ def generate_publication_plan(
 
 
 def _is_valid_dn(value: str) -> bool:
-    return bool(re.match(r"^(?:CN|OU|DC)=[^,=]+(?:,(?:CN|OU|DC)=[^,=]+)+$", value, re.IGNORECASE))
+    # The shared RFC 4514 validator, the same one the store and the imports use:
+    # "OU=Lab,DC=x\n" passed a `$` regex into `Get-GPInheritance -Target` (Sol
+    # final-r6 B2b), and a dangling escape passed the regex after it (final-r7 B3).
+    return dn_problem(value) is None
 
 
 def _is_valid_guid(value: str) -> bool:
-    return bool(re.match(
-        r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$",
-        value,
-    ))
+    return guid_problem(value) is None
 
 
 def planned_sysvol_paths(plan: PublicationPlan) -> tuple[str, ...]:

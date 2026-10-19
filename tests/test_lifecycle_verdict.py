@@ -1,7 +1,8 @@
 """The banked lifecycle verdict binds `lifecycle.SCOPE_SURVIVAL` to Windows.
 
-The lane's current certification is the release 1.1.0 batch's run, read from
-`docs/plan-033/release110-batch.json` (its first certification,
+The lane's current certification is read from `tests/current_qualification.py`;
+until a freeze batch is banked it is the release 1.1.0 batch's run
+(`docs/plan-033/release110-batch.json`; its first certification,
 `lifecycle-20261008093248-2000-c76d10eb3f2849fe` at `3513052`, is retired).
 `test_committed_evidence.py` already checks it the way it
 checks every verdict: the bound files still hash to what it recorded, the
@@ -28,17 +29,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
+import current_qualification
+
 from gpo_studio.lifecycle import SCOPE_DIMENSIONS, SCOPE_SURVIVAL, WINDOWS_OPERATIONS
 
 _ROOT = Path(__file__).parents[1]
-#: The current run is whatever the batch manifest records for this lane.
-_BATCH_RUN = next(
-    run
-    for run in json.loads(
-        (_ROOT / "docs/plan-033/release110-batch.json").read_text(encoding="utf-8")
-    )["runs"]
-    if run["name"] == "lifecycle"
-)
+#: The lane's current run (tests/current_qualification.py): the release
+#: evidence report's freeze batch once one is banked, the 1.1.0rc1 batches
+#: until then. Banking a new batch re-points this file without an edit.
+_BATCH_RUN = current_qualification.run("lifecycle")
 PACK = _ROOT / "docs/plan-033" / Path(_BATCH_RUN["verdict"]).parent
 RUN_ID = _BATCH_RUN["run_id"]
 COMMIT = _BATCH_RUN["commit"]

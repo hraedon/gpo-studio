@@ -1,7 +1,8 @@
 """The firewall lane's current certifying run, as the batch manifest records it.
 
-The release 1.1.0 successor batch's run of the lane (9940561, WI-080/081/082;
-run id, commit and pack read from `docs/plan-033/release110-successors-batch.json`),
+The run, its commit and its pack are read from `tests/current_qualification.py`;
+until a freeze batch is banked that is the release 1.1.0 successor batch's run
+(9940561, WI-080/081/082; `docs/plan-033/release110-successors-batch.json`),
 banked the way every batch pack is: the controller's local run directory
 verbatim, plus `controller-candidate/` (the builder's output) and
 `controller.log`. It replaced the release 1.1.0 batch's run at `de9736e`, and
@@ -28,21 +29,17 @@ from pathlib import Path
 from typing import Any
 from zipfile import ZipFile
 
+import current_qualification
 import pytest
 
 from gpo_studio.firewall_policy import FIREWALL_TOOL_GUID, from_registry_records
 from gpo_studio.registry_pol import parse
 
 ROOT = Path(__file__).resolve().parents[1]
-#: The current run is whatever the batch manifest records for this lane, so a
-#: new batch re-points this file by replacing the manifest, not these lines.
-_BATCH_RUN = next(
-    run
-    for run in json.loads(
-        (ROOT / "docs/plan-033/release110-successors-batch.json").read_text(encoding="utf-8")
-    )["runs"]
-    if run["name"] == "firewall"
-)
+#: The lane's current run (tests/current_qualification.py): the release
+#: evidence report's freeze batch once one is banked, the 1.1.0rc1 batches
+#: until then. Banking a new batch re-points this file without an edit.
+_BATCH_RUN = current_qualification.run("firewall")
 VERDICT_PATH = _BATCH_RUN["verdict"]
 PACK = ROOT / "docs/plan-033" / Path(VERDICT_PATH).parent
 RUN_ID = _BATCH_RUN["run_id"]
@@ -256,4 +253,5 @@ def test_the_tool_guid_observation_is_what_the_results_doc_records() -> None:
 def test_the_verdict_is_registered_live() -> None:
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     assert registry["LANE_VERDICTS"][VERDICT_PATH] == "finalize_firewall_run.py"
-    assert VERDICT_PATH in registry["LIVE_VERDICTS"]
+    # Live, or pending requalification by the next batch.
+    assert VERDICT_PATH in set(registry["LIVE_VERDICTS"]) | set(registry["PENDING_REQUALIFICATION"])

@@ -1064,9 +1064,23 @@ def test_a_key_only_item_carrying_a_value_is_not_a_measured_shape() -> None:
         key=KEY, value=GppRegistryValue(name="", value="junk", registry_type="REG_SZ")
     )
     gpo = _gpo(GppCollection(scope="computer", registry=(reg,)))
+    # Validation refuses this GPO first, so the capability answers with that
+    # and builds nothing (Sol final-r16 B1) ...
     refusal = native_backup_refusal(gpo)
-    assert refusal is not None and refusal.code == "unmeasured_gpp_registry_shape"
-    assert "a key-only item carrying a value" in refusal.message
+    assert refusal is not None and refusal.code == "invalid_key_only_value"
+    # ... the builder validates first too (Sol final-r18 B2) ...
+    from gpo_studio.export import _native_export_files, _writer_refusal, gpmc_backup_bundle
+    from gpo_studio.model import ValidationError as _ValidationError
+
+    with pytest.raises(_ValidationError) as first:
+        gpmc_backup_bundle(gpo)
+    assert {issue.code for issue in first.value.issues} >= {"invalid_key_only_value"}
+    # ... and the native writer still refuses the shape on its own.
+    with pytest.raises((_ValidationError, ValueError)) as caught:
+        _native_export_files(gpo, None)
+    written = _writer_refusal(caught.value, "gpmc-backup")
+    assert written.code == "unmeasured_gpp_registry_shape"
+    assert "a key-only item carrying a value" in written.message
 
 
 

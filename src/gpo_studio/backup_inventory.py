@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from pathlib import PurePosixPath
 
 from .gpp_native import has_never_retained_name
-from .model import BackupInventory, CseFileEntry, StudioError
+from .model import INVENTORY_IDENTITY_FIELDS, BackupInventory, CseFileEntry, StudioError
 from .xml_safety import parse_xml_bounded
 
 _MAX_XML_BYTES = 50 * 1024 * 1024
@@ -74,7 +74,10 @@ def inventory_from_dict(data: object) -> BackupInventory:
         # Nothing writes these paths -- they are rendered into a report.
         seen.add(path)
         entries.append(CseFileEntry(path, digest, size))
-    inventory = BackupInventory(backup_xml, report_xml, tuple(entries))
+    identity = {key: data.get(key, "") for key in INVENTORY_IDENTITY_FIELDS}
+    if not all(isinstance(value, str) and len(value) <= 255 for value in identity.values()):
+        raise StudioError("Native inventory source identity must be text")
+    inventory = BackupInventory(backup_xml, report_xml, tuple(entries), **identity)
     validate_report_identity(inventory, (identifier.text or "").strip().strip("{}"))
     return inventory
 

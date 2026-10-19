@@ -175,7 +175,7 @@ def main() -> int:
 
     for py_file in sorted(SRC_DIR.rglob("*.py")):
         try:
-            source = py_file.read_text()
+            source = py_file.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(py_file))
         except SyntaxError as e:
             all_violations.append(f"{py_file}: syntax error: {e}")

@@ -5,6 +5,9 @@ import json
 import zipfile
 from dataclasses import replace
 
+import pytest
+
+from gpo_studio import export as export_module
 from gpo_studio.backup import parse_manifest
 from gpo_studio.export import (
     export_bundle,
@@ -18,7 +21,14 @@ from gpo_studio.import_export import (
     backup_security_filters_to_model,
     backup_wmi_filter_to_model,
 )
-from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter, WmiFilter
+from gpo_studio.model import (
+    GPO,
+    GPOLink,
+    RegistrySetting,
+    SecurityFilter,
+    ValidationError,
+    WmiFilter,
+)
 from gpo_studio.registry_pol import parse
 
 
@@ -420,9 +430,13 @@ def test_powershell_plan_sanitizes_domain_in_wmi_comment() -> None:
             query="select * from Win32_Service",
         ),
     )
-    plan = powershell_plan(gpo)
-    for line in plan.splitlines():
-        assert not line.lstrip("# ").startswith("Remove-GPO")
+    # A domain holding a line break is a validation error, and the generator
+    # validates its own input (final-r8 N3): no plan is written at all.
+    with pytest.raises(ValidationError):
+        powershell_plan(gpo)
+    # The comment writer escapes whatever it is handed in any case.
+    comment = export_module._ps_sanitize_comment(gpo.domain)
+    assert "\n" not in comment and "\\u000a" in comment
 
 
 def test_powershell_plan_side_status_all_enabled() -> None:

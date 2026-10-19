@@ -1,6 +1,6 @@
 {
   "report_type": "GPO Studio release evidence report",
-  "report_version": 2,
+  "report_version": 3,
   "version": "1.1.0rc1",
   "status": "candidate",
   "manifest": "docs/release-evidence-1.1.0.md",
@@ -10,6 +10,7 @@
     "sdist_sha256": "resolved by the tagged release workflow",
     "sbom_sha256": "resolved by the tagged release workflow"
   },
+  "freeze": null,
   "evidence": {
     "requalification": {
       "note": "docs/plan-033/release110-batch.md",
@@ -248,7 +249,7 @@
       "automated": "frontend CI job and release verify job: workspace axe scan, keyboard, focus, dark theme, and open-dialog axe scans of the Security template, Folder Redirection and RSOP prediction dialogs (RSOP in light and dark themes, populated and with validation errors; Security template and Folder Redirection populated in a 360-pixel-wide window)",
       "rsop_axe_finding_fixed": "scrollable-region-focusable (serious): a sideways-scrolling RSOP result table was not keyboard-reachable; each result table is now a focusable, named region",
       "security_template_axe_finding_fixed": "scrollable-region-focusable (serious), in a 360-pixel-wide window: the validation-issue table; it and the rendered GptTmpl.inf block are now focusable, named regions",
-      "hands_on_screen_reader": "required before final approval; pending: the owner runs docs/nvda-validation-runbook.md against the exact v1.1.0-rc.N wheel from the release assets"
+      "hands_on_screen_reader": "not run: the owner waived the hands-on NVDA acceptance for 1.1.0 on 2026-10-17; it was not passed, and no screen-reader result is claimed for the interface added since 1.0"
     },
     "lane_verdicts": "requalified by the release 1.1.0 batch at de9736ed3a4148b91cf2267fbe4640e260cc232f, six of them re-run by its successor batch at 99405618105edaa4b408be92047f83b6a24dd217; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",
     "lanes_first_batched": [
@@ -341,9 +342,11 @@
       }
     ],
     "remaining_before_approval": [
-      "owner's hands-on NVDA acceptance against the exact candidate wheel (pending)",
-      "automated evidence from the tagged release workflow run: job run ids, coverage, artifact hashes (pending)",
-      "final approval: version 1.1.0, status approved, manifest line 5, tag v1.1.0 on main (pending)"
+      "owner's hands-on NVDA acceptance: waived for 1.1.0 by the owner on 2026-10-17; not run",
+      "freeze commit F with __version__ 1.1.0 and the preparation release-evidence-1.1.0.md lists (pending)",
+      "all 26 live lanes requalified at F in one batch, banked in commit B whose parent is F, evidence and records only, with freeze set in this report (pending)",
+      "automated evidence, recorded after A by the tagged release workflow run, not a precondition of approval: the published release-evidence.md and release-evidence-report.json carry the tag, source commit, workflow run URL, id, attempt and ref, and the wheel, sdist and SBOM hashes, and state that release-identity, ci, identifier-gate and verify passed before publish and that verify checked coverage against the floor; the job ids and that run's coverage total are in the workflow run itself, not in the assets",
+      "final approval in a records-only commit A after B: version 1.1.0, status approved, manifest line 5; tag v1.1.0 on A, on main (pending)"
     ]
   }
 }

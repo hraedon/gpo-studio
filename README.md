@@ -124,7 +124,7 @@ The 1.0 contract above has not changed. Since 1.0:
   `-CopyAcl`). It returns the cmdlet, whose GUID the result carries, and what
   happens to the settings, GUID, security filtering, WMI filter, links and
   description. Every one of those 30 cells was measured on Windows by the
-  lifecycle lane (`lifecycle-20261009001644-6217-f2f5047fed814807`). Studio
+  lifecycle lane; the release evidence document names its certifying run. Studio
   executes nothing, and cross-domain plans are refused. See
   [the results](docs/plan-033/lifecycle-results.md).
 - **Not reachable:** the other Plans 025–032 domain layers are implemented

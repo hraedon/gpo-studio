@@ -1,0 +1,14 @@
+# gitleaks (ci.yml `secret-scan`): findings reviewed and confirmed to be false
+# positives. Each line is one finding's exact fingerprint
+# (commit:path:rule:line), so this ignores that finding and nothing else; the
+# scanner's rules are unchanged.
+#
+# f728e22, src/gpo_studio/emit_integrity.py:319 -- generic-api-key on
+# `firstFailure="token", secondFailure="token", thirdFailure="token",`: a row of
+# the emit-integrity vocabulary table, which maps the GPP NTServices attributes
+# firstFailure/secondFailure/thirdFailure to the field kind "token" (the
+# shape check "letters, digits and _.:+-", for values such as "restart").
+# There is no credential: "token" names a kind of value, it is not a value.
+# The line is unchanged since f728e22, and the scan reads each commit's diff,
+# so only that commit reports it.
+f728e22d96d40aef73607bf21e7590ecadb946b8:src/gpo_studio/emit_integrity.py:generic-api-key:319

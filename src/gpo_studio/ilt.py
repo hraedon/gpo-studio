@@ -147,9 +147,35 @@ class IltPredicate:
     os_criteria: IltOsCriteria | None = None
 
 
+#: The predicate types the API and the workbench author (static/js/gpp.mjs
+#: ILT_TYPES holds the same set; a test holds them equal). The model reads every
+#: type in `IltPredicateType`; the others (``FilterDate``, ``FilterUser`` ...)
+#: are kept, reordered or deleted, never authored (final-r13).
+AUTHORABLE_PREDICATE_TYPES: frozenset[str] = frozenset({
+    "ou", "group", "registry", "ip_range", "environment", "wmi_query", "os",
+})
+
+
 @dataclass(frozen=True, slots=True)
 class IltFilter:
     items: tuple[IltPredicate | str, ...] = field(default_factory=tuple)
+    #: One stable id per item, parallel to ``items``, assigned by the server
+    #: when the item is acquired (import, add, migration) and never by a
+    #: client: an edit names a predicate by its id to keep, edit, move or
+    #: delete it, and a predicate's retained content (its unknown attributes,
+    #: or the whole raw element) is bound to that id (final-r13). ``()`` until
+    #: assigned. Editor bookkeeping, outside ==, like an item's ``id``.
+    ids: tuple[str, ...] = field(default=(), compare=False)
+
+    def __post_init__(self) -> None:
+        if self.ids and len(self.ids) != len(self.items):
+            raise IltError(
+                f"targeting has {len(self.items)} predicates but {len(self.ids)} ids"
+            )
+        if any(not isinstance(i, str) or not i for i in self.ids):
+            raise IltError("targeting predicate ids must be non-empty strings")
+        if len(set(self.ids)) != len(self.ids):
+            raise IltError("targeting predicate ids must be unique")
 
     @property
     def predicates(self) -> tuple[IltPredicate, ...]:
@@ -302,6 +328,13 @@ def _serialize_predicate(pred: IltPredicate) -> ET.Element:
     elem.set("not", _not_attr(pred.negate))
     elem.set("bool", pred.bool_op)
     for name, value in pred.unknown_attrs:
+        # Never over a typed attribute: the reserved set is what this writer
+        # has already set, not a hand-kept list (DS final-r12 N1).
+        if name in elem.attrib:
+            raise IltError(
+                f"Retained attribute {name!r} would override the typed attribute "
+                f"{elem.tag.rsplit('}', 1)[-1]}@{name}"
+            )
         elem.set(name, value)
     return elem
 

@@ -698,9 +698,9 @@ def test_put_gpp_member_edit_preserves_order(tmp_path) -> None:
         sid="S-1-5-32-544",
         id="g1",
         members=(
-            GppGroupMember(sid="S-1", name="m1", id="mem1"),
-            GppGroupMember(sid="S-2", name="m2", id="mem2"),
-            GppGroupMember(sid="S-3", name="m3", id="mem3"),
+            GppGroupMember(sid="S-1-5-21-0-1", name="m1", id="mem1"),
+            GppGroupMember(sid="S-1-5-21-0-2", name="m2", id="mem2"),
+            GppGroupMember(sid="S-1-5-21-0-3", name="m3", id="mem3"),
         ),
     )
     gpo = store.put_gpp_group(
@@ -721,7 +721,7 @@ def test_put_gpp_member_edit_preserves_order(tmp_path) -> None:
         gpo.revision,
         "computer",
         "g1",
-        GppGroupMember(sid="S-2", name="m2-renamed", id="mem2"),
+        GppGroupMember(sid="S-1-5-21-0-2", name="m2-renamed", id="mem2"),
         identity="alice",
         reason="edit middle member",
     )
@@ -740,8 +740,8 @@ def test_put_gpp_group_assigns_nested_member_ids(tmp_path) -> None:
         name="Administrators",
         sid="S-1-5-32-544",
         members=(
-            GppGroupMember(sid="S-1", name="m1"),
-            GppGroupMember(sid="S-2", name="m2"),
+            GppGroupMember(sid="S-1-5-21-0-1", name="m1"),
+            GppGroupMember(sid="S-1-5-21-0-2", name="m2"),
         ),
     )
     gpo = store.put_gpp_group(
@@ -914,7 +914,7 @@ def test_delete_gpp_member_removes_exactly_one_with_duplicate_id(tmp_path) -> No
             sid="S-1-5-32-544",
             id="g1",
             members=(
-                GppGroupMember(sid="S-1", name="m1", id="dup"),
+                GppGroupMember(sid="S-1-5-21-0-1", name="m1", id="dup"),
             ),
         ),
         identity="alice",
@@ -924,7 +924,7 @@ def test_delete_gpp_member_removes_exactly_one_with_duplicate_id(tmp_path) -> No
     def inject_duplicate(gpo: GPO) -> GPO:
         collection = gpo.gpp_collections[0]
         group = collection.groups[0]
-        new_member = GppGroupMember(sid="S-2", name="m2", id="dup")
+        new_member = GppGroupMember(sid="S-1-5-21-0-2", name="m2", id="dup")
         new_group = replace(group, members=group.members + (new_member,))
         new_collection = replace(collection, groups=(new_group,))
         return replace(gpo, gpp_collections=(new_collection,))

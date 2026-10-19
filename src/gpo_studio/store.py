@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import sqlite3
 import threading
 import uuid
-from collections.abc import Callable, Iterable, Mapping
-from dataclasses import replace
+from collections import Counter
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextvars import ContextVar
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, NoReturn, cast
 
+from . import gpp_provenance as provenance
 from .fdeploy import FdeployDocument, fdeploy_from_dict
 from .gpp import (
     GppCollection,
@@ -24,9 +28,11 @@ from .gpp import (
     GppRegistryValue,
     GppScope,
     ensure_editor_ids,
-    gpp_collection_from_dict,
+    gpp_collection_from_dict_tolerant,
+    gpp_collection_to_dict,
     registry_action_edit,
     serialize_gpp,
+    with_refused_marks,
 )
 from .identity import Identity
 from .ilt import IltError
@@ -42,6 +48,7 @@ from .model import (
     RegistrySetting,
     Revision,
     SecurityFilter,
+    StudioError,
     ValidationError,
     ValidationIssue,
     WmiFilter,
@@ -54,6 +61,7 @@ from .snapshot_documents import (
     extract_snapshot_documents,
     snapshot_digests,
 )
+from .stored_types import STORED_WRONG_TYPE, check_stored, problem_message, stored_flag
 from .validation import (
     text_issues,
     validate_gpo,
@@ -97,8 +105,8 @@ def _link(data: dict[str, Any]) -> GPOLink:
     return GPOLink(
         id=str(data["id"]),
         target=str(data["target"]),
-        enabled=bool(data.get("enabled", True)),
-        enforced=bool(data.get("enforced", False)),
+        enabled=stored_flag(data.get("enabled", True), True),
+        enforced=stored_flag(data.get("enforced", False), False),
         order=int(data.get("order", 1)),
     )
 
@@ -112,9 +120,9 @@ def _cse_file_entry(data: dict[str, Any]) -> CseFileEntry:
 
 
 def _cse_metadata_entry(data: dict[str, Any]) -> CseMetadataEntry:
+    # A side outside its set is kept as stored and reported by validation
+    # (`closed_sets`), never fatal on read (final-r17).
     side_raw = str(data["side"])
-    if side_raw not in ("machine", "user"):
-        raise ValueError(f"Invalid CSE side: {side_raw!r}")
     return CseMetadataEntry(
         guid=str(data["guid"]),
         side=cast(CseSide, side_raw),
@@ -122,25 +130,61 @@ def _cse_metadata_entry(data: dict[str, Any]) -> CseMetadataEntry:
     )
 
 
-def _security_filter(data: dict[str, Any]) -> SecurityFilter:
+#: Validation codes that mean "this is not the identity the operator reviewed":
+#: a link DN that is not exactly a DN, a security-filter SID that is malformed or
+#: carries a control or format character, a principal that is padded or carries
+#: one. A draft may hold other errors (a principal written as a bare group name,
+#: say) until it is marked ready; these the store refuses outright, because a
+#: stored value of this kind reaches the PowerShell plan and the GPO's ACL as a
+#: different identity (Sol final-r6 B2b).
+_IDENTITY_ERRORS = frozenset({
+    "invalid_link_target",
+    "control_character_in_principal",
+    "principal_surrounding_whitespace",
+    "control_character_in_sid",
+    "invalid_sid_format",
+})
+
+
+def _issue_key(issue: ValidationIssue) -> tuple[str, str, str]:
+    """An error's identity across an edit: item indices shift, the rest does not."""
+    return (issue.code, re.sub(r"/[0-9]+(?=/|$)", "/#", issue.path or ""), issue.message)
+
+
+def _refuse_identity_issues(gpo: GPO, prefix: str) -> None:
+    errors = [
+        issue
+        for issue in validate_gpo(gpo)
+        if issue.severity == "error"
+        and issue.code in _IDENTITY_ERRORS
+        and (issue.path or "").startswith(prefix)
+    ]
+    if errors:
+        raise ValidationError(errors)
+
+
+def _security_filter(data: dict[str, Any], *, strict: bool = True) -> SecurityFilter:
+    """A security filter from a dict. Stored data (``strict=False``) keeps a
+    value outside its closed set, for validation (`closed_sets`) to report;
+    a mutation's values refuse it here (final-r17)."""
     permission = data.get("permission", "apply")
-    if permission not in ("apply", "read"):
+    if strict and permission not in ("apply", "read"):
         raise ValueError(f"Invalid permission: {permission!r}")
     target_type = data.get("target_type", "group")
-    if target_type not in ("user", "group", "computer"):
+    if strict and target_type not in ("user", "group", "computer"):
         raise ValueError(f"Invalid target_type: {target_type!r}")
     return SecurityFilter(
         id=str(data["id"]),
         principal=str(data["principal"]),
         permission=permission,
-        inheritable=bool(data.get("inheritable", True)),
+        inheritable=stored_flag(data.get("inheritable", True), True),
         target_type=target_type,
         sid=str(data.get("sid", "")),
         # Absent means allow, which is what every row written before WI-033
         # meant. Reading it is not optional: without this the field round-trips
         # to False, so a deny authored in one session came back an ALLOW in the
         # next -- the polarity silently inverted by persistence alone.
-        deny=bool(data.get("deny", False)),
+        deny=stored_flag(data.get("deny", False), False),
     )
 
 
@@ -155,7 +199,115 @@ def _wmi_filter(data: dict[str, Any]) -> WmiFilter:
 
 
 def _gpp_collection(data: dict[str, Any]) -> GppCollection:
-    return gpp_collection_from_dict(data)
+    # Stored data is read tolerantly (final-r14): retained content a later
+    # rule refuses is reported and refused at export, never fatal on read.
+    return gpp_collection_from_dict_tolerant(data)
+
+
+@dataclass
+class _Grants:
+    """What one mutation may add beyond what the GPO held (final-r13), per scope.
+
+    ``fragments[scope]``: retained fragments (digests, `gpp_provenance`) the
+    mutation may introduce into that scope's collection -- a clone's copy, a
+    restored item or revision. ``records[scope]``: the provenance records it
+    may carry with them there. Every other mutation adds neither: it can only
+    keep or drop what is stored.
+
+    Keyed by scope because a digest does not name its scope: a record pooled
+    across scopes let a whole-revision restore give an unverified user-side
+    fragment the record of an identical computer-side one (Sol final-r14 B1).
+    """
+
+    fragments: dict[str, set[str]] = field(default_factory=dict)
+    records: dict[str, set[str]] = field(default_factory=dict)
+
+    def grant(self, scope: str, fragments: Iterable[str], records: Iterable[str]) -> None:
+        self.fragments.setdefault(scope, set()).update(fragments)
+        self.records.setdefault(scope, set()).update(records)
+
+
+def _provenance_refusal(added: list[provenance.Fragment]) -> ValidationError:
+    places = sorted({"/".join(key[:3]) for key, _text in added})
+    return ValidationError([
+        ValidationIssue(
+            severity="error",
+            code="raw_content_not_accepted",
+            message=(
+                "Retained content (attributes, children, raw targeting, imported "
+                "elements, run-once ids) comes only from an import, a fork, a clone "
+                "or a restore; a mutation may keep or drop it, never add or change it: "
+                + ", ".join(places[:5])
+            ),
+            path="gpp_collections",
+        )
+    ])
+
+
+def _keep_provenance(before: GPO, after: GPO, grants: _Grants | None) -> GPO:
+    """*after* with each collection's retained fragments checked and its
+    provenance records kept, against *before* (the GPO the mutation started
+    from). Refuses a fragment the mutation added without a grant; keeps only
+    the records *before* held (and the grant's) of the fragments still there."""
+    grants = grants or _Grants()
+    old = {collection.scope: collection for collection in before.gpp_collections}
+    collections: list[GppCollection] = []
+    changed = False
+    for collection in after.gpp_collections:
+        previous = old.get(collection.scope)
+        if collection is previous:
+            collections.append(collection)
+            continue
+        scope = collection.scope
+        added = provenance.new_fragments(
+            collection, previous, grants.fragments.get(scope, set())
+        )
+        if added:
+            raise _provenance_refusal(added)
+        kept = provenance.keep_records(collection, previous, grants.records.get(scope, set()))
+        if kept.load_problems:
+            # What a tolerant load reported belongs to the stored data; after
+            # this mutation only what the new collection still holds stands
+            # (deleting the offending item clears it).
+            kept = with_refused_marks(
+                replace(
+                    kept,
+                    load_problems=gpp_collection_from_dict_tolerant(
+                        gpp_collection_to_dict(replace(kept, load_problems=()))
+                    ).load_problems,
+                )
+            )
+        changed = changed or kept is not collection
+        collections.append(kept)
+    if not changed:
+        return after
+    return replace(after, gpp_collections=tuple(collections))
+
+
+def _loaded_gpp(gpo: GPO) -> GPO:
+    """Every loaded item with stable targeting-predicate ids and the legacy raw
+    ``FilterRunOnce`` shape normalised (final-r13). A snapshot written before
+    predicate ids existed gets ids derived from its item, so every load of it
+    agrees until the schema migration writes them."""
+    if not gpo.gpp_collections:
+        return gpo
+
+    def loader(scope: str) -> Callable[[str, Any], Any]:
+        def load(family: str, item: Any) -> Any:
+            item = provenance.normalize_run_once(item)
+            return provenance.with_predicate_ids(
+                item, seed=f"{gpo.guid}/{scope}/{family}/{getattr(item, 'id', '')}"
+            )
+
+        return load
+
+    return replace(
+        gpo,
+        gpp_collections=tuple(
+            provenance.map_items(collection, loader(collection.scope))
+            for collection in gpo.gpp_collections
+        ),
+    )
 
 
 def _keep_document_position[T: (GppGroup, GppRegistry)](edited: T, existing: T) -> T:
@@ -298,15 +450,200 @@ def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
     return replace(gpo, gpp_collections=tuple(new_collections))
 
 
+#: The deletion archive's tables (`WorkspaceStore._archive_rows`): name ->
+#: (columns in order, each ``TEXT``/``INTEGER NOT NULL``; the primary key).
+_ARCHIVE_TABLES: dict[str, tuple[tuple[tuple[str, str], ...], tuple[str, ...]]] = {
+    "deleted_gpos": (
+        (
+            ("deletion_id", "TEXT"), ("deleted_at", "TEXT"), ("guid", "TEXT"),
+            ("name", "TEXT"), ("revision", "INTEGER"), ("snapshot_json", "TEXT"),
+            ("updated_at", "TEXT"),
+        ),
+        ("deletion_id",),
+    ),
+    "deleted_revisions": (
+        (
+            ("deletion_id", "TEXT"), ("deleted_at", "TEXT"), ("gpo_guid", "TEXT"),
+            ("revision", "INTEGER"), ("actor", "TEXT"), ("reason", "TEXT"),
+            ("created_at", "TEXT"), ("snapshot_json", "TEXT"),
+        ),
+        ("deletion_id", "revision"),
+    ),
+    "deleted_snapshot_documents": (
+        (
+            ("deletion_id", "TEXT"), ("deleted_at", "TEXT"), ("gpo_guid", "TEXT"),
+            ("revision", "INTEGER"), ("digest", "TEXT"),
+        ),
+        ("deletion_id", "revision", "digest"),
+    ),
+    "deleted_retained_documents": (
+        (
+            ("deletion_id", "TEXT"), ("deleted_at", "TEXT"), ("digest", "TEXT"),
+            ("content_base64", "TEXT"), ("byte_length", "INTEGER"),
+        ),
+        ("deletion_id", "digest"),
+    ),
+}
+
+
+#: Checks run on a GPO before it is committed (`register_answer_check`).
+_ANSWER_CHECKS: list[Callable[[GPO], object]] = []
+
+
+def register_answer_check(check: Callable[[GPO], object]) -> None:
+    """Run *check* on every GPO a mutation or creation is about to commit,
+    before the commit (DeepSeek final-r19 N3). The API registers the build of
+    the payload it answers with: if that cannot be built, the change is
+    rolled back instead of committed and then answered with a 500."""
+    if check not in _ANSWER_CHECKS:
+        _ANSWER_CHECKS.append(check)
+
+
+#: What each check built for a GPO committed in THIS context, by guid:
+#: ``guid -> (the committed GPO object, {check: result})``. A context
+#: variable, never mutated in place (each change sets a new mapping), so what
+#: one request committed is visible to that request only (Sol final-r20 B2:
+#: it was a process-global dictionary any failed creation could evict from).
+_COMMITTED: ContextVar[Mapping[str, tuple[GPO, Mapping[Any, object]]] | None] = ContextVar(
+    "store_committed_answers", default=None
+)
+#: Commits remembered per context. A request commits one or two GPOs; the
+#: bound only keeps a long-lived context (a script driving the store
+#: directly) from holding every payload it ever built.
+_COMMITTED_MAX = 8
+
+
+def _before_commit(gpo: GPO) -> dict[Any, object]:
+    """Each registered check's result for *gpo*, built before its commit.
+
+    Validation is run either way: with no check registered (the store used
+    on its own) it is the crash pre-flight; with one, the check's payload
+    carries its result."""
+    if not _ANSWER_CHECKS:
+        validate_gpo(gpo)
+    return {check: check(gpo) for check in _ANSWER_CHECKS}
+
+
+def _after_commit(gpo: GPO, answers: dict[Any, object]) -> None:
+    current = dict(_COMMITTED.get() or {})
+    current.pop(gpo.guid, None)
+    while len(current) >= _COMMITTED_MAX:
+        current.pop(next(iter(current)))
+    current[gpo.guid] = (gpo, answers)
+    _COMMITTED.set(current)
+
+
+@contextlib.contextmanager
+def answer_scope() -> Iterator[None]:
+    """A scope of its own for the answers commits leave (`committed_answer`):
+    the API opens one per request, so a request sees only what it committed,
+    whatever context it was started from."""
+    token = _COMMITTED.set(None)
+    try:
+        yield
+    finally:
+        _COMMITTED.reset(token)
+
+
+def committed_answer(gpo: GPO, check: Callable[[GPO], object]) -> object | None:
+    """What *check* built for *gpo* before this context committed it, taken
+    (once), or ``None`` if this context committed no GPO with its guid.
+
+    A committed GPO answered with another object than the one committed is a
+    programming error -- the answer would be rebuilt after the commit, which
+    is what building it first exists to rule out -- and raises."""
+    current = _COMMITTED.get() or {}
+    entry = current.get(gpo.guid)
+    if entry is None:
+        return None
+    _COMMITTED.set({guid: value for guid, value in current.items() if guid != gpo.guid})
+    committed, answers = entry
+    if committed is not gpo or check not in answers:
+        raise RuntimeError(
+            f"GPO {gpo.guid} was committed in this request but is being answered "
+            "without the answer built before its commit"
+        )
+    return answers[check]
+
+
+def _replaced_on_read(gpo: GPO) -> list[ValidationIssue]:
+    """The stored values *gpo*'s read replaced: of the wrong type, missing, or
+    an unreadable import record (final-r18).
+
+    The typed load replaces each with its default, never coercing it; the
+    GPO is blocked. Storing the GPO again would store the default in its
+    place -- an edit, a fork, a derived GPO or a copy would turn "false" into
+    the default ``true`` and unblock it -- so each refuses such a GPO. The
+    recoveries (`stored_types.RECOVERIES`, named in each issue) replace the
+    content whole: a revision restore, a replacement from a fresh import
+    (`replace_from_import`), or deleting the GPO (`delete_gpo`)."""
+    from .validation import validate_gpo
+
+    if not _has_replaced(gpo):
+        return []
+    return [
+        issue
+        for issue in validate_gpo(gpo)
+        if issue.code == "stored_value_wrong_type" and issue.severity == "error"
+    ]
+
+
+def _has_replaced(gpo: GPO) -> bool:
+    return bool(gpo.load_problems) or any(
+        message.startswith(STORED_WRONG_TYPE)
+        for collection in gpo.gpp_collections
+        for _severity, message in collection.load_problems
+    )
+
+
+def _plain_guid(value: str) -> str:
+    return value.strip().strip("{}").lower()
+
+
+def require_unreplaced(gpo: GPO) -> None:
+    issues = _replaced_on_read(gpo)
+    if issues:
+        raise ValidationError(issues)
+
+
+def _stored_record[Record](
+    loader: Callable[[object], Record],
+    value: object,
+    path: str,
+    problems: list[tuple[str, str]],
+) -> Record | None:
+    """An import record (the native inventory, the fdeploy document) read back
+    tolerantly: one its loader refuses is recorded as a problem -- an error,
+    so the GPO is blocked -- and left out, never fatal on read (final-r18)."""
+    if value is None:
+        return None
+    try:
+        return loader(value)
+    except StudioError as error:
+        problems.append((path, f"the stored record is unreadable ({error})"))
+        return None
+
+
 def gpo_from_dict(data: dict[str, Any]) -> GPO:
     from .backup_inventory import inventory_from_dict
 
+    # Stored JSON is held to the model's types first, never coerced: a value of
+    # the wrong type is reported and replaced by its default (final-r18,
+    # `stored_types`), the preferences and import records included.
+    problems: list[tuple[str, str]] = []
+    data = check_stored(
+        GPO,
+        data,
+        "",
+        problems,
+        skip=frozenset({"load_problems"}),
+    )
     gpo = GPO(
         guid=str(data["guid"]),
         name=str(data["name"]),
         description=str(data.get("description", "")),
-        computer_enabled=bool(data.get("computer_enabled", True)),
-        user_enabled=bool(data.get("user_enabled", True)),
+        computer_enabled=stored_flag(data.get("computer_enabled", True), True),
+        user_enabled=stored_flag(data.get("user_enabled", True), True),
         status=data.get("status", "draft"),
         revision=int(data.get("revision", 0)),
         settings=tuple(_setting(item) for item in data.get("settings", [])),
@@ -315,28 +652,25 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         cse_metadata=tuple(
             _cse_metadata_entry(item) for item in data.get("cse_metadata", [])
         ),
-        backup_inventory=(
-            inventory_from_dict(data["backup_inventory"])
-            if data.get("backup_inventory") is not None else None
+        backup_inventory=_stored_record(
+            inventory_from_dict, data.get("backup_inventory"), "/backup_inventory", problems
         ),
-        fdeploy=(
-            fdeploy_from_dict(data["fdeploy"])
-            if data.get("fdeploy") is not None else None
-        ),
+        fdeploy=_stored_record(fdeploy_from_dict, data.get("fdeploy"), "/fdeploy", problems),
         security_filters=tuple(
-            _security_filter(item) for item in data.get("security_filters", [])
+            _security_filter(item, strict=False) for item in data.get("security_filters", [])
         ),
-        wmi_filter=_wmi_filter(data["wmi_filter"]) if data.get("wmi_filter") else None,
+        wmi_filter=_wmi_filter(data["wmi_filter"]) if data.get("wmi_filter") is not None else None,
         gpp_collections=tuple(
             _gpp_collection(item) for item in data.get("gpp_collections", [])
         ),
-        is_starter=bool(data.get("is_starter", False)),
+        is_starter=stored_flag(data.get("is_starter", False), False),
         template_version=str(data.get("template_version", "")),
         domain=str(data.get("domain", "studio.local")),
         created_at=str(data.get("created_at", "")),
         updated_at=str(data.get("updated_at", "")),
+        load_problems=tuple(("error", problem_message(path, what)) for path, what in problems),
     )
-    return _assign_legacy_gpp_ids(gpo)
+    return _loaded_gpp(_assign_legacy_gpp_ids(gpo))
 
 
 def lf_line_breaks(text: Any) -> Any:
@@ -638,7 +972,10 @@ class WorkspaceStore:
         unwritable = text_issues(gpo)
         if unwritable:
             raise ValidationError(unwritable)
-        data = gpo.to_dict()
+        data = gpo.to_stored_dict()
+        for collection_data in data.get("gpp_collections", []):
+            # Derived on every load, never stored (final-r14 `load_problems`).
+            collection_data.pop("load_problems", None)
         try:
             documents = extract_snapshot_documents(data)
         except SnapshotDocumentError as error:
@@ -735,6 +1072,13 @@ class WorkspaceStore:
     ) -> GPO:
         actor = _resolve_actor(identity)
         timestamp = _now()
+        # A creation keeps the provenance records its collections carry -- an
+        # import's minted ones, a fork's carried ones -- for the fragments they
+        # still hold; it mints none itself (final-r13).
+        gpp_collections = tuple(
+            provenance.with_records(collection, provenance.records(collection))
+            for collection in gpp_collections
+        )
         gpo = GPO(
             guid=(guid or str(uuid.uuid4())).lower().strip("{}"),
             name=name.strip(),
@@ -758,6 +1102,7 @@ class WorkspaceStore:
             created_at=timestamp,
             updated_at=timestamp,
         )
+        answers = _before_commit(gpo)
         payload, documents = self._encode_snapshot_payload(gpo)
         with self._lock:
             self._require_healthy()
@@ -779,6 +1124,7 @@ class WorkspaceStore:
                 with contextlib.suppress(sqlite3.Error):
                     self._connection.execute("ROLLBACK")
                 self._map_sqlite_error(error)
+        _after_commit(gpo, answers)
         return gpo
 
     def list_starter_gpos(self) -> list[GPO]:
@@ -840,6 +1186,7 @@ class WorkspaceStore:
         starter = self.get_gpo(starter_guid)
         if not starter.is_starter:
             raise NotFoundError(f"Starter GPO {starter_guid} was not found")
+        require_unreplaced(starter)
         if expected_revision is not None and starter.revision != expected_revision:
             raise ConflictError(
                 f"Expected revision {expected_revision}, "
@@ -860,6 +1207,41 @@ class WorkspaceStore:
             status="draft",
         )
 
+    def delete_gpo(
+        self,
+        guid: str,
+        expected_revision: int,
+        *,
+        identity: Identity | str,
+        reason: str,
+        confirm: str | None,
+    ) -> None:
+        """Delete a GPO whose read replaced a stored value -- one of its
+        recoveries (Sol final-r20 B1). Deleting persists nothing, so no default
+        is stored in a value's place. A readable GPO is not deleted here:
+        Studio has no general GPO deletion.
+
+        Not lossy (final-r20 ruling): *confirm* must repeat the GPO's guid
+        exactly, and every stored row of the GPO -- its head, every revision
+        (each snapshot, the provenance records inside it) and the retained
+        documents they reference -- is copied, byte for byte, into the
+        ``deleted_*`` archive tables in the same transaction as the deletion,
+        so an operator can audit it and put it back
+        (docs/workspace-recovery.md)."""
+        if confirm != guid:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="delete_confirmation_required",
+                    message=(
+                        "Deleting a GPO needs its guid repeated as confirm=<guid>; the GPO "
+                        "is archived, not lost (docs/workspace-recovery.md)."
+                    ),
+                    path="confirm",
+                )
+            ])
+        self._delete(guid, expected_revision, identity=identity, reason=reason, starter=False)
+
     def delete_starter_gpo(
         self,
         guid: str,
@@ -868,24 +1250,50 @@ class WorkspaceStore:
         identity: Identity | str,
         reason: str,
     ) -> None:
+        self._delete(guid, expected_revision, identity=identity, reason=reason, starter=True)
+
+    def _delete(
+        self,
+        guid: str,
+        expected_revision: int,
+        *,
+        identity: Identity | str,
+        reason: str,
+        starter: bool,
+    ) -> None:
         actor = _resolve_actor(identity)
         with self._lock:
             self._require_healthy()
             current = self.get_gpo(guid)
-            if not current.is_starter:
+            if starter and not current.is_starter:
                 raise NotFoundError(f"Starter GPO {guid} was not found")
+            if not starter and not _has_replaced(current):
+                raise ValidationError([
+                    ValidationIssue(
+                        severity="error",
+                        code="gpo_delete_not_a_recovery",
+                        message=(
+                            "Studio deletes a GPO only as the recovery for stored values it "
+                            "cannot read; this GPO has none."
+                        ),
+                        path="",
+                    )
+                ])
             if current.revision != expected_revision:
                 raise ConflictError(
                     f"Expected revision {expected_revision} but current is {current.revision}",
                     expected_revision=expected_revision,
                     current_revision=current.revision,
                 )
+            deleted_at = _now()
             try:
                 self._connection.execute("BEGIN IMMEDIATE")
+                if not starter:
+                    self._archive_rows(current.guid, deleted_at)
                 self._connection.execute(
                     """INSERT INTO deletion_log(guid, name, actor, reason, revision, deleted_at)
                        VALUES(?,?,?,?,?,?)""",
-                    (current.guid, current.name, actor, reason, current.revision, _now()),
+                    (current.guid, current.name, actor, reason, current.revision, deleted_at),
                 )
                 self._connection.execute(
                     "DELETE FROM revisions WHERE gpo_guid = ?",
@@ -909,6 +1317,78 @@ class WorkspaceStore:
                     self._connection.execute("ROLLBACK")
                 self._map_sqlite_error(exc)
                 raise
+
+    def _archive_rows(self, guid: str, deleted_at: str) -> None:
+        """Copy every stored row of *guid* into the ``deleted_*`` archive
+        tables; call inside the deletion's transaction.
+
+        Each deletion is one event with its own ``deletion_id`` (a fresh UUID:
+        two deletions of one GPO, even within a second, never collide --
+        DeepSeek final-r21 N2), and every archive row -- the retained documents
+        included, one row per document per deletion -- carries it and the
+        deletion's ``deleted_at``. The tables are additive: created on first
+        use and read by nothing in Studio, so the schema version is unchanged
+        and an older build opens the workspace as before. Each copies its
+        source table's columns as they are (``INSERT ... SELECT``)."""
+        connection = self._connection
+        for table, columns in _ARCHIVE_TABLES.items():
+            self._archive_table(table, columns)
+        event = (uuid.uuid4().hex, deleted_at)
+        connection.execute(
+            """INSERT INTO deleted_gpos
+               SELECT ?, ?, guid, name, revision, snapshot_json, updated_at
+               FROM gpos WHERE guid = ?""",
+            (*event, guid),
+        )
+        connection.execute(
+            """INSERT INTO deleted_revisions
+               SELECT ?, ?, gpo_guid, revision, actor, reason, created_at, snapshot_json
+               FROM revisions WHERE gpo_guid = ?""",
+            (*event, guid),
+        )
+        connection.execute(
+            """INSERT INTO deleted_snapshot_documents
+               SELECT ?, ?, gpo_guid, revision, digest FROM snapshot_documents
+               WHERE gpo_guid = ?""",
+            (*event, guid),
+        )
+        connection.execute(
+            """INSERT INTO deleted_retained_documents
+               SELECT ?, ?, digest, content_base64, byte_length FROM retained_documents
+               WHERE digest IN (SELECT digest FROM snapshot_documents WHERE gpo_guid = ?)""",
+            (*event, guid),
+        )
+
+    def _archive_table(
+        self, table: str, columns: tuple[tuple[tuple[str, str], ...], tuple[str, ...]]
+    ) -> None:
+        """Create archive *table* in its current shape. One that exists in
+        another shape -- written by an earlier build -- is renamed aside, to
+        ``<table>_preshape_<n>``, kept and never dropped, and a current one
+        created (final-r22: ``CREATE TABLE IF NOT EXISTS`` left an old shape
+        in place, and every later deletion failed on it)."""
+        connection = self._connection
+        names, key = columns
+        expected = [name for name, _type in names]
+        present = [
+            str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        ]
+        if present and present != expected:
+            number = 1
+            # Any schema object's name -- table, view, index, trigger -- is
+            # taken (DeepSeek final-r23 N2), compared as SQLite compares them,
+            # without regard to case.
+            while connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = ? COLLATE NOCASE",
+                (f"{table}_preshape_{number}",),
+            ).fetchone():
+                number += 1
+            connection.execute(f"ALTER TABLE {table} RENAME TO {table}_preshape_{number}")
+        definition = ", ".join(f"{name} {kind} NOT NULL" for name, kind in names)
+        connection.execute(
+            f"CREATE TABLE IF NOT EXISTS {table} "
+            f"({definition}, PRIMARY KEY ({', '.join(key)}))"
+        )
 
     def import_baseline_gpos(
         self,
@@ -1008,6 +1488,7 @@ class WorkspaceStore:
         reason: str,
     ) -> GPO:
         source = self.get_gpo(guid)
+        require_unreplaced(source)
         forked_settings = tuple(
             replace(s, id=f"forked-{s.id}") for s in source.settings
         )
@@ -1038,8 +1519,29 @@ class WorkspaceStore:
             user_enabled=source.user_enabled,
             security_filters=forked_security_filters,
             wmi_filter=forked_wmi,
+            # The same items, so their provenance records carry over as they
+            # are (final-r13). Their run-once ids stay too: a fork is how an
+            # imported GPO is edited, and a new id would make every client
+            # apply its apply-once items again (WI-080). A clone is a new item
+            # and gets fresh ones (`gpp_provenance.fresh_item`).
             gpp_collections=source.gpp_collections,
         )
+
+    def _unchanged(self, guid: str, expected_revision: int) -> GPO:
+        """A mutation with nothing to change: the GPO as it is -- after the same
+        checks `_mutate` makes, so an empty change is no way around them (Sol
+        final-r19 B1): the expected revision, and no stored value the read
+        replaced."""
+        current = self.get_gpo(guid)
+        if current.revision != expected_revision:
+            raise ConflictError(
+                f"Expected revision {expected_revision}, "
+                f"but the current revision is {current.revision}",
+                expected_revision=expected_revision,
+                current_revision=current.revision,
+            )
+        require_unreplaced(current)
+        return current
 
     def _mutate(
         self,
@@ -1049,6 +1551,8 @@ class WorkspaceStore:
         *,
         identity: Identity | str,
         reason: str,
+        grants: _Grants | None = None,
+        replaces_all: bool = False,
     ) -> GPO:
         actor = _resolve_actor(identity)
         with self._lock:
@@ -1063,11 +1567,19 @@ class WorkspaceStore:
                         expected_revision=expected_revision,
                         current_revision=current.revision,
                     )
+                if not replaces_all:
+                    require_unreplaced(current)
                 timestamp = _now()
-                changed = mutation(current)
+                # Every mutation passes the provenance check (final-r13): it may
+                # keep or drop retained content, and add only what *grants* names.
+                changed = _keep_provenance(current, mutation(current), grants)
                 updated = replace(
                     changed, revision=current.revision + 1, updated_at=timestamp
                 )
+                # The answer is built before the commit (final-r18, r19 N3): a
+                # failure building it raises here and rolls the mutation back,
+                # so no durable revision is followed by a 500.
+                answers = _before_commit(updated)
                 payload, documents = self._encode_snapshot_payload(updated)
                 self._store_documents(current.guid, 0, documents)
                 self._store_documents(current.guid, updated.revision, documents)
@@ -1098,6 +1610,7 @@ class WorkspaceStore:
                 if isinstance(exc, sqlite3.Error):
                     self._map_sqlite_error(exc)
                 raise
+        _after_commit(updated, answers)
         return updated
 
     def update_metadata(
@@ -1169,7 +1682,7 @@ class WorkspaceStore:
         reason: str,
     ) -> GPO:
         if not new_settings:
-            return self.get_gpo(guid)
+            return self._unchanged(guid, expected_revision)
         self._validate_settings(new_settings)
         new_ids = {s.id for s in new_settings}
 
@@ -1227,7 +1740,7 @@ class WorkspaceStore:
         reason: str,
     ) -> GPO:
         if not replacements:
-            return self.get_gpo(guid)
+            return self._unchanged(guid, expected_revision)
         prefixes: list[str] = []
         all_new_settings: list[RegistrySetting] = []
         for prefix, settings in replacements:
@@ -1303,7 +1816,9 @@ class WorkspaceStore:
             links = [item for item in gpo.links if item.id != new_link.id]
             links.append(new_link)
             links.sort(key=lambda item: (item.target.casefold(), item.order))
-            return replace(gpo, links=tuple(links))
+            updated = replace(gpo, links=tuple(links))
+            _refuse_identity_issues(updated, f"links/{new_link.id}/")
+            return updated
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
@@ -1340,7 +1855,9 @@ class WorkspaceStore:
             filters = [item for item in gpo.security_filters if item.id != new_filter.id]
             filters.append(new_filter)
             filters.sort(key=lambda item: item.principal.casefold())
-            return replace(gpo, security_filters=tuple(filters))
+            updated = replace(gpo, security_filters=tuple(filters))
+            _refuse_identity_issues(updated, f"security_filters/{new_filter.id}/")
+            return updated
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
@@ -1381,14 +1898,48 @@ class WorkspaceStore:
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
-    def _validate_gpp(self, collection: GppCollection) -> None:
+    def _validate_gpp(
+        self,
+        collection: GppCollection,
+        before: tuple[int, GppCollection] | None = None,
+    ) -> None:
+        """Refuse a preference mutation that leaves an error it did not find.
+
+        Only NEW errors refuse it. A collection stored before a rule tightened
+        (two group SIDs a 1.1.0rc1 workspace accepted, say) would otherwise refuse
+        every edit and delete, including the one that repairs it (DeepSeek
+        final-r7 N4). Errors are compared as a multiset keyed by code, path
+        without item indices and message, so editing a bad item to a good one,
+        or deleting one, always passes, and adding or keeping-and-adding a bad
+        value does not.
+        """
         errors = [
             issue
             for issue in validate_gpp_collection(collection)
             if issue.severity == "error"
         ]
+        if before is not None:
+            known = Counter(
+                _issue_key(issue)
+                for issue in validate_gpp_collection(before[1])
+                if issue.severity == "error"
+            )
+            seen: Counter[tuple[str, str, str]] = Counter()
+            fresh = []
+            for issue in errors:
+                key = _issue_key(issue)
+                seen[key] += 1
+                if seen[key] > known[key]:
+                    fresh.append(issue)
+            errors = fresh
         if errors:
             raise ValidationError(errors)
+        if before is not None:
+            # A collection that did not write before may still not write after a
+            # repair of one item; what it must not do is stop writing because of
+            # this mutation. validate_gpp_collection reports that case
+            # (`unwritable_preferences`) as a new error above.
+            return
         # Nothing is committed that Studio cannot write. Validation and the
         # writer are separate code; where they disagreed (a padded CIDR, a raw
         # predicate that does not parse) the mutation committed and every later
@@ -1483,7 +2034,7 @@ class WorkspaceStore:
                     registry_by_id[item_id] for item_id in ordered_ids
                 )
                 new_collection = replace(existing, registry=reordered_registry)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(
                 gpo,
                 gpp_collections=self._replace_collection(gpo, idx, new_collection),
@@ -1497,6 +2048,136 @@ class WorkspaceStore:
             reason=reason,
         )
 
+    def clone_gpp_item(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        kind: Literal["groups", "registry"],
+        item_id: str,
+        *,
+        name: str | None = None,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        """Copy a stored GPP group or registry item, server-side and under the store
+        lock, as a new item after the existing ones (Sol and DeepSeek final-r12).
+
+        Retained content stays exactly as stored -- it is copied here, never
+        supplied by the caller -- and so do its provenance records, re-keyed
+        onto the copy's ids (final-r13). What makes the copy a new item is
+        fresh: item, member and value ids, the run-once id, and what identifies
+        the original to Windows (`gpp_provenance.fresh_item`). A group may take
+        a new name.
+        """
+        grants = _Grants()
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            source = None
+            if found is not None:
+                source = next(
+                    (item for item in getattr(found[1], kind) if item.id == item_id), None
+                )
+            if found is None or source is None:
+                raise NotFoundError(f"GPP {kind} item {item_id} not found")
+            idx, existing = found
+            copy = provenance.fresh_item(source, clone=True)
+            if isinstance(copy, GppGroup) and name is not None:
+                copy = replace(copy, name=name)
+            # A registry copy's uid is derived from its new id, as for any new item.
+            copy = (
+                ensure_editor_ids(GppCollection(scope=scope, registry=(copy,))).registry[0]
+                if isinstance(copy, GppRegistry)
+                else copy
+            )
+            grants.grant(
+                scope,
+                {provenance.digest(key) for key, _text in provenance.item_fragments(kind, copy)},
+                provenance.carried_records(kind, source, copy, provenance.records(existing)),
+            )
+            if isinstance(copy, GppGroup):
+                new_collection = replace(existing, groups=existing.groups + (copy,))
+            else:
+                new_collection = replace(existing, registry=existing.registry + (copy,))
+            self._validate_gpp(new_collection, before=found)
+            return replace(
+                gpo, gpp_collections=self._replace_collection(gpo, idx, new_collection)
+            )
+
+        return self._mutate(
+            guid, expected_revision, mutate, identity=identity, reason=reason, grants=grants
+        )
+
+    def restore_gpp_item(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        kind: Literal["groups", "registry"],
+        item_id: str,
+        from_revision: int,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        """Put back one GPP item exactly as a named revision stored it.
+
+        The item replaces the current item with the same id (or is appended if
+        it has since been deleted). Its retained content comes from that
+        revision, and so do its provenance records: the restore copies the
+        records that revision holds for this item and creates none (final-r13).
+        """
+        historical = gpo_from_dict(self.get_revision(guid, from_revision).snapshot)
+        require_unreplaced(historical)
+        old_found = self._find_collection(historical, scope)
+        restored = None
+        if old_found is not None:
+            restored = next(
+                (item for item in getattr(old_found[1], kind) if item.id == item_id), None
+            )
+        if old_found is None or restored is None:
+            raise NotFoundError(
+                f"GPP {kind} item {item_id} not found in revision {from_revision}"
+            )
+        grants = _Grants()
+        grants.grant(
+            scope,
+            {provenance.digest(key) for key, _text in provenance.item_fragments(kind, restored)},
+            provenance.item_records(old_found[1], kind, restored),
+        )
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                new_collection = (
+                    GppCollection(scope=scope, groups=(restored,))
+                    if kind == "groups"
+                    else GppCollection(scope=scope, registry=(restored,))
+                )
+                collections = gpo.gpp_collections + (new_collection,)
+            else:
+                idx, existing = found
+                items = list(getattr(existing, kind))
+                for index, item in enumerate(items):
+                    if item.id == item_id:
+                        items[index] = restored
+                        break
+                else:
+                    items.append(restored)
+                new_collection = (
+                    replace(existing, groups=tuple(items))
+                    if kind == "groups"
+                    else replace(existing, registry=tuple(items))
+                )
+                collections = self._replace_collection(gpo, idx, new_collection)
+            self._validate_gpp(new_collection, before=found)
+            return replace(gpo, gpp_collections=collections)
+
+        return self._mutate(
+            guid, expected_revision, mutate, identity=identity, reason=reason, grants=grants
+        )
+
     def put_gpp_group(
         self,
         guid: str,
@@ -1508,7 +2189,15 @@ class WorkspaceStore:
         reason: str,
         must_exist: bool = False,
         common_edits: Mapping[str, bool] | None = None,
+        merge: Callable[[GppGroup], GppGroup] | None = None,
     ) -> GPO:
+        """Add *group*, or replace the stored group with its id.
+
+        With *merge* (the API's edits, final-r13) the replacement is
+        ``merge(stored)``, computed under the store lock from the stored group:
+        an edit carries typed fields and ids, never retained content, and the
+        stored item supplies the rest.
+        """
         processed = ensure_editor_ids(GppCollection(scope=scope, groups=(group,)))
         group = processed.groups[0]
 
@@ -1525,8 +2214,13 @@ class WorkspaceStore:
                 groups_list = list(existing.groups)
                 try:
                     gi = next(i for i, x in enumerate(groups_list) if x.id == group.id)
+                    edited = group
+                    if merge is not None:
+                        edited = ensure_editor_ids(
+                            GppCollection(scope=scope, groups=(merge(groups_list[gi]),))
+                        ).groups[0]
                     groups_list[gi] = _keep_document_position(
-                        _with_common_edits(group, groups_list[gi], common_edits),
+                        _with_common_edits(edited, groups_list[gi], common_edits),
                         groups_list[gi],
                     )
                 except StopIteration:
@@ -1537,7 +2231,7 @@ class WorkspaceStore:
                     groups_list.append(_with_common_edits(group, None, common_edits))
                 new_collection = replace(existing, groups=tuple(groups_list))
                 new_collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1577,7 +2271,7 @@ class WorkspaceStore:
                 raise NotFoundError(f"GPP group '{group_id}' was not found")
             groups = tuple(groups_list[:gi] + groups_list[gi + 1 :])
             new_collection = replace(existing, groups=groups)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             if (
                 not new_collection.groups
                 and not new_collection.registry
@@ -1606,7 +2300,10 @@ class WorkspaceStore:
         reason: str,
         must_exist: bool = False,
         common_edits: Mapping[str, bool] | None = None,
+        merge: Callable[[GppRegistry], GppRegistry] | None = None,
     ) -> GPO:
+        """Add *registry*, or replace the stored item with its id; *merge* as
+        for `put_gpp_group`."""
         processed = ensure_editor_ids(GppCollection(scope=scope, registry=(registry,)))
         registry = processed.registry[0]
 
@@ -1625,9 +2322,14 @@ class WorkspaceStore:
                 items_list = list(existing.registry)
                 try:
                     ri = next(i for i, x in enumerate(items_list) if x.id == registry.id)
+                    edited = registry
+                    if merge is not None:
+                        edited = ensure_editor_ids(
+                            GppCollection(scope=scope, registry=(merge(items_list[ri]),))
+                        ).registry[0]
                     items_list[ri] = _keep_document_position(
                         registry_action_edit(
-                            _with_common_edits(registry, items_list[ri], common_edits),
+                            _with_common_edits(edited, items_list[ri], common_edits),
                             items_list[ri],
                         ),
                         items_list[ri],
@@ -1640,7 +2342,7 @@ class WorkspaceStore:
                     items_list.append(_with_common_edits(registry, None, common_edits))
                 new_collection = replace(existing, registry=tuple(items_list))
                 new_collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1681,7 +2383,7 @@ class WorkspaceStore:
                 raise NotFoundError(f"GPP registry '{registry_id}' was not found")
             items = tuple(items_list[:ri] + items_list[ri + 1 :])
             new_collection = replace(existing, registry=items)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             if (
                 not new_collection.groups
                 and not new_collection.registry
@@ -1710,6 +2412,7 @@ class WorkspaceStore:
         identity: Identity | str,
         reason: str,
         must_exist: bool = False,
+        merge: Callable[[GppGroupMember], GppGroupMember] | None = None,
     ) -> GPO:
         if not member.id:
             member = replace(member, id=str(uuid.uuid4()))
@@ -1732,7 +2435,7 @@ class WorkspaceStore:
             members_list = list(group.members)
             try:
                 mi = next(i for i, x in enumerate(members_list) if x.id == member.id)
-                members_list[mi] = member
+                members_list[mi] = merge(members_list[mi]) if merge is not None else member
             except StopIteration:
                 if must_exist:
                     raise NotFoundError(
@@ -1746,7 +2449,7 @@ class WorkspaceStore:
             )
             new_collection = replace(existing, groups=new_groups)
             new_collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1802,7 +2505,7 @@ class WorkspaceStore:
             )
             new_collection = replace(existing, groups=new_groups)
             new_collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1818,6 +2521,7 @@ class WorkspaceStore:
         identity: Identity | str,
         reason: str,
         must_exist: bool = False,
+        merge: Callable[[GppRegistryValue], GppRegistryValue] | None = None,
     ) -> GPO:
         if not value.id:
             value = replace(value, id=str(uuid.uuid4()))
@@ -1854,14 +2558,15 @@ class WorkspaceStore:
                         path="value_id",
                     )
                 ])
-            new_registry = replace(registry, value=value)
+            new_value = merge(registry.value) if merge is not None and must_exist else value
+            new_registry = replace(registry, value=new_value)
             new_registries = tuple(
                 new_registry if i == reg_idx else r
                 for i, r in enumerate(existing.registry)
             )
             new_collection = replace(existing, registry=new_registries)
             new_collections = self._replace_collection(gpo, idx, new_collection)
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1920,7 +2625,7 @@ class WorkspaceStore:
                 new_collections = tuple(
                     c for i, c in enumerate(gpo.gpp_collections) if i != idx
                 )
-            self._validate_gpp(new_collection)
+            self._validate_gpp(new_collection, before=self._find_collection(gpo, scope))
             return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1987,6 +2692,16 @@ class WorkspaceStore:
             if ready_issues:
                 raise ValidationError(ready_issues)
 
+        # The revision's retained content and its provenance records come back
+        # with it; the restore creates no record (final-r13).
+        grants = _Grants()
+        for collection in historical.gpp_collections:
+            grants.grant(
+                collection.scope,
+                provenance.fragments(collection),
+                provenance.records(collection),
+            )
+
         def mutate(current: GPO) -> GPO:
             return replace(
                 historical,
@@ -1995,7 +2710,162 @@ class WorkspaceStore:
                 updated_at=current.updated_at,
             )
 
-        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+        # The one change a GPO whose read replaced stored values may take: it
+        # replaces everything, with a revision validated above.
+        return self._mutate(
+            guid,
+            expected_revision,
+            mutate,
+            identity=identity,
+            reason=reason,
+            grants=grants,
+            replaces_all=True,
+        )
+
+    def replace_from_import(
+        self,
+        guid: str,
+        expected_revision: int,
+        imported: GPO,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        """Replace a GPO's content whole with a fresh import of its source
+        backup, as a new revision (Sol final-r20 B1).
+
+        The recovery for a GPO whose stored values cannot be read, when no
+        earlier revision is readable either (an import's first revision): a
+        re-import as a new GPO conflicts on its name. *imported* is the GPO the
+        import built (its guid and revision are this GPO's); it must be of the
+        same source GPO, so an unrelated backup cannot overwrite this one. Its
+        preferences carry the import's freshly minted provenance records,
+        granted here as an import's are; nothing of the current content is
+        kept. Every earlier revision stays as it was."""
+        current = self.get_gpo(guid)
+        if not _has_replaced(current):
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="replace_not_a_recovery",
+                    message=(
+                        "Studio replaces a GPO from an import only as the recovery for "
+                        "stored values it cannot read; this GPO has none. To bring it in "
+                        "line with its backup, rename it, import the backup as a new GPO, "
+                        "and carry the differences across with the diff."
+                    ),
+                    path="replace_guid",
+                )
+            ])
+        self._require_same_source(guid, imported)
+        grants = _Grants()
+        for collection in imported.gpp_collections:
+            grants.grant(
+                collection.scope,
+                provenance.fragments(collection),
+                provenance.records(collection),
+            )
+
+        def mutate(existing: GPO) -> GPO:
+            return replace(
+                imported,
+                guid=existing.guid,
+                revision=existing.revision,
+                created_at=existing.created_at,
+                updated_at=existing.updated_at,
+            )
+
+        return self._mutate(
+            guid,
+            expected_revision,
+            mutate,
+            identity=identity,
+            reason=reason,
+            grants=grants,
+            replaces_all=True,
+        )
+
+    def _require_same_source(self, guid: str, imported: GPO) -> None:
+        """Refuse a replacement unless *imported* is a backup of the very GPO
+        *guid* was first imported from (Sol final-r21 B1).
+
+        A GPO GUID is not unique across estates -- another forest's GPO, or a
+        same-named domain rebuilt with a new domain GUID, can carry it -- so
+        the identity is the GPO GUID, the domain's DNS name AND its GUID
+        (``GPODomainGuid``), compared with what the FIRST revision's import
+        record holds: revision 1 is immutable, the head is not. A GPO whose
+        first import recorded no domain GUID (an import before 1.1.0, an
+        estate entry, a Studio-format bundle) cannot be identified, so it is
+        refused, not half-checked -- its other recoveries remain (a readable
+        revision, or a deletion, which is archived, then a fresh import)."""
+        first = gpo_from_dict(self.get_revision(guid, 1).snapshot)
+        recorded = first.backup_inventory
+        offered = imported.backup_inventory
+
+        def identity(inventory: BackupInventory | None) -> tuple[str, str, str] | None:
+            if inventory is None or not inventory.source_domain_guid:
+                return None
+            return (
+                _plain_guid(inventory.source_gpo_guid),
+                inventory.source_domain.strip().rstrip(".").casefold(),
+                _plain_guid(inventory.source_domain_guid),
+            )
+
+        def shown(value: tuple[str, str, str] | None) -> str:
+            if value is None:
+                return "no recorded domain identity"
+            return f"GPO {{{value[0]}}} in {value[1]} (domain {{{value[2]}}})"
+
+        mine, theirs = identity(recorded), identity(offered)
+        if mine is not None and _plain_guid(first.source_guid) != mine[0]:
+            # Revision 1 carries an import record but is not the import: a
+            # fork copies its parent's record, and its source is the parent
+            # (DeepSeek final-r22 N1). A fork is its own GPO, never replaced by
+            # its ancestor's backup.
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="replace_not_the_import",
+                    message=(
+                        "Only a GPO whose first revision is an import is replaced from a "
+                        "backup; this GPO's first revision was made from another Studio "
+                        f"GPO ({first.source_guid or 'none'}). Restore a readable revision, "
+                        "or delete the GPO (archived) and import the backup as a new GPO."
+                    ),
+                    path="replace_guid",
+                )
+            ])
+        if mine is None:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="replace_source_unrecorded",
+                    message=(
+                        "This GPO's first revision recorded no domain identity -- it was "
+                        "imported before 1.1.0, not from a native GPMC backup, or from a "
+                        "backup whose manifest has no GPODomainGuid -- so Studio cannot "
+                        "prove a backup is of the same GPO and will not replace it. "
+                        "Restore a readable revision, or delete the GPO (archived) and "
+                        "import the backup as a new GPO."
+                    ),
+                    path="replace_guid",
+                )
+            ])
+        if theirs != mine or _plain_guid(imported.source_guid) != mine[0]:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="replace_source_mismatch",
+                    # The recorded identity is never served (final-r23), so the
+                    # refusal names only what the offered backup holds.
+                    message=(
+                        "A GPO is replaced only by a backup of the GPO it was first "
+                        f"imported from; this backup holds {shown(theirs)}, which is not "
+                        "the GPO, domain and domain GUID recorded at that import."
+                    ),
+                    path="replace_guid",
+                )
+            ])
 
     def deletion_log(self) -> list[dict[str, Any]]:
         with self._lock:

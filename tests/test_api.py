@@ -1407,7 +1407,6 @@ def test_gpp_group_crud_via_api(tmp_path) -> None:
                     "name": "Admins",
                     "sid": "S-1-5-32-544",
                     "action": "update",
-                    "id": group_id,
                 },
             },
         )
@@ -1646,7 +1645,7 @@ def test_gpp_group_with_ilt_filter(tmp_path) -> None:
                     "sid": "S-1-5-32-544",
                     "action": "update",
                     "ilt_filter": {
-                        "predicates": [
+                        "items": [
                             {
                                 "type": "ou",
                                 "value": "OU=Workstations,DC=example,DC=test",
@@ -1689,7 +1688,9 @@ def test_gpp_group_rejects_reserved_unknown_attr(tmp_path) -> None:
         )
         assert resp.status_code == 422
         issues = resp.json()["error"]["issues"]
-        assert any("reserved" in i["message"].lower() for i in issues)
+        # No request carries retained content (final-r13): refused as a field
+        # the request may not hold, before any reserved-name check is needed.
+        assert any(i.get("type") == "extra_forbidden" for i in issues)
 
 
 def test_gpp_registry_rejects_reserved_unknown_attr(tmp_path) -> None:
@@ -1722,7 +1723,9 @@ def test_gpp_registry_rejects_reserved_unknown_attr(tmp_path) -> None:
         )
         assert resp.status_code == 422
         issues = resp.json()["error"]["issues"]
-        assert any("reserved" in i["message"].lower() for i in issues)
+        # No request carries retained content (final-r13): refused as a field
+        # the request may not hold, before any reserved-name check is needed.
+        assert any(i.get("type") == "extra_forbidden" for i in issues)
 
 
 def test_gpp_group_rejects_reserved_unknown_child(tmp_path) -> None:
@@ -1750,57 +1753,141 @@ def test_gpp_group_rejects_reserved_unknown_child(tmp_path) -> None:
         )
         assert resp.status_code == 422
         issues = resp.json()["error"]["issues"]
-        assert any("reserved" in i["message"].lower() for i in issues)
+        # No request carries retained content (final-r13): refused as a field
+        # the request may not hold, before any reserved-name check is needed.
+        assert any(i.get("type") == "extra_forbidden" for i in issues)
 
 
 def test_gpp_group_ilt_filter_items_round_trip(tmp_path) -> None:
+    """A raw predicate is kept, moved or deleted by its id; never sent (final-r13).
+
+    An add carrying one is refused; an edit naming the stored predicates' ids
+    keeps them -- in the order the edit gives, the raw one as imported -- and an
+    edit carrying a raw predicate is refused.
+    """
+    from gpo_studio import gpp_provenance
+    from gpo_studio.gpp import GppCollection, GppGroup, ensure_editor_ids
+    from gpo_studio.ilt import IltFilter, IltPredicate
+    from gpo_studio.model import ValidationError
+
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
     app.state.owns_store = False
+    raw = '<FilterBattery not="0" bool="AND"/>'
     with TestClient(app) as client:
-        gpo = client.post(
-            "/api/gpos", json={"name": "ILT items round-trip"}
-        ).json()["gpo"]
-        resp = client.post(
+        gpo = client.post("/api/gpos", json={"name": "ILT items round-trip"}).json()["gpo"]
+        body = {
+            "actor": "tester",
+            "reason": "items-format ILT",
+            "scope": "computer",
+            "group": {
+                "name": "Administrators",
+                "sid": "S-1-5-32-544",
+                "action": "update",
+                "ilt_filter": {"items": [{"type": "ou", "value": "OU=Test"}, raw]},
+            },
+        }
+        refused = client.post(
             f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={**body, "expected_revision": gpo["revision"]},
+        )
+        assert refused.status_code == 422
+        assert raw not in refused.text
+
+        # As an import stores it: retained content enters only through an
+        # acquisition (import, fork, clone, restore) -- never a typed mutation.
+        imported = store.create_gpo(
+            "ILT items imported",
+            identity="import",
+            reason="import",
+            gpp_collections=(
+                gpp_provenance.mint(
+                    ensure_editor_ids(
+                        GppCollection(
+                            scope="computer",
+                            groups=(
+                                GppGroup(
+                                    name="Administrators",
+                                    sid="S-1-5-32-544",
+                                    ilt_filter=IltFilter(
+                                        items=(
+                                            IltPredicate(
+                                                type="ou", value="OU=Test,DC=example,DC=com"
+                                            ),
+                                            raw,
+                                            IltPredicate(
+                                                type="group",
+                                                value="S-1-5-32-544",
+                                                negate=True,
+                                                bool_op="OR",
+                                            ),
+                                        )
+                                    ),
+                                ),
+                            ),
+                        )
+                    )
+                ),
+            ),
+        )
+        try:
+            store.put_gpp_group(
+                imported.guid,
+                imported.revision,
+                "computer",
+                GppGroup(
+                    name="Other",
+                    sid="S-1-5-32-545",
+                    ilt_filter=IltFilter(items=('<FilterBattery bool="AND" not="0"/>',)),
+                ),
+                identity="tester",
+                reason="a typed mutation cannot add retained content",
+            )
+        except ValidationError as error:
+            assert error.issues[0].code == "raw_content_not_accepted"
+        else:
+            raise AssertionError("the store accepted new retained content")
+        served = client.get(f"/api/gpos/{imported.guid}").json()["gpo"]
+        group = served["gpp_collections"][0]["groups"][0]
+        ou_id, raw_id, group_pred_id = group["ilt_filter"]["ids"]
+        # Kept by id, moved: the raw predicate first, the OU edited in place.
+        edited = client.put(
+            f"/api/gpos/{imported.guid}/preferences/groups/{group['id']}",
             json={
-                "expected_revision": gpo["revision"],
-                "actor": "tester",
-                "reason": "add group with items-format ILT",
-                "scope": "computer",
+                **body,
+                "expected_revision": served["revision"],
                 "group": {
-                    "name": "Administrators",
-                    "sid": "S-1-5-32-544",
-                    "action": "update",
+                    **body["group"],
                     "ilt_filter": {
                         "items": [
-                            {
-                                "type": "ou",
-                                "value": "OU=Test,DC=example,DC=com",
-                                "negate": False,
-                                "bool_op": "AND",
-                            },
-                            "<FilterBattery not=\"0\" bool=\"AND\"/>",
-                            {
-                                "type": "group",
-                                "value": "S-1-5-32-544",
-                                "negate": True,
-                                "bool_op": "OR",
-                            },
+                            {"id": raw_id},
+                            {"id": ou_id, "type": "ou", "value": "OU=Moved,DC=example,DC=com"},
+                            {"id": group_pred_id},
                         ]
                     },
                 },
             },
         )
-        assert resp.status_code == 201
-        result = resp.json()["gpo"]
-        group = result["gpp_collections"][0]["groups"][0]
-        assert group["ilt_filter"] is not None
-        assert len(group["ilt_filter"]["items"]) == 3
-        assert group["ilt_filter"]["items"][0]["type"] == "ou"
-        assert group["ilt_filter"]["items"][1] == "<FilterBattery not=\"0\" bool=\"AND\"/>"
-        assert group["ilt_filter"]["items"][2]["bool_op"] == "OR"
+        assert edited.status_code == 200, edited.text
+        items = edited.json()["gpo"]["gpp_collections"][0]["groups"][0]["ilt_filter"]["items"]
+        assert items[0] == '<FilterBattery not="0" bool="AND" />' or "FilterBattery" in items[0]
+        assert items[1]["value"] == "OU=Moved,DC=example,DC=com"
+        assert items[2]["bool_op"] == "OR"
 
+        # Carrying a raw predicate, or editing the raw one, is refused.
+        for entries in (
+            [{"id": raw_id}, raw],
+            [{"id": raw_id, "type": "ou", "value": "OU=x"}],
+        ):
+            refused_edit = client.put(
+                f"/api/gpos/{imported.guid}/preferences/groups/{group['id']}",
+                json={
+                    **body,
+                    "expected_revision": edited.json()["gpo"]["revision"],
+                    "group": {**body["group"], "ilt_filter": {"items": entries}},
+                },
+            )
+            assert refused_edit.status_code == 422, entries
 
 def test_gpp_os_ilt_criteria_round_trip_through_api(tmp_path) -> None:
     store = WorkspaceStore(tmp_path / "api.db")
@@ -1888,7 +1975,9 @@ def test_gpp_ilt_reserved_attr_returns_422_not_500(tmp_path) -> None:
         )
         assert resp.status_code == 422
         issues = resp.json()["error"]["issues"]
-        assert any("reserved" in i["message"].lower() for i in issues)
+        # No request carries retained content (final-r13): refused as a field
+        # the request may not hold, before any reserved-name check is needed.
+        assert any(i.get("type") == "extra_forbidden" for i in issues)
     store.close()
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
@@ -1926,6 +2015,18 @@ def test_gpp_ilt_reserved_attr_returns_422_not_500(tmp_path) -> None:
                     "action": "update",
                     "id": "divergent-body-id",
                 },
+            },
+        )
+        # The path names the item; a body may not (final-r13).
+        assert resp.status_code == 422
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "edit",
+                "scope": "computer",
+                "group": {"name": "Admins", "sid": "S-1-5-32-544", "action": "update"},
             },
         )
         assert resp.status_code == 200
@@ -1971,6 +2072,18 @@ def test_gpp_registry_edit_uses_path_id_not_body_id(tmp_path) -> None:
                     "action": "update",
                     "id": "divergent-body-id",
                 },
+            },
+        )
+        # The path names the item; a body may not (final-r13).
+        assert resp.status_code == 422
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/registry/{reg_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "edit",
+                "scope": "computer",
+                "registry": {"key": r"Software\Policies\Updated", "action": "update"},
             },
         )
         assert resp.status_code == 200
@@ -2067,6 +2180,18 @@ def test_post_gpp_group_with_existing_id_creates_new(tmp_path) -> None:
                 },
             },
         )
+        # The server assigns ids; a body may not name one (final-r13).
+        assert resp.status_code == 422
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group",
+                "scope": "computer",
+                "group": {"name": "Admins", "sid": "S-1-5-32-544", "action": "update"},
+            },
+        )
         assert resp.status_code == 201
         gpo = resp.json()["gpo"]
         assert len(gpo["gpp_collections"][0]["groups"]) == 1
@@ -2083,7 +2208,6 @@ def test_post_gpp_group_with_existing_id_creates_new(tmp_path) -> None:
                     "name": "Operators",
                     "sid": "S-1-5-32-547",
                     "action": "update",
-                    "id": original_id,
                 },
             },
         )
@@ -2143,7 +2267,6 @@ def test_gpp_registry_value_crud_via_api(tmp_path) -> None:
                     "value": "100",
                     "registry_type": "REG_DWORD",
                     "action": "update",
-                    "id": value_id,
                 },
             },
         )

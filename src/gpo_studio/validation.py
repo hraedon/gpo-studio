@@ -6,18 +6,40 @@ import ipaddress
 import re
 from typing import assert_never
 
-from .gpp import GppCollection, GppGroup, GppGroupMember, GppRegistry, GppRegistryValue
-from .ilt import IltFilter, IltPredicate
+from .emit_integrity import (
+    GPP_XML,
+    line_problem,
+    pol_data_problem,
+    pol_name_problem,
+    xml_problems,
+)
+from .gpp import (
+    GppCollection,
+    GppError,
+    GppGroup,
+    GppGroupMember,
+    GppRegistry,
+    GppRegistryValue,
+    serialize_gpp_unchecked,
+)
+from .identity_values import (
+    date_problem,
+    dn_problem,
+    name_problem,
+    principal_problem,
+    sid_problem,
+    unsafe_characters,
+)
+from .ilt import IltError, IltFilter, IltPredicate
 from .model import GPO, RegistrySetting, ValidationIssue
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
+from .stored_types import STORED_WRONG_TYPE
 from .xml_safety import unwritable_text, xml_char_forbidden
 
-_DN = re.compile(r"^(?:CN|OU|DC)=[^,=]+(?:,(?:CN|OU|DC)=[^,=]+)+$", re.IGNORECASE)
 _WQL_SELECT = re.compile(r"\bselect\b", re.IGNORECASE)
 _WQL_FROM = re.compile(r"\bfrom\b", re.IGNORECASE)
 _PRINCIPAL_DOMAIN_USER = re.compile(r"^[^\\\s]+\\[^\\\s]+$")
 _PRINCIPAL_UPN = re.compile(r"^[^@\s]+@[^@\s]+$")
-_PRINCIPAL_SID = re.compile(r"^S-\d+(?:-\d+)+$")
 _DOMAIN_FORMAT = re.compile(r"^[A-Za-z0-9.-]+$")
 
 _VALID_REGISTRY_TYPES = frozenset(
@@ -27,6 +49,32 @@ _VALID_REGISTRY_TYPES = frozenset(
 
 def _has_xml_unsafe_text(text: str) -> bool:
     return any(xml_char_forbidden(ord(c)) for c in text)
+
+
+def _control_or_format(text: str) -> bool:
+    """Any character no identity may hold (:func:`identity.unsafe_characters`).
+
+    Cc, Cf, Zl, Zp and every space but U+0020: an LF in a group SID was written
+    into Groups.xml as ``&#10;`` (Sol final-r6 B2a), NBSP and U+2028 slipped past
+    a Cc/Cf-only check (final-r7).
+    """
+    return bool(unsafe_characters(text))
+
+
+def _identity_issues(
+    value: str, problem: str | None, code: str, label: str, path: str
+) -> list[ValidationIssue]:
+    """One error for an invalid identity: ``control_character_in_<code>`` when
+    the value carries a refused character, ``invalid_<code>`` otherwise.
+
+    The message names the value: the store's "only new errors" rule keys
+    errors by code, path and message, so a bad value swapped for a different
+    bad value is a new error, not the old one (DeepSeek final-r8 N5).
+    """
+    if problem is None:
+        return []
+    kind = "control_character_in" if unsafe_characters(value) else "invalid"
+    return [ValidationIssue("error", f"{kind}_{code}", f"{label} {value!r} {problem}.", path)]
 
 
 def text_issues(gpo: GPO) -> list[ValidationIssue]:
@@ -87,6 +135,33 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
                 f"{path}/key",
             )
         )
+    # Names: NUL ends a Registry.pol field (a ';' is data, MS-GPREG 2.2.1), and
+    # the plan writes each name as a single-line PowerShell literal, so the
+    # store refuses what either writer would -- never accepted here and refused
+    # at export (final-r9). String data: NUL ends a registry string.
+    for field_name, text in (("key", setting.key), ("value_name", setting.value_name)):
+        problem = pol_name_problem(text) or line_problem(text)
+        if problem is not None:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "unwritable_registry_name",
+                    f"Registry {field_name} {text!r} {problem}.",
+                    f"{path}/{field_name}",
+                )
+            )
+    data = setting.value if isinstance(setting.value, list) else [setting.value]
+    for item in data:
+        if isinstance(item, str) and pol_data_problem(item) is not None:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "unwritable_registry_data",
+                    "Registry string data contains NUL, which ends a registry string.",
+                    f"{path}/value",
+                )
+            )
+            break
     if "\\\\" in setting.key:
         issues.append(
             ValidationIssue(
@@ -198,8 +273,38 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
 
 def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = text_issues(gpo)
+    # A stored value of the wrong JSON type, which the load replaced by its
+    # default rather than coerce (final-r18, `stored_types`).
+    issues += [
+        ValidationIssue(
+            "error" if severity == "error" else "warning",
+            "stored_value_wrong_type",
+            message,
+            "",
+        )
+        for severity, message in gpo.load_problems
+    ]
+    from .closed_sets import closed_set_issues
+
+    outside = closed_set_issues(gpo)
+    if outside:
+        # A value outside its closed set (a stored registry_type="REG_FOO",
+        # DeepSeek final-r17 B1) is the error to report; the rules below
+        # assume every set holds, so they are not run on it.
+        return issues + outside
     if not gpo.name.strip():
         issues.append(ValidationIssue("error", "name_required", "GPO name is required.", "name"))
+    name_problem_text = line_problem(gpo.name)
+    if name_problem_text is not None:
+        # One line in Backup.xml, bkupInfo.xml and the plan's -Name (final-r8).
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_gpo_name",
+                f"GPO name {gpo.name!r} {name_problem_text}.",
+                "name",
+            )
+        )
     identities: dict[tuple[str, str, str, str], str] = {}
     for setting in gpo.settings:
         issues.extend(validate_setting(setting))
@@ -216,12 +321,17 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
         identities[identity] = setting.id
     orders: set[tuple[str, int]] = set()
     for link in gpo.links:
-        if not _DN.fullmatch(link.target.strip()):
+        # The raw target, not a stripped copy: the stored value is what reaches the
+        # PowerShell plan (Sol final-r6 B2b), so it must itself be the DN, parsed
+        # per RFC 4514 (a dangling escape is not a DN: final-r7 B3).
+        target_problem = dn_problem(link.target)
+        if target_problem is not None:
             issues.append(
                 ValidationIssue(
                     "error",
                     "invalid_link_target",
-                    "Link target must be a domain or OU distinguished name.",
+                    "Link target must be a domain or OU distinguished name; this one "
+                    f"{target_problem}.",
                     f"links/{link.id}/target",
                 )
             )
@@ -289,7 +399,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                     sf_path,
                 )
             )
-        if any(ord(c) < 0x20 for c in principal):
+        if _control_or_format(principal):
             issues.append(
                 ValidationIssue(
                     "error",
@@ -319,10 +429,19 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
             )
         if stripped:
             seen_principals.add(folded)
+        if principal != stripped:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "principal_surrounding_whitespace",
+                    "Principal has leading or trailing whitespace.",
+                    sf_path,
+                )
+            )
         if stripped and not (
-            _PRINCIPAL_DOMAIN_USER.match(stripped)
-            or _PRINCIPAL_UPN.match(stripped)
-            or _PRINCIPAL_SID.match(stripped)
+            _PRINCIPAL_DOMAIN_USER.fullmatch(stripped)
+            or _PRINCIPAL_UPN.fullmatch(stripped)
+            or sid_problem(stripped) is None
         ):
             issues.append(
                 ValidationIssue(
@@ -334,7 +453,9 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
             )
         if sf.sid:
             sf_sid_path = f"security_filters/{sf.id}/sid"
-            if any(ord(c) < 0x20 for c in sf.sid):
+            # An error, not a warning: a malformed SID is a wrong identity in
+            # policy output (Sol final-r6 B2).
+            if _control_or_format(sf.sid):
                 issues.append(
                     ValidationIssue(
                         "error",
@@ -343,10 +464,10 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                         sf_sid_path,
                     )
                 )
-            if not _PRINCIPAL_SID.match(sf.sid):
+            elif sid_problem(sf.sid) is not None:
                 issues.append(
                     ValidationIssue(
-                        "warning",
+                        "error",
                         "invalid_sid_format",
                         "SID does not match expected format (S-1-5-...).",
                         sf_sid_path,
@@ -408,7 +529,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                 "error", "domain_too_long", "Domain exceeds 255 characters.", "domain"
             )
         )
-    if any(ord(c) < 0x20 for c in gpo.domain):
+    if _control_or_format(gpo.domain):
         issues.append(
             ValidationIssue(
                 "error",
@@ -417,7 +538,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                 "domain",
             )
         )
-    if domain and not _DOMAIN_FORMAT.match(domain):
+    if domain and not _DOMAIN_FORMAT.fullmatch(domain):
         issues.append(
             ValidationIssue(
                 "warning",
@@ -427,6 +548,38 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
             )
         )
     return issues
+
+
+def _ilt_identity_issues(pred: IltPredicate, path: str) -> list[ValidationIssue]:
+    """The identity a targeting predicate names: an OU's DN, a group or user,
+    a computer or domain name, a date range (final-r7: one validator per kind)."""
+    if not pred.value:
+        return []
+    where = f"{path}/value"
+    match pred.type:
+        case "ou":
+            return _identity_issues(
+                pred.value, dn_problem(pred.value, min_rdns=1), "ilt_ou", "ILT OU", where
+            )
+        case "group":
+            return _identity_issues(
+                pred.value, principal_problem(pred.value), "ilt_group", "ILT group", where
+            )
+        case "user" | "computer_name" | "domain":
+            return _identity_issues(
+                pred.value, name_problem(pred.value), f"ilt_{pred.type}",
+                f"ILT {pred.type}", where,
+            )
+        case "date":
+            found: list[ValidationIssue] = []
+            for part in pred.value.split("|", 1):
+                if part:
+                    found += _identity_issues(
+                        part, date_problem(part), "ilt_date", "ILT date", where
+                    )
+            return found
+        case _:
+            return []
 
 
 def validate_ilt_predicate(pred: IltPredicate, path: str) -> list[ValidationIssue]:
@@ -440,6 +593,7 @@ def validate_ilt_predicate(pred: IltPredicate, path: str) -> list[ValidationIssu
                 f"{path}/value",
             )
         )
+    issues.extend(_ilt_identity_issues(pred, path))
     match pred.type:
         case "ou":
             if not pred.value.strip():
@@ -615,24 +769,18 @@ def validate_gpp_group_member(
                 f"{path}/sid",
             )
         )
-    if _has_xml_unsafe_text(member.sid):
-        issues.append(
-            ValidationIssue(
-                "error",
-                "control_character_in_gpp_member_sid",
-                "GPP group member SID contains control characters.",
-                f"{path}/sid",
-            )
-        )
-    if _has_xml_unsafe_text(member.name):
-        issues.append(
-            ValidationIssue(
-                "error",
-                "control_character_in_gpp_member_name",
-                "GPP group member name contains control characters.",
-                f"{path}/name",
-            )
-        )
+    if member.sid:
+        # A full SID check, like the group's (final-r7 B1: only Cc/Cf was refused,
+        # so NBSP, a lowercase prefix or a junk suffix reached Groups.xml).
+        issues.extend(_identity_issues(
+            member.sid, sid_problem(member.sid), "gpp_member_sid",
+            "GPP group member SID", f"{path}/sid",
+        ))
+    if member.name:
+        issues.extend(_identity_issues(
+            member.name, name_problem(member.name), "gpp_member_name",
+            "GPP group member name", f"{path}/name",
+        ))
     if len(member.sid) > 255:
         issues.append(
             ValidationIssue(
@@ -671,15 +819,10 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
                 f"{path}/name",
             )
         )
-    if _has_xml_unsafe_text(name):
-        issues.append(
-            ValidationIssue(
-                "error",
-                "control_character_in_gpp_group_name",
-                "GPP group name contains control characters.",
-                f"{path}/name",
-            )
-        )
+    if name.strip():
+        issues.extend(_identity_issues(
+            name, name_problem(name), "gpp_group_name", "GPP group name", f"{path}/name"
+        ))
     if _has_xml_unsafe_text(group.description):
         issues.append(
             ValidationIssue(
@@ -696,30 +839,15 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
             assert_never(group.action)
     if group.sid:
         sid_path = f"{path}/sid"
-        if _has_xml_unsafe_text(group.sid):
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "control_character_in_gpp_group_sid",
-                    "GPP group SID contains control characters.",
-                    sid_path,
-                )
-            )
+        issues.extend(_identity_issues(
+            group.sid, sid_problem(group.sid), "gpp_group_sid", "GPP group SID", sid_path
+        ))
         if len(group.sid) > 255:
             issues.append(
                 ValidationIssue(
                     "warning",
                     "invalid_gpp_group_sid",
                     "GPP group SID exceeds 255 characters.",
-                    sid_path,
-                )
-            )
-        if not _PRINCIPAL_SID.match(group.sid):
-            issues.append(
-                ValidationIssue(
-                    "warning",
-                    "invalid_gpp_group_sid",
-                    "GPP group SID does not match expected format (S-1-5-...).",
                     sid_path,
                 )
             )
@@ -1003,6 +1131,11 @@ def validate_gpp_registry(reg: GppRegistry, path: str) -> list[ValidationIssue]:
 
 
 def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
+    from .closed_sets import closed_set_issues
+
+    outside = closed_set_issues(collection, f"gpp_collections/{collection.scope}")
+    if outside:
+        return outside  # see `validate_gpo`
     issues: list[ValidationIssue] = []
     match collection.scope:
         case "computer" | "user":
@@ -1010,6 +1143,24 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
         case _:
             assert_never(collection.scope)
     scope = collection.scope
+    # What a tolerant load of stored data refused to raise for (final-r14):
+    # the GPO stays readable, and an error here refuses its exports.
+    for severity, message in collection.load_problems:
+        issues.append(
+            ValidationIssue(
+                "error" if severity == "error" else "warning",
+                "stored_value_wrong_type"
+                if message.startswith(STORED_WRONG_TYPE)
+                else "stored_preferences_refused",
+                f"{message}."
+                if message.startswith(STORED_WRONG_TYPE)
+                else f"{message}. Studio kept it as stored but will not export it: delete "
+                "the item holding it, or re-import the GPO from its source backup."
+                if severity == "error"
+                else f"{message}. Studio writes these items in its own order instead.",
+                f"gpp_collections/{scope}",
+            )
+        )
     seen_group_names: set[str] = set()
     seen_group_ids: set[str] = set()
     for idx, group in enumerate(collection.groups):
@@ -1065,6 +1216,54 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
             )
         if reg.uid:
             seen_registry_uids.add(reg.uid)
+    issues.extend(serialized_identity_issues(collection))
+    return issues
+
+
+def serialized_identity_issues(collection: GppCollection) -> list[ValidationIssue]:
+    """Every value the collection's XML WILL carry that its writer would refuse.
+
+    The typed fields are a projection: an imported TaskV2's retained payload, a
+    v1 Task's ``triggerTime``, a retained native element and its item ``uid``
+    or ``FilterRunOnce@id`` are written as they are. So this reads the files
+    the writer produces and holds every attribute and text value to the
+    writer's own table (:data:`gpo_studio.emit_integrity.GPP_XML`, with the
+    shared identity validators behind it) -- the same check
+    :func:`gpo_studio.gpp.serialize_gpp` makes as it writes, reported here one
+    issue per value. Mutation (the store), both imports and every export pass
+    through it via :func:`validate_gpo`.
+    """
+    where = f"gpp_collections/{collection.scope}"
+    if any(severity == "error" for severity, _message in collection.load_problems):
+        # Stored content a current rule refuses is already an error (above);
+        # writing it to read it back would put it into bytes (Sol final-r16 B1).
+        return []
+    try:
+        files = serialize_gpp_unchecked(collection)
+    except (GppError, IltError, ValueError) as error:
+        return [
+            ValidationIssue(
+                "error",
+                "unwritable_preferences",
+                f"Studio could not write these preferences: {error}",
+                where,
+            )
+        ]
+    issues: list[ValidationIssue] = []
+    for name, data in sorted(files.items()):
+        try:
+            problems = xml_problems(GPP_XML, name, data)
+        except ValueError as error:
+            issues.append(ValidationIssue(
+                "error", "unwritable_preferences",
+                f"{name} does not read back: {error}", f"{where}/{name}",
+            ))
+            continue
+        for problem in problems:
+            issues.extend(_identity_issues(
+                problem.value, problem.problem, "preference_value",
+                f"{name} {problem.name}", f"{where}/{name}",
+            ))
     return issues
 
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import runpy
 import subprocess
 from pathlib import Path
@@ -33,361 +34,55 @@ EVIDENCE = REPO_ROOT / "docs" / "plan-033"
 #: than the transport-keyed shape the older lanes use, and that difference is
 #: what kept them out; `_bound_names` now handles both rather than the map
 #: quietly covering three lanes out of five.
-LANE_VERDICTS = {
-    "wp1b-evidence/verification-estate.json": "finalize_wp1b_run.py",
-    "wp1b-evidence/scripts-metadata/verification.json": "finalize_scripts_backup_run.py",
-    "wp1b-evidence/publication-completeness/verification.json": (
-        "finalize_publication_run.py"
-    ),
-    # The 2026-09-07 batch. WI-032 gave the model per-side applied sets and
-    # promoted the WP-9 comparison to gated, which moved the candidate
-    # builder and the user finalizer -- both bound by every RSOP verdict.
-    # The gate found a model over-report on its first run (a GPO carrying
-    # nothing for a side was reported applied to it) and these runs are
-    # after that correction.
-    "wp6-evidence/verdict-rsop-observe-20260907221946-2994.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260907222055-1770.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260907222206-6220.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260907222315-2698.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260907222431-1389.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260907222610-4330.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260907222726-4256.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260907220844-4855.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260907221020-2710.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260907221153-8426.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260907221411-3148.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260907221626-5555.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260907221808-9398.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp2-evidence/verification-estate.json": "finalize_wp2_import_run.py",
-    "wp3-evidence/verification-estate.json": "finalize_wp3_run.py",
-    "wp3-evidence/policy-families/dc/verification.json": "finalize_wp3_run.py",
-    "wp3-evidence/policy-families/member/verification.json": "finalize_wp3_run.py",
-    "wp3-evidence/object-security/verification.json": "finalize_object_security_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804020517-2089.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804051032-8845.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804051228-2926.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804070708-6831.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804151624-6393.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804152957-1430.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804154241-9337.json": "finalize_rsop_run.py",
-    "wp9-evidence/verdict-rsop-user-observe-20260804050024-4383.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260804045552-9148.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260804045809-8312.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260804065146-4224.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260804065525-9254.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260804150527-3868.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    # WP-6B's first certification and the WI-031 enforcement arc. These were
-    # committed but never mapped, so nothing checked them -- and the four
-    # `finding` verdicts among them could not have been added at all, because
-    # the consistency test had no branch for that state and demanded `passed`.
-    "wp6-evidence/verdict-rsop-observe-20260804010341-7165.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804010551-9363.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804010738-5543.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804012618-5426.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804012803-7606.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804015016-5317.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804015258-1810.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804015447-4913.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804020109-7624.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260804020308-9752.json": "finalize_rsop_run.py",
-    # WI-039: the one undeclared finding this lane has produced.
-    "wp6-evidence/verdict-rsop-observe-20260804153726-7284.json": "finalize_rsop_run.py",
-    # Re-certification 2026-08-05, after the finalizers' harness check was made
-    # falsifiable (review finding 3). A certification binds the harness that
-    # produced it, so changing the finalizer meant every earlier verdict
-    # described code that no longer ships. Ten scenarios, all `pass`.
-    "wp6-evidence/verdict-rsop-observe-20260805064008-9181.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805064155-8996.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805064351-9402.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805064540-1562.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805064725-4970.json": "finalize_rsop_run.py",
-    # WI-040, both halves of the arc: the `expected-finding` that measured the
-    # read-deny gap and the `pass` that certified the fix. Committed together
-    # on purpose -- the gap and its closure are only readable as a pair.
-    "wp6-evidence/verdict-rsop-observe-20260805045139-3731.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805045851-3883.json": "finalize_rsop_run.py",
-    "wp9-evidence/verdict-rsop-user-observe-20260805065203-1562.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805065415-8622.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805065630-6815.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805065943-6615.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805070255-2473.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    # Re-certification 2026-08-05 under the WI-043 result contract. Making
-    # `_gpo_filter_status` side-aware changed what a verdict MEANS -- the
-    # prediction gained `unevaluable_gpos` and the finalizers stopped grading
-    # those rows -- so every earlier verdict describes a harness that no longer
-    # ships. Eleven scenarios at `a85736a`, all `pass`, all conclusive. This set
-    # also re-earns the two WI-040 verdicts, whose `harness_matches_source` was
-    # produced by the self-comparing check fixed in `d1eec72` hours after they
-    # ran; those two are kept below as the historical record of the divergence,
-    # not as live certifications.
-    "wp6-evidence/verdict-rsop-observe-20260805194053-7180.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805194245-3734.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805194432-5944.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805194627-2633.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805194814-2731.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805195001-1590.json": "finalize_rsop_run.py",
-    "wp9-evidence/verdict-rsop-user-observe-20260805195149-5629.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805195400-1809.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805195614-1767.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805195909-4033.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805200214-4370.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    # Re-certification 2026-08-05 (second round) at `faad341`, after review
-    # round 3 added exhaustive dispatch to the candidate builder. That file is
-    # bound BY HASH in `LOCAL_FILES`, so changing it invalidated the `a85736a`
-    # set above even though the prediction output is byte-identical -- verified
-    # by rebuilding the deny-read candidate and diffing all three artifacts.
-    # "The output did not change" is not the rule; a certification binds the
-    # harness. Eleven scenarios, all `pass`, all conclusive.
-    "wp6-evidence/verdict-rsop-observe-20260805220819-4762.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805221004-8571.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805221150-4243.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805221335-1702.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805221522-1983.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260805221707-4871.json": "finalize_rsop_run.py",
-    "wp9-evidence/verdict-rsop-user-observe-20260805221856-6415.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805222106-2378.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805222317-3382.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805222624-9750.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260805222929-6350.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    # WI-043's measurement, `inconclusive`, mapped here anyway: the freshness
-    # gate is about whether a verdict binds the harness that ships, not about
-    # whether it was a pass. An unmapped verdict is the one shape the coverage
-    # guard exists to catch. Retired below now that WI-047 moved the harness.
-    "wp9-evidence/verdict-rsop-user-observe-20260806165543-8004.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    # 2026-08-06 re-certification: all twelve scenarios re-run under the WI-047
-    # model, so what these bind is the reading-principal rule rather than the
-    # abstention it replaced.
-    "wp6-evidence/verdict-rsop-observe-20260806181033-3296.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906045316-1301.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260806181222-5315.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906045428-3847.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260806181411-9752.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906045536-1696.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260806181600-5707.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906045643-6646.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260806181748-7763.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906045750-7576.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260806181935-5130.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906045858-7209.json": "finalize_rsop_run.py",
-    "wp9-evidence/verdict-rsop-user-observe-20260806182125-6983.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906051241-1230.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260806182338-3982.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906051412-9765.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260806182554-1472.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906051544-3625.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260806182911-5363.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906051750-5647.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260806183612-5557.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906052004-2373.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260806184006-2532.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    # 2026-09-06 batch two. WI-037 moved every RSOP lane driver and WI-049 moved
-    # the candidate builder, so the twelve verdicts above stopped being
-    # certifications the moment those files changed; these re-earn them. Twelve
-    # scenarios, all `pass`, all conclusive, from a clean tree at `9f6d775`.
-    #
-    # Three of them carry measurements this project did not have before:
-    # `...184434-8187` is WI-049's fourth read cell (a read deny naming the USER
-    # on a computer-scope scenario -- it APPLIED, as the model reasoned), and
-    # `...185345-9222` carries both the off-diagonal Apply cell and the first
-    # group-matched deny any estate run has exercised.
-    "wp6-evidence/verdict-rsop-observe-20260906183835-6175.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906183948-3890.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906184057-2689.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906184205-5172.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906184313-1876.json": "finalize_rsop_run.py",
-    "wp6-evidence/verdict-rsop-observe-20260906184434-8187.json": "finalize_rsop_run.py",
-    "wp9-evidence/verdict-rsop-user-observe-20260906184610-3620.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906184743-5732.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906184916-2617.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906185125-9433.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906185345-9222.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906185527-8016.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    # The endpoint lane, mapped for the FIRST time (WI-053). Its certification
-    # had been sitting at `wp1b-evidence/endpoint-result-phase4-estate.json`,
-    # whose name matches neither prefix the coverage guard globs for, so nothing
-    # checked its `source.files`, nothing checked it was internally consistent,
-    # and the freshness gate never saw it -- WI-037 changed two files it binds
-    # and every RSOP verdict went red while that one stayed silent. This run
-    # carries a name the guard matches, and is the lane's first verdict to bind
-    # its candidate (WI-025). Committed at `38eedc6`, one commit later than the
-    # rest of the batch, because the first attempt found a real defect in the
-    # WI-037 change: `$(verify_endpoint)` ran the phase in a subshell, so the
-    # EXIT trap ran the whole post-teardown verification a second time.
-    "wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json": (
-        "finalize_endpoint_run.py"
-    ),
-    #
-    # The WI-054 batch, 2026-09-06 (late). The machine-token group-deny row ran
-    # FIRST, from the same tree as the twelve re-certifications below it: the
-    # run restarted the client so the machine token carried the group it had
-    # just authored, the membership was corroborated from the token and from
-    # the directory independently, and Windows agreed with the model -- the
-    # group-matched deny blocks on the COMPUTER side exactly as it does on the
-    # user side. `...221638-4687` is that measurement. The other six wp6 and
-    # six wp9 entries are the lanes' re-certification under the WI-054 change,
-    # which retired the twelve 18xxx verdicts below in RETIRED_VERDICTS --
-    # `build-rsop-candidate.py` (the dead predicate left in it), the authoring
-    # and observation halves, the computer finalizer and both lane drivers all
-    # moved in this change.
-    "wp6-evidence/verdict-rsop-observe-20260906221638-4687.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260906221931-1695.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260906223143-4837.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260906223251-8863.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260906223400-9371.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260906223508-6654.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp6-evidence/verdict-rsop-observe-20260906223619-5576.json": (
-        "finalize_rsop_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906222041-8299.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906222219-6252.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906222352-5950.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906222601-2732.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906222818-6584.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    "wp9-evidence/verdict-rsop-user-observe-20260906222959-7716.json": (
-        "finalize_rsop_user_run.py"
-    ),
-    # The group-deny scenario's FIRST run, which the lane refused: the client
-    # rebooted with the run's policy already linked, the startup CSE applied
-    # that policy at boot, and the residual guard correctly declined to
-    # attribute an observation taken from a policy key that was not empty. It
-    # found a real interaction -- the reboot makes boot-time processing a
-    # second applier -- and the fix (boot_applied_values: record, clear,
-    # observe from empty) is why the tree moved one commit past the twelve
-    # re-certifications' source. Kept retired, not deleted: it is the record
-    # of WHY the observe half gained that gate.
-    "wp6-evidence/verdict-rsop-observe-20260906221248-7683.json": (
-        "finalize_rsop_run.py"
-    ),
+LANE_VERDICTS: dict[str, str]
+RETIRED_VERDICTS: set[str]
+PENDING_REQUALIFICATION: set[str]
+WP0_MANIFEST: str
+#: The verdict tables are DATA, in `docs/plan-033/verdict-registry.json`, not
+#: statements in this module. Banking a batch after a release's freeze commit
+#: edits them, and the final-tag release gate holds every test byte-identical to
+#: the freeze commit, so the tables cannot be code: a Python edit there could run
+#: anything (Sol and DeepSeek, final-r1 B1). The comments below that describe
+#: `LANE_VERDICTS.update` and `RETIRED_VERDICTS.update` blocks are the history of
+#: those entries; the entries themselves are in the JSON file. `_load_registry`
+#: refuses anything but the exact schema, and `_file_tables` refuses a finalizer
+#: that is not a bare `finalize_*.py` name in scripts/windows-oracle/.
+#:
+#: Since 2026-10-17 every live verdict is pending requalification: the final-r6
+#: whole-value sweep edited files every lane binds (`oracle_evidence.py` among
+#: them), so each verdict's bound bytes moved. The release's batch at its freeze
+#: commit re-runs every lane and retires them; the final-tag gate requires that.
+REGISTRY_FILE = EVIDENCE / "verdict-registry.json"
+_REGISTRY_KEYS = {
+    "schema_version", "lane_verdicts", "retired_verdicts", "pending_requalification",
+    "wp0_manifest",
 }
+_FINALIZER_NAME = re.compile(r"^finalize_[a-z0-9_]+\.py$")
+
+
+def _load_registry() -> dict[str, Any]:
+    raw = REGISTRY_FILE.read_bytes()
+    data = json.loads(raw.decode("utf-8"))
+    assert set(data) == _REGISTRY_KEYS and data["schema_version"] == 1, sorted(data)
+    retired, pending = set(data["retired_verdicts"]), set(data["pending_requalification"])
+    # Disjoint and registered (DeepSeek final-r7 B2): a verdict both retired and
+    # pending would escape requalification.
+    assert not retired & pending, sorted(retired & pending)
+    assert retired | pending <= set(data["lane_verdicts"]), sorted(
+        (retired | pending) - set(data["lane_verdicts"])
+    )
+    canonical = json.dumps(data, indent=2, ensure_ascii=True) + "\n"
+    assert raw == canonical.encode("ascii"), (
+        f"{REGISTRY_FILE.name} is not in canonical form (2-space JSON, ASCII, LF)"
+    )
+    return cast(dict[str, Any], data)
+
+
+_REGISTRY = _load_registry()
+LANE_VERDICTS = dict(_REGISTRY["lane_verdicts"])
+RETIRED_VERDICTS = set(_REGISTRY["retired_verdicts"])
+PENDING_REQUALIFICATION = set(_REGISTRY["pending_requalification"])
+WP0_MANIFEST = _REGISTRY["wp0_manifest"]
 
 # The original estate verdict predates policy-family serializer bindings. It
 # remains useful historical evidence with its exact five-file source set.
@@ -448,174 +143,6 @@ PRE_TRANSPORT_VERDICTS = {
 #: `test_retired_verdicts_are_genuinely_stale` fails if a verdict listed here
 #: still matches the tree, so a live claim cannot be quietly parked in here to
 #: silence the gate below.
-RETIRED_VERDICTS = {
-    # The 2026-09-06 batch, superseded by the 2026-09-07 WI-032 batch. The
-    # candidate builder now predicts the side being observed rather than
-    # "applied on at least one side", and the WP-9 finalizer gates on the
-    # comparison it used to only record, so these verdicts bind a harness
-    # that asks a different question. They remain valid for the commits
-    # they name.
-    "wp6-evidence/verdict-rsop-observe-20260906045316-1301.json",
-    "wp6-evidence/verdict-rsop-observe-20260906045428-3847.json",
-    "wp6-evidence/verdict-rsop-observe-20260906045536-1696.json",
-    "wp6-evidence/verdict-rsop-observe-20260906045643-6646.json",
-    "wp6-evidence/verdict-rsop-observe-20260906045750-7576.json",
-    "wp6-evidence/verdict-rsop-observe-20260906045858-7209.json",
-    "wp6-evidence/verdict-rsop-observe-20260906183835-6175.json",
-    "wp6-evidence/verdict-rsop-observe-20260906183948-3890.json",
-    "wp6-evidence/verdict-rsop-observe-20260906184057-2689.json",
-    "wp6-evidence/verdict-rsop-observe-20260906184205-5172.json",
-    "wp6-evidence/verdict-rsop-observe-20260906184313-1876.json",
-    "wp6-evidence/verdict-rsop-observe-20260906184434-8187.json",
-    "wp6-evidence/verdict-rsop-observe-20260906221248-7683.json",
-    "wp6-evidence/verdict-rsop-observe-20260906221638-4687.json",
-    "wp6-evidence/verdict-rsop-observe-20260906221931-1695.json",
-    "wp6-evidence/verdict-rsop-observe-20260906223143-4837.json",
-    "wp6-evidence/verdict-rsop-observe-20260906223251-8863.json",
-    "wp6-evidence/verdict-rsop-observe-20260906223400-9371.json",
-    "wp6-evidence/verdict-rsop-observe-20260906223508-6654.json",
-    "wp6-evidence/verdict-rsop-observe-20260906223619-5576.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906051241-1230.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906051412-9765.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906051544-3625.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906051750-5647.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906052004-2373.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906184610-3620.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906184743-5732.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906184916-2617.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906185125-9433.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906185345-9222.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906185527-8016.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906222041-8299.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906222219-6252.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906222352-5950.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906222601-2732.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906222818-6584.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906222959-7716.json",
-    # The 2026-09-05 batch, superseded by batch two on 2026-09-06. WI-037 moved
-    # all three shared-root lane drivers and WI-049 moved the candidate builder,
-    # both of which every RSOP verdict binds by hash. The gate reported exactly
-    # twelve broken bindings the moment the code landed and before a single lane
-    # had been re-run -- the second consecutive tranche where it did the noticing
-    # rather than a person.
-    # The 2026-08-06 RSOP batch, superseded by the 2026-09-05 re-certification.
-    # WI-048 changed `psdirect.ps1`, which every lane transports through, and the
-    # WP-9 lane's session-restart gate stopped failing silently in the same
-    # tranche. Kept rather than deleted: `...184006-2532` is an anchor target in
-    # the remediation corpus, and the batch records what these lanes measured
-    # under the previous harness.
-    #
-    # Worth stating because it is this gate's whole point. The note below records
-    # that the RSOP lanes have twice been fully re-run for exactly this reason,
-    # and that BOTH times the staleness was caught by a person noticing rather
-    # than by a test. This is the third occasion, and it was caught by
-    # `test_a_live_verdict_still_binds_the_harness_that_ships` reporting fifteen
-    # broken bindings before a single lane had been re-run.
-    "wp6-evidence/verdict-rsop-observe-20260806181033-3296.json",
-    "wp6-evidence/verdict-rsop-observe-20260806181222-5315.json",
-    "wp6-evidence/verdict-rsop-observe-20260806181411-9752.json",
-    "wp6-evidence/verdict-rsop-observe-20260806181600-5707.json",
-    "wp6-evidence/verdict-rsop-observe-20260806181748-7763.json",
-    "wp6-evidence/verdict-rsop-observe-20260806181935-5130.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260806182125-6983.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260806182338-3982.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260806182554-1472.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260806182911-5363.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260806183612-5557.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260806184006-2532.json",
-    # The 2026-08-05 batch and WI-043's inconclusive measurement, superseded by
-    # the 2026-08-06 re-certification. The measurement is kept rather than
-    # dropped: it is the only record of the model ABSTAINING on a region it now
-    # answers, and the arc from abstention to measured rule is the evidence that
-    # the rule was measured rather than assumed.
-    "wp6-evidence/verdict-rsop-observe-20260805220819-4762.json",
-    "wp6-evidence/verdict-rsop-observe-20260805221004-8571.json",
-    "wp6-evidence/verdict-rsop-observe-20260805221150-4243.json",
-    "wp6-evidence/verdict-rsop-observe-20260805221335-1702.json",
-    "wp6-evidence/verdict-rsop-observe-20260805221522-1983.json",
-    "wp6-evidence/verdict-rsop-observe-20260805221707-4871.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805221856-6415.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805222106-2378.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805222317-3382.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805222624-9750.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805222929-6350.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260806165543-8004.json",
-    # WP-6B's first certification and the WI-031 enforcement arc, superseded
-    # when `run-rsop-author.ps1` and the candidate builder moved on.
-    "wp6-evidence/verdict-rsop-observe-20260804010341-7165.json",
-    "wp6-evidence/verdict-rsop-observe-20260804010551-9363.json",
-    "wp6-evidence/verdict-rsop-observe-20260804010738-5543.json",
-    "wp6-evidence/verdict-rsop-observe-20260804012618-5426.json",
-    "wp6-evidence/verdict-rsop-observe-20260804012803-7606.json",
-    "wp6-evidence/verdict-rsop-observe-20260804015016-5317.json",
-    "wp6-evidence/verdict-rsop-observe-20260804015258-1810.json",
-    "wp6-evidence/verdict-rsop-observe-20260804015447-4913.json",
-    "wp6-evidence/verdict-rsop-observe-20260804020109-7624.json",
-    "wp6-evidence/verdict-rsop-observe-20260804020308-9752.json",
-    "wp6-evidence/verdict-rsop-observe-20260804020517-2089.json",
-    "wp6-evidence/verdict-rsop-observe-20260804051032-8845.json",
-    "wp6-evidence/verdict-rsop-observe-20260804051228-2926.json",
-    "wp6-evidence/verdict-rsop-observe-20260804070708-6831.json",
-    "wp6-evidence/verdict-rsop-observe-20260804151624-6393.json",
-    "wp6-evidence/verdict-rsop-observe-20260804152957-1430.json",
-    # WI-039, the one undeclared finding this lane has produced, and its fix.
-    "wp6-evidence/verdict-rsop-observe-20260804153726-7284.json",
-    "wp6-evidence/verdict-rsop-observe-20260804154241-9337.json",
-    # WI-040's arc: the `expected-finding` that measured the read-deny gap and
-    # the `pass` that certified the fix. Kept for the divergence they observed
-    # on a real client, which does not depend on the harness binding.
-    "wp6-evidence/verdict-rsop-observe-20260805045139-3731.json",
-    "wp6-evidence/verdict-rsop-observe-20260805045851-3883.json",
-    # Re-certification generation 1, superseded by the WI-043 contract change.
-    "wp6-evidence/verdict-rsop-observe-20260805064008-9181.json",
-    "wp6-evidence/verdict-rsop-observe-20260805064155-8996.json",
-    "wp6-evidence/verdict-rsop-observe-20260805064351-9402.json",
-    "wp6-evidence/verdict-rsop-observe-20260805064540-1562.json",
-    "wp6-evidence/verdict-rsop-observe-20260805064725-4970.json",
-    # Re-certification generation 2 (`a85736a`), superseded hours later by
-    # review round 3's change to `build-rsop-candidate.py`. The prediction
-    # output was byte-identical across that change -- which is worth knowing and
-    # is NOT the standard. A certification binds the harness, not the output.
-    "wp6-evidence/verdict-rsop-observe-20260805194053-7180.json",
-    "wp6-evidence/verdict-rsop-observe-20260805194245-3734.json",
-    "wp6-evidence/verdict-rsop-observe-20260805194432-5944.json",
-    "wp6-evidence/verdict-rsop-observe-20260805194627-2633.json",
-    "wp6-evidence/verdict-rsop-observe-20260805194814-2731.json",
-    "wp6-evidence/verdict-rsop-observe-20260805195001-1590.json",
-    # WP-9's own arc, same three generations.
-    "wp9-evidence/verdict-rsop-user-observe-20260804045552-9148.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260804045809-8312.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260804050024-4383.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260804065146-4224.json",
-    # WI-033: the deny a real client demonstrated the model could not express.
-    "wp9-evidence/verdict-rsop-user-observe-20260804065525-9254.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260804150527-3868.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805065203-1562.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805065415-8622.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805065630-6815.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805065943-6615.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805070255-2473.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805195149-5629.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805195400-1809.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805195614-1767.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805195909-4033.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260805200214-4370.json",
-    # The 2026-09-06 batch-two verdicts, superseded the same day by WI-054.
-    # The machine-token group-deny change moved the candidate builder (the dead
-    # `reaches_reasoned_cell` predicate left it), the authoring half (which
-    # account joins the disposable group), the computer observation half (token
-    # corroboration), the computer finalizer (its token gate) and both lane
-    # drivers (the reboot), and every verdict bound to the pre-change hashes
-    # stopped being a certification the moment the code landed. Re-run in full
-    # the same evening; see the WI-054 batch entries in LANE_VERDICTS.
-    # The group-deny scenario's first run: a LANE-FAILURE by design, binding
-    # the tree BEFORE the boot-applier fix. It is the record of the run that
-    # found the interaction (boot-time policy processing filling the policy key
-    # between authoring and observation), and it stays stale by construction --
-    # the fix changed the observe half and the finalizer it binds.
-    "wp3-evidence/verification-estate.json",
-}
 
 #: JSON files living in a `wp*-evidence/` directory whose names match neither
 #: verdict prefix. WI-053: `endpoint-result-phase4-estate.json` spent five weeks
@@ -675,82 +202,8 @@ NON_VERDICT_EVIDENCE_FILES: dict[str, str] = {
 }
 
 # WI-059: replacement runs on one frozen harness; the old records remain immutable.
-LANE_VERDICTS.update({
-    'wp1b-evidence/wi059-20260908/wp1b/verification.json': 'finalize_wp1b_run.py',
-    'wp2-evidence/wi059-20260908/wp2/verification.json': 'finalize_wp2_import_run.py',
-    'wp3-evidence/wi059-20260908/wp3-member/verification.json': 'finalize_wp3_run.py',
-    'wp3-evidence/wi059-20260908/wp3-dc/verification.json': 'finalize_wp3_run.py',
-    'wp3-evidence/wi059-20260908/object-security/verification.json': (
-        'finalize_object_security_run.py'
-    ),
-    'wp1b-evidence/wi059-20260908/scripts-metadata/verification.json': (
-        'finalize_scripts_backup_run.py'
-    ),
-    'wp1b-evidence/wi059-20260908/publication/verification.json': 'finalize_publication_run.py',
-    'wp6-evidence/wi059-20260908/endpoint/verification.json': 'finalize_endpoint_run.py',
-    'wp6-evidence/wi059-20260908/lsdou-precedence/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/wi059-20260908/disabled-block-enforced/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/wi059-20260908/wmi-filtering/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/wi059-20260908/wmi-filtering-error/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/wi059-20260908/computer-security-filtering/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp6-evidence/wi059-20260908/computer-security-filtering-group-deny/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp6-evidence/wi059-20260908/computer-security-filtering-deny-read/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp9-evidence/wi059-20260908/loopback-merge/verification.json': 'finalize_rsop_user_run.py',
-    'wp9-evidence/wi059-20260908/loopback-replace/verification.json': 'finalize_rsop_user_run.py',
-    'wp9-evidence/wi059-20260908/user-side-disabled/verification.json': 'finalize_rsop_user_run.py',
-    'wp9-evidence/wi059-20260908/user-security-filtering/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/wi059-20260908/user-security-filtering-deny/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/wi059-20260908/user-security-filtering-read-deny/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-})
-RETIRED_VERDICTS.update({
-    'wp1b-evidence/verification-estate.json',
-    'wp1b-evidence/scripts-metadata/verification.json',
-    'wp1b-evidence/publication-completeness/verification.json',
-    'wp6-evidence/verdict-rsop-observe-20260907221946-2994.json',
-    'wp6-evidence/verdict-rsop-observe-20260907222055-1770.json',
-    'wp6-evidence/verdict-rsop-observe-20260907222206-6220.json',
-    'wp6-evidence/verdict-rsop-observe-20260907222315-2698.json',
-    'wp6-evidence/verdict-rsop-observe-20260907222431-1389.json',
-    'wp6-evidence/verdict-rsop-observe-20260907222610-4330.json',
-    'wp6-evidence/verdict-rsop-observe-20260907222726-4256.json',
-    'wp9-evidence/verdict-rsop-user-observe-20260907220844-4855.json',
-    'wp9-evidence/verdict-rsop-user-observe-20260907221020-2710.json',
-    'wp9-evidence/verdict-rsop-user-observe-20260907221153-8426.json',
-    'wp9-evidence/verdict-rsop-user-observe-20260907221411-3148.json',
-    'wp9-evidence/verdict-rsop-user-observe-20260907221626-5555.json',
-    'wp9-evidence/verdict-rsop-user-observe-20260907221808-9398.json',
-    'wp2-evidence/verification-estate.json',
-    'wp3-evidence/policy-families/dc/verification.json',
-    'wp3-evidence/policy-families/member/verification.json',
-    'wp3-evidence/object-security/verification.json',
-    'wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json',
-})
 
 # WI-060: model/review-digest changes retire only these two WI-059 runs.
-LANE_VERDICTS.update({
-    "wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json": (
-        "finalize_scripts_backup_run.py"
-    ),
-    "wp1b-evidence/backup-report-20260908/publication/verification.json": (
-        "finalize_publication_run.py"
-    ),
-})
-RETIRED_VERDICTS.update({
-    "wp1b-evidence/wi059-20260908/scripts-metadata/verification.json",
-    "wp1b-evidence/wi059-20260908/publication/verification.json",
-})
 HISTORICAL_BOUND_FILES["wp1b-evidence/wi059-20260908/scripts-metadata/verification.json"] = {
     "build-scripts-backup-candidate.py",
     "canonical.py",
@@ -786,62 +239,6 @@ HISTORICAL_BOUND_FILES["wp1b-evidence/wi059-20260908/publication/verification.js
 
 # WI-062: the manifest-form batch. These verdicts are schema version 2 --
 # (commit, path, sha256) bound source, guest-deployed copies only in packs.
-LANE_VERDICTS.update({
-    'wp1b-evidence/wi062-20260910/wp1b/verification.json': 'finalize_wp1b_run.py',
-    'wp2-evidence/wi062-20260910/wp2/verification.json': 'finalize_wp2_import_run.py',
-    'wp3-evidence/wi062-20260910/wp3-member/verification.json': 'finalize_wp3_run.py',
-    'wp3-evidence/wi062-20260910/wp3-dc/verification.json': 'finalize_wp3_run.py',
-    'wp3-evidence/wi062-20260910/object-security/verification.json': (
-        'finalize_object_security_run.py'
-    ),
-    'wp1b-evidence/wi062-20260910/scripts-metadata/verification.json': (
-        'finalize_scripts_backup_run.py'
-    ),
-    'wp1b-evidence/wi062-20260910/publication/verification.json': 'finalize_publication_run.py',
-    'wp6-evidence/wi062-20260910/endpoint/verification.json': 'finalize_endpoint_run.py',
-    'wp6-evidence/wi062-20260910/lsdou-precedence/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/wi062-20260910/disabled-block-enforced/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/wi062-20260910/wmi-filtering/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/wi062-20260910/wmi-filtering-error/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/wi062-20260910/computer-security-filtering/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp6-evidence/wi062-20260910/computer-security-filtering-deny-read/'
-    'verification.json': 'finalize_rsop_run.py',
-    'wp9-evidence/wi062-20260910/loopback-merge/verification.json': 'finalize_rsop_user_run.py',
-    'wp9-evidence/wi062-20260910/loopback-replace/verification.json': 'finalize_rsop_user_run.py',
-    'wp9-evidence/wi062-20260910/user-side-disabled/verification.json': 'finalize_rsop_user_run.py',
-    'wp9-evidence/wi062-20260910/user-security-filtering/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/wi062-20260910/user-security-filtering-deny/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/wi062-20260910/user-security-filtering-read-deny/'
-    'verification.json': 'finalize_rsop_user_run.py',
-})
-RETIRED_VERDICTS.update({
-    'wp1b-evidence/backup-report-20260908/publication/verification.json',
-    'wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json',
-    'wp1b-evidence/wi059-20260908/wp1b/verification.json',
-    'wp2-evidence/wi059-20260908/wp2/verification.json',
-    'wp3-evidence/wi059-20260908/object-security/verification.json',
-    'wp3-evidence/wi059-20260908/wp3-dc/verification.json',
-    'wp3-evidence/wi059-20260908/wp3-member/verification.json',
-    'wp6-evidence/wi059-20260908/computer-security-filtering-deny-read/verification.json',
-    'wp6-evidence/wi059-20260908/computer-security-filtering/verification.json',
-    'wp6-evidence/wi059-20260908/disabled-block-enforced/verification.json',
-    'wp6-evidence/wi059-20260908/endpoint/verification.json',
-    'wp6-evidence/wi059-20260908/lsdou-precedence/verification.json',
-    'wp6-evidence/wi059-20260908/wmi-filtering-error/verification.json',
-    'wp6-evidence/wi059-20260908/wmi-filtering/verification.json',
-    'wp9-evidence/wi059-20260908/loopback-merge/verification.json',
-    'wp9-evidence/wi059-20260908/loopback-replace/verification.json',
-    'wp9-evidence/wi059-20260908/user-security-filtering-deny/verification.json',
-    'wp9-evidence/wi059-20260908/user-security-filtering-read-deny/verification.json',
-    'wp9-evidence/wi059-20260908/user-security-filtering/verification.json',
-    'wp9-evidence/wi059-20260908/user-side-disabled/verification.json',
-})
 
 # The Plan 034 requalification batch, 2026-10-08: all 22 lanes on ONE frozen
 # commit, `263f196`, driven by `scripts/plan-033/run-requal-batch.sh`. The
@@ -857,94 +254,6 @@ RETIRED_VERDICTS.update({
 # batch review B1) changed `object_security.py` after the freeze, so the
 # 263f196 object-security verdict is retired below and its successor,
 # re-run at `1fb3f56` on the same driver, is the live one.
-LANE_VERDICTS.update({
-    'wp1b-evidence/plan034-20261008/wp1b/verification.json': 'finalize_wp1b_run.py',
-    'wp2-evidence/plan034-20261008/wp2/verification.json': 'finalize_wp2_import_run.py',
-    'wp3-evidence/plan034-20261008/wp3-member/verification.json': 'finalize_wp3_run.py',
-    'wp3-evidence/plan034-20261008/wp3-dc/verification.json': 'finalize_wp3_run.py',
-    'wp3-evidence/plan034-20261008/object-security/verification.json': (
-        'finalize_object_security_run.py'
-    ),
-    'wp3-evidence/plan034-rerun-20261008/object-security/verification.json': (
-        'finalize_object_security_run.py'
-    ),
-    'wp1b-evidence/plan034-20261008/scripts-metadata/verification.json': (
-        'finalize_scripts_backup_run.py'
-    ),
-    'wp1b-evidence/plan034-20261008/publication/verification.json': (
-        'finalize_publication_run.py'
-    ),
-    'wp6-evidence/plan034-20261008/endpoint/verification.json': 'finalize_endpoint_run.py',
-    'wp6-evidence/plan034-20261008/lsdou-precedence/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/plan034-20261008/disabled-block-enforced/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp6-evidence/plan034-20261008/wmi-filtering/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/plan034-20261008/wmi-filtering-error/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp6-evidence/plan034-20261008/computer-security-filtering/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp6-evidence/plan034-20261008/computer-security-filtering-deny-read/'
-    'verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/plan034-20261008/computer-security-filtering-group-deny/'
-    'verification.json': 'finalize_rsop_run.py',
-    'wp9-evidence/plan034-20261008/loopback-merge/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/plan034-20261008/loopback-replace/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/plan034-20261008/user-side-disabled/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/plan034-20261008/user-security-filtering/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/plan034-20261008/user-security-filtering-deny/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/plan034-20261008/user-security-filtering-read-deny/'
-    'verification.json': 'finalize_rsop_user_run.py',
-})
-RETIRED_VERDICTS.update({
-    # The 20 WI-062 verdicts, superseded by the Plan 034 batch. WI-063
-    # renormalized the controller sources they bind (CRLF -> LF), and the
-    # batch's fixes and finalizer hardening moved the rest; they remain valid
-    # for `f5cad577`, and their packs and tags are preserved unchanged.
-    'wp1b-evidence/wi062-20260910/wp1b/verification.json',
-    'wp2-evidence/wi062-20260910/wp2/verification.json',
-    'wp3-evidence/wi062-20260910/wp3-member/verification.json',
-    'wp3-evidence/wi062-20260910/wp3-dc/verification.json',
-    'wp3-evidence/wi062-20260910/object-security/verification.json',
-    'wp1b-evidence/wi062-20260910/scripts-metadata/verification.json',
-    'wp1b-evidence/wi062-20260910/publication/verification.json',
-    'wp6-evidence/wi062-20260910/endpoint/verification.json',
-    'wp6-evidence/wi062-20260910/lsdou-precedence/verification.json',
-    'wp6-evidence/wi062-20260910/disabled-block-enforced/verification.json',
-    'wp6-evidence/wi062-20260910/wmi-filtering/verification.json',
-    'wp6-evidence/wi062-20260910/wmi-filtering-error/verification.json',
-    'wp6-evidence/wi062-20260910/computer-security-filtering/verification.json',
-    'wp6-evidence/wi062-20260910/computer-security-filtering-deny-read/verification.json',
-    'wp9-evidence/wi062-20260910/loopback-merge/verification.json',
-    'wp9-evidence/wi062-20260910/loopback-replace/verification.json',
-    'wp9-evidence/wi062-20260910/user-side-disabled/verification.json',
-    'wp9-evidence/wi062-20260910/user-security-filtering/verification.json',
-    'wp9-evidence/wi062-20260910/user-security-filtering-deny/verification.json',
-    'wp9-evidence/wi062-20260910/user-security-filtering-read-deny/verification.json',
-    # The WI-059 group-deny verdict, pending since the WI-062 batch could not
-    # run its lane (WI-069). The Plan 034 batch ran it at real time on
-    # re-baselined checkpoints, so the debt is paid and the old verdict is
-    # history for `4cfa9af4`.
-    'wp6-evidence/wi059-20260908/computer-security-filtering-group-deny/verification.json',
-    # The batch's own object-security run at `263f196`: a pass, superseded
-    # within the hour. `8b1a5b4` changed `object_security.py` after the freeze
-    # (star a [Group Membership] principal only when it is a SID -- the WI-064
-    # fix had starred names too), so this verdict binds serializer bytes that
-    # no longer ship. Its successor, banked under `plan034-rerun-20261008/`, binds `1fb3f56`.
-    'wp3-evidence/plan034-20261008/object-security/verification.json',
-})
 
 # The fdeploy lane's certifying run, 2026-10-08 (Plan 034 WP-4): a single lane
 # on its own commit, `df713ef`, banked the way the object-security successor
@@ -959,9 +268,6 @@ RETIRED_VERDICTS.update({
 # retires. The exploratory pass at `379e59b` binds superseded source and was
 # never banked.
 # `tests/test_fdeploy_lane_evidence.py` pins the pack.
-LANE_VERDICTS.update({
-    'wp4-evidence/fdeploy/verification.json': 'finalize_fdeploy_run.py',
-})
 
 # The firewall lane's certifying run, 2026-10-08 (Plan 034, WI-076): a single
 # lane on its own commit, `a6e0002`, banked the way the object-security
@@ -971,9 +277,6 @@ LANE_VERDICTS.update({
 # records), and the write leg imports Studio's backup and gets Studio's
 # Registry.pol back byte for byte. It is the lane's first verdict, so nothing
 # retires. `tests/test_firewall_lane_evidence.py` pins the pack.
-LANE_VERDICTS.update({
-    'wp3-evidence/firewall-20261008/firewall/verification.json': 'finalize_firewall_run.py',
-})
 
 # Plan 034's same-domain lifecycle lane, first banked verdict (2026-10-08):
 # `lifecycle-20261008093248-2000-c76d10eb3f2849fe` at `3513052`, clean tree,
@@ -984,9 +287,6 @@ LANE_VERDICTS.update({
 # (`7a9671d`, failed on the creation guard's clock comparison) and 2
 # (`a3f24d1`, passed before the Plan 034 batch merged) are history recorded in
 # `docs/plan-033/lifecycle-results.md`, not banked verdicts.
-LANE_VERDICTS.update({
-    'wp7-evidence/lifecycle/verification.json': 'finalize_lifecycle_run.py',
-})
 
 #: Finalizers whose manifest-form verdict (WI-062's `paths`, `banked_copies`
 #: and `manifest_bound_source`) carries a schema number other than 2.
@@ -1017,9 +317,6 @@ def _is_manifest_form(relative: str, finalizer: str) -> bool:
 # other live lane binds (`report_parity.py`, `gpp_adapters.py`,
 # `backup_inventory.py`, `import_export.py`; `backup.py` too, which the
 # lifecycle lane above also binds), so the cost table moves with it.
-LANE_VERDICTS.update({
-    'wp2-evidence/report-parity/verification.json': 'finalize_report_parity_run.py',
-})
 
 
 # The release 1.1.0 requalification batch, 2026-10-09: all 26 lanes on ONE
@@ -1029,93 +326,6 @@ LANE_VERDICTS.update({
 # lifecycle, report-parity, firewall and fdeploy lanes too. An attempt at
 # `2f21e7c` (25 of 26) was superseded unbanked when the transport fix changed
 # `psdirect.ps1`; `docs/plan-033/release110-batch.md` records it.
-LANE_VERDICTS.update({
-    'wp1b-evidence/release110-20261009/wp1b/verification.json': 'finalize_wp1b_run.py',
-    'wp2-evidence/release110-20261009/wp2/verification.json': 'finalize_wp2_import_run.py',
-    'wp3-evidence/release110-20261009/wp3-member/verification.json': 'finalize_wp3_run.py',
-    'wp3-evidence/release110-20261009/wp3-dc/verification.json': 'finalize_wp3_run.py',
-    'wp3-evidence/release110-20261009/object-security/verification.json': (
-        'finalize_object_security_run.py'
-    ),
-    'wp1b-evidence/release110-20261009/scripts-metadata/verification.json': (
-        'finalize_scripts_backup_run.py'
-    ),
-    'wp1b-evidence/release110-20261009/publication/verification.json': (
-        'finalize_publication_run.py'
-    ),
-    'wp7-evidence/release110-20261009/lifecycle/verification.json': 'finalize_lifecycle_run.py',
-    'wp2-evidence/release110-20261009/report-parity/verification.json': (
-        'finalize_report_parity_run.py'
-    ),
-    'wp3-evidence/release110-20261009/firewall/verification.json': 'finalize_firewall_run.py',
-    'wp4-evidence/release110-20261009/fdeploy/verification.json': 'finalize_fdeploy_run.py',
-    'wp6-evidence/release110-20261009/endpoint/verification.json': 'finalize_endpoint_run.py',
-    'wp6-evidence/release110-20261009/lsdou-precedence/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/release110-20261009/disabled-block-enforced/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp6-evidence/release110-20261009/wmi-filtering/verification.json': 'finalize_rsop_run.py',
-    'wp6-evidence/release110-20261009/wmi-filtering-error/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp6-evidence/release110-20261009/computer-security-filtering/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp6-evidence/release110-20261009/computer-security-filtering-deny-read/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-    'wp9-evidence/release110-20261009/loopback-merge/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/release110-20261009/loopback-replace/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/release110-20261009/user-side-disabled/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/release110-20261009/user-security-filtering/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/release110-20261009/user-security-filtering-deny/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp9-evidence/release110-20261009/user-security-filtering-read-deny/verification.json': (
-        'finalize_rsop_user_run.py'
-    ),
-    'wp6-evidence/release110-20261009/computer-security-filtering-group-deny/verification.json': (
-        'finalize_rsop_run.py'
-    ),
-})
-RETIRED_VERDICTS.update({
-    # Every verdict live before the batch. WI-078 changed `psdirect.ps1`, which
-    # all of them bind, and batch 2 moved more besides; they are history for
-    # the commits they name, packs and tags unchanged.
-    'wp1b-evidence/plan034-20261008/publication/verification.json',
-    'wp1b-evidence/plan034-20261008/scripts-metadata/verification.json',
-    'wp1b-evidence/plan034-20261008/wp1b/verification.json',
-    'wp2-evidence/plan034-20261008/wp2/verification.json',
-    'wp2-evidence/report-parity/verification.json',
-    'wp3-evidence/firewall-20261008/firewall/verification.json',
-    'wp3-evidence/plan034-20261008/wp3-dc/verification.json',
-    'wp3-evidence/plan034-20261008/wp3-member/verification.json',
-    'wp3-evidence/plan034-rerun-20261008/object-security/verification.json',
-    'wp4-evidence/fdeploy/verification.json',
-    'wp6-evidence/plan034-20261008/computer-security-filtering-deny-read/verification.json',
-    'wp6-evidence/plan034-20261008/computer-security-filtering-group-deny/verification.json',
-    'wp6-evidence/plan034-20261008/computer-security-filtering/verification.json',
-    'wp6-evidence/plan034-20261008/disabled-block-enforced/verification.json',
-    'wp6-evidence/plan034-20261008/endpoint/verification.json',
-    'wp6-evidence/plan034-20261008/lsdou-precedence/verification.json',
-    'wp6-evidence/plan034-20261008/wmi-filtering-error/verification.json',
-    'wp6-evidence/plan034-20261008/wmi-filtering/verification.json',
-    'wp7-evidence/lifecycle/verification.json',
-    'wp9-evidence/plan034-20261008/loopback-merge/verification.json',
-    'wp9-evidence/plan034-20261008/loopback-replace/verification.json',
-    'wp9-evidence/plan034-20261008/user-security-filtering-deny/verification.json',
-    'wp9-evidence/plan034-20261008/user-security-filtering-read-deny/verification.json',
-    'wp9-evidence/plan034-20261008/user-security-filtering/verification.json',
-    'wp9-evidence/plan034-20261008/user-side-disabled/verification.json',
-})
 
 
 # The release 1.1.0 successor batch, 2026-10-09: six lanes re-run at
@@ -1124,28 +334,6 @@ RETIRED_VERDICTS.update({
 # `backup_inventory.py`. Exactly the six release 1.1.0 verdicts binding those
 # files expired; their successors are registered here and they are retired. The
 # other 19 still bind the shipping tree. `docs/plan-033/release110-successors-batch.md`.
-LANE_VERDICTS.update({
-    'wp1b-evidence/release110-rerun-20261009/wp1b/verification.json': 'finalize_wp1b_run.py',
-    'wp1b-evidence/release110-rerun-20261009/scripts-metadata/verification.json': (
-        'finalize_scripts_backup_run.py'
-    ),
-    'wp1b-evidence/release110-rerun-20261009/publication/verification.json': (
-        'finalize_publication_run.py'
-    ),
-    'wp2-evidence/release110-rerun-20261009/report-parity/verification.json': (
-        'finalize_report_parity_run.py'
-    ),
-    'wp3-evidence/release110-rerun-20261009/firewall/verification.json': 'finalize_firewall_run.py',
-    'wp4-evidence/release110-rerun-20261009/fdeploy/verification.json': 'finalize_fdeploy_run.py',
-})
-RETIRED_VERDICTS.update({
-    'wp1b-evidence/release110-20261009/wp1b/verification.json',
-    'wp1b-evidence/release110-20261009/scripts-metadata/verification.json',
-    'wp1b-evidence/release110-20261009/publication/verification.json',
-    'wp2-evidence/release110-20261009/report-parity/verification.json',
-    'wp3-evidence/release110-20261009/firewall/verification.json',
-    'wp4-evidence/release110-20261009/fdeploy/verification.json',
-})
 
 
 #: WI-062: verdicts whose bound harness changed and whose replacement the next
@@ -1163,7 +351,11 @@ RETIRED_VERDICTS.update({
 #: the old verdict is retired above. The set stays, empty, because the next
 #: verdict to need it should land here with a reason rather than invent a new
 #: mechanism.
-PENDING_REQUALIFICATION: set[str] = set()
+
+#: WP0_MANIFEST (in the JSON registry) is the live WP-0 manifest. WP-0 binds by
+#: commit, not by file hashes, so it is not in LANE_VERDICTS;
+#: `test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit` checks it, and the
+#: release gate requires it to be the freeze batch's WP-0 run.
 
 LIVE_VERDICTS = {
     relative: finalizer
@@ -1604,7 +796,13 @@ def _file_tables(finalizer: str) -> list[dict[str, str]]:
     directly. Both are read here so the checks below cover every lane rather
     than the ones that happen to share a shape.
     """
-    symbols = runpy.run_path(str(ORACLE_DIR / finalizer))
+    # The registry is data; the name it gives is executed here, so it must be a
+    # bare finalizer name in scripts/windows-oracle/ (DeepSeek final-r1 B1: a
+    # value of `../../docs/plan-033/.../evil.py` ran a file added after F).
+    path = ORACLE_DIR / finalizer
+    assert _FINALIZER_NAME.fullmatch(finalizer) and path.is_file(), finalizer
+    assert path.resolve().parent == ORACLE_DIR.resolve(), finalizer
+    symbols = runpy.run_path(str(path))
     tables: list[dict[str, str]] = []
     for transport_keyed, flat in (
         ("TRANSPORT_DEPLOYED_FILES", "DEPLOYED_FILES"),
@@ -1824,6 +1022,24 @@ def test_a_live_verdict_still_binds_the_harness_that_ships(
     )
 
 
+def _release_freeze() -> dict[str, str] | None:
+    """The release evidence report's `freeze` for the package's version, or None.
+
+    Read here rather than from tests/current_qualification.py, because other tools
+    (the bank tool among them) load this registry with `runpy`, outside pytest's
+    import path.
+    """
+    init = (REPO_ROOT / "src" / "gpo_studio" / "__init__.py").read_text(encoding="utf-8")
+    match = re.search(r'^__version__ = "(\d+\.\d+\.\d+)', init, re.M)
+    assert match is not None
+    report = json.loads(
+        (REPO_ROOT / "docs" / f"release-evidence-report-{match.group(1)}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return cast("dict[str, str] | None", report["freeze"])
+
+
 def test_retired_verdicts_are_genuinely_stale() -> None:
     """The control, and the thing that stops `RETIRED_VERDICTS` being a hatch.
 
@@ -1841,11 +1057,32 @@ def test_retired_verdicts_are_genuinely_stale() -> None:
        out of a failing freshness check is to declare the verdict history. That
        only works if it really is history, because a retired verdict that still
        matches the tree fails right here.
+
+    One exception, and only one: a verdict **superseded by its own lane's run in
+    the freeze batch** (the batch the release evidence report's `freeze`
+    names). A release requalifies every lane at its freeze commit with no code
+    change, so the verdicts it replaces still match the tree; they are retired
+    because a newer run of the same lane is live, not to silence anything
+    (Plan 036, the D-9 addendum). With no freeze batch, nothing is exempt.
     """
+    frozen = _release_freeze()
+    superseded: set[str] = set()
+    if frozen is not None:
+        batch = json.loads((REPO_ROOT / frozen["batch_manifest"]).read_text(encoding="utf-8"))
+        # Lanes whose freeze-batch run is live: their earlier verdicts are superseded.
+        replaced = {
+            run["name"] for run in batch["runs"] if run["verdict"] in LIVE_VERDICTS
+        }
+        superseded = {
+            relative
+            for relative in RETIRED_VERDICTS
+            if Path(relative).parent.name in replaced
+        }
     not_stale = sorted(
         relative
         for relative in RETIRED_VERDICTS
-        if not _recorded_vs_tree(relative, LANE_VERDICTS[relative])
+        if relative not in superseded
+        and not _recorded_vs_tree(relative, LANE_VERDICTS[relative])
     )
     assert not not_stale, (
         "These verdicts are listed as retired history but still bind the "
@@ -2044,7 +1281,7 @@ def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
     (any developer clone, and any CI job that deepens its checkout) the
     property is enforced for real.
     """
-    manifest = _verdict("wp0-evidence/release110-20261009/wp0/manifest.json")
+    manifest = _verdict(WP0_MANIFEST)
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
     assert "files" not in manifest["source"], (
@@ -2564,3 +1801,33 @@ def test_every_orphaned_commit_is_actually_bound_by_a_verdict() -> None:
         f"These commits are exempted but no committed verdict binds them: {stale}. "
         "Remove the entry -- the verdict it excused is gone."
     )
+
+
+@pytest.mark.parametrize(
+    "finalizer",
+    [
+        "../../docs/plan-033/wp6-evidence/x/endpoint/evil.py",
+        "/etc/passwd",
+        "finalize_endpoint_run.py/../finalize_rsop_run.py",
+        "Finalize_endpoint_run.py",
+        "finalize_missing_run.py",
+    ],
+)
+def test_a_finalizer_that_is_not_a_bare_oracle_script_is_never_run(finalizer: str) -> None:
+    """The registry names code to run; only a bare finalize_*.py beside the others.
+
+    DeepSeek final-r1 B1: a table value is a path `runpy` executes, so a value
+    pointing at a file added under a pack would run code that was not at F.
+    """
+    with pytest.raises(AssertionError):
+        _file_tables(finalizer)
+
+
+def test_the_registry_file_is_canonical_data() -> None:
+    """One canonical encoding: ASCII JSON, 2-space indent, LF, no BOM, exact keys."""
+    raw = REGISTRY_FILE.read_bytes()
+    assert not raw.startswith(b"\xef\xbb\xbf")
+    assert _load_registry() == json.loads(raw)
+    assert set(LANE_VERDICTS.values()) <= {
+        path.name for path in ORACLE_DIR.glob("finalize_*.py")
+    }

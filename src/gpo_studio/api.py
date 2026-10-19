@@ -4,20 +4,24 @@ from __future__ import annotations
 
 import base64
 import binascii
+import functools
 import hashlib
+import inspect
 import io
 import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid as uuid_module
 import zipfile
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Annotated, Any, Literal, assert_never, cast, get_args
+from typing import Annotated, Any, Literal, TypeVar, assert_never, cast, get_args
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Query, Request
@@ -25,14 +29,23 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, Response
 from fastapi.responses import JSONResponse as _FastAPIJSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import PydanticCustomError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response as StarletteResponse
 from starlette.routing import Match
 from starlette.types import Scope
 
-from . import __version__
+from . import __version__, gpp_provenance
 from .ad_discovery import (
     discovery_script_domain,
     discovery_script_forest,
@@ -55,7 +68,7 @@ from .admx import (
     find_policy,
 )
 from .backup import BackupError, BackupGpo, GpmcBackup, read_backup
-from .canonical import policy_semantic_sha256, review_model_sha256
+from .canonical import canonical_json_bytes, policy_semantic_sha256, review_model_sha256
 from .delegation import (
     EffectiveRights,
     LockoutRisk,
@@ -65,6 +78,19 @@ from .delegation import (
     reconcile_principal,
 )
 from .diff import diff_gpos, three_way_diff
+from .egress import Format as EgressFormat
+from .egress import check as egress_check
+from .egress import (
+    checked_gpmc_backup,
+    checked_plan,
+    checked_studio_bundle,
+    gpmc_backup_refusal,
+    plan_refusal,
+    studio_export_refusal,
+    writer_boundary,
+    writer_errors,
+)
+from .emit_integrity import CHECKS, EmitError, line_problem
 from .estate import parse_estate
 from .export import (
     _GPP_EXTENSION_PROFILES,
@@ -74,13 +100,9 @@ from .export import (
     _SCRIPTS_CSE_GUID,
     _SCRIPTS_TOOL_GUID,
     _ZERO_GUID,
-    export_bundle,
     extension_registration,
-    gpmc_backup_bundle,
     native_backup_id,
     native_backup_refusal,
-    plan_refusal,
-    powershell_plan,
 )
 from .fdeploy import (
     FLAGS_ARE_UNDECODED,
@@ -105,37 +127,31 @@ from .firewall_policy import (
     to_registry_settings,
 )
 from .gpp import (
-    _GROUP_KNOWN_CHILDREN,
-    _GROUP_PROPS_KNOWN_ATTRS,
-    _GROUP_PROPS_KNOWN_CHILDREN,
-    _GROUP_RESERVED_ATTRS,
-    _MEMBER_RESERVED_ATTRS,
-    _REGISTRY_KNOWN_CHILDREN,
-    _REGISTRY_PROPS_KNOWN_CHILDREN,
-    _REGISTRY_RESERVED_ATTRS,
-    _REGISTRY_VALUE_RESERVED_ATTRS,
     GppError,
     GppGroup,
     GppGroupMember,
     GppRegistry,
     GppRegistryValue,
     _normalize_hive,
-    _validate_unknown_attrs,
-    _validate_unknown_children,
-    item_carries_cpassword,
-    namespaced_content,
+    raw_records,
     serialize_gpp,
     without_native_records,
 )
-from .gpp_native import credential_local_name
+from .gpp_edit import (
+    MemberEdit,
+    PredicateEdit,
+    merge_group,
+    merge_member,
+    merge_registry,
+    merge_value,
+    new_ilt,
+    new_members,
+)
 from .identity import ClaimedIdentity, claimed_identity
+from .identity_values import guid_problem, name_problem, security_principal_problem
 from .ilt import (
-    IltError,
-    IltFilter,
     IltOsCriteria,
     IltPredicate,
-    serialize_ilt,
-    validate_predicate_unknown_attrs,
 )
 from .import_export import (
     backup_security_filters_to_model,
@@ -167,6 +183,7 @@ from .model import (
     ValidationIssue,
     WmiFilter,
     WorkspaceError,
+    without_stored_only,
 )
 from .numeric import coerce_dword_qword
 from .object_security import (
@@ -223,8 +240,10 @@ from .security_template import (
     InfSection,
     PrivilegeRight,
     SecurityTemplate,
+    SecurityTemplateError,
     encode_security_template,
     format_security_template,
+    template_issues,
 )
 from .settings_browser import (
     build_category_tree,
@@ -238,7 +257,15 @@ from .som import (
     plan_link_order,
     set_block_inheritance,
 )
-from .store import WorkspaceStore, _now, gpo_from_dict
+from .store import (
+    WorkspaceStore,
+    _now,
+    answer_scope,
+    committed_answer,
+    gpo_from_dict,
+    register_answer_check,
+    require_unreplaced,
+)
 from .validation import validate_gpo, validate_setting
 from .wmi_catalogue import WmiCatalogue, WmiCatalogueError, load_wmi_catalogue
 from .wmi_filter import (
@@ -253,6 +280,33 @@ from .wmi_filter import (
 from .xml_safety import unwritable_text
 
 STATIC = Path(__file__).with_name("static")
+
+
+#: Where the public repository serves a tagged file.
+_RELEASE_SOURCE = "https://github.com/hraedon/gpo-studio/blob"
+
+
+def _release_evidence(version: str) -> str:
+    """The release evidence document for ``version``, at that version's tag.
+
+    ``X.Y.Z`` is tagged ``vX.Y.Z`` and ``X.Y.ZrcN`` ``vX.Y.Z-rc.N`` (the release
+    gate holds the tag to the version). A URL rather than a repository path, so
+    that someone with only the installed wheel can open it (final-r1 N1/N6): the
+    wheel does not carry ``docs/``.
+    """
+    match = re.fullmatch(r"(\d+\.\d+\.\d+)(?:rc([1-9]\d*))?", version)
+    if match is None:
+        raise ValueError(f"not a release version: {version!r}")
+    base, candidate = match.groups()
+    tag = f"v{base}" + (f"-rc.{candidate}" if candidate else "")
+    return f"{_RELEASE_SOURCE}/{tag}/docs/release-evidence-{base}.md"
+
+
+#: The document that names each lane's certifying run and commit for this
+#: version. Surfaces cite it, and the lane, instead of a run id: every release
+#: requalifies the lanes, so a run named in shipped code would be retired by the
+#: next batch (Plan 036, the D-9 addendum).
+RELEASE_EVIDENCE = _release_evidence(__version__)
 
 
 class StudioStaticFiles(StaticFiles):
@@ -438,28 +492,65 @@ class IltOsCriteriaData(BaseModel):
 
 
 class IltPredicateData(BaseModel):
-    type: Literal[
-        "ou", "group", "registry", "ip_range", "environment", "wmi_query", "os"
-    ]
+    """One targeting entry of an add or edit (final-r13).
+
+    ``{"id": X}`` keeps stored predicate X unchanged -- typed, a type Studio
+    does not author, or raw. ``{"id": X, "type": ...}`` edits stored predicate
+    X (an authorable type only). An entry without an id adds a new typed
+    predicate. A predicate's retained content is never sent: the server keeps
+    it with the predicate's id (`gpp_edit`).
+    """
+
+    id: str | None = Field(default=None, min_length=1, max_length=64)
+    type: (
+        Literal["ou", "group", "registry", "ip_range", "environment", "wmi_query", "os"] | None
+    ) = None
     negate: bool = False
     value: str = ""
     bool_op: Literal["AND", "OR"] = "AND"
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     os_criteria: IltOsCriteriaData | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _keep_or_typed(self) -> IltPredicateData:
+        typed = self.model_fields_set - {"id"}
+        if self.id is None and self.type is None:
+            raise ValueError("a new targeting predicate needs a type")
+        if typed and self.type is None:
+            raise ValueError("an edited targeting predicate needs its type")
+        if self.type == "os" and (
+            self.os_criteria is None
+            or not any(self.os_criteria.model_dump().values())
+        ):
+            # Every criterion empty targets nothing meaningful (DeepSeek
+            # final-r16 N2); a stored empty part still round-trips beside others.
+            raise ValueError(
+                "an operating system predicate needs at least one criterion "
+                "(class, version, type, edition or service pack)"
+            )
+        return self
 
 
 class IltFilterData(BaseModel):
-    items: list[IltPredicateData | str] | None = None
-    predicates: list[IltPredicateData] = Field(default_factory=list)
-    unknown_predicates: list[str] = Field(default_factory=list)
+    """Targeting in the order the item will have it; a stored predicate left out
+    is deleted, with its retained content."""
+
+    items: list[IltPredicateData] = Field(default_factory=list, max_length=500)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class GppGroupMemberData(BaseModel):
+    """A member of an add or edit: ``id`` names a stored member (whose retained
+    attributes the server keeps); none adds a new one."""
+
     sid: str = Field(min_length=1, max_length=255)
     name: str = Field(default="", max_length=255)
     action: Literal["add", "replace", "remove", "update"] = "add"
-    id: str = ""
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class GppCommonOptionsData(BaseModel):
@@ -494,13 +585,12 @@ class GppGroupData(BaseModel):
     remove_all_users: bool = False
     remove_all_groups: bool = False
     members: list[GppGroupMemberData] = Field(default_factory=list)
-    id: str = ""
     ilt_filter: IltFilterData | None = None
     common: GppCommonOptionsData | None = None
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    unknown_props_children: list[str] = Field(default_factory=list)
-    unknown_children: list[str] = Field(default_factory=list)
+
+    # Typed fields and ids only: retained content never round-trips through a
+    # client (final-r13); the server merges an edit onto the stored item.
+    model_config = ConfigDict(extra="forbid")
 
 
 _GPP_REGISTRY_TYPES = Literal[
@@ -517,8 +607,8 @@ class GppRegistryValueData(BaseModel):
     registry_type: str = "REG_SZ"
     action: Literal["create", "replace", "update", "delete"] = "create"
     default: bool = False
-    id: str = ""
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def _validate_registry_value(self) -> GppRegistryValueData:
@@ -568,13 +658,11 @@ class GppRegistryData(BaseModel):
     hive: str = Field(default="HKEY_LOCAL_MACHINE", max_length=50)
     action: Literal["add", "replace", "remove", "update"] = "update"
     value: GppRegistryValueData = Field(default_factory=lambda: GppRegistryValueData())
-    id: str = ""
-    uid: str = ""
     ilt_filter: IltFilterData | None = None
     common: GppCommonOptionsData | None = None
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    unknown_props_children: list[str] = Field(default_factory=list)
-    unknown_children: list[str] = Field(default_factory=list)
+
+    # Typed fields only; the item's uid is server-assigned (final-r13).
+    model_config = ConfigDict(extra="forbid")
 
 
 class GppGroupMutation(Audit):
@@ -665,7 +753,7 @@ class GppGroupMutation(Audit):
                             }
                         ],
                         "ilt_filter": {
-                            "predicates": [
+                            "items": [
                                 {
                                     "type": "ou",
                                     "value": "OU=Servers,DC=studio,DC=local",
@@ -918,6 +1006,34 @@ class GppRegistryValueMutation(Audit):
     )
 
 
+class GppGroupCloneMutation(Audit):
+    """Clone a stored GPP group server-side (final-r12). The caller may name the
+    copy; everything else, retained content included, is copied from the store."""
+
+    scope: Literal["computer", "user"]
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GppRegistryCloneMutation(Audit):
+    """Clone a stored GPP registry item server-side. A registry item has no name
+    to give the copy (DeepSeek final-r13 N7: the name was accepted and ignored)."""
+
+    scope: Literal["computer", "user"]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GppItemRestoreMutation(Audit):
+    """Put one GPP item back as a named revision stored it (final-r12)."""
+
+    scope: Literal["computer", "user"]
+    revision: StrictInt = Field(ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class GppDeleteMutation(Audit):
     scope: Literal["computer", "user"]
 
@@ -1025,6 +1141,9 @@ class IltPredicateResponse(BaseModel):
 
 class IltFilterResponse(BaseModel):
     items: list[IltPredicateResponse | str] = Field(default_factory=list)
+    #: One stable id per item (final-r13): what an edit names to keep, edit,
+    #: move or delete a predicate.
+    ids: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1074,7 +1193,14 @@ class GppGroupResponse(BaseModel):
     common: GppCommonOptionsResponse = Field(default_factory=GppCommonOptionsResponse)
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    # Every retained field the edit routes take back must be in the response:
+    # the workbench edits from the last mutation's payload, and a field missing
+    # here was sent back empty -- which "exact or empty" accepts as a drop
+    # (final-r12; found by the restore route test).
+    unknown_props_children: list[str] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
+    #: The item holds retained content with no import record (final-r13).
+    retained_unverified: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1089,7 +1215,9 @@ class GppRegistryResponse(BaseModel):
     ilt_filter: IltFilterResponse | None = None
     common: GppCommonOptionsResponse = Field(default_factory=GppCommonOptionsResponse)
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_props_children: list[str] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
+    retained_unverified: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1527,6 +1655,18 @@ class BackupImportRequest(BaseModel):
     migration_table_path: str | None = Field(default=None, max_length=4096)
     actor: str = Field(default="local-operator", min_length=1, max_length=120)
     reason: str = Field(default="Import GPMC backup", min_length=1, max_length=500)
+    #: Replace this existing GPO's content whole with the import, as a new
+    #: revision, instead of creating a GPO (final-r20): the recovery for a GPO
+    #: whose stored values cannot be read. It must have been imported from the
+    #: same source GPO; ``expected_revision`` is required with it.
+    replace_guid: str | None = Field(default=None, min_length=1, max_length=64)
+    expected_revision: StrictInt | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _replace_needs_revision(self) -> BackupImportRequest:
+        if (self.replace_guid is None) != (self.expected_revision is None):
+            raise ValueError("replace_guid and expected_revision are given together")
+        return self
 
 
 class ImportAdmRequest(Audit):
@@ -1615,253 +1755,58 @@ def _identity(actor: str) -> ClaimedIdentity:
     return claimed_identity(actor)
 
 
-def _ilt_filter_data_to_model(data: IltFilterData | None) -> IltFilter | None:
+def _ilt_edits(data: IltFilterData | None) -> list[PredicateEdit] | None:
+    """The targeting entries of a request (final-r13); ``None``: no targeting."""
     if data is None:
         return None
-    items: list[IltPredicate | str] = []
-    if data.items:
-        for item in data.items:
-            if isinstance(item, IltPredicateData):
-                pred = IltPredicate(
-                    type=item.type,
-                    negate=item.negate,
-                    value=item.value,
-                    bool_op=item.bool_op,
-                    unknown_attrs=tuple((pair[0], pair[1]) for pair in item.unknown_attrs),
-                    os_criteria=(
-                        IltOsCriteria(**item.os_criteria.model_dump())
-                        if item.os_criteria is not None
-                        else None
-                    ),
-                )
-                _validate_ilt_predicate_attrs(pred)
-                items.append(pred)
-            else:
-                items.append(item)
-    else:
-        for p in data.predicates:
-            pred = IltPredicate(
-                type=p.type,
-                negate=p.negate,
-                value=p.value,
-                bool_op=p.bool_op,
-                unknown_attrs=tuple((pair[0], pair[1]) for pair in p.unknown_attrs),
+    edits: list[PredicateEdit] = []
+    for item in data.items:
+        predicate = None
+        if item.type is not None:
+            predicate = IltPredicate(
+                type=item.type,
+                negate=item.negate,
+                value=item.value,
+                bool_op=item.bool_op,
                 os_criteria=(
-                    IltOsCriteria(**p.os_criteria.model_dump())
-                    if p.os_criteria is not None
+                    IltOsCriteria(**item.os_criteria.model_dump())
+                    if item.os_criteria is not None
                     else None
                 ),
             )
-            _validate_ilt_predicate_attrs(pred)
-            items.append(pred)
-        for raw in data.unknown_predicates:
-            items.append(raw)
-    ilt_filter = IltFilter(items=tuple(items))
-    _refuse_unwritable_ilt(ilt_filter)
-    return ilt_filter
-
-
-def _refuse_unwritable_ilt(ilt_filter: IltFilter) -> None:
-    """Refuse a raw filter predicate Studio could not write, before anything is stored.
-
-    A raw predicate that does not parse (an undeclared prefix, malformed XML)
-    used to be stored as given and fail only when the filter was serialized,
-    so the request returned 500 after committing and every later read or
-    export of that GPO failed too. Only raw predicates are checked here: typed
-    predicates are validated by the store (``invalid_ilt_ip_range`` and the
-    like), and serializing them here would turn those 422s into 500s.
-    """
-    for item in ilt_filter.items:
-        if isinstance(item, IltPredicate):
-            continue
-        try:
-            serialize_ilt(IltFilter(items=(item,)))
-        except (IltError, GppError) as error:
-            raise ValidationError([
-                ValidationIssue(
-                    severity="error",
-                    code="invalid_ilt_filter",
-                    message=f"A raw item-level targeting predicate cannot be written: {error}",
-                    path="ilt_filter",
-                )
-            ]) from error
-
-
-def _validate_ilt_predicate_attrs(pred: IltPredicate) -> None:
-    try:
-        validate_predicate_unknown_attrs(pred)
-    except IltError as error:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="reserved_attribute_collision",
-                message=str(error),
-                path="unknown_attrs",
-            )
-        ]) from error
-
-
-def _validate_gpp_unknown_attrs(
-    unknown: tuple[tuple[str, str], ...],
-    reserved: frozenset[str],
-    context: str,
-) -> None:
-    try:
-        _validate_unknown_attrs(unknown, reserved, context)
-    except GppError as error:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="reserved_attribute_collision",
-                message=str(error),
-                path="unknown_attrs",
-            )
-        ]) from error
-
-
-def _validate_gpp_unknown_children(
-    unknown: tuple[str, ...],
-    reserved: frozenset[str],
-    context: str,
-) -> None:
-    try:
-        _validate_unknown_children(unknown, reserved, context)
-    except GppError as error:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="reserved_child_collision",
-                message=str(error),
-                path="unknown_children",
-            )
-        ]) from error
-
-
-def _refuse_cpassword(key: str, item: Any, context: str) -> None:
-    """Refuse an item whose unknown attributes, children or raw filters hold a cpassword.
-
-    The export refuses one too (``cpassword_detected``); this stops it at the
-    door, as import does (WI-080 review: an element form passed every check).
-    """
-    if item_carries_cpassword(key, item):
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="cpassword_detected",
-                message=f"{context} would carry a cpassword, which Studio never writes.",
-                path="unknown_attrs",
-            )
-        ])
-    _refuse_namespaced_content(item, context)
-
-
-def _refuse_namespaced_content(value: Any, context: str) -> None:
-    """Refuse unknown content in an XML namespace (WI-080 review).
-
-    No native GPP capture uses one, and the writer copies unknown attributes,
-    children and raw filter predicates out verbatim. Import and load refuse it
-    too.
-    """
-    found = namespaced_content(value)
-    if found is not None:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="xml_namespace_refused",
-                message=(
-                    f"{context} uses an XML namespace or prefix ({found}); no native "
-                    "GPP capture does."
-                ),
-                path="unknown_attrs",
-            )
-        ])
-
-
-def _refuse_cpassword_attrs(unknown: tuple[tuple[str, str], ...], context: str) -> None:
-    """The member and registry-value routes' part of `_refuse_cpassword`."""
-    if any(credential_local_name(name) == "cpassword" for name, _ in unknown):
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="cpassword_detected",
-                message=f"{context} would carry a cpassword, which Studio never writes.",
-                path="unknown_attrs",
-            )
-        ])
+        edits.append(PredicateEdit(id=item.id, predicate=predicate))
+    return edits
 
 
 def _gpp_member_data_to_model(data: GppGroupMemberData) -> GppGroupMember:
-    member = GppGroupMember(
-        sid=data.sid,
-        name=data.name,
-        action=data.action,
-        id=data.id,
-        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
-    )
-    _validate_gpp_unknown_attrs(
-        member.unknown_attrs, _MEMBER_RESERVED_ATTRS, f"member {member.name!r}"
-    )
-    _refuse_cpassword_attrs(member.unknown_attrs, f"member {member.name!r}")
-    _refuse_namespaced_content(member, f"member {member.name!r}")
-    return member
+    return GppGroupMember(sid=data.sid, name=data.name, action=data.action)
+
+
+def _member_edits(data: list[GppGroupMemberData]) -> list[MemberEdit]:
+    return [MemberEdit(id=m.id, member=_gpp_member_data_to_model(m)) for m in data]
 
 
 def _gpp_group_data_to_model(data: GppGroupData) -> GppGroup:
-    group = GppGroup(
+    """The typed fields of a group add or edit: no members, targeting or
+    retained content, which `gpp_edit` merges."""
+    return GppGroup(
         name=data.name,
         sid=data.sid,
         action=data.action,
-        members=tuple(_gpp_member_data_to_model(m) for m in data.members),
         description=data.description,
         remove_all_users=data.remove_all_users,
         remove_all_groups=data.remove_all_groups,
-        ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
-        id=data.id,
-        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
-        unknown_props_attrs=tuple(
-            (pair[0], pair[1]) for pair in data.unknown_props_attrs
-        ),
-        unknown_props_children=tuple(data.unknown_props_children),
-        unknown_children=tuple(data.unknown_children),
     )
-    _validate_gpp_unknown_attrs(
-        group.unknown_attrs, _GROUP_RESERVED_ATTRS, f"group {group.name!r}"
-    )
-    _validate_gpp_unknown_attrs(
-        group.unknown_props_attrs,
-        _GROUP_PROPS_KNOWN_ATTRS,
-        f"group {group.name!r} properties",
-    )
-    _validate_gpp_unknown_children(
-        group.unknown_children, _GROUP_KNOWN_CHILDREN, f"group {group.name!r}"
-    )
-    _validate_gpp_unknown_children(
-        group.unknown_props_children,
-        _GROUP_PROPS_KNOWN_CHILDREN,
-        f"group {group.name!r} properties",
-    )
-    _refuse_cpassword("groups", group, f"group {group.name!r}")
-    return group
 
 
 def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistryValue:
-    value = GppRegistryValue(
+    return GppRegistryValue(
         name=data.name,
         value=data.value,
         registry_type=data.registry_type,
         action=data.action,
         default=data.default,
-        id=data.id,
-        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
     )
-    _validate_gpp_unknown_attrs(
-        value.unknown_attrs,
-        _REGISTRY_VALUE_RESERVED_ATTRS,
-        f"registry value {value.name!r}",
-    )
-    _refuse_cpassword_attrs(value.unknown_attrs, f"registry value {value.name!r}")
-    _refuse_namespaced_content(value, f"registry value {value.name!r}")
-    return value
 
 
 def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
@@ -1876,37 +1821,12 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
                 path="hive",
             )
         ]) from error
-    reg_ilt = _ilt_filter_data_to_model(data.ilt_filter)
-    value = _gpp_registry_value_data_to_model(data.value)
-    registry = GppRegistry(
+    return GppRegistry(
         key=data.key,
         hive=hive,
         action=data.action,
-        uid=data.uid,
-        value=value,
-        id=data.id,
-        ilt_filter=reg_ilt,
-        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
-        unknown_props_children=tuple(data.unknown_props_children),
-        unknown_children=tuple(data.unknown_children),
+        value=_gpp_registry_value_data_to_model(data.value),
     )
-    _validate_gpp_unknown_attrs(
-        registry.unknown_attrs,
-        _REGISTRY_RESERVED_ATTRS,
-        f"registry {registry.key!r}",
-    )
-    _validate_gpp_unknown_children(
-        registry.unknown_children,
-        _REGISTRY_KNOWN_CHILDREN,
-        f"registry {registry.key!r}",
-    )
-    _validate_gpp_unknown_children(
-        registry.unknown_props_children,
-        _REGISTRY_PROPS_KNOWN_CHILDREN,
-        f"registry {registry.key!r} properties",
-    )
-    _refuse_cpassword("registry", registry, f"registry {registry.key!r}")
-    return registry
 
 
 def _stringify_numeric_settings(settings: list[dict[str, Any]]) -> None:
@@ -1939,7 +1859,31 @@ def _gpo_to_api_dict(gpo: Any) -> dict[str, Any]:
     gpo_dict: dict[str, Any] = gpo.to_dict()
     _stringify_numeric_settings(gpo_dict["settings"])
     _stringify_gpp_numeric_values(gpo_dict["gpp_collections"])
+    _mark_unverified_retained(gpo, gpo_dict["gpp_collections"])
     return gpo_dict
+
+
+def _mark_unverified_retained(gpo: Any, collections: list[dict[str, Any]]) -> None:
+    """Flag each item holding retained content without an import record
+    (final-r13): it is kept and shown, but egress judges it by the closed
+    vocabulary. The records themselves are bookkeeping and are not served."""
+    from . import gpp_provenance
+
+    by_scope = {collection.scope: collection for collection in gpo.gpp_collections}
+    for data in collections:
+        collection = by_scope.get(data.get("scope"))
+        if collection is None:
+            continue
+        held = gpp_provenance.records(collection)
+        for family in gpp_provenance.family_keys():
+            for item, item_dict in zip(
+                getattr(collection, family), data.get(family, []), strict=False
+            ):
+                item_dict["retained_unverified"] = any(
+                    gpp_provenance.digest(key) not in held
+                    for key, _text in gpp_provenance.item_fragments(family, item)
+                    if key[2] != "run_once_id"
+                )
 
 
 def _gpo_list_item(gpo: Any) -> dict[str, Any]:
@@ -1959,10 +1903,97 @@ def _gpo_list_item(gpo: Any) -> dict[str, Any]:
     return item
 
 
+_Refusals = tuple[ValidationIssue | None, ValidationIssue | None, ValidationIssue | None]
+#: (guid, revision, sha256 of the whole GPO dict) -> the three artifact
+#: refusals. Building the plan, the Studio bundle and the GPMC backup on every
+#: read cost seconds for a large GPO; the content hash makes a hit exact.
+_REFUSAL_CACHE: OrderedDict[tuple[str, int, str], _Refusals] = OrderedDict()
+_REFUSAL_CACHE_SIZE = 256
+
+
+_REFUSAL_LOCK = threading.Lock()
+
+
+def _artifact_refusals(gpo: GPO) -> _Refusals:
+    """The three capabilities' refusals, each the route's own function
+    (`egress.plan_refusal`, `studio_export_refusal`, `gpmc_backup_refusal`).
+
+    The cache is guarded by a lock: synchronous endpoints run in a thread pool,
+    and an eviction between a hit's check and its read raised ``KeyError``
+    (DeepSeek final-r11 N3). Computing happens outside the lock; two threads
+    computing the same entry is harmless. A GPO whose dict cannot be hashed
+    (legacy text, or bytes, N6) is not cached.
+    """
+    try:
+        content = hashlib.sha256(canonical_json_bytes(gpo.to_dict())).hexdigest()
+    except (UnicodeError, TypeError, ValueError):
+        content = None
+    key = (gpo.guid, gpo.revision, content) if content is not None else None
+    if key is not None:
+        with _REFUSAL_LOCK:
+            cached = _REFUSAL_CACHE.get(key)
+            if cached is not None:
+                _REFUSAL_CACHE.move_to_end(key)
+                return cached
+    refusals = (plan_refusal(gpo), studio_export_refusal(gpo), gpmc_backup_refusal(gpo))
+    if key is not None:
+        with _REFUSAL_LOCK:
+            _REFUSAL_CACHE[key] = refusals
+            _REFUSAL_CACHE.move_to_end(key)
+            while len(_REFUSAL_CACHE) > _REFUSAL_CACHE_SIZE:
+                _REFUSAL_CACHE.popitem(last=False)
+    return refusals
+
+
+def _digest(compute: Callable[[Any], str], gpo: Any) -> str | None:
+    """A review digest, or ``None`` when stored data cannot be hashed: a read
+    reports it through validation and never fails on it (final-r17)."""
+    try:
+        return compute(gpo)
+    except UnicodeError as error:  # stored text no XML can carry (reported by validation)
+        _logger.warning("no digest for GPO %s (%s)", gpo.guid, type(error).__name__)
+        return None
+
+
+def _answer_check(gpo: Any) -> dict[str, Any]:
+    """Build the payload a mutation or creation will answer with BEFORE it
+    commits (DeepSeek final-r19 B1/N3): one whose answer cannot be built is
+    rolled back, never committed and then a 500. The store hands it back to
+    the request that committed it (`store.committed_answer`)."""
+    return _build_gpo_payload(gpo)
+
+
+register_answer_check(_answer_check)
+
+
 def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     if request is not None:
         request.state.gpo_guid = gpo.guid
         request.state.gpo_revision = gpo.revision
+        # A GPO this request committed is answered with the payload built
+        # before its commit, never rebuilt after it (Sol final-r20 B2);
+        # answering it with another object raises. Any other GPO's payload --
+        # and any built outside a request -- is built here.
+        prebuilt = committed_answer(gpo, _answer_check)
+        if prebuilt is not None:
+            return cast(dict[str, Any], prebuilt)
+    return _build_gpo_payload(gpo)
+
+
+class _AnswerScope:
+    """Each request gets its own scope for the answers its commits leave
+    (`store.answer_scope`): an ASGI wrapper, so the scope is open in the
+    request's own task, which the endpoint's worker thread copies."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        with answer_scope():
+            await self.app(scope, receive, send)
+
+
+def _build_gpo_payload(gpo: Any) -> dict[str, Any]:
     validation = validate_gpo(gpo)
     blocked = any(item.severity == "error" for item in validation)
     preserved_files = sum(len(entry.files) for entry in gpo.cse_metadata)
@@ -1972,31 +2003,41 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     # the advertisement of it cannot drift apart. `studio_export` is listed
     # because `export_bundle` writes `apply.ps1` by calling `powershell_plan`,
     # so the same refusal takes the bundle with it.
-    plan_blocked = plan_refusal(gpo)
+    # The bundle writes Registry.pol and every preference file besides the plan,
+    # so it is asked of its own writer (final-r9). The three refusals build the
+    # artifacts, so they are cached by GPO content (DeepSeek final-r10 N6).
+    plan_blocked, studio_blocked, backup_blocked = _artifact_refusals(gpo)
     plan_reason = plan_blocked.message if plan_blocked is not None else ""
+    studio_reason = studio_blocked.message if studio_blocked is not None else ""
     unknown_cse = _unknown_cse_refusal(gpo)
     # WI-046. Same class as WI-044, one capability along: the GMPC backup path
     # refuses GPP families outside `_GPP_EXTENSION_PROFILES` (Registry was among
     # them until batch 2 measured its pair; an unmeasured GPP Registry item
     # shape still refuses, WI-075), and neither `blocked` nor `preserved_files`
     # sees it.
-    backup_blocked = native_backup_refusal(gpo)
     backup_reason = backup_blocked.message if backup_blocked is not None else ""
     # A stored revision holding text XML cannot carry (legacy: no new one can
     # be written) has no canonical digest -- hashing encodes UTF-8, which a lone
     # surrogate refuses. The read still succeeds and `validation` names the
     # offending fields (batch-2 review).
     unwritable = any(item.code == "text_not_xml_writable" for item in validation)
+    # A blocked GPO's digests read its retained records raw: no writer runs on
+    # content validation refuses (DeepSeek final-r19 B1).
+    with raw_records(blocked):
+        digests = (
+            None if unwritable else _digest(policy_semantic_sha256, gpo),
+            None if unwritable else _digest(review_model_sha256, gpo),
+        )
     return {
         "gpo": _gpo_to_api_dict(gpo),
         "validation": [asdict(item) for item in validation],
-        "policy_semantic_sha256": None if unwritable else policy_semantic_sha256(gpo),
-        "review_model_sha256": None if unwritable else review_model_sha256(gpo),
+        "policy_semantic_sha256": None if unwritable else digests[0],
+        "review_model_sha256": None if unwritable else digests[1],
         "artifact_capabilities": {
             "studio_export": {
-                "enabled": not blocked and plan_blocked is None,
+                "enabled": not blocked and studio_blocked is None,
                 "format": "zip",
-                "reason": plan_reason,
+                "reason": studio_reason,
             },
             "gpmc_export": {
                 "enabled": not blocked and unknown_cse is None and backup_blocked is None,
@@ -2020,6 +2061,9 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
                 unknown_cse=unknown_cse,
                 backup_reason=backup_reason,
             ),
+            # The diagnostic exception (final-r15): the report renders even
+            # for stored content a current rule refuses -- it summarizes and
+            # escapes, never embeds retained bytes -- so it is always enabled.
             "policy_report": {"enabled": True, "format": "text"},
             "preserved_content": {
                 "present": preserved_files > 0,
@@ -2094,14 +2138,17 @@ class JSONResponse(_FastAPIJSONResponse):
     readable: on that failure the body is re-rendered with ASCII escapes,
     which JSON permits and which carry the value unchanged.
 
-    It is also the API's one boundary for retained native elements (WI-080):
-    every JSON body leaves out ``native_xml`` wherever it appears -- a GPO, a
-    revision snapshot, a diff, a list row -- so no route can serve it, however
-    it builds its payload (review P2: revision snapshots and diffs did).
+    It is also the API's one boundary for import bookkeeping
+    (`gpp._NOT_SERVED`): every JSON body leaves out ``native_xml`` (WI-080),
+    ``retained_provenance`` (final-r13) and ``load_problems`` (final-r14)
+    wherever they appear -- a GPO, a revision snapshot, a diff, a list row --
+    so no route can serve them, however it builds its payload (review P2:
+    revision snapshots and diffs did). The same holds for an import record's
+    stored-only source identity (`model.without_stored_only`, final-r23).
     """
 
     def render(self, content: Any) -> bytes:
-        content = without_native_records(content)
+        content = without_stored_only(without_native_records(content))
         try:
             return super().render(content)
         except UnicodeEncodeError:
@@ -2433,7 +2480,186 @@ app.add_middleware(OriginValidationMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(_AnswerScope)
 app.mount("/assets", StudioStaticFiles(directory=STATIC), name="assets")
+
+
+# --------------------------------------------------------------------------
+# Egress (final-r10). Every route is declared here: an artifact route with the
+# format its result is validated against before it leaves (`egress.check`),
+# or a route that returns no artifact, with why. `tests/test_egress.py`
+# enumerates `app.routes` at run time and fails on any route in neither table,
+# and on any artifact route whose endpoint is not wrapped by `egress`.
+# --------------------------------------------------------------------------
+
+_Endpoint = TypeVar("_Endpoint", bound=Callable[..., Any])
+
+
+def egress(format: EgressFormat) -> Callable[[_Endpoint], _Endpoint]:
+    """Validate the endpoint's artifact, in its final form, before it responds."""
+
+    def wrap(endpoint: _Endpoint) -> _Endpoint:
+        if inspect.iscoroutinefunction(endpoint):  # pragma: no cover - none are
+            raise TypeError("egress wraps synchronous endpoints")
+
+        @functools.wraps(endpoint)
+        def checked(*args: Any, **kwargs: Any) -> Any:
+            # No catch here (final-r18): writers' named refusals become 422s
+            # at the writer call (`egress.writer_boundary`); a store, validation
+            # or programming failure keeps its 500.
+            result = endpoint(*args, **kwargs)
+            egress_check(format, result)
+            return result
+
+        checked.__egress__ = format  # type: ignore[attr-defined]
+        return cast(_Endpoint, checked)
+
+    return wrap
+
+
+ROUTE_ARTIFACTS: dict[tuple[str, str], EgressFormat] = {
+    ("GET", "/api/gpos/{guid}/export.zip"): "zip-studio",
+    ("GET", "/api/gpos/{guid}/plan.ps1"): "powershell-plan",
+    ("GET", "/api/gpos/{guid}/report.txt"): "report-text",
+    ("GET", "/api/gpos/{guid}/gpmc-backup"): "zip-gpmc",
+    ("POST", "/api/gpos/{guid}/gpmc-backup-with-scripts"): "zip-gpmc",
+    ("POST", "/api/gpos/{guid}/gpmc-backup-with-scripts/preview"): "scripts-preview",
+    ("GET", "/api/discovery/forest/script"): "powershell-discovery-forest",
+    ("GET", "/api/discovery/domain/script"): "powershell-discovery-domain",
+    ("GET", "/api/discovery/sites/script"): "powershell-discovery-sites",
+    ("GET", "/api/discovery/ous/script"): "powershell-discovery-ous",
+    ("GET", "/api/discovery/gpos/script"): "powershell-discovery-gpos",
+    ("GET", "/api/discovery/principals/script"): "powershell-discovery-principals",
+    ("POST", "/api/security-template/policy-families"): "inf",
+    ("POST", "/api/security-template/object-security"): "inf",
+    ("POST", "/api/network-security/firewall/render"): "firewall-settings",
+}
+_JSON = "JSON data, not an artifact; JSON escapes every control character"
+_GPO_PAYLOAD = "JSON: a GPO payload (capabilities report artifact refusals, never raise)"
+_IMPORT = (
+    "JSON: the result of reading an import or a discovery upload (a GPO payload "
+    "where the import made or changed a GPO)"
+)
+_NO_CONTENT = "204: no body"
+_STATIC = "a file shipped with Studio; no user data"
+_FRAMEWORK = "FastAPI's own schema or documentation page"
+#: JSON that names the digests of artifacts Studio would write (final-r15): not
+#: an artifact itself, but refused like one -- before anything is serialized --
+#: whenever the GPO has a validation error.
+_GUARDED_DIGESTS = (
+    "JSON: a plan naming the digests of files Studio would write; refused (422) "
+    "on any validation error before a file is built, as the artifact routes are"
+)
+#: The lifecycle plan names a GPMC cmdlet over the backup WINDOWS wrote (the
+#: retained inventory); it serializes and digests nothing of Studio's.
+_BACKUP_PLAN = (
+    "JSON: a cmdlet plan over the retained Windows backup; no Studio-written "
+    "bytes are built, embedded or digested"
+)
+NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
+    ("*", "/openapi.json"): _FRAMEWORK,
+    ("*", "/docs"): _FRAMEWORK,
+    ("*", "/docs/oauth2-redirect"): _FRAMEWORK,
+    ("*", "/redoc"): _FRAMEWORK,
+    ("*", "/assets"): _STATIC,
+    ("GET", "/"): _STATIC,
+    ("GET", "/api/health"): _JSON,
+    ("POST", "/api/workspace/integrity"): _JSON,
+    ("GET", "/api/admx/search"): _JSON,
+    ("GET", "/api/admx/policies/{policy_id}"): _JSON,
+    ("POST", "/api/admx/policies/{policy_id}/configure"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/bulk-policy-state"): _GPO_PAYLOAD,
+    ("GET", "/api/admx/categories"): _JSON,
+    ("GET", "/api/admx/categories/tree"): _JSON,
+    ("GET", "/api/gpos/{guid}/configured-settings"): _JSON,
+    ("GET", "/api/templates"): _JSON,
+    ("POST", "/api/templates/ingest"): _IMPORT,
+    ("GET", "/api/templates/collisions"): _JSON,
+    ("POST", "/api/templates/lock"): _JSON,
+    ("POST", "/api/templates/lock/validate"): _JSON,
+    ("GET", "/api/gpos"): _JSON,
+    ("POST", "/api/gpos"): _GPO_PAYLOAD,
+    ("GET", "/api/starter-gpos"): _JSON,
+    ("POST", "/api/starter-gpos"): _GPO_PAYLOAD,
+    ("POST", "/api/starter-gpos/{guid}/derive"): _GPO_PAYLOAD,
+    ("DELETE", "/api/starter-gpos/{guid}"): _NO_CONTENT,
+    ("DELETE", "/api/gpos/{guid}"): _NO_CONTENT,
+    ("GET", "/api/gpos/{guid}"): _GPO_PAYLOAD,
+    ("PATCH", "/api/gpos/{guid}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/settings"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/settings/{setting_id}"): _GPO_PAYLOAD,
+    ("PATCH", "/api/gpos/{guid}/settings/{setting_id}/comment"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/settings/{setting_id}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/copy-settings"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/import-adm"): _IMPORT,
+    ("POST", "/api/gpos/{guid}/links"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/links/{link_id}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/links/{link_id}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/security-filters"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/security-filters/{filter_id}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/security-filters/{filter_id}"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/wmi-filter"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/wmi-filter"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/reorder"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/groups"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/preferences/groups/{group_id}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/preferences/groups/{group_id}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/registry"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/groups/{group_id}/clone"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/registry/{registry_id}/clone"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/groups/{group_id}/restore"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/registry/{registry_id}/restore"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/preferences/registry/{registry_id}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/preferences/registry/{registry_id}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/groups/{group_id}/members"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/preferences/groups/{group_id}/members/{member_id}"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/preferences/groups/{group_id}/members/{member_id}"): _GPO_PAYLOAD,
+    ("POST", "/api/gpos/{guid}/preferences/registry/{registry_id}/values"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/preferences/registry/{registry_id}/values/{value_id}"): _GPO_PAYLOAD,
+    (
+        "DELETE",
+        "/api/gpos/{guid}/preferences/registry/{registry_id}/values/{value_id}",
+    ): _GPO_PAYLOAD,
+    ("GET", "/api/wmi-filters"): _JSON,
+    ("GET", "/api/wmi-filters/{filter_id}"): _JSON,
+    ("POST", "/api/wmi-filters/lint"): _JSON,
+    ("POST", "/api/wmi-filters/parse-multi-query"): _JSON,
+    ("POST", "/api/loopback/validate"): _JSON,
+    ("GET", "/api/loopback/describe/{mode}"): _JSON,
+    ("POST", "/api/wmi-filters/check-deletion"): _JSON,
+    ("GET", "/api/gpos/{guid}/revisions"): _JSON,
+    ("GET", "/api/gpos/{guid}/revisions/diff"): _JSON,
+    ("GET", "/api/gpos/{guid}/revisions/{revision}"): _JSON,
+    ("POST", "/api/gpos/{guid}/revisions/{revision}/restore"): _GPO_PAYLOAD,
+    ("GET", "/api/gpos/{guid}/diff"): _JSON,
+    ("POST", "/api/diff"): _JSON,
+    ("GET", "/api/imports/capabilities"): _JSON,
+    ("POST", "/api/backups/import"): _IMPORT,
+    ("POST", "/api/estate/import"): _IMPORT,
+    ("POST", "/api/gpos/{guid}/fork"): _GPO_PAYLOAD,
+    ("POST", "/api/estate/diff"): _JSON,
+    ("POST", "/api/discovery/forest"): _IMPORT,
+    ("POST", "/api/discovery/domain"): _IMPORT,
+    ("POST", "/api/discovery/sites"): _IMPORT,
+    ("POST", "/api/discovery/ous"): _IMPORT,
+    ("POST", "/api/discovery/gpos"): _IMPORT,
+    ("POST", "/api/discovery/principals"): _IMPORT,
+    ("GET", "/api/discovery/principals"): _JSON,
+    ("GET", "/api/discovery/summary"): _JSON,
+    ("POST", "/api/som/precedence"): _JSON,
+    ("POST", "/api/som/plan-link-order"): _JSON,
+    ("POST", "/api/som/set-block-inheritance"): _JSON,
+    ("POST", "/api/delegation/effective-rights"): _JSON,
+    ("POST", "/api/delegation/reconcile-principal"): _JSON,
+    ("POST", "/api/delegation/check-lockout"): _JSON,
+    ("POST", "/api/rsop/compute"): _JSON,
+    ("POST", "/api/rsop/compare"): _JSON,
+    ("POST", "/api/folder-redirection/fdeploy"): _JSON,
+    ("POST", "/api/folder-redirection/fdeploy/diff"): _JSON,
+    ("GET", "/api/gpos/{guid}/publication-plan"): _GUARDED_DIGESTS,
+    ("GET", "/api/gpos/{guid}/firewall-policy"): _JSON,
+    ("POST", "/api/lifecycle/restore-plan"): _BACKUP_PLAN,
+}
 
 
 @app.exception_handler(StudioError)
@@ -2481,6 +2707,36 @@ async def gpp_error(request: Request, error: GppError) -> JSONResponse:
     unreadable (batch-2 review: a key-only item's empty list).
     """
     detail: dict[str, Any] = {"message": str(error), "code": "gpp_content_refused"}
+    return JSONResponse(_error_body(request, detail), status_code=422)
+
+
+@app.exception_handler(SecurityTemplateError)
+async def security_template_error(
+    request: Request, error: SecurityTemplateError
+) -> JSONResponse:
+    """A template the INF writer refuses is a 422 with the render routes' code,
+    whichever layer refuses it (the family writers check before joining a list,
+    final-r9 N2)."""
+    detail: dict[str, Any] = {"message": str(error), "code": "unwritable_template_value"}
+    return JSONResponse(_error_body(request, detail), status_code=422)
+
+
+@app.exception_handler(EmitError)
+async def emit_error(request: Request, error: EmitError) -> JSONResponse:
+    """A value a writer will not emit is a 422 naming each value, not a 500.
+
+    Every writer checks what it writes (`emit_integrity`, final-r8); the
+    validation that runs before an export normally reports the same values
+    first, so this is the backstop for a path that skipped it.
+    """
+    detail: dict[str, Any] = {
+        "message": str(error),
+        "code": "unwritable_artifact_value",
+        "problems": [
+            {"where": p.where, "name": p.name, "value": p.value, "problem": p.problem}
+            for p in error.problems
+        ],
+    }
     return JSONResponse(_error_body(request, detail), status_code=422)
 
 
@@ -2534,12 +2790,30 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
+#: A value of the wrong shape -- raw XML where a targeting entry, a member or a
+#: registry value belongs -- fails as one of these. Inside a GPP request body
+#: it is never echoed (DeepSeek final-r14 N2).
+_UNECHOED_INPUT_TYPES = frozenset({"model_type", "model_attributes_type", "dict_type"})
+_GPP_BODY_KEYS = frozenset({"group", "registry", "member", "value"})
+
+
 def _sanitize_validation_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
     sanitized: list[dict[str, Any]] = []
     for issue in issues:
         if not isinstance(issue, dict):
             sanitized.append({"issue": str(issue)})
             continue
+        loc = tuple(issue.get("loc", ()))
+        if issue.get("type") == "extra_forbidden" or (
+            issue.get("type") in _UNECHOED_INPUT_TYPES
+            and len(loc) > 1
+            and loc[0] == "body"
+            and loc[1] in _GPP_BODY_KEYS
+        ):
+            # A field the request may not carry, or a value in a shape it may
+            # not take -- retained content, a raw filter (final-r13) -- is
+            # named, never echoed: it may hold a credential.
+            issue = {key: value for key, value in issue.items() if key != "input"}
         safe = _json_safe(issue)
         sanitized.append(
             cast(dict[str, Any], safe)
@@ -2568,16 +2842,18 @@ async def http_exception(request: Request, error: StarletteHTTPException) -> Res
 
 @app.exception_handler(RequestValidationError)
 async def request_validation(request: Request, error: RequestValidationError) -> JSONResponse:
-    return JSONResponse(
-        _error_body(
-            request,
-            {
-                "message": "Invalid request",
-                "issues": _sanitize_validation_issues(error.errors()),
-            },
-        ),
-        status_code=422,
-    )
+    detail: dict[str, Any] = {
+        "message": "Invalid request",
+        "issues": _sanitize_validation_issues(error.errors()),
+    }
+    # A value a writer would refuse, caught at the request model: the same code
+    # the writer's own refusal carries.
+    if any(
+        isinstance(item, dict) and item.get("type") == "unwritable_template_value"
+        for item in error.errors()
+    ):
+        detail["code"] = "unwritable_template_value"
+    return JSONResponse(_error_body(request, detail), status_code=422)
 
 
 @app.get("/", include_in_schema=False)
@@ -3067,6 +3343,27 @@ def delete_starter_gpo(
     return Response(status_code=204)
 
 
+@app.delete("/api/gpos/{guid}", status_code=204)
+def delete_gpo(
+    request: Request,
+    guid: str,
+    body: DeleteMutation,
+    confirm: str | None = Query(default=None, max_length=64),
+) -> Response:
+    """Delete a GPO whose stored values cannot be read: one of its recoveries
+    (final-r20). ``confirm`` must repeat the guid; every stored row is archived
+    first (`WorkspaceStore.delete_gpo`, docs/workspace-recovery.md). Any other
+    GPO is refused (422); Studio has no general GPO deletion."""
+    _store(request).delete_gpo(
+        guid,
+        body.expected_revision,
+        identity=_identity(body.actor),
+        reason=body.reason,
+        confirm=confirm,
+    )
+    return Response(status_code=204)
+
+
 @app.get("/api/gpos/{guid}")
 def get_gpo(request: Request, guid: str) -> dict[str, Any]:
     return _gpo_payload(_store(request).get_gpo(guid), request)
@@ -3153,7 +3450,22 @@ def delete_setting(
 
 @app.post("/api/gpos/{guid}/copy-settings")
 def copy_settings(request: Request, guid: str, body: CopySettingsMutation) -> dict[str, Any]:
+    # The target first (Sol final-r19 B1): a target whose read replaced stored
+    # values refuses any change, whatever the source holds -- before anything
+    # is filtered, so an empty selection is refused alike.
+    target = _store(request).get_gpo(guid)
+    if target.revision != body.expected_revision:
+        raise ConflictError(
+            f"Expected revision {body.expected_revision}, "
+            f"but the current revision is {target.revision}",
+            expected_revision=body.expected_revision,
+            current_revision=target.revision,
+        )
+    require_unreplaced(target)
     source = _store(request).get_gpo(body.source_guid)
+    # A source whose read replaced stored values would copy the defaults in
+    # their place (final-r18): refused, as an edit of it is.
+    require_unreplaced(source)
     settings = list(source.settings)
     if body.side is not None:
         settings = [s for s in settings if s.side == body.side]
@@ -3318,8 +3630,11 @@ def reorder_gpp(
 def add_gpp_group(
     request: Request, guid: str, body: GppGroupMutation
 ) -> dict[str, Any]:
-    group = _gpp_group_data_to_model(body.group)
-    group = replace(group, id="")
+    group = replace(
+        _gpp_group_data_to_model(body.group),
+        members=new_members(_member_edits(body.group.members), "group.members"),
+        ilt_filter=new_ilt(_ilt_edits(body.group.ilt_filter), "group.ilt_filter"),
+    )
     gpo = _store(request).put_gpp_group(
         guid,
         body.expected_revision,
@@ -3336,17 +3651,21 @@ def add_gpp_group(
 def edit_gpp_group(
     request: Request, guid: str, group_id: str, body: GppGroupMutation
 ) -> dict[str, Any]:
-    group = _gpp_group_data_to_model(body.group)
-    group = replace(group, id=group_id)
+    # The edit's typed fields and ids, merged onto the stored group under the
+    # store lock: retained content stays with the ids that own it (final-r13).
+    typed = replace(_gpp_group_data_to_model(body.group), id=group_id)
+    members = _member_edits(body.group.members)
+    ilt = _ilt_edits(body.group.ilt_filter)
     gpo = _store(request).put_gpp_group(
         guid,
         body.expected_revision,
         body.scope,
-        group,
+        typed,
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
         common_edits=_common_edits(body.group.common),
+        merge=lambda stored: merge_group(stored, typed, members, ilt),
     )
     return _gpo_payload(gpo, request)
 
@@ -3374,8 +3693,10 @@ def delete_gpp_group(
 def add_gpp_registry(
     request: Request, guid: str, body: GppRegistryMutation
 ) -> dict[str, Any]:
-    registry = _gpp_registry_data_to_model(body.registry)
-    registry = replace(registry, id="")
+    registry = replace(
+        _gpp_registry_data_to_model(body.registry),
+        ilt_filter=new_ilt(_ilt_edits(body.registry.ilt_filter), "registry.ilt_filter"),
+    )
     gpo = _store(request).put_gpp_registry(
         guid,
         body.expected_revision,
@@ -3392,17 +3713,107 @@ def add_gpp_registry(
 def edit_gpp_registry(
     request: Request, guid: str, registry_id: str, body: GppRegistryMutation
 ) -> dict[str, Any]:
-    registry = _gpp_registry_data_to_model(body.registry)
-    registry = replace(registry, id=registry_id)
+    typed = replace(_gpp_registry_data_to_model(body.registry), id=registry_id)
+    ilt = _ilt_edits(body.registry.ilt_filter)
     gpo = _store(request).put_gpp_registry(
         guid,
         body.expected_revision,
         body.scope,
-        registry,
+        typed,
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
         common_edits=_common_edits(body.registry.common),
+        merge=lambda stored: merge_registry(stored, typed, ilt),
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.post(
+    "/api/gpos/{guid}/preferences/groups/{group_id}/clone",
+    status_code=201,
+    response_model=GpoPayloadResponse,
+)
+def clone_gpp_group(
+    request: Request, guid: str, group_id: str, body: GppGroupCloneMutation
+) -> dict[str, Any]:
+    """Copy a stored group, members and retained content included, as a new group.
+
+    Server-side so retained content is copied from the store, never sent: the
+    add route accepts none (final-r11), and the workbench's Clone used to send
+    the whole item to it (Sol and DeepSeek final-r12)."""
+    gpo = _store(request).clone_gpp_item(
+        guid,
+        body.expected_revision,
+        body.scope,
+        "groups",
+        group_id,
+        name=body.name,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.post(
+    "/api/gpos/{guid}/preferences/registry/{registry_id}/clone",
+    status_code=201,
+    response_model=GpoPayloadResponse,
+)
+def clone_gpp_registry(
+    request: Request, guid: str, registry_id: str, body: GppRegistryCloneMutation
+) -> dict[str, Any]:
+    """Copy a stored GPP registry item, retained content included, as a new item."""
+    gpo = _store(request).clone_gpp_item(
+        guid,
+        body.expected_revision,
+        body.scope,
+        "registry",
+        registry_id,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.post(
+    "/api/gpos/{guid}/preferences/groups/{group_id}/restore",
+    response_model=GpoPayloadResponse,
+)
+def restore_gpp_group(
+    request: Request, guid: str, group_id: str, body: GppItemRestoreMutation
+) -> dict[str, Any]:
+    """Put one group back exactly as a named revision stored it."""
+    gpo = _store(request).restore_gpp_item(
+        guid,
+        body.expected_revision,
+        body.scope,
+        "groups",
+        group_id,
+        body.revision,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.post(
+    "/api/gpos/{guid}/preferences/registry/{registry_id}/restore",
+    response_model=GpoPayloadResponse,
+)
+def restore_gpp_registry(
+    request: Request, guid: str, registry_id: str, body: GppItemRestoreMutation
+) -> dict[str, Any]:
+    """Put one GPP registry item back exactly as a named revision stored it."""
+    gpo = _store(request).restore_gpp_item(
+        guid,
+        body.expected_revision,
+        body.scope,
+        "registry",
+        registry_id,
+        body.revision,
+        identity=_identity(body.actor),
+        reason=body.reason,
     )
     return _gpo_payload(gpo, request)
 
@@ -3436,8 +3847,16 @@ def add_gpp_member(
     group_id: str,
     body: GppMemberMutation,
 ) -> dict[str, Any]:
+    if body.member.id is not None:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="unknown_member_id",
+                message="A new member takes no id; the server assigns one.",
+                path="member.id",
+            )
+        ])
     member = _gpp_member_data_to_model(body.member)
-    member = replace(member, id="")
     gpo = _store(request).put_gpp_member(
         guid,
         body.expected_revision,
@@ -3461,8 +3880,7 @@ def edit_gpp_member(
     member_id: str,
     body: GppMemberMutation,
 ) -> dict[str, Any]:
-    member = _gpp_member_data_to_model(body.member)
-    member = replace(member, id=member_id)
+    member = replace(_gpp_member_data_to_model(body.member), id=member_id)
     gpo = _store(request).put_gpp_member(
         guid,
         body.expected_revision,
@@ -3472,6 +3890,7 @@ def edit_gpp_member(
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
+        merge=lambda stored: merge_member(stored, member),
     )
     return _gpo_payload(gpo, request)
 
@@ -3511,7 +3930,6 @@ def add_gpp_registry_value(
     body: GppRegistryValueMutation,
 ) -> dict[str, Any]:
     value = _gpp_registry_value_data_to_model(body.value)
-    value = replace(value, id="")
     gpo = _store(request).put_gpp_registry_value(
         guid,
         body.expected_revision,
@@ -3535,8 +3953,7 @@ def edit_gpp_registry_value(
     value_id: str,
     body: GppRegistryValueMutation,
 ) -> dict[str, Any]:
-    value = _gpp_registry_value_data_to_model(body.value)
-    value = replace(value, id=value_id)
+    value = replace(_gpp_registry_value_data_to_model(body.value), id=value_id)
     gpo = _store(request).put_gpp_registry_value(
         guid,
         body.expected_revision,
@@ -3546,6 +3963,7 @@ def edit_gpp_registry_value(
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
+        merge=lambda stored: merge_value(stored, value),
     )
     return _gpo_payload(gpo, request)
 
@@ -3677,7 +4095,9 @@ def revision_diff(
 @app.get("/api/gpos/{guid}/revisions/{revision}")
 def revision(request: Request, guid: str, revision: int) -> dict[str, Any]:
     item = _store(request).get_revision(guid, revision)
-    return asdict(item)
+    # The snapshot as stored, in its public form: the response class leaves
+    # out the import record's stored-only identity, as it does everywhere.
+    return cast(dict[str, Any], without_stored_only(asdict(item)))
 
 
 @app.post("/api/gpos/{guid}/revisions/{revision}/restore")
@@ -3693,6 +4113,7 @@ def restore(request: Request, guid: str, revision: int, body: RestoreMutation) -
 
 
 @app.get("/api/gpos/{guid}/export.zip")
+@egress("zip-studio")
 def bundle(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
@@ -3700,28 +4121,28 @@ def bundle(request: Request, guid: str) -> Response:
         raise ValidationError(errors)
     fname = f"{_safe_filename(gpo.guid)}-publication.zip"
     headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
-    return Response(export_bundle(gpo), media_type="application/zip", headers=headers)
+    return Response(checked_studio_bundle(gpo), media_type="application/zip", headers=headers)
 
 
 @app.get("/api/gpos/{guid}/plan.ps1")
+@egress("powershell-plan")
 def plan(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
     if errors:
         raise ValidationError(errors)
-    return Response(powershell_plan(gpo), media_type="text/plain; charset=utf-8")
+    return Response(checked_plan(gpo), media_type="text/plain; charset=utf-8")
 
 
 @app.get("/api/gpos/{guid}/report.txt")
+@egress("report-text")
 def report(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     fname = f"{_safe_filename(gpo.guid)}-report.txt"
     headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
-    return Response(
-        policy_report(gpo),
-        media_type="text/plain; charset=utf-8",
-        headers=headers,
-    )
+    with writer_boundary("report.txt"):
+        body = policy_report(gpo)
+    return Response(body, media_type="text/plain; charset=utf-8", headers=headers)
 
 
 def _resolve_gpo(request: Request, ref: str | dict[str, Any]) -> GPO:
@@ -3764,7 +4185,9 @@ def import_capabilities() -> dict[str, Any]:
 
 
 @app.post("/api/backups/import", status_code=201)
-def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]:
+def import_backup(
+    request: Request, response: Response, body: BackupImportRequest
+) -> dict[str, Any]:
     backup_dir = _validate_inbox_path(body.path)
 
     try:
@@ -3794,7 +4217,13 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         if content_root is not None:
             machine_settings = extract_side_settings(content_root, "computer")
             user_settings = extract_side_settings(content_root, "user")
-            gpp_collections = collect_gpp_collections(content_root)
+            # The acquisition boundary (final-r13): every retained fragment of
+            # the backup's preferences is recorded as imported, bound to the ids
+            # `collect_gpp_collections` assigned.
+            gpp_collections = tuple(
+                gpp_provenance.mint(collection)
+                for collection in collect_gpp_collections(content_root)
+            )
         else:
             machine_settings = []
             user_settings = []
@@ -3851,25 +4280,36 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
     if gpo_issues:
         raise ValidationError(gpo_issues)
 
-    gpo = _store(request).create_gpo(
-        name=backup_gpo.display_name or "Imported GPO",
-        description=f"Imported from GPMC backup {backup.backup_id}",
-        identity=_identity(body.actor),
-        reason=body.reason,
-        settings=all_settings,
-        source_guid=backup_gpo.guid,
-        cse_metadata=cse_metadata,
-        backup_inventory=backup_gpo.backup_inventory,
-        fdeploy=backup_gpo.fdeploy,
-        domain=backup_gpo.domain or "studio.local",
-        security_filters=security_filters,
-        wmi_filter=wmi_filter,
-        gpp_collections=gpp_collections,
-        computer_enabled=backup_gpo.computer_enabled,
-        user_enabled=backup_gpo.user_enabled,
+    imported: dict[str, Any] = {
+        "name": backup_gpo.display_name or "Imported GPO",
+        "description": f"Imported from GPMC backup {backup.backup_id}",
+        "settings": all_settings,
+        "source_guid": backup_gpo.guid,
+        "cse_metadata": cse_metadata,
+        "backup_inventory": backup_gpo.backup_inventory,
+        "fdeploy": backup_gpo.fdeploy,
+        "domain": backup_gpo.domain or "studio.local",
+        "security_filters": security_filters,
+        "wmi_filter": wmi_filter,
+        "gpp_collections": gpp_collections,
+        "computer_enabled": backup_gpo.computer_enabled,
+        "user_enabled": backup_gpo.user_enabled,
         # Imports are immutable evidence by default. Editing requires the
         # explicit fork endpoint so the source snapshot remains reviewable.
-        status="archived",
+        "status": "archived",
+    }
+    if body.replace_guid is not None and body.expected_revision is not None:
+        gpo = _store(request).replace_from_import(
+            body.replace_guid,
+            body.expected_revision,
+            GPO(guid=body.replace_guid, **imported),
+            identity=_identity(body.actor),
+            reason=body.reason,
+        )
+        response.status_code = 200
+        return _gpo_payload(gpo, request)
+    gpo = _store(request).create_gpo(
+        identity=_identity(body.actor), reason=body.reason, **imported
     )
     return _gpo_payload(gpo, request)
 
@@ -3894,6 +4334,7 @@ def _unknown_cse_refusal(gpo: GPO) -> ValidationIssue | None:
 
 
 @app.get("/api/gpos/{guid}/gpmc-backup")
+@egress("zip-gpmc")
 def gpmc_backup(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
@@ -3908,7 +4349,7 @@ def gpmc_backup(request: Request, guid: str) -> Response:
         "Content-Disposition": f'attachment; filename="{fname}"',
         "X-GPO-Backup-Id": backup_id,
     }
-    return Response(gpmc_backup_bundle(gpo), media_type="application/zip", headers=headers)
+    return Response(checked_gpmc_backup(gpo), media_type="application/zip", headers=headers)
 
 
 @app.post("/api/estate/import")
@@ -3943,6 +4384,7 @@ def estate_diff(request: Request, body: EstateDiffRequest) -> dict[str, Any]:
 
 
 @app.get("/api/discovery/forest/script")
+@egress("powershell-discovery-forest")
 def get_forest_discovery_script(request: Request) -> dict[str, str]:
     """Return the PowerShell script for forest discovery."""
     return {"script": discovery_script_forest()}
@@ -3963,6 +4405,7 @@ def import_forest_discovery(request: Request, body: dict[str, Any]) -> dict[str,
 
 
 @app.get("/api/discovery/domain/script")
+@egress("powershell-discovery-domain")
 def get_domain_discovery_script(
     request: Request, domain: str = ""
 ) -> dict[str, str]:
@@ -3985,6 +4428,7 @@ def import_domain_discovery(request: Request, body: dict[str, Any]) -> dict[str,
 
 
 @app.get("/api/discovery/sites/script")
+@egress("powershell-discovery-sites")
 def get_sites_discovery_script(request: Request) -> dict[str, str]:
     """Return the PowerShell script for AD sites and subnets discovery."""
     return {"script": discovery_script_sites()}
@@ -4013,6 +4457,7 @@ def import_sites_discovery(request: Request, body: dict[str, Any]) -> dict[str, 
 
 
 @app.get("/api/discovery/ous/script")
+@egress("powershell-discovery-ous")
 def get_ous_discovery_script(
     request: Request, domain: str, search_base: str = ""
 ) -> dict[str, str]:
@@ -4036,6 +4481,7 @@ def import_ous_discovery(request: Request, body: dict[str, Any]) -> dict[str, An
 
 
 @app.get("/api/discovery/gpos/script")
+@egress("powershell-discovery-gpos")
 def get_gpos_discovery_script(
     request: Request, domain: str = ""
 ) -> dict[str, str]:
@@ -4059,6 +4505,7 @@ def import_gpos_discovery(request: Request, body: dict[str, Any]) -> dict[str, A
 
 
 @app.get("/api/discovery/principals/script")
+@egress("powershell-discovery-principals")
 def get_principals_discovery_script(
     request: Request,
     q: str,
@@ -4544,6 +4991,32 @@ class AuditPolicyFamilyData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _template_value(value: str, problem: str | None, what: str) -> str:
+    """Refuse at the request model (422) what the INF writer would refuse.
+
+    Defense in depth (final-r8): the render endpoints refuse the same values
+    from the composed template (`template_issues`), and the formatter refuses
+    them again as it writes.
+    """
+    if problem is not None:
+        # A typed error, so the 422 carries the code the route documents
+        # (`unwritable_template_value`) rather than a bare "Invalid request"
+        # (Sol final-r9 N1).
+        raise PydanticCustomError(
+            "unwritable_template_value",
+            "{what} {value} {problem}",
+            {"what": what, "value": repr(value), "problem": problem},
+        )
+    return value
+
+
+def _quoted_field_problem(value: str) -> str | None:
+    """A value written inside a quoted INF row field: one line, no quote."""
+    return line_problem(value) or (
+        "contains a double quote, which would end the quoted field" if '"' in value else None
+    )
+
+
 class PrivilegeRightData(BaseModel):
     #: `SeBackupPrivilege`, not its display name: the INF key is the constant.
     name: str = Field(min_length=1, max_length=128)
@@ -4552,6 +5025,18 @@ class PrivilegeRightData(BaseModel):
     principals: list[str] = Field(default_factory=list, max_length=500)
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("name")
+    @classmethod
+    def _right_name(cls, value: str) -> str:
+        return _template_value(value, CHECKS["right"](value), "user right")
+
+    @field_validator("principals")
+    @classmethod
+    def _principals(cls, value: list[str]) -> list[str]:
+        for principal in value:
+            _template_value(principal, security_principal_problem(principal), "principal")
+        return value
 
 
 class UserRightsFamilyData(BaseModel):
@@ -4566,9 +5051,14 @@ class SecurityOptionData(BaseModel):
     #: The native `type,value` spelling -- `4,1` for a DWORD, `7,alpha,beta`
     #: for a MULTI_SZ. All four types in the lane's candidate returned from
     #: `secedit` byte-identical.
-    value: str = Field(default="", max_length=4096)
+    value: str = Field(min_length=1, max_length=4096)
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("key", "value")
+    @classmethod
+    def _one_line(cls, value: str) -> str:
+        return _template_value(value, line_problem(value), "security option")
 
 
 class SecurityOptionsFamilyData(BaseModel):
@@ -4805,6 +5295,7 @@ def policy_family_sections(
     "/api/security-template/policy-families",
     response_model=PolicyFamilyRenderResponse,
 )
+@egress("inf")
 def render_policy_families(body: PolicyFamilyRenderRequest) -> dict[str, Any]:
     """Render account, audit, user-rights and security-options families as INF.
 
@@ -4818,9 +5309,21 @@ def render_policy_families(body: PolicyFamilyRenderRequest) -> dict[str, Any]:
     advisory and never blocks the render: whether Windows accepts a template
     and whether an administrator should deploy it are different questions, and
     only the first one has been measured.
+
+    What is not advisory: a right name that is not a `Se...` constant, a
+    principal that is neither a starred SID nor a plain name, or any value that
+    is not one line of its kind is a 422 (`unwritable_template_value`), because
+    the INF would read it back as something else -- a principal holding a line
+    break became a new privilege grant (final-r8).
     """
     sections = policy_family_sections(body)
     account, audit, user_rights, security_options = _policy_family_models(body)
+    refusals = template_issues(SecurityTemplate(sections=sections))
+    if refusals:
+        # A value that is not one line of its kind would change the template's
+        # structure -- a principal holding a line break became a privilege grant
+        # (final-r8) -- so it is refused, never rendered with an issue beside it.
+        raise ValidationError(refusals)
     text = format_security_template(SecurityTemplate(sections=sections)) + "\n"
     issues: list[ValidationIssue] = []
     for family in (account, audit, user_rights, security_options):
@@ -4862,18 +5365,28 @@ def render_policy_families(body: PolicyFamilyRenderRequest) -> dict[str, Any]:
 class ObjectSecurityRegistryKeyData(BaseModel):
     #: A `[Registry Keys]` target, e.g. `MACHINE\\Software\\Contoso`.
     key_path: str = Field(min_length=1, max_length=1024)
-    raw_sddl: str = Field(default="", max_length=8192)
+    raw_sddl: str = Field(min_length=1, max_length=8192)
     propagation: PropagationMode = "propagate"
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("key_path", "raw_sddl")
+    @classmethod
+    def _quoted(cls, value: str) -> str:
+        return _template_value(value, _quoted_field_problem(value), "registry key row field")
 
 
 class ObjectSecurityFileData(BaseModel):
     file_path: str = Field(min_length=1, max_length=1024)
-    raw_sddl: str = Field(default="", max_length=8192)
+    raw_sddl: str = Field(min_length=1, max_length=8192)
     propagation: PropagationMode = "propagate"
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("file_path", "raw_sddl")
+    @classmethod
+    def _quoted(cls, value: str) -> str:
+        return _template_value(value, _quoted_field_problem(value), "file row field")
 
 
 class ObjectSecurityServiceData(BaseModel):
@@ -4883,6 +5396,30 @@ class ObjectSecurityServiceData(BaseModel):
     raw_sddl: str = Field(default="", max_length=8192)
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("service_name")
+    @classmethod
+    def _service_name(cls, value: str) -> str:
+        problem = name_problem(value) or _quoted_field_problem(value)
+        return _template_value(value, problem, "service name")
+
+    @field_validator("raw_sddl")
+    @classmethod
+    def _sddl(cls, value: str) -> str:
+        return _template_value(value, _quoted_field_problem(value), "service descriptor")
+
+    @model_validator(mode="after")
+    def _a_row_says_something(self) -> ObjectSecurityServiceData:
+        # `"Spooler",` is not the measured `"name",code,"descriptor"` row
+        # (DeepSeek final-r9 N4).
+        if self.startup_mode is None or not self.raw_sddl:
+            raise PydanticCustomError(
+                "unwritable_template_value",
+                "service {name} needs a startup mode and a descriptor: a row is "
+                '"name",code,"descriptor"',
+                {"name": repr(self.service_name)},
+            )
+        return self
 
 
 class ObjectSecurityRenderRequest(BaseModel):
@@ -5050,6 +5587,7 @@ def _object_security_models(
     "/api/security-template/object-security",
     response_model=ObjectSecurityRenderResponse,
 )
+@egress("inf")
 def render_object_security(body: ObjectSecurityRenderRequest) -> dict[str, Any]:
     """Render registry, file and service object security as INF.
 
@@ -5061,9 +5599,16 @@ def render_object_security(body: ObjectSecurityRenderRequest) -> dict[str, Any]:
     `acl_content_is_not_judged` before reading an empty list as approval — the
     silence there is a ruling, and it is the one limitation on this surface
     that will not be closed by a future measurement.
+
+    A name, path or descriptor that is not one line of its kind is not an
+    issue but a 422 (`unwritable_template_value`): a service name holding a
+    line break wrote a second service row (final-r8).
     """
     sections = object_security_sections(body)
     registry, files, services = _object_security_models(body)
+    refusals = template_issues(SecurityTemplate(sections=sections))
+    if refusals:
+        raise ValidationError(refusals)
     text = format_security_template(SecurityTemplate(sections=sections)) + "\n"
     issues: list[ValidationIssue] = []
     for family in (registry, files, services):
@@ -5451,9 +5996,6 @@ class ScriptsPreviewResponse(BaseModel):
 
 _SCRIPT_TRIGGERS: tuple[ScriptType, ...] = ("startup", "shutdown", "logon", "logoff")
 #: Characters that would let a value start a new INI line or truncate one.
-_SCRIPT_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
-
-
 def _scripts_limitations() -> list[dict[str, str]]:
     """Three limits that hold for every answer, plus the shape the lane read.
 
@@ -5512,7 +6054,7 @@ def _gpo_has_preference_content(gpo: GPO) -> bool:
         try:
             if serialize_gpp(collection):
                 return True
-        except GppError:
+        except writer_errors():  # a collection the writer refuses has content by definition
             return True
     return False
 
@@ -5559,7 +6101,7 @@ def _scripts_gpo_refusals(gpo: GPO) -> list[ValidationIssue]:
 def _script_entry_refusals(entry: ScriptEntryData, path: str) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for name, value in (("command", entry.command), ("parameters", entry.parameters)):
-        if _SCRIPT_CONTROL_CHARACTERS.search(value):
+        if line_problem(value) is not None:
             issues.append(
                 ValidationIssue(
                     severity="error",
@@ -5765,12 +6307,13 @@ def _scripts_export(
     refusal = native_backup_refusal(gpo, scripts=policies)
     if refusal is not None:
         raise ValidationError([refusal])
-    bundle = gpmc_backup_bundle(gpo, scripts=policies)
+    bundle = checked_gpmc_backup(gpo, scripts=policies)
     warnings = [issue for issue in validation if issue.severity == "warning"]
     return gpo, policies, bundle, warnings
 
 
 @app.post("/api/gpos/{guid}/gpmc-backup-with-scripts")
+@egress("zip-gpmc")
 def gpmc_backup_with_scripts(
     request: Request, guid: str, body: ScriptsExportRequest
 ) -> Response:
@@ -5800,6 +6343,7 @@ def gpmc_backup_with_scripts(
     "/api/gpos/{guid}/gpmc-backup-with-scripts/preview",
     response_model=ScriptsPreviewResponse,
 )
+@egress("scripts-preview")
 def gpmc_backup_with_scripts_preview(
     request: Request, guid: str, body: ScriptsExportRequest
 ) -> dict[str, Any]:
@@ -6159,13 +6703,23 @@ def publication_plan_preview(
     """Return the review-only publication plan for a GPO, with lane coverage.
 
     `plan_id` is omitted: it is random and unrelated to the plan's content, and
-    `payload_digest` is what binds the plan's actions. A refusal is a `refused`
-    step plus an error in `issues`, as the planner reports it, and `refused`
-    is true. The response is still 200, because the plan explaining the
-    refusal is the answer. An unknown `target` is a 422.
+    `payload_digest` is what binds the plan's actions. A refusal the PLANNER
+    makes is a `refused` step plus an error in `issues`, and `refused` is true;
+    that response is still 200, because the plan explaining the refusal is the
+    answer. A GPO with a validation error is a 422 carrying those errors, as
+    every artifact route refuses it, before any file is serialized or digested
+    (final-r15). An unknown `target` is a 422.
     """
     gpo = _store(request).get_gpo(guid)
-    plan = generate_publication_plan(gpo, target=target)
+    # The plan names the digest of every file it would copy, so it is guarded
+    # like an artifact route (Sol final-r15 B1): a GPO validation blocks is
+    # refused BEFORE any artifact is built -- stored content a current rule
+    # refuses included -- and a writer refusal is a 422, never a 500.
+    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
+    if errors:
+        raise ValidationError(errors)
+    with writer_boundary("the publication plan"):
+        plan = generate_publication_plan(gpo, target=target)
     issues = validate_publication_plan(plan)
     refused_checks = frozenset(issue.check for issue in issues if issue.level == "error")
     planned_operations = {step.operation for step in plan.steps}
@@ -6210,10 +6764,12 @@ def publication_plan_preview(
 # --------------------------------------------------------------------------
 # Plan 034: the firewall surface (WI-076).
 #
-# `firewall_policy.py` is bound by the firewall lane's verdict
-# (`firewall-20261009080610-2829523`, 36/36 at 9940561, the release 1.1.0
-# successor batch; first certified by `firewall-20261008094055-2092337`), as are the builder and
-# the export chain, so the composition lives here, in a file no lane binds.
+# `firewall_policy.py` is bound by the firewall lane's live verdict (lane
+# `firewall-policy-gpmc`; the release evidence document names its certifying
+# run and commit), as are the builder and the export chain, so the composition
+# lives here, in a file no lane binds. This file names no run: every release
+# requalifies the lane, and shipped code must not cite a run the next batch
+# retires.
 # The render endpoint emits exactly what `to_registry_settings` emits, in the
 # shape `POST /api/gpos/{guid}/settings` accepts; it never writes a GPO.
 # `tests/test_firewall_surface.py` holds its output for the certified request
@@ -6399,7 +6955,6 @@ class FirewallPolicyDecodeResponse(BaseModel):
     limitations: list[FirewallLimitation]
 
 
-_FIREWALL_RUN_ID = "firewall-20261009080610-2829523"
 _FIREWALL_RENDER_GPO_GUID = "00000000-0000-4000-8000-000000000f1e"
 _FIREWALL_RULES_KEY = (FIREWALL_KEY + "\\FirewallRules").casefold()
 
@@ -6410,7 +6965,8 @@ def _firewall_limitations(*, unmodeled_tokens: bool = False) -> list[dict[str, s
         {
             "code": "policy_store_readback_not_application",
             "message": (
-                f"The certification behind this surface ({_FIREWALL_RUN_ID}) "
+                "The certification behind this surface (the firewall-policy-gpmc "
+                f"lane, whose certifying run {RELEASE_EVIDENCE} names) "
                 "reads policy back from the GPO: Windows' Registry.pol, the "
                 "NetSecurity cmdlets against -PolicyStore, and Get-GPOReport. "
                 "Nothing was linked and no endpoint processed the policy, so "
@@ -6519,6 +7075,7 @@ def _firewall_setting_body(setting: RegistrySetting) -> dict[str, str]:
 
 
 @app.post("/api/network-security/firewall/render", response_model=FirewallRenderResponse)
+@egress("firewall-settings")
 def render_firewall_policy(body: FirewallRenderRequest) -> dict[str, Any]:
     """Render a machine firewall policy as registry settings. Writes nothing.
 
@@ -6662,12 +7219,11 @@ _ROUTE_LIMITATIONS["/api/gpos/{guid}/firewall-policy"] = _firewall_limitations
 # scope. That last part is `lifecycle.SCOPE_SURVIVAL`. The module's own
 # docstring still calls the table "predictions", because `lifecycle.py` is
 # bound by the lane and cannot be edited without expiring it. The lane has
-# since measured every cell: `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
-# agreed with all 30 (docs/plan-033/lifecycle-results.md), the release 1.1.0
-# batch's `lifecycle-20261009001644-6217-f2f5047fed814807` agreed again, and
-# `tests/test_lifecycle_verdict.py` holds the table equal to what the current
-# run observed. That is why each cell this endpoint returns is marked measured and
-# cites the run.
+# since measured every cell, in every batch that ran it
+# (docs/plan-033/lifecycle-results.md), and `tests/test_lifecycle_verdict.py`
+# holds the table equal to what the current run observed. That is why each cell
+# this endpoint returns is marked measured and cites the lane and the release
+# evidence document, which names the lane's certifying run and commit.
 #
 # The lane measured operations over a backup Windows wrote with `Backup-GPO`,
 # so the plan is built only for a workspace GPO that IS such a backup's
@@ -6696,23 +7252,28 @@ _ROUTE_LIMITATIONS["/api/gpos/{guid}/firewall-policy"] = _firewall_limitations
 # offline, and the operator runs the cmdlet.
 # --------------------------------------------------------------------------
 
-#: The certifying run the survival cells are cited from. Held equal to the
-#: banked verdict by `tests/test_lifecycle_restore_plan_surface.py`.
-LIFECYCLE_VERDICT_RUN_ID = "lifecycle-20261009001644-6217-f2f5047fed814807"
-LIFECYCLE_VERDICT_COMMIT = "de9736ed3a4148b91cf2267fbe4640e260cc232f"
-LIFECYCLE_VERDICT_PATH = (
-    "docs/plan-033/wp7-evidence/release110-20261009/lifecycle/verification.json"
-)
+#: The lane the survival cells are cited from (its `lane_id` in
+#: `tests/fixtures/scenarios/platforms.json`). The response cites the lane and
+#: RELEASE_EVIDENCE, never a run id: every release requalifies the lane, and a
+#: run named here would be retired by the next batch while this file ships
+#: (Plan 036, the D-9 addendum). `tests/test_lifecycle_restore_plan_surface.py`
+#: holds the cells equal to the current run's verdict, and that the release
+#: evidence document names that run.
+LIFECYCLE_LANE = "lifecycle-same-domain"
 
 #: The provenance line `import_gpmc_backup` writes into an imported GPO's
 #: description. Archived imports are immutable, so it is still the backup's id.
-_IMPORT_PROVENANCE = re.compile(
-    r"^Imported from GPMC backup (\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}"
-    r"-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\})$"
-)
-_BARE_GUID = re.compile(
-    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
-)
+_IMPORT_PROVENANCE_PREFIX = "Imported from GPMC backup "
+
+
+def _import_provenance(description: str) -> str | None:
+    """The backup id the import's provenance line names, or None."""
+    if not description.startswith(_IMPORT_PROVENANCE_PREFIX):
+        return None
+    backup_id = description[len(_IMPORT_PROVENANCE_PREFIX) :]
+    return backup_id if guid_problem(backup_id, braces="required") is None else None
+
+
 #: `BackupManifest.created_at` must be non-empty, and the workspace import
 #: does not retain `BackupTime`. The value never reaches a response.
 _UNRECORDED_BACKUP_TIME = "unrecorded"
@@ -6749,9 +7310,9 @@ class LifecycleSurvivalCell(BaseModel):
 
 class LifecycleEvidence(BaseModel):
     lane: str
-    run_id: str
-    commit: str
-    verdict: str
+    #: URL of the release evidence document, at this version's tag, that names the
+    #: lane's certifying run and commit.
+    release_evidence: str
     cells_measured: int
     cells_agreeing: int
 
@@ -6898,11 +7459,11 @@ def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
             "lifecycle lane measured; a GPO authored in Studio is not one.",
             "gpo_guid",
         )
-    provenance = _IMPORT_PROVENANCE.match(first.description)
+    provenance = _import_provenance(first.description)
     if (
         first.status != "archived"
         or provenance is None
-        or not _BARE_GUID.match(first.source_guid)
+        or guid_problem(first.source_guid) is not None
     ):
         raise _lifecycle_refusal(
             "fork_of_an_import",
@@ -6922,7 +7483,7 @@ def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
         )
     return GpmcBackup(
         backup_time=_UNRECORDED_BACKUP_TIME,
-        backup_id=provenance.group(1),
+        backup_id=provenance,
         gpos=(
             BackupGpo(
                 guid=first.source_guid,
@@ -7008,10 +7569,8 @@ def lifecycle_restore_plan(
         "warnings": warnings,
         "survival": survival,
         "evidence": {
-            "lane": "lifecycle-same-domain",
-            "run_id": LIFECYCLE_VERDICT_RUN_ID,
-            "commit": LIFECYCLE_VERDICT_COMMIT,
-            "verdict": LIFECYCLE_VERDICT_PATH,
+            "lane": LIFECYCLE_LANE,
+            "release_evidence": RELEASE_EVIDENCE,
             "cells_measured": cells,
             "cells_agreeing": cells,
         },

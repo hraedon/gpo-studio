@@ -240,6 +240,7 @@ def migrate(conn: sqlite3.Connection) -> None:
                 "INSERT OR REPLACE INTO workspace_meta(key, value) VALUES ('app_version', ?)",
                 (_get_app_version(),),
             )
+            _data_migrations(conn)
             conn.execute("COMMIT")
         except Exception:
             with contextlib.suppress(sqlite3.Error):
@@ -261,11 +262,26 @@ def migrate(conn: sqlite3.Connection) -> None:
             """,
             (str(SCHEMA_VERSION), _get_app_version()),
         )
+        _data_migrations(conn)
         conn.execute("COMMIT")
     except Exception:
         with contextlib.suppress(sqlite3.Error):
             conn.execute("ROLLBACK")
         raise
+
+
+def _data_migrations(conn: sqlite3.Connection) -> None:
+    """One-time rewrites of stored snapshots that keep the schema readable by
+    the same schema version, each keyed by its own ``workspace_meta`` entry.
+
+    final-r13: predicate ids and retained-content provenance records
+    (`provenance_migration`). Not a schema bump: a schema-4 build reads the
+    rewritten snapshots (it ignores the new keys), and one that writes drops
+    records, which leaves content unverified, never verified.
+    """
+    from .provenance_migration import migrate_retained_provenance
+
+    migrate_retained_provenance(conn)
 
 
 def _get_app_version() -> str:

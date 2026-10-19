@@ -15,6 +15,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Literal
 
+from .emit_integrity import ROW_LINE, EmitProblem, inf_problems, inf_text_problems
 from .model import ValidationIssue
 
 _UTF16LE_BOM = b"\xff\xfe"
@@ -224,6 +225,12 @@ def parse_security_template(text: str) -> SecurityTemplate:
         if current_name is None:
             warnings.append(f"Line outside any section: {stripped}")
             continue
+        if current_name.casefold() in _ROW_SECTIONS and ROW_LINE.fullmatch(stripped):
+            # A row: its quoted key may hold '=' (a registry key name can), so it
+            # is not split as `key = value` (DeepSeek final-r11 N5).
+            unknown.append(stripped)
+            warnings.append(f"Unparseable line in section '{current_name}': {stripped}")
+            continue
         if "=" in stripped:
             if len(entries) >= _MAX_SECTION_ENTRIES:
                 raise SecurityTemplateError(
@@ -252,6 +259,32 @@ def parse_security_template(text: str) -> SecurityTemplate:
 # ---------------------------------------------------------------------------
 
 
+def template_problems(template: SecurityTemplate) -> list[EmitProblem]:
+    """Every name or value in *template* that :func:`format_security_template`
+    refuses to write (:func:`gpo_studio.emit_integrity.inf_problems`)."""
+    return inf_problems(
+        tuple(
+            (section.name, section.entries, section.unknown_lines)
+            for section in template.sections
+        ),
+        _ROW_SECTIONS,
+    )
+
+
+def template_issues(template: SecurityTemplate) -> list[ValidationIssue]:
+    """:func:`template_problems` as errors, one per value, for a 422 that names
+    each field rather than an artifact with advisory issues (final-r8)."""
+    return [
+        ValidationIssue(
+            "error",
+            "unwritable_template_value",
+            f"{problem.name}: {problem.value!r} {problem.problem}.",
+            problem.name,
+        )
+        for problem in template_problems(template)
+    ]
+
+
 def format_security_template(template: SecurityTemplate) -> str:
     """Serialize a :class:`SecurityTemplate` back to INF text.
 
@@ -261,12 +294,29 @@ def format_security_template(template: SecurityTemplate) -> str:
     its sections in a normalized ``Key = Value`` form -- except for the
     row-shaped sections (:data:`_ROW_SECTIONS`), whose entries are emitted
     as bare quoted-CSV lines, the shape the Windows parser requires.
+
+    Every section name, key, value and preserved line is checked first
+    (:func:`gpo_studio.emit_integrity.inf_problems`, final-r8): a value holding
+    a line break would become an INF line of its own -- a principal in
+    ``[Privilege Rights]`` became a new privilege grant -- so anything that is
+    not one line of its kind, or that the INF reader would split, strip or
+    continue differently, is a :class:`SecurityTemplateError`.
     """
-    if template.raw_text:
+    # Checked BEFORE the lossless path (Sol final-r9 B2): an unchanged parsed
+    # template is still written, so it is held to the same rule.
+    problems = template_problems(template)
+    if problems:
+        raise SecurityTemplateError(
+            "Studio will not write this security template: "
+            + "; ".join(str(problem) for problem in problems[:5])
+        )
+    if template.raw_text and not inf_text_problems(template.raw_text):
+        # Lossless only when every raw line passed too: the section check sees
+        # the parse, and the parse drops preamble lines and strips margins
+        # (Sol final-r10 B3). Otherwise the template is rebuilt, and checked.
         reparsed = parse_security_template(template.raw_text)
         if template.sections == reparsed.sections:
             return template.raw_text
-
     parts: list[str] = []
     for i, section in enumerate(template.sections):
         if i > 0:
@@ -281,7 +331,27 @@ def format_security_template(template: SecurityTemplate) -> str:
                 parts.append(f"{key} = {value}")
         for line in section.unknown_lines:
             parts.append(line)
-    return "\n".join(parts)
+    text = "\n".join(parts)
+    # The backstop: what was written must read back as the same structure --
+    # no value, key or preserved line may have become a section or an entry.
+    if parse_security_template(text).sections != _as_read_back(template.sections):
+        raise SecurityTemplateError(
+            "Studio will not write this security template: it would not read back "
+            "as the same sections and entries"
+        )
+    return text
+
+
+def _as_read_back(sections: tuple[InfSection, ...]) -> tuple[InfSection, ...]:
+    """*sections* as :func:`parse_security_template` reads their formatted text:
+    a row section's entries come back as preserved row lines."""
+    expected = []
+    for section in sections:
+        if section.name.casefold() in _ROW_SECTIONS and section.entries:
+            rows = tuple(f'"{key}",{value}' for key, value in section.entries)
+            section = InfSection(section.name, (), rows + section.unknown_lines)
+        expected.append(section)
+    return tuple(expected)
 
 
 # ---------------------------------------------------------------------------

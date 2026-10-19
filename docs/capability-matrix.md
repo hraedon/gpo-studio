@@ -1,8 +1,8 @@
 # GPO Studio capability matrix
 
 > **Contract version:** 1.0, the version of the capability contract below, not of
-> the package. 1.1.0 leaves the 1.0 contract unchanged
-> ([release evidence 1.1.0](release-evidence-1.1.0.md#what-110-is)); what it adds
+> the package. The 1.1 release leaves the 1.0 contract unchanged
+> ([its release evidence](release-evidence-1.1.0.md#what-110-is)); what it adds
 > is listed under [Reconciled post-1.0 layers](#reconciled-post-10-layers--certified-and-surfaced).
 > **Source of truth:** This document is the GPO Studio 1.0 capability contract.
 > If the code and this document disagree about what is supported, that is a
@@ -350,9 +350,14 @@ to GPP Groups and GPP Registry elements:
   no authoring semantics. They are preserved as unknown XML and re-emitted on
   export.
 - Unknown filter types (e.g. `FilterBattery`, `FilterComputer`) are captured as
-  raw XML (`unknown_predicates`) and re-emitted on export. The browser shows
-  them read-only with a warning and keeps them on save. The original interleaving of typed and
-  unknown predicates is preserved.
+  raw XML and re-emitted on export. Every predicate has a stable server-assigned
+  id; an edit names the predicates it keeps by id and never sends their
+  retained content, so a raw predicate, or a typed one Studio does not author
+  (`FilterDate`, `FilterUser` ...), can be kept, moved or removed but not
+  edited. The browser shows them read-only with a warning. The original
+  interleaving of typed and unknown predicates is preserved.
+- Retained content an import stored carries an import record; only such
+  content may hold elements outside Studio's closed vocabulary at export.
 
 Per action:
 
@@ -432,6 +437,22 @@ remain historical records for their original revisions.
 - Symlink, path-traversal and entity-expansion guards are enforced.
 - An optional migration table can be applied to security filter SIDs and
   principals.
+- **Replace from a fresh import (1.1.0).** With `replace_guid` and
+  `expected_revision`, the import replaces an existing GPO's content whole, as
+  a new revision, instead of creating a GPO. Only a backup of the very GPO
+  the first revision was imported from is accepted -- the same GPO GUID,
+  domain DNS name and domain GUID (`GPODomainGuid`), which a native import
+  records with its provenance from 1.1.0 (`replace_source_mismatch`
+  otherwise; `replace_source_unrecorded` for a GPO whose first import
+  recorded none; `replace_not_the_import` for a fork). The identity is kept
+  with the stored revision only -- never in the served GPO, an export or a
+  digest -- and a backup whose `manifest.xml` and `bkupInfo.xml` files
+  disagree about it is refused. It is only a recovery for a GPO whose stored values Studio
+  cannot read (`replace_not_a_recovery` for any other), alongside
+  restoring a readable revision and `DELETE /api/gpos/{guid}?confirm={guid}`
+  (which deletes only such a GPO, archiving every stored row first; see
+  [workspace recovery](workspace-recovery.md#gpos-whose-stored-values-cannot-be-read));
+  earlier revisions are kept as they were.
 - **Source inventory.** Native imports keep the exact `Backup.xml` and optional
   `gpreport.xml` bytes, plus every payload file's path, size and hash.
   `GET /api/gpos/{guid}/report.txt` includes this inventory, including
@@ -859,7 +880,10 @@ Reconciled 2026-10-08 under Plan 034 WP-3, lane first and surface second.
 **Endpoint.** `GET /api/gpos/{guid}/publication-plan?target=` returns the
 planner's steps, rollback steps, planned SYSVOL paths, payload digest and
 validator issues, and marks every step `measured`, `unmeasured` or `refused`.
-The Publication preview panel shows it grouped by SYSVOL and Active Directory.
+A GPO with a validation error is a 422 carrying those errors instead, before
+any file is built or digested (final-r15; validation's own check of what a
+clean collection would write aside). The Publication preview panel shows
+the plan grouped by SYSVOL and Active Directory, or the 422's errors.
 Nothing executes a step, and `publisher.py` stays unreachable.
 
 **Certification.** `publication-completeness-20261009080352-5754` (21/21,
@@ -931,7 +955,11 @@ commit `de9736e` (the [release 1.1.0 batch](plan-033/release110-batch.md)), on L
 `lifecycle-20261008093248-2000-c76d10eb3f2849fe` at `3513052`. The lane runs the five operations natively and
 reads back each dimension. All 30 cells agreed with `lifecycle.SCOPE_SURVIVAL`,
 and the backup bridge read the real `Backup.xml` WMI reference. Every cell the
-surface returns is marked `measured` and cites that run, with one exception: the
+surface returns is marked `measured`. The response's `evidence` cites the lane
+(`lifecycle-same-domain`) and, as `release_evidence`, the URL of the release
+evidence document at the version's tag, which names the certifying run and its
+commit; shipped code names no run, because each release requalifies the lane.
+There is one exception to `measured`: the
 WMI cell is `measured: false`, with an `unmeasured_reason`, when the imported
 backup's `WMIFilter` reference is not the measured
 `MSFT_SomFilter.ID="{id}",Domain="DOMAIN"` shape (read by the bridge's own
@@ -1110,7 +1138,7 @@ verdict.
 | 027 | ~~`software_install.py`~~ | — | **deleted 2026-10-07** — writing was ruled out on [2026-09-06](scope-decision-2026-09-06-software-installation-and-certification.md): the CSE appears in 0 of 26 production GPOs (R6), and its `.aas` artifact is generated by Windows Installer, not authored. The module had no consumer outside its own tests. Native Software Installation files in an imported backup keep their metadata (path, size, SHA-256) in `cse_metadata`; the original bytes are not stored, and this module never held them either |
 | 027 | ~~`folder_redirection.py`~~ | — | **deleted 2026-10-07, superseded by `fdeploy.py`** — R3 showed the policy lives in `fdeploy1.ini`, which this module never addressed. See [the decision and its addendum](scope-decision-2026-09-11-folder-redirection.md) |
 | 027 | `fdeploy.py` | **yes** — `POST /api/folder-redirection/fdeploy` (and `/diff`) and the [Folder Redirection browser review panel](folder-redirection-review.md), **read only** | **lane-backed and surfaced (R3, fdeploy)** — Folder Redirection was ruled a **read target** on 2026-09-11. Lane: `fd-20261009080824-4244` (29/29, clean commit `9940561`, 2026-10-09, release 1.1.0 successor batch) on a clean member server. For R3's GPMC-written bytes (`Flags=1021`) and three builder-written `Flags`-only variants (1020, 1023, 3069), `Import-GPO` put the candidate's bytes in SYSVOL, `Backup-GPO` re-exported `fdeploy1.ini` and `fdeploy.ini` byte for byte, and `read_backup` over Windows' own backup agreed with a fresh `Get-GPOReport` row for row on folder id, principal SID and destination, with every report naming the owned GPO. The verdict binds `fdeploy.py`, `fdeploy_parity.py` and the `read_backup` chain by hash ([results](plan-033/fdeploy-results.md)). An exploratory pass at `379e59b` binds pre-review source and is history. The surface was already there: since WI-068 (closed 2026-10-08) an imported backup also carries the parse on `GPO.fdeploy`, and its report and diffs render it, while GPMC backup export and the publication planner refuse such a GPO. See [above](#fdeploypy-plan-027--plan-034-wp-4--a-certified-reader-reachable-at-apifolder-redirectionfdeploy). **Limits:** `Flags` is carried, not decoded. Windows' option rendering per value is recorded as WI-066 data and never asserted. Other `Flags` values, multi-folder and multi-principal documents, and endpoint behaviour are unmeasured. **The writer is deferred** until R12 measures the encoding (WI-066) |
-| 028 | `lifecycle.py` | **yes**: `POST /api/lifecycle/restore-plan`, same-domain only, **review only** | **lane-backed and surfaced (lifecycle)**. Lane: the same-domain lifecycle lane, certified by `lifecycle-20261009001644-6217-f2f5047fed814807` at `de9736e` ([evidence](plan-033/wp7-evidence/release110-20261009/lifecycle/verification.json); first certified by `lifecycle-20261008093248-2000-c76d10eb3f2849fe` at `3513052`). It runs `Backup-GPO`, `Restore-GPO`, `Import-GPO` (into an existing GPO and with `-CreateIfNeeded`) and `Copy-GPO` (with and without `-CopyAcl`) natively on a member server. For each operation it reads back the settings, GUID, DACL, WMI association, links and description, and all 30 cells agreed with `SCOPE_SURVIVAL`. `tests/test_lifecycle_verdict.py` re-grades the banked `result.json` and holds the table equal to the observed cells. Surface: added 2026-10-08, composed in `api.py` (bound by no lane). It plans only over a GPO imported from a Windows backup, reading the WMI link from the retained `Backup.xml` through `manifest_from_backup`, the bridge the lane checked. Every survival cell is marked measured and cites the run, except a WMI cell for a backup whose reference is not the measured shape in the GPO's domain (then `measured: false` with a reason). `Import-GPO -TargetName` into an existing GPO is refused. See [above](#lifecyclepy-plan-028--same-domain-restore-plans-reachable-at-apilifecyclerestore-plan). **Limits:** one topology (one source, one target, one member server, one DC). Not measured: a deleted GPO's restore, multi-DC replication, `Import-GPO -TargetName` into an existing GPO, deny ACEs and the WMI filter object. Studio executes nothing. Every response carries these limits. **Ruled 2026-10-07:** the cross-domain half is out of scope until the estate has a second domain or a trust, and is refused (`cross_domain_out_of_scope`). See [the results](plan-033/lifecycle-results.md) |
+| 028 | `lifecycle.py` | **yes**: `POST /api/lifecycle/restore-plan`, same-domain only, **review only** | **lane-backed and surfaced (lifecycle)**. Lane: the same-domain lifecycle lane, certified by `lifecycle-20261009001644-6217-f2f5047fed814807` at `de9736e` ([evidence](plan-033/wp7-evidence/release110-20261009/lifecycle/verification.json); first certified by `lifecycle-20261008093248-2000-c76d10eb3f2849fe` at `3513052`). It runs `Backup-GPO`, `Restore-GPO`, `Import-GPO` (into an existing GPO and with `-CreateIfNeeded`) and `Copy-GPO` (with and without `-CopyAcl`) natively on a member server. For each operation it reads back the settings, GUID, DACL, WMI association, links and description, and all 30 cells agreed with `SCOPE_SURVIVAL`. `tests/test_lifecycle_verdict.py` re-grades the banked `result.json` and holds the table equal to the observed cells. Surface: added 2026-10-08, composed in `api.py` (bound by no lane). It plans only over a GPO imported from a Windows backup, reading the WMI link from the retained `Backup.xml` through `manifest_from_backup`, the bridge the lane checked. Every survival cell is marked measured, and the response cites the lane and the release evidence document at the version's tag (which names the certifying run), except a WMI cell for a backup whose reference is not the measured shape in the GPO's domain (then `measured: false` with a reason). `Import-GPO -TargetName` into an existing GPO is refused. See [above](#lifecyclepy-plan-028--same-domain-restore-plans-reachable-at-apilifecyclerestore-plan). **Limits:** one topology (one source, one target, one member server, one DC). Not measured: a deleted GPO's restore, multi-DC replication, `Import-GPO -TargetName` into an existing GPO, deny ACEs and the WMI filter object. Studio executes nothing. Every response carries these limits. **Ruled 2026-10-07:** the cross-domain half is out of scope until the estate has a second domain or a trust, and is refused (`cross_domain_out_of_scope`). See [the results](plan-033/lifecycle-results.md) |
 | 028 | `gpmc_interop.py` | no | **reduced to one type (ruled 2026-10-07)** — only `InteropIssue` remains, because `publication.py` imports it; `tests/test_gpmc_interop.py` pins its shape. The interop checks are deleted because the predicate was wrong in kind. It reported a GPO unimportable whenever its preserved CSE metadata named an extension Studio does not emit, which equates *Studio cannot emit this* with *GPMC cannot import this*. Over the R6 census it would flag 15 of the 26 production GPOs, every one of them a live GPO in a GPMC-managed domain. `is_gpmc_editable` had no oracle at all. The R6 fact the module carried, the extension vocabulary, lives in `export.py`, and the publication lane certifies that byte for byte. Not counted as a capability |
 | 030 | `publication.py` | **yes** — `GET /api/gpos/{guid}/publication-plan` and the Publication preview browser panel, **review only** ([operator guide](scripts-and-publication-preview.md)) | **lane-backed and surfaced (R5, R8, R11, publication-completeness)** — lane: requalified in the [release 1.1.0 successor batch](plan-033/release110-successors-batch.md) as `publication-completeness-20261009080352-5754` (21/21, `9940561`); the Plan 034 batch's run before it came after the PowerShell script branch (`generate_publication_script` and its allowlist) was retired by the 2026-10-07 ruling, the `artifact_store` cross-check removed, and a disabled side (WI-070) or a carried Folder Redirection file made a refusal. The candidate has both sides enabled, so the refusals are pinned by unit tests, not by the lane. The lane compares the plan's account of what it would write with what Windows produces: both directions of the SYSVOL file set, both extension-list attributes byte-identical, and the packed GPT.INI version moving the declared half. It **measures the plan, not a publication**. Surface: added 2026-10-08 as a preview composed in `api.py` (bound by no lane) that writes nothing and does not reach `publisher.py`; every step carries `coverage` (`measured` for exactly the step kinds the lane grades — `update_gpt_ini`, `write_registry_pol`, `update_extension_lists`, `copy_gpp_xml` for the two imported families — plus the absence of `GPO.cmt`; `unmeasured` otherwise; `refused` where `validate_publication_plan` errors), and `tests/test_publication_surface.py` derives that set from the lane's builder and finalizer. See [above](#publicationpy-plan-030--a-review-only-plan-reachable-at-apigposguidpublication-plan). **Limits:** one GPO shape (two registry sides plus one verified GPP family each); security filtering, links and WMI filters have no coverage; rollback was never executed; the operation allowlist is still empty. Every response says so (`ad_side_steps_unmeasured`, `one_shape_measured`, `out_of_model_content_not_planned`, `rollback_unmeasured`, `nothing_here_writes`). See [the results](plan-033/publication-completeness-results.md). **Ruled 2026-10-07:** the PowerShell script branch was deleted because it copied files straight into SYSVOL, which [the publication design](live-publication.md) forbids |
 | 030 | `publisher.py` | no | no — **out of scope for 1.x, code retained (ruled 2026-10-07)** as a Milestone 3 seed. It is not counted as a capability. Its review closed as WI-050, WI-051 and WI-052 |

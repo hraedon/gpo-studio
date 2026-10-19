@@ -79,7 +79,7 @@ CLIENT_NOT_TESTED = "not-tested"
 # here: a lane that switched to a UBR-bearing source (CurrentBuildNumber +
 # UBR, or `[Environment]::OSVersion`) would otherwise silently yield no family
 # and downgrade every run to inconclusive.
-_BUILD_FAMILY = re.compile(r"(\d{5,})(?:\.\d+)?\s*$")
+_BUILD_FAMILY = re.compile(r"(\d{5,})(?:\.\d+)?\s*\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -606,7 +606,7 @@ def evidence_tag_name(run_id: str) -> str:
     Rejects a run id that would produce a malformed or ambiguous ref, so a
     corrupt manifest cannot create a tag that shadows something else.
     """
-    if not _RUN_ID.match(run_id):
+    if not _RUN_ID.fullmatch(run_id):
         raise OracleEvidenceError(
             f"run_id {run_id!r} is not safe to use as a git ref; expected "
             f"alphanumerics, dot, dash, or underscore"

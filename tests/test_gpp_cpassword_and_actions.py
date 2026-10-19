@@ -27,6 +27,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from gpp_payloads import registry_payload
 
 from gpo_studio.api import app
 from gpo_studio.backup_inventory import inventory_from_dict
@@ -123,6 +124,8 @@ def _group_payload(**changes: Any) -> dict[str, Any]:
     ],
 )
 def test_the_api_refuses_a_cpassword_in_any_form(client: Any, where: str, payload: Any) -> None:
+    """No request carries retained content at all (final-r13), so a cpassword in
+    any retained form is refused before anything is read -- and never echoed."""
     test_client, store, _inbox = client
     gpo = test_client.post(
         "/api/gpos", json={"name": "Planted", "actor": "cpassword", "reason": where},
@@ -133,7 +136,7 @@ def test_the_api_refuses_a_cpassword_in_any_form(client: Any, where: str, payloa
               "expected_revision": gpo["revision"]},
     )
     assert response.status_code == 422, response.text
-    assert response.json()["error"]["issues"][0]["code"] == "cpassword_detected"
+    assert "SECRET" not in response.text
     assert store.get_gpo(gpo["guid"]).gpp_collections == ()
 
 
@@ -176,14 +179,7 @@ def test_an_import_reads_a_registry_items_action_from_its_value() -> None:
 
 
 def _registry_payload(registry: dict[str, Any]) -> dict[str, Any]:
-    payload = {key: registry[key] for key in (
-        "key", "hive", "action", "value", "id", "uid", "ilt_filter", "unknown_attrs",
-        "unknown_props_children", "unknown_children",
-    )}
-    payload["value"] = {key: registry["value"][key] for key in (
-        "name", "value", "registry_type", "action", "default", "id", "unknown_attrs",
-    )}
-    return payload
+    return registry_payload(registry)
 
 
 def _exported_actions(test_client: TestClient, guid: str, side: str) -> list[str]:
@@ -375,8 +371,11 @@ def _stored_printers() -> dict[str, Any]:
         ),
         lambda d: d["printers_unknown_attrs"].append(["{urn:review}root", "1"]),
         lambda d: d["printers_unknown_children"].append('<Extra xmlns="urn:review"/>'),
-        lambda d: d["printers"][0]["ilt_filter"]["items"].append(
-            '<FilterX xmlns="urn:review" bool="AND" not="0"/>'
+        lambda d: (
+            d["printers"][0]["ilt_filter"]["items"].append(
+                '<FilterX xmlns="urn:review" bool="AND" not="0"/>'
+            ),
+            d["printers"][0]["ilt_filter"].pop("ids", None),
         ),
     ],
     ids=["item attribute", "item child", "properties child", "root attribute",
@@ -401,6 +400,7 @@ def test_a_stored_namespaced_name_in_any_store_is_refused_on_load(plant: Any) ->
     ids=["item attribute", "item child", "member attribute"],
 )
 def test_the_api_refuses_a_namespaced_name(client: Any, payload: Any) -> None:
+    """Refused as retained content, which no request carries (final-r13)."""
     test_client, store, _inbox = client
     gpo = test_client.post(
         "/api/gpos", json={"name": "Namespaced", "actor": "namespace", "reason": "add"},
@@ -411,7 +411,7 @@ def test_the_api_refuses_a_namespaced_name(client: Any, payload: Any) -> None:
               "expected_revision": gpo["revision"]},
     )
     assert response.status_code == 422, response.text
-    assert response.json()["error"]["issues"][0]["code"] == "xml_namespace_refused"
+    assert store.get_gpo(gpo["guid"]).gpp_collections == ()
 
 
 # ---------------------------------------------------------------------------
@@ -470,7 +470,6 @@ def test_a_prefixed_cpassword_is_refused_at_intake(client: Any, name: str) -> No
                   "expected_revision": gpo["revision"]},
         )
         assert response.status_code == 422, response.text
-        assert response.json()["error"]["issues"][0]["code"] == "cpassword_detected"
         assert "SECRET" not in response.text
     assert store.get_gpo(gpo["guid"]).gpp_collections == ()
 
@@ -525,7 +524,8 @@ def test_an_unwritable_raw_filter_is_refused_and_the_gpo_stays_readable(
 ) -> None:
     """Such a filter used to be stored as given and fail only when serialized:
     the request answered 500 after committing, and every later read or export
-    of the GPO answered 500 too (DeepSeek WI-080 final review, N1)."""
+    of the GPO answered 500 too (DeepSeek WI-080 final review, N1). No request
+    carries a raw filter at all now (final-r13)."""
     test_client, _store, _inbox = client
     gpo = test_client.post(
         "/api/gpos", json={"name": "Unwritable filter", "actor": "ilt", "reason": "add"},
@@ -536,9 +536,6 @@ def test_an_unwritable_raw_filter_is_refused_and_the_gpo_stays_readable(
               "actor": "ilt", "reason": "add", "expected_revision": gpo["revision"]},
     )
     assert response.status_code == 422, response.text
-    assert response.json()["error"]["issues"][0]["code"] in {
-        "invalid_ilt_filter", "xml_namespace_refused",
-    }
     assert test_client.get(f"/api/gpos/{gpo['guid']}").status_code == 200
     assert test_client.get(f"/api/gpos/{gpo['guid']}/export.zip").status_code == 200
 
@@ -561,9 +558,6 @@ def test_an_unwritable_raw_filter_is_refused_on_the_registry_route(client: Any) 
         "key": r"Software\Studio", "ilt_filter": {"items": ['<x:FilterGroup bool="AND"/>']},
     })
     assert response.status_code == 422, response.text
-    assert response.json()["error"]["issues"][0]["code"] in {
-        "invalid_ilt_filter", "xml_namespace_refused",
-    }
     assert test_client.get(f"/api/gpos/{gpo['guid']}/export.zip").status_code == 200
 
 

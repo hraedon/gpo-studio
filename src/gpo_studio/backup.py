@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
-import re
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -14,6 +13,7 @@ from typing import Literal
 from .backup_inventory import inventory_from_dict
 from .fdeploy import FDEPLOY_POLICY_PATH, FdeployDocument, FdeployError, read_fdeploy
 from .gpp import contains_cpassword
+from .identity_values import guid_problem
 from .model import BackupInventory, CseFileEntry, StudioError
 from .safe_io import (
     SafeOpenError,
@@ -34,9 +34,6 @@ _MAX_XML_TEXT_LENGTH = 1024 * 1024
 _MAX_XML_ATTR_LENGTH = 4096
 _ADMX_NS = "http://www.microsoft.com/GroupPolicy/Types"
 _REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
-_GUID_RE = re.compile(
-    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
-)
 
 
 class BackupError(StudioError):
@@ -88,6 +85,9 @@ class BackupGpo:
     user_enabled: bool = True
     backup_inventory: BackupInventory | None = None
     fdeploy: FdeployDocument | None = None
+    #: ``GPODomainGuid`` from the native manifest, lower case without braces:
+    #: with the GPO GUID and the domain, the source GPO's identity (final-r21).
+    domain_guid: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,10 +298,13 @@ def _parse_native_manifest(root: ET.Element) -> GpmcBackup:
         guid = ""
         display_name = ""
         domain = ""
+        domain_guid = ""
         for child in inst:
             local = _local_name(child.tag)
             if local == "GPOGuid":
                 guid = _text_or_empty(child).strip("{}").lower()
+            elif local == "GPODomainGuid":
+                domain_guid = _text_or_empty(child).strip().strip("{}").lower()
             elif local == "GPODisplayName":
                 display_name = _text_or_empty(child)
             elif local == "GPODomain":
@@ -311,7 +314,11 @@ def _parse_native_manifest(root: ET.Element) -> GpmcBackup:
             elif local == "ID":
                 backup_id = _text_or_empty(child)
         if guid:
-            gpos.append(BackupGpo(guid=guid, display_name=display_name, domain=domain))
+            gpos.append(
+                BackupGpo(
+                    guid=guid, display_name=display_name, domain=domain, domain_guid=domain_guid
+                )
+            )
 
     if not gpos:
         raise BackupError("No GPO entries found in manifest")
@@ -495,7 +502,10 @@ def _resolve_content_root(backup_dir: Path, backup_id: str, gpo_guid: str) -> Pa
     Native GPMC layout: {backup_dir}/{BACKUP_ID}/DomainSysvol/GPO
     Legacy Studio layout: {backup_dir}/{GPO_GUID}
     """
-    native_path = backup_dir / backup_id / "DomainSysvol" / "GPO" if backup_id else None
+    # The instance directory matched as the nested bkupInfo.xml is: without
+    # regard to case (DeepSeek final-r23 N3).
+    instance = _instance_directory(backup_dir, backup_id) if backup_id else None
+    native_path = instance / "DomainSysvol" / "GPO" if instance is not None else None
     legacy_path = backup_dir / gpo_guid
 
     native_exists = native_path is not None and native_path.is_dir()
@@ -553,6 +563,80 @@ def _read_fdeploy_policy(
         raise BackupError(f"Unreadable {FDEPLOY_POLICY_PATH}: {error}") from error
 
 
+def _nested_bkup_info(backup_dir: Path, backup_id: str, budget: _BackupBudget) -> BackupGpo | None:
+    """The GPO entry of the native instance directory's ``bkupInfo.xml``, or
+    ``None`` where there is none."""
+    if not backup_id:
+        return None
+    instance = _instance_directory(backup_dir, backup_id)
+    if instance is None:
+        return None
+    path = instance / "bkupInfo.xml"
+    for candidate in (instance, path):
+        if is_link_or_junction(candidate):
+            raise BackupError(f"Symlinks are not allowed: {candidate}")
+    if not path.is_file():
+        return None
+    data = read_file_bytes(path)
+    budget.add_file(len(data))
+    entries = parse_bkup_info(data).gpos
+    if len(entries) != 1:
+        raise BackupError(f"{backup_id}/bkupInfo.xml must describe exactly one GPO")
+    return entries[0]
+
+
+def _instance_directory(backup_dir: Path, backup_id: str) -> Path | None:
+    """The backup instance directory *backup_id* names, matched without
+    regard to case -- a backup made on Windows, read where names are case
+    sensitive (DeepSeek final-r23 N3) -- or ``None`` where there is none.
+
+    Every entry whose name case-folds to the ID counts, the exact spelling
+    included (Sol final-r24 B1: the exact one used to win, and a second
+    spelling -- with its own identity or payload -- went unread). More than
+    one is ambiguous, and refused; so is one that is not a directory."""
+    try:
+        matches = [
+            entry for entry in backup_dir.iterdir() if entry.name.casefold() == backup_id.casefold()
+        ]
+    except OSError as error:
+        raise BackupError(f"Cannot list the backup directory: {error}") from error
+    if not matches:
+        return None
+    if len(matches) > 1:
+        names = ", ".join(sorted(entry.name for entry in matches))
+        raise BackupError(f"Ambiguous backup instance directory {backup_id}: {names}")
+    (instance,) = matches
+    if is_link_or_junction(instance):
+        raise BackupError(f"Symlinks are not allowed: {instance}")
+    if not instance.is_dir():
+        raise BackupError(f"Backup instance {backup_id} is not a directory")
+    return instance
+
+
+def _same_domain(left: str, right: str) -> bool:
+    return left.strip().rstrip(".").casefold() == right.strip().rstrip(".").casefold()
+
+
+def _require_one_identity(gpo: BackupGpo, identities: list[tuple[str, BackupGpo]]) -> None:
+    """Refuse a backup whose identity documents disagree about which GPO, in
+    which domain, it holds (Sol final-r22 B1): manifest.xml and every
+    bkupInfo.xml must name the same GPO GUID, and -- where they state them --
+    the same domain DNS name and domain GUID. Studio cannot know which estate
+    a contradictory backup is of, so it imports none of it."""
+    for where, other in identities:
+        if other.guid != gpo.guid:
+            raise BackupError(f"manifest.xml and {where} name different GPOs")
+        if other.domain and gpo.domain and not _same_domain(other.domain, gpo.domain):
+            raise BackupError(f"manifest.xml and {where} name different domains")
+        if other.domain_guid and gpo.domain_guid and other.domain_guid != gpo.domain_guid:
+            raise BackupError(f"manifest.xml and {where} name different domain GUIDs")
+    for (where, one), (other_where, other) in zip(identities, identities[1:], strict=False):
+        if one.domain_guid and other.domain_guid and one.domain_guid != other.domain_guid:
+            raise BackupError(f"{where} and {other_where} name different domain GUIDs")
+        if one.domain and other.domain and not _same_domain(one.domain, other.domain):
+            raise BackupError(f"{where} and {other_where} name different domains")
+
+
 def read_backup(backup_dir: Path) -> GpmcBackup:
     """Read a complete GPMC backup directory."""
     if is_link_or_junction(backup_dir):
@@ -590,16 +674,31 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
         backup_type = backup.backup_type
         bkup_gpo = None
 
+    # Every identity document the backup carries: the top-level bkupInfo.xml,
+    # and the one a native backup nests in its instance directory
+    # ({backup_dir}/{ID}/bkupInfo.xml -- Sol final-r22 B1: only the top-level
+    # one was read, so a nested one naming another domain went unchecked).
+    identities = [("bkupInfo.xml", bkup_gpo)] if bkup_gpo is not None else []
+    nested = _nested_bkup_info(backup_dir, backup.backup_id, budget)
+    if nested is not None:
+        identities.append((f"{backup.backup_id}/bkupInfo.xml", nested))
+
     enriched_gpos: list[BackupGpo] = []
     for gpo in backup.gpos:
-        if not _GUID_RE.match(gpo.guid):
+        if guid_problem(gpo.guid) is not None:
             raise BackupError(f"Invalid GPO GUID in manifest: {gpo.guid!r}")
+        _require_one_identity(gpo, identities)
 
         display_name = gpo.display_name
         domain = gpo.domain
+        domain_guid = gpo.domain_guid
         if bkup_gpo is not None and bkup_gpo.guid == gpo.guid:
             display_name = bkup_gpo.display_name or display_name
             domain = bkup_gpo.domain or domain
+        for _where, other in identities:
+            domain_guid = domain_guid or other.domain_guid
+        if domain_guid and guid_problem(domain_guid) is not None:
+            raise BackupError(f"Invalid domain GUID in manifest: {domain_guid!r}")
 
         content_root = _resolve_content_root(backup_dir, backup_id, gpo.guid)
 
@@ -609,6 +708,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                     guid=gpo.guid,
                     display_name=display_name,
                     domain=domain,
+                    domain_guid=domain_guid,
                     machine_extensions=gpo.machine_extensions,
                     user_extensions=gpo.user_extensions,
                     security_filters=gpo.security_filters,
@@ -674,6 +774,11 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                         CseFileEntry(relative_path=path, content_hash=f.content_hash, size=f.size)
                         for path, f in sorted(files.items())
                     ),
+                    # The source GPO's identity, recorded with the import's own
+                    # provenance (final-r21); empty without a domain GUID.
+                    source_gpo_guid=gpo.guid if domain_guid else "",
+                    source_domain=domain if domain_guid else "",
+                    source_domain_guid=domain_guid,
                 )
                 inventory = inventory_from_dict(asdict(inventory))
 
@@ -682,6 +787,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                 guid=gpo.guid,
                 display_name=display_name,
                 domain=domain,
+                domain_guid=domain_guid,
                 machine_extensions=machine_exts,
                 user_extensions=user_exts,
                 security_filters=gpo.security_filters,
@@ -841,7 +947,7 @@ def read_cse_content(
     relative_path: str,
 ) -> bytes:
     """Read the raw bytes of a specific CSE file."""
-    if not _GUID_RE.match(gpo_guid):
+    if guid_problem(gpo_guid) is not None:
         raise BackupError(f"Invalid GPO GUID: {gpo_guid!r}")
     backup = read_backup(backup_dir)
     matching = [gpo for gpo in backup.gpos if gpo.guid == gpo_guid.casefold()]

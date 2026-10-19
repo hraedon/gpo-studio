@@ -7,35 +7,141 @@
 This is the 1.1.0 manifest, marked for the first release candidate,
 `1.1.0rc1`, tagged `v1.1.0-rc.1`. It records what has been requalified, what
 the release workflow now checks, and what 1.1.0 does **not** claim. Every Plan
-034 row has reached its exit, and every lane was requalified at one commit by
-the [release 1.1.0 batch](#requalified-evidence-the-release-110-batch).
+034 row has reached its exit. For the candidate, every lane was requalified by
+the [release 1.1.0 batch](#requalified-evidence-the-release-110-batch) at one
+commit, and six of them again at a second commit by its successor batch, so
+the candidate's live verdicts span two commits.
 
 The candidate is published as a GitHub prerelease so that its wheel and
-checksum are fixed for the owner's hands-on NVDA acceptance. It is not
-approved for production use or as the final 1.1.0 release. What is still open
-before that approval is listed under
-[Remaining before approval](#remaining-before-approval).
+checksum are fixed for hands-on validation. It is not approved for production
+use or as the final 1.1.0 release. What is still open before that approval is
+listed under [Remaining before approval](#remaining-before-approval).
+
+On 2026-10-17 the owner decided how 1.1.0 final is approved (Plan 036, the
+D-9 addendum): every lane is requalified at a freeze commit, the tag differs
+from that commit only in evidence and records, and the hands-on NVDA
+acceptance is waived for 1.1.0 and recorded as not run. The sequence is under
+[How this release is approved](#how-this-release-is-approved).
 
 ## How this release is approved
 
 The source of truth is the JSON report,
-`docs/release-evidence-report-1.1.0.json`. Approving the release is two edits
-made in one commit:
+`docs/release-evidence-report-1.1.0.json`.
 
-1. In the JSON report, set `"status"` to `"approved"` for the final release,
-   or to `"candidate"` for a release candidate. Set `"version"` to the exact
-   package version being tagged (`1.1.0`, or `1.1.0rc1` for the first
-   candidate).
-2. Replace line 5 of this file with the line `STATUS_LINES` in
-   `scripts/check_release_manifest.py` gives for that status. It keeps the
-   same prefix and ends in "approved for release" for the final release, or in
-   "release candidate; final approval pending" for a candidate. (It is not
-   quoted here because the gate allows that line exactly once in this file.)
+**The final release** (owner decision, 2026-10-17; Plan 036, the D-9 addendum
+and "the 1.1.0 order without WP-0") is approved in five steps, each its own
+commit or action, in this order:
 
-This file and the JSON report are now marked for the candidate `1.1.0rc1`.
-Final approval makes the same two edits for `approved` and `1.1.0`, after the
-items under [Remaining before approval](#remaining-before-approval) are
-closed; the package version, changelog and `SECURITY.md` change with it.
+1. **Freeze commit F.** Every product change is done, `__version__` is
+   `1.1.0`, `SECURITY.md` describes the `1.1.x` line, and the preparation
+   listed below is in. Nothing after F may change any of it.
+2. **The full batch at F.** All 26 live lanes run on the estate from a clean
+   clone at F, as one batch, with `scripts/plan-033/run-requal-batch.sh` (about
+   41 minutes on the release candidate batch's durations), followed by the
+   post-batch directory check.
+3. **Bank, commit B, whose parent is F.** `scripts/plan-033/bank-requal-batch.py`
+   stages the packs (`stage`) and writes the batch manifest (`manifest`, which
+   refuses to run without `--cleanup` naming the post-batch directory check,
+   because the gate requires one). The finalizers have already created each
+   passing run's annotated `evidence/` tag, named after its run id, at F; they
+   are pushed with the batch. Then, in this order: `retarget` points
+   `platforms.json` at the new runs (it swaps the runs that are live, so it runs
+   before the registry changes); the verdict registry,
+   `docs/plan-033/verdict-registry.json`, registers the new verdicts with the
+   finalizer each lane had at F, retires every earlier live one and points
+   `wp0_manifest` at the new WP-0 manifest; the records that cite runs are
+   edited by hand (this file, the JSON report's evidence, the environment spec,
+   the capability matrix, the lane results documents), and
+   `report-bound-source-cost.py --write` regenerates the cost table; and the
+   JSON report's `freeze` is set to F's full commit and the batch manifest's
+   path. Nothing else changes: no test (they read the current batch from
+   `freeze`), no code, and neither `README.md` nor `CHANGELOG.md`, which ship
+   in the distributions and so are final at F. Records-only commits may follow
+   B, before A; each must change a record (an empty commit is refused).
+4. **Approve, commit A, the last commit.** Records only, and only the
+   approval: in the JSON report, set `"version"` to `1.1.0` and `"status"` to
+   `"approved"`, and close every item of `remaining_before_approval`; in this
+   file, replace line 5 with the line `STATUS_LINES` in
+   `scripts/check_release_manifest.py` gives for `approved` (same prefix, ending
+   in "approved for release"; it is not quoted here because the gate allows
+   that line exactly once in this file) and close every item under
+   [Remaining before approval](#remaining-before-approval). Closed means done;
+   for the owner's NVDA acceptance, waived for 1.1.0 and recorded as not run;
+   for the automated evidence, recorded by the tagged run after A (item 4 of
+   that section says exactly what it records). Both lists stay. What the gate
+   checks is narrower than "closed": it refuses an approved release that still
+   marks any item as pending, and an approval that empties or removes either
+   list (the report's list must be non-empty, the section must keep at least
+   one list item). That each item is truly closed is for the approval's
+   reviewers.
+5. **Tag `v1.1.0` on A**, on `main`.
+
+The release gate holds the tag to this: for a final tag it refuses unless the
+history from F to the tag is exactly B, any records-only commits and A, the
+tagged tree differs from F only in the batch's banked files and the release
+records, and every live verdict is the batch's run of its lane, recorded at F,
+with its evidence tag at F (see
+[How the release gate reads this](#how-the-release-gate-reads-this)).
+
+**What the gate proves, and what it does not.** It proves that the tagged tree
+is F plus internally consistent banked evidence that records a run of every
+lane at F, reached in this order. It does not prove that the Windows estate
+produced that evidence: every byte it reads is committed after F, and a careful
+forgery with its tags would pass. That rests on the batch controller's
+transcripts, which are each pack's `controller.log` (banked verbatim, hashed
+by the batch manifest) and the batch directory on the controller, mvmcc02
+(`progress.jsonl` and `logs/`), and on the two-reviewer review of the banking
+PR. Within that claim, the code that ships is the code at F, and the tag never
+claims approval before the batch is banked.
+
+This replaces the earlier procedure, which made the version and the approval
+records one commit, and Plan 036's WP-0 order, which put the version bump in a
+first freeze and approval after a partial requalification. Both are kept in
+Plan 036's history.
+
+**Preparation that had to land before F**, because the gate refuses any later
+change to it, is done (2026-10-17, on the branch that added the gate):
+
+- `.gitattributes` keeps any batch's packs and post-batch check byte-exact by
+  pattern (`docs/plan-033/*-evidence/*/*/**` and `docs/plan-033/*-cleanup/**`),
+  so a new label needs no rule; it changed the attributes of no tracked file
+  (`tests/test_evidence_pack_attributes.py`);
+- the verdict tables are data, `docs/plan-033/verdict-registry.json`, which
+  `tests/test_committed_evidence.py` loads; that module, like every test, is
+  byte-identical from F to the tag;
+- the tests read the current batch from the report's `freeze`
+  (`tests/current_qualification.py`): the release candidate batches until a
+  freeze batch is banked, that batch after, which `tests/test_current_qualification.py`
+  checks the way the release candidate batch tests check theirs. Retiring a
+  verdict that still matches the tree is accepted only for a lane the freeze
+  batch re-ran;
+- `src/gpo_studio/api.py` names no run: the restore plan's `evidence` and the
+  firewall limitation cite the lane and this document at the version's tag on
+  GitHub, which names its certifying run; `README.md` names none either;
+- every release candidate verdict is pending requalification since 2026-10-17:
+  the whole-value validator sweep edited files every lane binds (identity
+  checks in `validation.py`, `publication.py`, `gpp_adapters.py` and the
+  shared `oracle_evidence.py` among them), so no verdict binds the tree that
+  ships until the batch at F re-runs every lane. The gate requires that batch
+  to retire them all;
+- `pyproject.toml` keeps every path that may change after F out of the sdist,
+  and the wheel carries none of them, so the distributions built at the tag
+  are the distributions built at F
+  (`tests/test_release_artifacts_from_freeze.py` builds both and compares).
+
+So the freeze commit itself changes only `__version__`, `CHANGELOG.md`,
+`SECURITY.md` and the release text in this file and the JSON report. A dry run
+of the whole sequence in a scratch clone (a synthetic batch in the bank tool's
+layout, banked with its `manifest` and `retarget`) passed the gate on A, and
+the gate refused the same history with one line added to a file under `src/`
+in B.
+
+**A release candidate** is still approved with two edits in one commit: in the
+JSON report, `"status"` set to `"candidate"` and `"version"` to the exact
+candidate version (`1.1.0rc1` for the first), and line 5 of this file replaced
+with the candidate line from `STATUS_LINES`. A candidate's report may leave
+`freeze` as `null`; candidate tags are not held to a freeze commit. Line 5 and
+the JSON report say which stage this file is at.
 
 ### Writing rules for this file
 
@@ -82,6 +188,49 @@ and again in the publish job. For a tag `vX.Y.Z` or `vX.Y.Z-rc.N` it requires:
 - before anything is attested, the built wheel's `METADATA`, its file name
   and the sdist's `PKG-INFO` to carry the approved version.
 
+The JSON report also has `freeze` (report schema 3): `null`, or exactly a full
+40-character commit (`commit`) and the path of a batch manifest under
+`docs/plan-033/` (`batch_manifest`). An approved report must have one. For a
+final tag `vX.Y.Z`, and never for an RC tag, every run of the gate also
+requires, on a full-history checkout:
+
+- F, the report's `freeze` commit, to be in the clone (a shallow clone is
+  refused) and a strict ancestor of the tagged commit; and the checkout to have
+  no uncommitted change to a tracked file;
+- the history from F to the tagged commit to be linear: the banking commit B,
+  F's child, adds the batch (its packs, manifest and note, post-batch directory
+  check) and modifies only release records; any later commit modifies at least
+  one release record and nothing else (an empty commit is refused); the tagged
+  commit is the approval commit A, the only commit
+  whose report is approved, and it changes only the report's status, version
+  and remaining items and this file's line 5 and remaining section, keeping
+  both remaining lists non-empty with no item still marked pending. A refusal
+  names the commit;
+- the tagged tree to differ from F only in those files. The release records
+  are a closed list (`FREEZE_RECORDS` in the gate: the capability matrix, the
+  work-item register, this file and the JSON report, the environment spec, the
+  cost table, the lane results documents, `platforms.json` and the verdict
+  registry), every one excluded from the distributions. Everything else,
+  including `src/`, `scripts/`, `pyproject.toml`, `uv.lock`, `.github/`,
+  `.gitattributes`, `README.md`, `CHANGELOG.md` and every test, must be
+  byte-identical to F. Every changed path is a regular file, no pack banks an
+  importable source or extension module or a `.pth` file (archives such as the
+  builder's `candidate.zip` are evidence, and no pack directory is ever on the
+  import path), and every changed record is UTF-8 with no byte-order mark or
+  coding declaration;
+- the verdict registry to keep F's entries unchanged, add exactly the batch's
+  verdicts, each with the finalizer its lane had at F (the finalizer is code
+  the tests run), retire only verdicts registered at F, and owe nothing;
+- the batch manifest to record one passing run per lane at F, with nothing
+  not passed and no successors, each pack's files hashing to what it banked;
+- every live verdict, and the WP-0 manifest, to be that batch's run of its
+  lane, recorded at F from a clean tree and passing, and the batch to cover
+  every lane live at F; and each run's annotated `evidence/` tag to peel to F.
+  A refusal names the lane.
+
+`tests/test_release_freeze_gate.py` builds that history in temporary git
+repositories and holds each refusal.
+
 `docs/release-evidence.md` is the **1.0.0** manifest. It cannot approve any
 other version. Before this gate, the workflow grepped that file for an
 approval string, so a `v1.1.0` tag would have published on 1.0.0's approval.
@@ -96,10 +245,13 @@ The publish job also requires, for the exact tagged commit:
   package, dependency audit, SBOM, static safety, identifier-gate fail-closed
   test, PowerShell analysis, property tests and secret scan;
 - the `identifier-gate.yml` gate, with the denylist secret passed explicitly;
-- the existing `verify` job, now on a full-history checkout;
+- the existing `verify` job, now on a full-history checkout (the
+  `release-identity` and `publish` jobs check out full history too, which the
+  final-tag freeze check needs);
 - the tagged commit to be reachable from `origin/main`;
-- immediately before `gh release create`, the remote tag to still peel to the
-  commit the run built.
+- immediately before `gh release create`, the remote tag to still name the
+  commit the run built (as the commit it peels to, or as the annotated tag
+  object, whichever `GITHUB_SHA` carries).
 
 ## What 1.1.0 is
 
@@ -309,8 +461,11 @@ Plan 034's review gate stands: no module leaves the plan `capture-backed`.
 
 ## Automated evidence
 
-To be resolved from the tagged release workflow run: run IDs for every
-required job, the coverage summary, and the artifact hashes below. Local
+To be resolved from the tagged release workflow run: when it publishes,
+`scripts/record_release_identity.py` replaces this paragraph in the published
+copy with that run's URL and attempt, the statement that the jobs gating
+publication passed in it, that its `verify` job checked coverage against the
+floor (the total stays in that job's log), and the artifact hashes. Local
 success is not release evidence.
 
 Local pre-release observation, **not release evidence**: on 2026-10-08, on the
@@ -361,9 +516,11 @@ Gaps, stated rather than implied:
 - the 1.0.0 hands-on NVDA acceptance covered the 1.0 interface only. The RSOP,
   Security template and Folder Redirection panels, the dark theme, the sticky
   row actions and the sidebar navigation have had no hands-on screen-reader
-  session. One is required before 1.1.0 is approved: the owner runs the
-  [NVDA validation runbook](nvda-validation-runbook.md) against the exact
-  `v1.1.0-rc.N` wheel. It has not been run.
+  session. **The owner's hands-on NVDA acceptance for 1.1.0 was not run.** The
+  owner waived it for 1.1.0 on 2026-10-17; it was not passed, and nothing here
+  claims a screen-reader result for those parts of the interface. The
+  [NVDA validation runbook](nvda-validation-runbook.md) is unchanged for a
+  later release.
 
 ## Upgrade and rollback
 
@@ -483,19 +640,34 @@ data. Each is pinned by a test:
    approval repeats this for `1.1.0`: the version, a dated `1.1.0` changelog
    section, and `SECURITY.md`'s supported-versions table and compatibility
    policy for `1.1.x`.
-3. **Pending; does not block the candidate.** Decided: a release candidate
-   first, then the owner's hands-on NVDA acceptance before final approval.
-   The owner runs the [NVDA validation runbook](nvda-validation-runbook.md)
-   against the exact `v1.1.0-rc.N` wheel from the release assets and records
-   the wheel's SHA-256. A blocker fails acceptance; any other significant
-   finding needs the owner's explicit disposition; a behavior change requires
-   a new candidate.
-4. **Pending; does not block the candidate.** Fill in the automated-evidence
-   section from the tagged candidate run (run IDs of every required job, the
-   coverage summary, the artifact hashes), then finalize
-   `docs/release-evidence-report-1.1.0.json`. These come from the tagged run,
-   so they cannot be a prerequisite for creating it.
-5. Approve as described in [How this release is approved](#how-this-release-is-approved)
-   (the JSON `status` and `version`, and line 5 here, in one commit), and tag
-   `v1.1.0` on a commit on `main`. Final promotion should not change the
-   application behavior the accepted candidate showed.
+3. **Waived; not run (owner decision, 2026-10-17).** The owner's hands-on
+   NVDA acceptance was planned for after the candidate (decided 2026-10-09).
+   On 2026-10-17 the owner waived it for 1.1.0. It is recorded as not run,
+   never as passed, here, under [Accessibility evidence](#accessibility-evidence)
+   and in the JSON report.
+4. **Recorded by the tagged run, not a precondition.** The automated evidence
+   comes from the release workflow run on the tag, so it cannot exist before
+   A. When that run publishes, `scripts/record_release_identity.py` writes into
+   the published `release-evidence.md` (replacing the Automated evidence
+   placeholder) and `release-evidence-report.json`: the run's URL and attempt,
+   the workflow ref, the tag and source commit; that the jobs gating
+   publication (`release-identity`, `ci`, `identifier-gate`, `verify`) passed
+   in that run, since `publish` runs only after they succeed; that `verify`
+   checked branch coverage against the floor; and the wheel, sdist and SBOM
+   hashes. The job IDs and the tagged run's measured coverage total are in that
+   workflow run itself (its jobs and the `verify` log), not in the assets. It
+   refuses to publish if any of that is missing or the placeholder is not
+   resolved. A closes this item by saying so.
+5. **Pending.** Approve in the order under
+   [How this release is approved](#how-this-release-is-approved) (owner
+   decision, 2026-10-17): freeze commit F with its preparation, the full batch
+   of all 26 lanes at F, the banking commit B (parent F, evidence and records
+   only, the report's `freeze` set), the records-only approval commit A, and
+   the tag `v1.1.0` on A, on `main`. The release gate refuses the tag unless
+   the history from F is B, records-only commits and A, the tree differs from F
+   only in the batch and the release records, and every live verdict is the
+   batch's run recorded at F with its evidence tag (it does not authenticate
+   the estate runs; see How this release is approved). Final promotion should not change the application behavior the
+   candidate showed. The requalified evidence described above (the release
+   candidate's two batches) is then history: the batch at F replaces every
+   verdict, and this file is updated in B to cite it.

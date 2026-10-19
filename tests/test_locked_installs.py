@@ -593,6 +593,52 @@ def test_an_unlocked_or_unreadable_command_is_refused(name: str, tmp_path: Path)
     assert workflow_violations(workflow), f"{name} was accepted"
 
 
+_MATRIX_INPUT = """name: probe
+on: push
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.0"
+          python-version: {value}
+      - run: uv sync --locked --extra dev
+"""
+
+
+@pytest.mark.parametrize(
+    ("value", "accepted"),
+    [
+        ("${{ matrix.python-version }}", True),
+        ("|\n            ${{ matrix.python-version }}", False),
+        (">\n            ${{ matrix.python-version }}", False),
+        ('"${{ matrix.python-version }}\\n"', False),
+    ],
+    ids=["plain", "literal-block", "folded-block", "quoted-newline"],
+)
+def test_an_action_input_must_be_the_matrix_expression_exactly(
+    tmp_path: Path, value: str, accepted: bool
+) -> None:
+    """Sol final-r5 B1: a block scalar's trailing newline passed as the matrix expression.
+
+    `_MATRIX_ONLY` ended in `$` and was called with match(), so
+    "${{ matrix.python-version }}\\n" counted as the reviewed expression and the
+    action received a value nobody reviewed. It is matched whole now.
+    """
+    workflow = tmp_path / "probe.yml"
+    workflow.write_text(_MATRIX_INPUT.format(value=value), encoding="utf-8")
+    problems = workflow_violations(workflow)
+    if accepted:
+        assert problems == []
+    else:
+        assert any("python-version" in problem for problem in problems), problems
+
+
 def test_the_negative_template_itself_is_accepted(tmp_path: Path) -> None:
     """Without this, every variant above could fail for a reason unrelated to its command."""
     workflow = tmp_path / "probe.yml"

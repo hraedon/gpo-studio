@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from gpp_payloads import group_payload, registry_payload
 
 from gpo_studio.api import app
 from gpo_studio.gpp import (
@@ -47,18 +48,6 @@ _ATTRIBUTE = {
     "stop_on_error": ("bypassErrors", "0"),
 }
 _RUN_ONCE_ID = "{11111111-AAAA-4BBB-8CCC-DDDDDDDDDDDD}"
-_GROUP_KEYS = (
-    "name", "sid", "action", "description", "remove_all_users", "remove_all_groups",
-    "members", "id", "ilt_filter", "unknown_attrs", "unknown_props_attrs",
-    "unknown_props_children", "unknown_children",
-)
-_REGISTRY_KEYS = (
-    "key", "hive", "action", "value", "id", "uid", "ilt_filter", "unknown_attrs",
-    "unknown_props_children", "unknown_children",
-)
-_VALUE_KEYS = ("name", "value", "registry_type", "action", "default", "id", "unknown_attrs")
-
-
 def _common(option: str) -> GppCommonOptions:
     common = replace(GppCommonOptions(), **{option: True})
     return replace(common, run_once_id=_RUN_ONCE_ID) if option == "apply_once" else common
@@ -66,14 +55,12 @@ def _common(option: str) -> GppCommonOptions:
 
 def workbench_group(group: dict[str, Any]) -> dict[str, Any]:
     """What static/js/gpp.mjs sends back for a group: no common options."""
-    return {key: group[key] for key in _GROUP_KEYS}
+    return group_payload(group)
 
 
 def workbench_registry(registry: dict[str, Any]) -> dict[str, Any]:
     """What static/js/gpp.mjs sends back for a registry item: no common options."""
-    payload = {key: registry[key] for key in _REGISTRY_KEYS}
-    payload["value"] = {key: registry["value"][key] for key in _VALUE_KEYS}
-    return payload
+    return registry_payload(registry)
 
 
 def _seeded(store: WorkspaceStore, option: str) -> str:
@@ -131,9 +118,10 @@ def test_a_workbench_edit_keeps_each_common_option(client: Any, option: str) -> 
     gpo = test_client.get(f"/api/gpos/{guid}").json()["gpo"]
     collection = gpo["gpp_collections"][0]
     group = workbench_group(collection["groups"][0])
+    group_id = collection["groups"][0]["id"]
     group["description"] = "edited"
     edited = test_client.put(
-        f"/api/gpos/{guid}/preferences/groups/{group['id']}",
+        f"/api/gpos/{guid}/preferences/groups/{group_id}",
         json={"scope": "computer", "group": group, "actor": "wi082", "reason": "edit",
               "expected_revision": gpo["revision"]},
     )
@@ -142,9 +130,10 @@ def test_a_workbench_edit_keeps_each_common_option(client: Any, option: str) -> 
     edited_group = edited.json()["gpo"]["gpp_collections"][0]["groups"][0]
     assert edited_group["common"][option] is True
     registry = workbench_registry(collection["registry"][0])
+    registry_id = collection["registry"][0]["id"]
     registry["value"]["value"] = "edited"
     edited = test_client.put(
-        f"/api/gpos/{guid}/preferences/registry/{registry['id']}",
+        f"/api/gpos/{guid}/preferences/registry/{registry_id}",
         json={"scope": "computer", "registry": registry, "actor": "wi082", "reason": "edit",
               "expected_revision": edited.json()["gpo"]["revision"]},
     )
@@ -167,10 +156,11 @@ def test_an_edit_changes_only_the_options_it_names(client: Any, option: str) -> 
     guid = _seeded(store, option)
     gpo = test_client.get(f"/api/gpos/{guid}").json()["gpo"]
     group = workbench_group(gpo["gpp_collections"][0]["groups"][0])
+    group_id = gpo["gpp_collections"][0]["groups"][0]["id"]
     other = next(name for name in OPTIONS if name != option)
     group["common"] = {other: True}
     edited = test_client.put(
-        f"/api/gpos/{guid}/preferences/groups/{group['id']}",
+        f"/api/gpos/{guid}/preferences/groups/{group_id}",
         json={"scope": "computer", "group": group, "actor": "wi082", "reason": "edit",
               "expected_revision": gpo["revision"]},
     )
@@ -180,7 +170,7 @@ def test_an_edit_changes_only_the_options_it_names(client: Any, option: str) -> 
     # And an explicit false turns the option off.
     group["common"] = {option: False}
     edited = test_client.put(
-        f"/api/gpos/{guid}/preferences/groups/{group['id']}",
+        f"/api/gpos/{guid}/preferences/groups/{group_id}",
         json={"scope": "computer", "group": group, "actor": "wi082", "reason": "edit",
               "expected_revision": edited.json()["gpo"]["revision"]},
     )
@@ -212,9 +202,10 @@ def test_the_api_cannot_set_the_run_once_identity(client: Any) -> None:
     guid = _seeded(store, "apply_once")
     gpo = test_client.get(f"/api/gpos/{guid}").json()["gpo"]
     group = workbench_group(gpo["gpp_collections"][0]["groups"][0])
+    group_id = gpo["gpp_collections"][0]["groups"][0]["id"]
     group["common"] = {"run_once_id": "{00000000-0000-0000-0000-000000000000}"}
     edited = test_client.put(
-        f"/api/gpos/{guid}/preferences/groups/{group['id']}",
+        f"/api/gpos/{guid}/preferences/groups/{group_id}",
         json={"scope": "computer", "group": group, "actor": "wi082", "reason": "edit",
               "expected_revision": gpo["revision"]},
     )

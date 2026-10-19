@@ -45,6 +45,11 @@ def _load_gate() -> ModuleType:
 
 gate = _load_gate()
 
+#: A well-formed freeze record. An approved report must carry one; the commit is
+#: checked against git only by ``verify_freeze`` (tests/test_release_freeze_gate.py).
+FREEZE = {"commit": "1" * 40, "batch_manifest": "docs/plan-033/final-batch.json"}
+CLOSED_ITEM = "Done; the owner's hands-on NVDA acceptance is waived for 1.1.0 and not run."
+
 
 def _root(tmp_path: Path, version: str) -> Path:
     package = tmp_path / "src" / "gpo_studio"
@@ -88,6 +93,7 @@ def _release(
         "manifest": f"docs/release-evidence-{base}.md",
         "workspace_schema_version": 4,
         "artifact_hashes": {key: "pending" for key in gate.ARTIFACT_HASH_KEYS},
+        "freeze": FREEZE if status == "approved" else None,
         "evidence": {},
     }
     if report is not None:
@@ -96,6 +102,24 @@ def _release(
         json.dumps(body), encoding="utf-8", newline="\n"
     )
     return manifest
+
+
+@pytest.fixture
+def freeze_stub(monkeypatch: pytest.MonkeyPatch) -> list[str | None]:
+    """Stand in for the freeze check, which needs a git history these roots lack.
+
+    ``main`` runs ``verify_freeze`` for every final tag; the stub records each call
+    so a test can see it ran. The check itself is exercised against real temporary
+    repositories in ``tests/test_release_freeze_gate.py``.
+    """
+    calls: list[str | None] = []
+
+    def recorded(root: Path, result: object) -> str:
+        calls.append(getattr(result, "freeze_commit", None))
+        return "freeze check stubbed"
+
+    monkeypatch.setattr(gate, "verify_freeze", recorded)
+    return calls
 
 
 def _committed(root: Path, base: str = "1.1.0") -> tuple[Path, Path]:
@@ -107,11 +131,20 @@ def _committed(root: Path, base: str = "1.1.0") -> tuple[Path, Path]:
 
 
 def _approve(manifest: Path, report: Path, status: str, version: str) -> None:
-    """The documented approval: the JSON status/version and line 5, nothing else."""
+    """The documented approval: the JSON status/version and line 5, nothing else.
+
+    For a final release the banking commit has already recorded ``freeze``.
+    """
     data = json.loads(report.read_text(encoding="utf-8"))
+    lines = manifest.read_text(encoding="utf-8").split("\n")
+    if status == "approved":
+        data["freeze"] = FREEZE
+        # A closes every remaining item: done, or waived and recorded as not run.
+        data["evidence"]["remaining_before_approval"] = [CLOSED_ITEM]
+        start, end = gate._remaining_section(lines)
+        lines[start + 1 : end] = ["", f"1. {CLOSED_ITEM}", ""]
     data["status"], data["version"] = status, version
     report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
-    lines = manifest.read_text(encoding="utf-8").split("\n")
     lines[4] = gate.STATUS_LINES[status]
     manifest.write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
@@ -199,6 +232,27 @@ def test_approving_only_one_of_the_two_files_is_refused(tmp_path: Path) -> None:
         gate.check(root, "v1.1.0")
 
 
+def test_an_approved_release_lists_nothing_as_pending(tmp_path: Path) -> None:
+    """DeepSeek final-r1 N7: approval closes every remaining item in both records."""
+    root = _root(tmp_path, "1.1.0")
+    manifest, report = _committed(root)
+    _approve(manifest, report, "approved", "1.1.0")
+    gate.check(root, "v1.1.0")
+    data = json.loads(report.read_text(encoding="utf-8"))
+    data["evidence"]["remaining_before_approval"].append("final approval (pending)")
+    report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+    with pytest.raises(gate.ReleaseGateError, match="still lists items as pending"):
+        gate.check(root, "v1.1.0")
+    data["evidence"]["remaining_before_approval"].pop()
+    report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+    text = manifest.read_text(encoding="utf-8").replace(
+        f"1. {CLOSED_ITEM}", f"1. {CLOSED_ITEM}\n2. **Pending.** The tag."
+    )
+    manifest.write_text(text, encoding="utf-8", newline="\n")
+    with pytest.raises(gate.ReleaseGateError, match="still lists items as pending"):
+        gate.check(root, "v1.1.0")
+
+
 def test_a_candidate_tag_needs_candidate_status_not_approval(tmp_path: Path) -> None:
     root = _root(tmp_path, "1.1.0rc2")
     _release(root, "1.1.0", "candidate", version="1.1.0rc2")
@@ -220,6 +274,7 @@ def test_a_candidate_tag_needs_candidate_status_not_approval(tmp_path: Path) -> 
         ("1.1.0rc1", "v1.1.0"),
         ("1.1.0rc1", "v1.1.0rc1"),
         ("1.1.0", "v1.1.0-rc.1"),
+        ("1.1.0", "v1.1.0\n"),
     ],
 )
 def test_tag_must_equal_the_package_version(tmp_path: Path, version: str, tag: str) -> None:
@@ -366,7 +421,9 @@ def _sdist(path: Path, version: str) -> Path:
     return sdist
 
 
-def test_built_distributions_must_carry_the_approved_version(tmp_path: Path) -> None:
+def test_built_distributions_must_carry_the_approved_version(
+    tmp_path: Path, freeze_stub: list[str | None]
+) -> None:
     root = _root(tmp_path / "repo", "1.1.0")
     _release(root, "1.1.0")
     good_wheel, good_sdist = _wheel(tmp_path, "1.1.0"), _sdist(tmp_path, "1.1.0")
@@ -410,6 +467,7 @@ def _report(**changes: object) -> dict[str, object]:
         "manifest": "docs/release-evidence-1.1.0.md",
         "workspace_schema_version": 4,
         "artifact_hashes": {key: "pending" for key in gate.ARTIFACT_HASH_KEYS},
+        "freeze": FREEZE,
         "evidence": {},
     }
     for key, value in changes.items():
@@ -443,6 +501,22 @@ _DROP = object()
         _report(artifact_hashes={**{k: "x" for k in gate.ARTIFACT_HASH_KEYS}, "more": "x"}),
         _report(artifact_hashes={k: 1 for k in gate.ARTIFACT_HASH_KEYS}),
         _report(evidence=[]),
+        _report(report_version=2),
+        _report(freeze=_DROP),
+        _report(freeze=None),
+        _report(freeze="1" * 40),
+        _report(freeze={"commit": "1" * 40}),
+        _report(freeze={**FREEZE, "label": "final"}),
+        _report(freeze={**FREEZE, "commit": "1" * 39}),
+        _report(freeze={**FREEZE, "commit": "A" * 40}),
+        _report(freeze={**FREEZE, "commit": 1}),
+        _report(freeze={**FREEZE, "batch_manifest": "docs/plan-033/final.json"}),
+        _report(freeze={**FREEZE, "batch_manifest": "docs/plan-033/../x-batch.json"}),
+        _report(freeze={**FREEZE, "batch_manifest": "docs/final-batch.json"}),
+        # Sol final-r4 B1: `$` with match() accepted a trailing newline.
+        _report(freeze={**FREEZE, "commit": "1" * 40 + "\n"}),
+        _report(freeze={**FREEZE, "batch_manifest": "docs/plan-033/final-batch.json\n"}),
+        _report(version="1.1.0\n"),
     ],
 )
 def test_the_report_schema_is_exact(tmp_path: Path, report: dict[str, object]) -> None:
@@ -470,6 +544,32 @@ def test_malformed_or_ambiguous_json_is_refused(tmp_path: Path, raw: str) -> Non
     )
     with pytest.raises(gate.ReleaseGateError):
         gate.check(root, "v1.1.0")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"report_type": ' + "1" * 5000 + "}",
+        "[" * 200_000 + "]" * 200_000,
+    ],
+    ids=["integer-past-the-digit-limit", "nesting-past-the-recursion-limit"],
+)
+def test_json_python_cannot_decode_is_a_clean_refusal(
+    tmp_path: Path, raw: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sol N3 / DeepSeek N2 (final-r2): ValueError and RecursionError are refusals."""
+    with pytest.raises(gate.ReleaseGateError, match="cannot read it as JSON"):
+        gate._json_bytes(raw.encode(), "probe")
+    problems, _ = gate.report_problems(raw.encode(), "docs/release-evidence-1.1.0.md")
+    assert problems and problems[0].startswith("not valid UTF-8 JSON")
+    root = _root(tmp_path, "1.1.0")
+    _release(root, "1.1.0")
+    (root / "docs" / "release-evidence-report-1.1.0.json").write_text(
+        raw, encoding="utf-8", newline="\n"
+    )
+    assert gate.main(["--tag", "v1.1.0", "--root", str(root)]) == 1
+    error = capsys.readouterr().err
+    assert error.startswith("release gate: FAIL: ") and "Traceback" not in error
 
 
 def test_a_duplicate_status_key_is_named(tmp_path: Path) -> None:
@@ -688,7 +788,9 @@ def test_prose_that_mentions_status_without_declaring_one_passes(tmp_path: Path)
     assert gate.check(root, "v1.1.0").version == "1.1.0"
 
 
-def test_main_fails_closed_and_writes_outputs_only_on_success(tmp_path: Path) -> None:
+def test_main_fails_closed_and_writes_outputs_only_on_success(
+    tmp_path: Path, freeze_stub: list[str | None]
+) -> None:
     root = _root(tmp_path, "1.1.0")
     outputs = tmp_path / "github-output"
     assert gate.main(["--tag", "v1.1.0", "--root", str(root), "--github-output", str(outputs)]) == 1
@@ -701,6 +803,7 @@ def test_main_fails_closed_and_writes_outputs_only_on_success(tmp_path: Path) ->
         "report=docs/release-evidence-report-1.1.0.json",
         "prerelease=false",
     ]
+    assert freeze_stub == [FREEZE["commit"]], "a final tag must run the freeze check"
 
 
 # --- the workflow runs the gates ---------------------------------------------
@@ -826,6 +929,30 @@ def test_the_remote_tag_must_peel_to_the_built_commit(
     gate.verify_remote_tag(work, "origin", "v1.1.0", second)
 
 
+def test_the_remote_tag_check_accepts_the_tag_object_or_its_commit(
+    tagged_remote: tuple[Path, str, str],
+) -> None:
+    """DeepSeek final-r1 N8: whichever GITHUB_SHA carries for an annotated tag.
+
+    For a pushed tag, GITHUB_SHA may be the commit or, for an annotated tag, the
+    tag object; this was not verified against GitHub here. The check accepts
+    either while the tag still names the built commit, and a moved tag matches
+    neither.
+    """
+    work, first, second = tagged_remote
+    _git(work, "tag", "-a", "-m", "release", "v1.1.0", first)
+    _git(work, "push", "-q", "origin", "refs/tags/v1.1.0")
+    tag_object = _git(work, "rev-parse", "refs/tags/v1.1.0")
+    assert tag_object != first
+    gate.verify_remote_tag(work, "origin", "v1.1.0", first)
+    gate.verify_remote_tag(work, "origin", "v1.1.0", tag_object)
+    _git(work, "tag", "-f", "-a", "-m", "moved", "v1.1.0", second)
+    _git(work, "push", "-q", "-f", "origin", "refs/tags/v1.1.0")
+    for stale in (first, tag_object):
+        with pytest.raises(gate.ReleaseGateError, match="tag moved"):
+            gate.verify_remote_tag(work, "origin", "v1.1.0", stale)
+
+
 def test_a_missing_remote_tag_or_unreadable_remote_fails_closed(
     tagged_remote: tuple[Path, str, str],
 ) -> None:
@@ -836,10 +963,13 @@ def test_a_missing_remote_tag_or_unreadable_remote_fails_closed(
         gate.verify_remote_tag(work, "no-such-remote", "v1.1.0", first)
     with pytest.raises(gate.ReleaseGateError, match="not a full SHA-1"):
         gate.verify_remote_tag(work, "origin", "v1.1.0", first[:12])
+    # Sol final-r5 N1: `$` with match() accepted a trailing newline.
+    with pytest.raises(gate.ReleaseGateError, match="not a full SHA-1"):
+        gate.verify_remote_tag(work, "origin", "v1.1.0", first + "\n")
 
 
 def test_main_runs_the_remote_tag_check_when_asked(
-    tagged_remote: tuple[Path, str, str], tmp_path: Path
+    tagged_remote: tuple[Path, str, str], tmp_path: Path, freeze_stub: list[str | None]
 ) -> None:
     work, first, second = tagged_remote
     root = _root(tmp_path / "manifest-root", "1.1.0")
@@ -850,6 +980,7 @@ def test_main_runs_the_remote_tag_check_when_asked(
     base = ["--tag", "v1.1.0", "--root", str(root), "--remote", remote]
     assert gate.main([*base, "--remote-tag-sha", second]) == 0
     assert gate.main([*base, "--remote-tag-sha", first]) == 1
+    assert freeze_stub == [FREEZE["commit"]] * 2
 
 
 def test_publish_checks_the_remote_tag_immediately_before_creating_the_release() -> None:

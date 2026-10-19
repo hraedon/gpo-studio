@@ -19,6 +19,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import current_qualification as cq
 import pytest
 from batch_provenance import (
     EXEC_FAILED_SCHEMA,
@@ -126,6 +127,12 @@ def test_every_recorded_digest_resolves_at_its_commit(relative: str) -> None:
 def test_the_six_replace_exactly_the_verdicts_the_fix_expired() -> None:
     """Each successor binds a changed file; no verdict left live binds one."""
     registry = _registry()
+    if cq.freeze() is not None:
+        # History since a freeze batch was banked: the six are retired in turn.
+        successors = {r["verdict"] for r in SUCCESSORS["runs"]}
+        assert successors <= set(registry["RETIRED_VERDICTS"])
+        assert not successors & set(registry["LIVE_VERDICTS"])
+        return
     for run in SUCCESSORS["runs"]:
         bound = set(_load(EVIDENCE / run["verdict"])["source"]["paths"])
         assert bound & CHANGED, run["name"]
@@ -135,8 +142,9 @@ def test_the_six_replace_exactly_the_verdicts_the_fix_expired() -> None:
     successors = {r["verdict"] for r in SUCCESSORS["runs"]}
     replaced = {r["verdict"] for r in REPLACED.values()}
     assert replaced <= set(registry["RETIRED_VERDICTS"])
-    assert successors <= set(registry["LIVE_VERDICTS"])
-    for relative in set(registry["LIVE_VERDICTS"]) - successors:
+    current = set(registry["LIVE_VERDICTS"]) | set(registry["PENDING_REQUALIFICATION"])
+    assert successors <= current
+    for relative in current - successors:
         verdict = _load(EVIDENCE / relative)
         assert verdict["source"]["commit"] == RELEASE["source_commit"], relative
         assert not set(verdict["source"]["paths"]) & CHANGED, relative
@@ -145,10 +153,14 @@ def test_the_six_replace_exactly_the_verdicts_the_fix_expired() -> None:
         ["git", "diff", "--name-only", RELEASE["source_commit"], FROZEN],
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout.split())
-    for relative in set(registry["LIVE_VERDICTS"]) - successors:
+    for relative in current - successors:
         paths = set(_load(EVIDENCE / relative)["source"]["paths"].values())
         assert not paths & changed, relative
-    assert set(registry["PENDING_REQUALIFICATION"]) == set()
+    # Pending only registered, unretired verdicts (DeepSeek final-r7 N6: the
+    # earlier `PENDING <= LIVE | PENDING` was true by construction).
+    assert set(registry["PENDING_REQUALIFICATION"]) <= (
+        set(registry["LANE_VERDICTS"]) - set(registry["RETIRED_VERDICTS"])
+    )
 
 
 def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None:
@@ -168,6 +180,11 @@ def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None
 
 
 def test_the_release_evidence_report_cites_the_successors() -> None:
+    if cq.freeze() is not None:
+        pytest.skip(
+            "history: the report cites the freeze batch since it was banked "
+            "(tests/test_current_qualification.py checks that)"
+        )
     report = _load(ROOT / "docs/release-evidence-report-1.1.0.json")
     requalification = report["evidence"]["requalification"]
     cited = {s["name"]: s for s in requalification["successors"]}

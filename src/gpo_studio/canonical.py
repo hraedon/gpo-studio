@@ -17,7 +17,7 @@ from .gpp import (
     retained_rendering,
 )
 from .ilt import IltFilter, IltPredicate
-from .model import GPO, GPOLink, RegistrySetting
+from .model import GPO, GPOLink, RegistrySetting, inventory_dict
 
 CANONICAL_SCHEMA_VERSION = 1
 
@@ -412,7 +412,9 @@ def review_model_dict(gpo: GPO) -> dict[str, Any]:
     }
     # Preserve existing digests for GPOs without native import provenance.
     if gpo.backup_inventory is not None:
-        result["backup_inventory"] = asdict(gpo.backup_inventory)
+        # The recorded source identity is provenance, not policy: never part
+        # of a digest (final-r22 ruling).
+        result["backup_inventory"] = inventory_dict(asdict(gpo.backup_inventory))
     # WI-068: the imported fdeploy1.ini is import provenance too -- review
     # digest only, never the policy-semantic one, and absent when there is none
     # so every other GPO keeps its digest. Only the text is folded: it is the

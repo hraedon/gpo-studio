@@ -19,9 +19,10 @@ information was already complete and unreadable: spread across
 which is a statement about coverage rather than about quality --- and
 for anything in `src/gpo_studio/`, usually the more interesting one.
 
-Live set: 25 lane verdicts plus WP-0. Retired and
-pending-requalification verdicts are excluded; they bind the commits
-they name and are not re-earned by an edit today.
+Current set: 25 lane verdicts plus WP-0, live or pending
+requalification (a pending verdict is still a lane's certification,
+owed to the next batch). Retired verdicts are excluded; they bind the
+commits they name and are not re-earned by an edit today.
 
 ## Product source
 
@@ -131,15 +132,21 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/adm.py`
 - `src/gpo_studio/admx.py`
 - `src/gpo_studio/api.py`
+- `src/gpo_studio/closed_sets.py`
 - `src/gpo_studio/conformance.py`
 - `src/gpo_studio/delegation.py`
 - `src/gpo_studio/diff.py`
+- `src/gpo_studio/egress.py`
+- `src/gpo_studio/emit_integrity.py`
 - `src/gpo_studio/estate.py`
 - `src/gpo_studio/evidence.py`
 - `src/gpo_studio/gpmc_interop.py`
+- `src/gpo_studio/gpp_edit.py`
 - `src/gpo_studio/gpp_native.py`
+- `src/gpo_studio/gpp_provenance.py`
 - `src/gpo_studio/hosting.py`
 - `src/gpo_studio/identity.py`
+- `src/gpo_studio/identity_values.py`
 - `src/gpo_studio/ilt.py`
 - `src/gpo_studio/migration.py`
 - `src/gpo_studio/network_security.py`
@@ -148,6 +155,7 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/payload.py`
 - `src/gpo_studio/policy_config.py`
 - `src/gpo_studio/provenance.py`
+- `src/gpo_studio/provenance_migration.py`
 - `src/gpo_studio/ps_plan_validator.py`
 - `src/gpo_studio/publisher.py`
 - `src/gpo_studio/remediation_corpus.py`
@@ -158,6 +166,7 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/snapshot_documents.py`
 - `src/gpo_studio/som.py`
 - `src/gpo_studio/store.py`
+- `src/gpo_studio/stored_types.py`
 - `src/gpo_studio/template_store.py`
 - `src/gpo_studio/wmi_catalogue.py`
 - `src/gpo_studio/wmi_filter.py`

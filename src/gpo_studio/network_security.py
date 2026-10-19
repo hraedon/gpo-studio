@@ -182,7 +182,7 @@ class CertificateTrustEntry:
                     "PublicKeyPolicy",
                 )
             )
-        elif not _THUMBPRINT_RE.match(thumb):
+        elif not _THUMBPRINT_RE.fullmatch(thumb):
             issues.append(
                 ValidationIssue(
                     "error",

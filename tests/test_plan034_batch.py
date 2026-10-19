@@ -182,7 +182,7 @@ def test_the_batch_is_registered_and_now_history() -> None:
     assert everything <= set(registry["LANE_VERDICTS"])
     assert everything <= set(registry["RETIRED_VERDICTS"])
     assert not (everything & set(registry["LIVE_VERDICTS"]))
-    assert set(registry["PENDING_REQUALIFICATION"]) == set()
+    assert not (everything & set(registry["PENDING_REQUALIFICATION"]))
     for run in BATCH["successors"]:
         assert registry["LANE_VERDICTS"][run["replaces"]] == registry["LANE_VERDICTS"][
             run["verdict"]

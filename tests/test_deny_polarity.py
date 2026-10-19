@@ -26,7 +26,7 @@ _GUID = "11111111-2222-3333-4444-555555555555"
 def _filter(*, deny: bool, permission: str = "apply") -> SecurityFilter:
     return SecurityFilter(
         id="sf-1",
-        principal="LabCL01$",
+        principal="LAB\\LabCL01$",
         permission=permission,  # type: ignore[arg-type]
         target_type="computer",
         deny=deny,

@@ -44,9 +44,15 @@ _PRODUCT_PREFIX = "src/gpo_studio/"
 
 
 def live_verdicts() -> dict[str, str]:
-    """The verdicts the freshness gate considers live, from its own registry."""
+    """The current verdicts, from the freshness gate's own registry.
+
+    Live ones and those pending requalification: a pending verdict is still a
+    lane's current certification, owed to the next batch, and a table that
+    dropped it would price every file it binds at zero.
+    """
     namespace = runpy.run_path(str(REGISTRY))
-    live: dict[str, str] = namespace["LIVE_VERDICTS"]
+    live: dict[str, str] = dict(namespace["LIVE_VERDICTS"])
+    live.update({k: namespace["LANE_VERDICTS"][k] for k in namespace["PENDING_REQUALIFICATION"]})
     return live
 
 
@@ -145,9 +151,10 @@ def render(live: dict[str, str], bound: dict[str, list[str]]) -> str:
         "which is a statement about coverage rather than about quality --- and",
         "for anything in `src/gpo_studio/`, usually the more interesting one.",
         "",
-        f"Live set: {len(live)} lane verdicts plus WP-0. Retired and",
-        "pending-requalification verdicts are excluded; they bind the commits",
-        "they name and are not re-earned by an edit today.",
+        f"Current set: {len(live)} lane verdicts plus WP-0, live or pending",
+        "requalification (a pending verdict is still a lane's certification,",
+        "owed to the next batch). Retired verdicts are excluded; they bind the",
+        "commits they name and are not re-earned by an edit today.",
         "",
         "## Product source",
         "",

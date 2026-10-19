@@ -1,7 +1,8 @@
 """The fdeploy lane's current certifying run, as the batch manifest records it.
 
-The release 1.1.0 successor batch's run of the lane (9940561, WI-080/081/082;
-run id, commit and pack read from `docs/plan-033/release110-successors-batch.json`).
+The run, its commit and its pack are read from `tests/current_qualification.py`.
+Until a freeze batch is banked that is the release 1.1.0 successor batch's run
+(9940561, WI-080/081/082; `docs/plan-033/release110-successors-batch.json`).
 It replaced the release 1.1.0 batch's run at `de9736e`, and before that
 `fd-20261008121347-3151` at `df713ef`; both are retired with their packs and
 tags unchanged. Banked the way
@@ -39,6 +40,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
+import current_qualification
 import pytest
 
 from gpo_studio.backup import read_backup
@@ -51,15 +53,10 @@ from gpo_studio.fdeploy_parity import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-#: The current run is whatever the batch manifest records for this lane, so a
-#: new batch re-points this file by replacing the manifest, not these lines.
-_BATCH_RUN = next(
-    run
-    for run in json.loads(
-        (ROOT / "docs/plan-033/release110-successors-batch.json").read_text(encoding="utf-8")
-    )["runs"]
-    if run["name"] == "fdeploy"
-)
+#: The lane's current run (tests/current_qualification.py): the release
+#: evidence report's freeze batch once one is banked, the 1.1.0rc1 batches
+#: until then. Banking a new batch re-points this file without an edit.
+_BATCH_RUN = current_qualification.run("fdeploy")
 VERDICT_PATH = _BATCH_RUN["verdict"]
 PACK = ROOT / "docs/plan-033" / Path(VERDICT_PATH).parent
 RUN_ID = _BATCH_RUN["run_id"]
@@ -276,6 +273,19 @@ def test_the_shipping_finalizer_writes_the_banked_verdict_again(
     assert all(regraded["checks"].values()), [
         name for name, ok in regraded["checks"].items() if not ok
     ]
+    registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
+    if VERDICT_PATH in registry["PENDING_REQUALIFICATION"]:
+        # Pending requalification: some bound file changed since the run, so its
+        # recorded digest is stale by definition and the re-grade records today's.
+        # Exactly those entries may differ; everything else must not.
+        drifted = sorted(
+            name
+            for name, digest in recorded["source"]["files"].items()
+            if regraded["source"]["files"].get(name) != digest
+        )
+        assert drifted, "a pending verdict whose bound files all still match is live"
+        for name in drifted:
+            regraded["source"]["files"][name] = recorded["source"]["files"][name]
     assert regraded == recorded
 
 
@@ -452,4 +462,5 @@ def test_the_option_rendering_per_flags_is_the_recorded_table() -> None:
 def test_the_verdict_is_registered_live() -> None:
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     assert registry["LANE_VERDICTS"][VERDICT_PATH] == "finalize_fdeploy_run.py"
-    assert VERDICT_PATH in registry["LIVE_VERDICTS"]
+    # Live, or pending requalification by the next batch.
+    assert VERDICT_PATH in set(registry["LIVE_VERDICTS"]) | set(registry["PENDING_REQUALIFICATION"])

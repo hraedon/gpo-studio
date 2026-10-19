@@ -109,7 +109,7 @@ def main() -> int:
 
     if args.check:
         try:
-            data = json.loads(REPORT_PATH.read_text())
+            data = json.loads(REPORT_PATH.read_text(encoding="utf-8"))
             print(f"Report type: {data.get('report_type')}")
             print(f"Report date: {data.get('report_date')}")
             print(f"Source commit: {data.get('source_commit', 'not specified')}")
@@ -129,7 +129,7 @@ def main() -> int:
             print("Run with --check to get the current hash, then pin it:", file=sys.stderr)
             print(f"  echo '{report_hash}' > {EXPECTED_HASH_PATH}", file=sys.stderr)
             return 1
-        expected = EXPECTED_HASH_PATH.read_text().strip()
+        expected = EXPECTED_HASH_PATH.read_text(encoding="utf-8").strip()
         if report_hash != expected:
             print(
                 f"ERROR: Hash mismatch! Expected: {expected}, Got: {report_hash}",

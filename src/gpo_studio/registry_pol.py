@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import cast
 
+from .emit_integrity import EmitError, EmitProblem, pol_data_problem, pol_name_problem
 from .model import RegistrySetting
 
 _HEADER = b"PReg" + struct.pack("<I", 1)
@@ -109,6 +110,31 @@ def _decode_data(registry_type: str, data: bytes) -> str | int | list[str]:
     raise RegistryPolError(f"unsupported registry type: {registry_type}")
 
 
+def _record_problems(
+    key: str, value_name: str, value: str | int | list[str]
+) -> list[EmitProblem]:
+    """What a record would write that PReg cannot carry intact.
+
+    Key and value names are NUL-terminated UTF-16 followed by ``;``, so a name
+    may hold any character but NUL (a ``;`` is data, MS-GPREG 2.2.1) or a lone
+    surrogate, which UTF-16 cannot encode. String data is length-prefixed and
+    NUL-terminated, so it refuses the same two. The one-line rule for names is
+    the store's (`validation.validate_setting`), because the plan writes names
+    as single-line literals (DeepSeek final-r10 N2).
+    """
+    found: list[EmitProblem] = []
+    for name, text in (("key", key), ("value_name", value_name)):
+        problem = pol_name_problem(text)
+        if problem is not None:
+            found.append(EmitProblem("Registry.pol", name, text, problem))
+    items = value if isinstance(value, list) else [value] if isinstance(value, str) else []
+    for item in items:
+        problem = pol_data_problem(item)
+        if problem is not None:
+            found.append(EmitProblem("Registry.pol", "data", item, problem))
+    return found
+
+
 _ACTION_ORDER = {"delete_all_values": 0, "delete": 1, "set": 2}
 
 
@@ -122,6 +148,13 @@ def serialize(records: Iterable[RegistrySetting | PolRecord]) -> bytes:
             item.value_name.casefold(),
         ),
     )
+    problems = [
+        problem
+        for record in ordered
+        for problem in _record_problems(record.key, record.value_name, record.value)
+    ]
+    if problems:
+        raise EmitError(problems)
     output = bytearray(_HEADER)
     for record in ordered:
         value_name = record.value_name
@@ -154,11 +187,40 @@ def serialize(records: Iterable[RegistrySetting | PolRecord]) -> bytes:
     return bytes(output)
 
 
-def _read_until(data: bytes, offset: int, marker: bytes) -> tuple[bytes, int]:
-    end = data.find(marker, offset)
-    if end < 0:
-        raise RegistryPolError("unterminated Registry.pol field")
-    return data[offset:end], end + len(marker)
+def _require_terminator(registry_type: str, data: bytes) -> None:
+    """String data carries its terminating NUL -- two for REG_MULTI_SZ -- as
+    MS-GPREG and every Windows writer lay it out. Data without one was decoded
+    and accepted (Sol final-r10 N1)."""
+    if registry_type in {"REG_SZ", "REG_EXPAND_SZ"} and not (
+        len(data) >= 2 and len(data) % 2 == 0 and data.endswith(b"\0\0")
+    ):
+        raise RegistryPolError(f"{registry_type} data is not NUL-terminated")
+    if registry_type == "REG_MULTI_SZ" and not (
+        len(data) >= 4 and len(data) % 2 == 0 and data.endswith(b"\0\0\0\0")
+    ):
+        raise RegistryPolError("REG_MULTI_SZ data does not end in two NULs")
+
+
+def _read_name(data: bytes, offset: int) -> tuple[bytes, int]:
+    """One key or value-name field: UTF-16LE code units up to the terminating
+    NUL, which the ``;`` separator must follow (MS-GPREG 2.2.1).
+
+    Read a code unit at a time from the field's start, so a ``;`` inside the
+    name is data, not the separator, and a ``;`` byte pair straddling two code
+    units is never mistaken for one. Before final-r9 this searched for the first
+    ``;`` byte pair, which split ``Software\\A;B`` and misread any field whose
+    bytes happened to contain ``3B 00`` (Sol and DeepSeek final-r9).
+    """
+    end = offset
+    while True:
+        if end + 2 > len(data):
+            raise RegistryPolError("unterminated Registry.pol field")
+        if data[end : end + 2] == b"\0\0":
+            break
+        end += 2
+    if data[end + 2 : end + 4] != _SEP:
+        raise RegistryPolError("Registry.pol field is not followed by its separator")
+    return data[offset:end], end + 4
 
 
 def parse(data: bytes) -> list[PolRecord]:
@@ -178,8 +240,8 @@ def parse(data: bytes) -> list[PolRecord]:
             raise RegistryPolError(
                 f"PReg record count exceeds {_MAX_POL_RECORDS}"
             )
-        key_bytes, offset = _read_until(data, offset, _SEP)
-        name_bytes, offset = _read_until(data, offset, _SEP)
+        key_bytes, offset = _read_name(data, offset)
+        name_bytes, offset = _read_name(data, offset)
         if offset + 4 > len(data):
             raise RegistryPolError("truncated registry type")
         type_code = struct.unpack("<I", data[offset : offset + 4])[0]
@@ -202,8 +264,8 @@ def parse(data: bytes) -> list[PolRecord]:
             raise RegistryPolError("missing record terminator")
         offset += 2
         try:
-            key = key_bytes.decode("utf-16le").rstrip("\0")
-            value_name = name_bytes.decode("utf-16le").rstrip("\0")
+            key = key_bytes.decode("utf-16le")
+            value_name = name_bytes.decode("utf-16le")
         except UnicodeDecodeError as error:
             raise RegistryPolError("Registry.pol contains invalid UTF-16 text") from error
         registry_type = _CODE_TO_TYPE.get(type_code)
@@ -216,6 +278,8 @@ def parse(data: bytes) -> list[PolRecord]:
         elif value_name.casefold().startswith("**del."):
             value_name = value_name[6:]
             action = "delete"
+        if action == "set":
+            _require_terminator(registry_type, raw_value)
         try:
             value = _decode_data(registry_type, raw_value)
         except UnicodeDecodeError as error:

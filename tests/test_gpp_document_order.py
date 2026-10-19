@@ -454,14 +454,15 @@ def test_a_snapshot_in_the_old_shape_loads(tmp_path: Path) -> None:
     [
         ({"root_unknown_positions": [["power_options", [0, 1]]]}, "has 2 entries"),
         ({"root_unknown_positions": [["nowhere", [0]]]}, "unknown family"),
-        ({"root_unknown_positions": [["power_options", ["0"]]]}, "Invalid document position"),
+        # A value of the wrong JSON type is refused by the typed load (final-r18).
+        ({"root_unknown_positions": [["power_options", ["0"]]]}, "stored value of the wrong type"),
         ({"root_unknown_positions": [["power_options", [-1]]]}, "Invalid document position"),
-        ({"root_unknown_positions": [["power_options", [None]]]}, "null position"),
+        ({"root_unknown_positions": [["power_options", [None]]]}, "stored value of the wrong type"),
         (
             {"root_unknown_positions": [["power_options", [0]], ["power_options", [0]]]},
             "twice",
         ),
-        ({"root_unknown_positions": {"power_options": [0]}}, "pairs"),
+        ({"root_unknown_positions": {"power_options": [0]}}, "stored value of the wrong type"),
     ],
 )
 def test_a_stored_order_studio_cannot_honour_is_refused(
@@ -477,7 +478,9 @@ def test_a_stored_order_studio_cannot_honour_is_refused(
 def test_a_stored_item_position_must_be_a_non_negative_integer(value: object) -> None:
     data = gpp_collection_to_dict(_collection(SCHED, "computer"))
     data["scheduled_tasks"][0]["document_position"] = value
-    with pytest.raises(GppError, match="Invalid document position"):
+    # A wrong JSON type is the typed load's refusal (final-r18); an integer out
+    # of range is the position check's.
+    with pytest.raises(GppError, match="Invalid document position|stored value of the wrong type"):
         gpp_collection_from_dict(data)
 
 

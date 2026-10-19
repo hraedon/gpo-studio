@@ -243,17 +243,17 @@ def validate_state(raw: object, label: str) -> Mapping[str, Any]:
         _strings(state[key], f"{label}.{key}")
     if not isinstance(state["gpo_cmt_present"], bool):
         raise ValueError(f"{label}.gpo_cmt_present is not a boolean")
-    if not _BARE_GUID.match(state["gpo_id"]) or _bare(state["gpo_id"]) == _NIL_GUID:
+    if not _BARE_GUID.fullmatch(state["gpo_id"]) or _bare(state["gpo_id"]) == _NIL_GUID:
         raise ValueError(f"{label}.gpo_id {state['gpo_id']!r} is not a GPO GUID")
     for entry in state["permissions"]:
-        if not _PERMISSION.match(entry):
+        if not _PERMISSION.fullmatch(entry):
             raise ValueError(f"{label}.permissions entry {entry!r} is not SID|level|denied")
     wql = state["gpc_wql_filter"]
     if wql == "":
         if state["wmi_filter_id"] != "":
             raise ValueError(f"{label}: wmi_filter_id without a gPCWQLFilter")
     else:
-        match = _WQL.match(wql)
+        match = _WQL.fullmatch(wql)
         if match is None:
             raise ValueError(f"{label}: gPCWQLFilter {wql!r} is present but unparseable")
         if _bare(match.group(2)) != _bare(state["wmi_filter_id"]):
@@ -267,15 +267,15 @@ def validate_fixture(raw: object) -> Mapping[str, Any]:
         if not _text(fixture, key, "fixture"):
             raise ValueError(f"fixture.{key} is empty")
     for key in ("source_group_sid", "target_group_sid"):
-        if not _SID.match(fixture[key]):
+        if not _SID.fullmatch(fixture[key]):
             raise ValueError(f"fixture.{key} is not a SID")
     for key in ("source_wmi_filter_id", "target_wmi_filter_id"):
-        if not _BRACED_GUID.match(fixture[key]):
+        if not _BRACED_GUID.fullmatch(fixture[key]):
             raise ValueError(f"fixture.{key} is not a braced GUID")
-    if not _STAMP.match(fixture["stamp"]):
+    if not _STAMP.fullmatch(fixture["stamp"]):
         raise ValueError("fixture.stamp is not the guest's yyyyMMddHHmmss-nnnn-<nonce> stamp")
-    source_group = _GROUP_NAME.match(fixture["source_group_name"])
-    target_group = _GROUP_NAME.match(fixture["target_group_name"])
+    source_group = _GROUP_NAME.fullmatch(fixture["source_group_name"])
+    target_group = _GROUP_NAME.fullmatch(fixture["target_group_name"])
     if (
         source_group is None
         or target_group is None
@@ -303,7 +303,7 @@ def dimension_value(state: Mapping[str, Any], dimension: str) -> Value:
         wql = _text(state, "gpc_wql_filter", "state")
         if wql == "":
             return ""
-        match = _WQL.match(wql)
+        match = _WQL.fullmatch(wql)
         if match is None:
             raise ValueError(f"gPCWQLFilter {wql!r} is present but unparseable")
         return association(match.group(1), _text(state, "wmi_filter_id", "state"))
@@ -556,7 +556,7 @@ def _inventory_complete(
         and None not in op_nonces
         and run_nonce not in op_nonces
         and all(
-            isinstance(i, str) and bool(_BARE_GUID.match(i)) and _bare(i) != _NIL_GUID
+            isinstance(i, str) and bool(_BARE_GUID.fullmatch(i)) and _bare(i) != _NIL_GUID
             for i in ids
         )
         and len({_bare(i) for i in ids}) == len(ids)
@@ -598,7 +598,7 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
     backup = _mapping(
         result["backup"], frozenset({"backup_id", "source_gpo_id", "relative_path"}), "backup"
     )
-    if not _BRACED_GUID.match(_text(backup, "backup_id", "backup")):
+    if not _BRACED_GUID.fullmatch(_text(backup, "backup_id", "backup")):
         raise ValueError("backup.backup_id is not a braced GUID")
     domain = _text(result, "domain", "result")
     if not domain:
@@ -872,7 +872,7 @@ def main() -> int:
         "result_schema_exact": set(result) == RESULT_KEYS
         and type(result.get("schema_version")) is int
         and result["schema_version"] == 1,
-        "run_id_well_formed": isinstance(run_id, str) and bool(_RUN_ID.match(run_id)),
+        "run_id_well_formed": isinstance(run_id, str) and bool(_RUN_ID.fullmatch(run_id)),
         "domain_recorded": isinstance(result.get("domain"), str) and bool(result["domain"]),
         "ownership_established": result.get("ownership_established") is True,
         "harness_reported_no_error": result.get("error") is None,

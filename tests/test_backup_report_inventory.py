@@ -205,7 +205,14 @@ def test_bundle_manifest_retains_inventory_without_changing_policy_semantics() -
     with zipfile.ZipFile(io.BytesIO(export_bundle(gpo))) as archive:
         manifest = json.loads(archive.read("manifest.json"))
         restored = gpo_from_dict(manifest["gpo"])
-        assert restored.backup_inventory == gpo.backup_inventory
+        # The recorded source identity is provenance, never published
+        # (final-r22): the manifest's inventory is the rest of it, whole.
+        assert source.backup_inventory is not None
+        assert source.backup_inventory.source_domain_guid
+        assert "source_domain_guid" not in manifest["gpo"]["backup_inventory"]
+        assert restored.backup_inventory == replace(
+            source.backup_inventory, source_gpo_guid="", source_domain="", source_domain_guid=""
+        )
         assert not any("scripts.ini" in name.casefold() for name in archive.namelist())
     assert source.backup_inventory is not None
     changed = replace(source.backup_inventory, report_xml_base64="")

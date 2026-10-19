@@ -56,7 +56,19 @@ def _progress(tmp_path: Path, rows: list[dict[str, Any]]) -> argparse.Namespace:
     )
     (tmp_path / "stage-report.json").write_text(json.dumps({"lanes": {}}), encoding="utf-8")
     return argparse.Namespace(scratch=str(tmp_path), out=str(tmp_path / "out.json"),
-                              superseded_attempt=None, cleanup=None)
+                              superseded_attempt=None, cleanup=None, without_cleanup=True)
+
+
+def test_a_batch_without_its_post_batch_check_is_refused(tmp_path: Path) -> None:
+    """The final-tag gate requires the check, so the tool asks for it by default."""
+    args = _progress(tmp_path, [_row("wp1b")])
+    args.without_cleanup = False
+    with pytest.raises(SystemExit, match="REFUSE: no --cleanup"):
+        TOOL["manifest"](args)
+    args.cleanup = "x-cleanup"
+    args.without_cleanup = True
+    with pytest.raises(SystemExit, match="together"):
+        TOOL["manifest"](args)
 
 
 def _row(name: str, commit: str = "a" * 40, **overrides: Any) -> dict[str, Any]:
@@ -287,6 +299,8 @@ def test_stage_refuses_a_lane_the_driver_does_not_run(
         "docs/plan-033/wp4-evidence/fdeploy/verification.json",
         "docs/work-items.md",
         "CHANGELOG.md",
+        # Final-r1 B2: the wheel's long description, frozen at the freeze commit.
+        "README.md",
         "docs/plan-033/report-parity-results.md",
         "docs/capability-matrix.md",
         "docs/plan-033/environment-spec.md",
@@ -298,13 +312,13 @@ def test_retarget_refuses_every_file_off_its_allowlist(relative: str) -> None:
     before = target.read_bytes()
     args = argparse.Namespace(
         manifest=str(ROOT / "docs/plan-033/release110-batch.json"),
-        files=["README.md", str(target)],
+        files=["tests/fixtures/scenarios/platforms.json", str(target)],
     )
-    readme = (ROOT / "README.md").read_bytes()
+    platforms = (ROOT / "tests/fixtures/scenarios/platforms.json").read_bytes()
     with pytest.raises(SystemExit, match="REFUSE"):
         TOOL["retarget"](args)
     assert target.read_bytes() == before
-    assert (ROOT / "README.md").read_bytes() == readme
+    assert (ROOT / "tests/fixtures/scenarios/platforms.json").read_bytes() == platforms
 
 
 def test_retarget_refuses_a_file_outside_the_repository(tmp_path: Path) -> None:

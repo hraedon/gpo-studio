@@ -16,6 +16,14 @@ uv run uvicorn gpo_studio.api:app --reload
 
 Frontend and browser checks: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+These need a git checkout of the repository: several checks read git history,
+and the sdist leaves out what they read. `pyproject.toml` excludes from it
+`tests/`, the Plan 033 evidence packs, batch manifests and post-batch checks,
+the versioned release evidence documents (`docs/release-evidence-X.Y.Z.md` and
+its JSON report) and the other records a release may change after its freeze
+commit (listed there). Other docs, the 1.0.0 release evidence among them, still
+ship.
+
 ## Hard rules
 
 - **No direct AD/SYSVOL writes.** Publication goes through an explicit adapter boundary. v0 emits

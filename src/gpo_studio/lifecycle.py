@@ -57,7 +57,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, assert_never, get_args
 
-from .backup import _GUID_RE, BackupError, GpmcBackup, _local_name, _safe_parse
+from .backup import BackupError, GpmcBackup, _local_name, _safe_parse
+from .identity_values import guid_problem
 from .model import ValidationError, ValidationIssue
 
 GpoStatus = Literal[
@@ -290,7 +291,7 @@ class BackupManifest:
             issues.append(
                 ValidationIssue("error", "empty_gpo_guid", "GPO guid is empty.", "gpo_guid")
             )
-        elif not _GUID_RE.match(self.gpo_guid):
+        elif guid_problem(self.gpo_guid) is not None:
             issues.append(
                 ValidationIssue(
                     "error",
@@ -371,7 +372,7 @@ def parse_wmi_filter_reference(text: str) -> tuple[str, str] | None:
     Only the measured ``MSFT_SomFilter`` object-path shape is recognised; any
     other text is not a reference this module can vouch for.
     """
-    match = _SOM_FILTER_PATH.match(text.strip())
+    match = _SOM_FILTER_PATH.fullmatch(text.strip())
     if match is None:
         return None
     return match.group(1), match.group(2)
@@ -603,7 +604,7 @@ class RestorePlan:
                             "target_gpo_guid",
                         )
                     )
-                elif self.target_gpo_guid and not _GUID_RE.match(self.target_gpo_guid):
+                elif self.target_gpo_guid and guid_problem(self.target_gpo_guid) is not None:
                     issues.append(
                         ValidationIssue(
                             "error",

@@ -24,12 +24,12 @@ formats now fail loud.
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass, field, replace
 from enum import IntEnum
 from pathlib import Path
 
 from .backup import BackupError, _safe_parse, _text_or_empty
+from .identity_values import sid_problem
 from .model import GPO, SecurityFilter
 from .safe_io import SafeOpenError, regular_file_descriptor
 
@@ -38,7 +38,6 @@ _MIGRATION_TABLE_NS = (
 )
 _MAX_MIGRATION_TABLE_SIZE = 10 * 1024 * 1024
 
-_SID_RE = re.compile(r"S-1-\d+(?:-\d+)*", re.IGNORECASE)
 
 
 class MigrationEntryType(IntEnum):
@@ -90,7 +89,9 @@ def _principal_parts(text: str) -> tuple[str, str]:
     GPMC writes account names (``DOMAIN\\name``) or UNC paths as plain text;
     a raw SID string is also accepted so SID-keyed filters keep matching.
     """
-    if _SID_RE.fullmatch(text):
+    # Case-insensitive, as before final-r7 (DeepSeek final-r8 N7): an rc1
+    # table keyed by a lower-case ``s-1-...`` keeps meaning a SID.
+    if sid_problem(text[:1].upper() + text[1:]) is None:
         return text, ""
     return "", text
 

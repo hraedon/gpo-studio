@@ -1,8 +1,9 @@
 """The banked report-parity verdict is intact and still says what it said.
 
-The lane's current certifying run (Plan 034 WP-2 items 2 and 3) is the
-release 1.1.0 successor batch's (9940561, WI-080/081/082), read from
-`docs/plan-033/release110-successors-batch.json`: 30 corpus cases plus the
+The lane's current certifying run (Plan 034 WP-2 items 2 and 3) is read from
+`tests/current_qualification.py`; until a freeze batch is banked it is the
+release 1.1.0 successor batch's (9940561, WI-080/081/082,
+`docs/plan-033/release110-successors-batch.json`): 30 corpus cases plus the
 guest-authored case. `test_committed_evidence.py` already holds it to the
 generic contract through `LANE_VERDICTS`: its `source.files` keys match the
 finalizer's tables, every recorded digest resolves at its commit through
@@ -33,6 +34,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import current_qualification
 import pytest
 
 from gpo_studio.report_parity import (
@@ -43,15 +45,10 @@ from gpo_studio.report_parity import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-#: The current run is whatever the batch manifest records for this lane, so a
-#: new batch re-points this file by replacing the manifest, not these lines.
-_BATCH_RUN = next(
-    run
-    for run in json.loads(
-        (ROOT / "docs/plan-033/release110-successors-batch.json").read_text(encoding="utf-8")
-    )["runs"]
-    if run["name"] == "report-parity"
-)
+#: The lane's current run (tests/current_qualification.py): the release
+#: evidence report's freeze batch once one is banked, the 1.1.0rc1 batches
+#: until then. Banking a new batch re-points this file without an edit.
+_BATCH_RUN = current_qualification.run("report-parity")
 VERDICT_PATH = _BATCH_RUN["verdict"]
 PACK = ROOT / "docs/plan-033" / Path(VERDICT_PATH).parent
 RUN_ID = _BATCH_RUN["run_id"]

@@ -7,13 +7,17 @@ format so that output is interoperable with GPMC.
 
 from __future__ import annotations
 
+import logging
 import uuid
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import MISSING, dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, assert_never
 
+from .emit_integrity import GPP_XML, xml_problems
 from .gpp_native import (
     has_never_retained_name,
     merge_native,
@@ -22,10 +26,13 @@ from .gpp_native import (
     plain_attribute_name,
     same_rendering,
 )
-from .ilt import IltFilter, IltOsCriteria, IltPredicate, parse_ilt, serialize_ilt
+from .ilt import IltError, IltFilter, IltOsCriteria, IltPredicate, parse_ilt, serialize_ilt
 from .numeric import coerce_dword_qword
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
+from .stored_types import stored_flag
 from .xml_safety import parse_xml_bounded
+
+_LOG = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .gpp_adapters import (
@@ -287,12 +294,91 @@ def _capture_unknown_children(
     )
 
 
+#: Problems a TOLERANT load recorded instead of raising (final-r14), or ``None``
+#: outside one. See `gpp_collection_from_dict_tolerant`.
+_TOLERATED: ContextVar[list[tuple[str, str]] | None] = ContextVar(
+    "gpp_tolerated_load_problems", default=None
+)
+
+
+def has_refused_content(collection: GppCollection) -> bool:
+    """Whether a tolerant load found stored content a current rule refuses."""
+    return any(severity == "error" for severity, _message in collection.load_problems)
+
+
+class RefusedRecord(str):
+    """An imported element record of a collection holding refused stored
+    content, marked when the collection is LOADED (final-r17).
+
+    `retained_rendering` -- the one function that runs the writer to see what a
+    record writes, for every hash and every diff -- returns a marked record
+    raw, without rendering or caching it. So no reader, whatever route or
+    module, can write refused content by asking what a record writes. A plain
+    `str` subclass: equal to, and stored and served as, its text.
+    """
+
+    __slots__ = ()
+
+
+def _holds_refused_record(collection: GppCollection) -> bool:
+    from .gpp_adapters import ADAPTER_KEYS
+
+    return any(
+        isinstance(getattr(item, "native_xml", ""), RefusedRecord)
+        for key in ("groups", "registry", *ADAPTER_KEYS)
+        for item in getattr(collection, key)
+    )
+
+
+def with_refused_marks(collection: GppCollection) -> GppCollection:
+    """*collection* with its element records marked if it holds refused stored
+    content, and unmarked if it no longer does."""
+    from .gpp_adapters import ADAPTER_KEYS
+
+    refused = has_refused_content(collection)
+
+    def mark(items: tuple[Any, ...]) -> tuple[Any, ...]:
+        out = []
+        for item in items:
+            raw = getattr(item, "native_xml", "")
+            if raw and isinstance(raw, RefusedRecord) != refused:
+                item = replace(item, native_xml=RefusedRecord(raw) if refused else str(raw))
+            out.append(item)
+        return tuple(out)
+
+    adapters: dict[str, Any] = {key: mark(getattr(collection, key)) for key in ADAPTER_KEYS}
+    return replace(
+        collection, groups=mark(collection.groups), registry=mark(collection.registry), **adapters
+    )
+
+
+def _tolerate(error: GppError, severity: str = "error") -> bool:
+    """Record *error* if a tolerant load is running; ``False`` otherwise."""
+    problems = _TOLERATED.get()
+    if problems is None:
+        return False
+    problems.append((severity, str(error)))
+    return True
+
+
 def _validate_unknown_attrs(
     unknown: tuple[tuple[str, str], ...],
     reserved: frozenset[str],
     context: str,
 ) -> None:
     """Raise GppError if any unknown attr local name collides with a reserved name."""
+    try:
+        _check_unknown_attrs(unknown, reserved, context)
+    except GppError as error:
+        if not _tolerate(error):
+            raise
+
+
+def _check_unknown_attrs(
+    unknown: tuple[tuple[str, str], ...],
+    reserved: frozenset[str],
+    context: str,
+) -> None:
     for name, _value in unknown:
         if _local_name(name) in reserved:
             raise GppError(
@@ -307,6 +393,18 @@ def _validate_unknown_children(
     context: str,
 ) -> None:
     """Raise GppError if any unknown child local name collides with a reserved name."""
+    try:
+        _check_unknown_children(unknown, reserved, context)
+    except GppError as error:
+        if not _tolerate(error):
+            raise
+
+
+def _check_unknown_children(
+    unknown: tuple[str, ...],
+    reserved: frozenset[str],
+    context: str,
+) -> None:
     for raw in unknown:
         data = raw.encode("utf-8")
         if len(data) > _MAX_GPP_XML_SIZE:
@@ -329,7 +427,20 @@ def _validate_unknown_children(
 
 
 def _apply_unknown_attrs(elem: ET.Element, unknown: tuple[tuple[str, str], ...]) -> None:
+    """Write retained attributes after the typed ones -- never over one.
+
+    The reserved set is whatever the typed writer has already set on *elem*,
+    so it is derived from the serializer itself rather than kept by hand: a
+    retained ``disabled="0"`` overwrote the typed ``disabled="1"`` the request
+    asked for, because a hand-kept reserved list omitted the common options
+    (Sol final-r11 B1).
+    """
     for name, value in unknown:
+        if name in elem.attrib:
+            raise GppError(
+                f"Retained attribute {name!r} would override the typed attribute "
+                f"{elem.tag.rsplit('}', 1)[-1]}@{name}"
+            )
         elem.set(name, value)
 
 
@@ -424,13 +535,30 @@ def _native_uid(uid: str) -> str:
 def _validate_gpp_action(value: str) -> GppAction:
     if value in ("add", "replace", "remove", "update"):
         return value  # type: ignore[return-value]
-    raise GppError(f"Invalid GPP action: {value!r}")
+    error = GppError(f"Invalid GPP action: {value!r}")
+    if _tolerate(error):  # stored data: kept, reported, refused at export
+        return value  # type: ignore[return-value]
+    raise error
 
 
 def _validate_gpp_registry_action(value: str) -> GppRegistryAction:
     if value in ("create", "replace", "update", "delete"):
         return value  # type: ignore[return-value]
-    raise GppError(f"Invalid GPP registry action: {value!r}")
+    error = GppError(f"Invalid GPP registry action: {value!r}")
+    if _tolerate(error):
+        return value  # type: ignore[return-value]
+    raise error
+
+
+def _stored_hive(value: object) -> str:
+    """A stored item's hive: normalized, or -- loading stored data tolerantly --
+    kept as stored and recorded, never fatal on read (final-r18)."""
+    try:
+        return _normalize_hive(str(value))
+    except GppError as error:
+        if not _tolerate(error):
+            raise
+        return str(value)
 
 
 def _normalize_hive(hive: str) -> str:
@@ -647,6 +775,17 @@ class GppCollection:
     root_unknown_positions: tuple[tuple[str, tuple[int, ...]], ...] = field(
         default=(), compare=False
     )
+    #: Digests of the retained fragments an import acquired (final-r13; see
+    #: `gpp_provenance`). Only an import mints them; fork, clone and item
+    #: restore carry them; every mutation keeps those of the fragments it
+    #: keeps. A retained fragment without one is unverified. Persisted;
+    #: bookkeeping, outside ==.
+    retained_provenance: tuple[str, ...] = field(default=(), compare=False)
+    #: ``(severity, message)`` for each check a tolerant load of STORED data
+    #: recorded instead of raising (final-r14, `gpp_collection_from_dict_tolerant`).
+    #: Validation reports them. Derived on every load: the store drops it
+    #: before writing a snapshot, and the API never serves it (`_NOT_SERVED`).
+    load_problems: tuple[tuple[str, str], ...] = field(default=(), compare=False)
     source_files: tuple[tuple[str, bytes], ...] = ()
 
 
@@ -1375,10 +1514,12 @@ def _namespaced_raw(raw: str) -> str | None:
 def _refuse_namespaced(value: Any, context: str) -> None:
     found = namespaced_content(value)
     if found is not None:
-        raise GppError(
+        error = GppError(
             f"{context} uses an XML namespace or prefix ({found}); no native GPP "
             "capture does, and Studio would write it back verbatim"
         )
+        if not _tolerate(error):
+            raise error
 
 
 def item_carries_cpassword(key: str, item: Any, scope: GppScope = "computer") -> bool:
@@ -1407,12 +1548,22 @@ def retained_rendering(key: str, item: Any, scope: GppScope) -> str:
     what is written: re-importing Studio's own backup leaves a GPO's digests,
     and the backup id derived from them, as they were.
 
-    Never raises: the hash of a GPO must not fail where its export would. A
-    model the writer refuses is represented by its raw retained element.
+    The writer runs only on content a load found nothing wrong with: a record
+    of a collection holding refused content or a value outside a closed set
+    is marked at load (`RefusedRecord`) and returned raw, and so is every
+    record while `raw_records` is active (a GPO with a validation error,
+    DeepSeek final-r19 B1). A writer's named refusal (`GppError`, the ILT
+    codec's errors: both ``ValueError``) is represented by the raw record too.
+    Anything else the writer raises is a defect and propagates (final-r19 N4:
+    this said "never raises", which a stored closed-set value disproved).
     """
     raw: str = getattr(item, "native_xml", "")
     if not raw:
         return ""
+    if isinstance(raw, RefusedRecord) or _RAW_RECORDS.get():
+        # Its collection holds refused stored content: the raw record, never
+        # rendered and never cached -- rendering would write it (final-r17).
+        return str(raw)
     # Every GPO payload hashes twice, so the answer is cached. ``repr`` covers
     # every field, the ones outside == included; items are frozen.
     cache_key = (key, scope, repr(item))
@@ -1434,6 +1585,21 @@ def retained_rendering(key: str, item: Any, scope: GppScope) -> str:
 
 
 _RETAINED_RENDERINGS: dict[tuple[str, str, str], str] = {}
+
+#: While set, `retained_rendering` returns every record raw (`raw_records`).
+_RAW_RECORDS: ContextVar[bool] = ContextVar("gpp_raw_records", default=False)
+
+
+@contextmanager
+def raw_records(active: bool = True) -> Iterator[None]:
+    """Within, every retained record is read raw: no writer runs to see what a
+    record writes. For a GPO with a validation error -- its hashes and its
+    report (final-r19 B1) -- which nothing will export."""
+    token = _RAW_RECORDS.set(active)
+    try:
+        yield
+    finally:
+        _RAW_RECORDS.reset(token)
 _RETAINED_RENDERINGS_MAX = 8192
 
 
@@ -1537,7 +1703,9 @@ def _written_element(
 
 #: Bookkeeping, not values an operator edits: editor ids are assigned on
 #: import, the retained element and document slot are provenance.
-_NOT_TYPED_VALUES: frozenset[str] = frozenset({"id", "native_xml", "document_position"})
+#: Editor and import bookkeeping: an item's and its predicates' ids (final-r13), the
+#: element record and its slot.
+_NOT_TYPED_VALUES: frozenset[str] = frozenset({"id", "ids", "native_xml", "document_position"})
 
 
 def _typed_view(value: Any) -> Any:
@@ -1647,8 +1815,9 @@ def _serialize_gpp_file(
     root_tag, root_clsid = _root_identity(path, families[0])
     root = ET.Element(_ns(root_tag))
     root.set("clsid", root_clsid)
-    for name, value in _root_unknowns(collection, path, families).attrs:
-        root.set(name, value)
+    # Retained root attributes go through the same no-override guard as item
+    # attributes: a retained ``clsid`` must not replace the root's own (DS final-r12 N1).
+    _apply_unknown_attrs(root, _root_unknowns(collection, path, families).attrs)
     elements: dict[str, list[ET.Element]] = {
         key: _family_elements(collection, key) for key in families
     }
@@ -1671,7 +1840,36 @@ def serialize_gpp(collection: GppCollection) -> dict[str, bytes]:
     every root child is written in document order (see the section above).
     A collection whose positions collide is refused here as well as on load,
     so nothing can be written that would not read back.
+
+    Every value written -- typed, retained from an import or carried verbatim
+    in ``source_files`` -- is checked against
+    :data:`gpo_studio.emit_integrity.GPP_XML` as it is written (final-r8), and
+    a value its field refuses is a :class:`GppError`.
     """
+    files = serialize_gpp_unchecked(collection)
+    problems = [
+        problem
+        for path, data in sorted(files.items())
+        for problem in xml_problems(GPP_XML, path, data)
+    ]
+    if problems:
+        raise GppError(
+            "Studio will not write these preference values: "
+            + "; ".join(str(problem) for problem in problems[:5])
+        )
+    return files
+
+
+def serialize_gpp_unchecked(collection: GppCollection) -> dict[str, bytes]:
+    """:func:`serialize_gpp` without the emit check, for the validator that
+    reports each refused value as its own issue. Nothing else may call it."""
+    if has_refused_content(collection) or _holds_refused_record(collection):
+        # Never written, whoever asks (Sol final-r18 B2): a builder that skipped
+        # validation still cannot put refused stored content into bytes.
+        raise GppError(
+            f"the {collection.scope} preferences hold stored content a current rule "
+            "refuses; Studio will not write them"
+        )
     _validate_document_positions(collection)
     if collection.source_files:
         return dict(collection.source_files)
@@ -2186,15 +2384,19 @@ def ensure_editor_ids(collection: GppCollection) -> GppCollection:
     Assigning editor IDs is a mutation, so ``source_files`` is cleared to
     prevent :func:`serialize_gpp` from returning stale verbatim bytes.
     """
-    new_groups = tuple(_ensure_group_editor_ids(g) for g in collection.groups)
+    from .gpp_provenance import with_predicate_ids
+
+    new_groups = tuple(
+        with_predicate_ids(_ensure_group_editor_ids(g)) for g in collection.groups
+    )
     new_registry = tuple(
-        _ensure_registry_editor_ids(r) for r in collection.registry
+        with_predicate_ids(_ensure_registry_editor_ids(r)) for r in collection.registry
     )
     from .gpp_adapters import ADAPTER_KEYS
     extra: dict[str, Any] = {}
     for key in ADAPTER_KEYS:
         items = getattr(collection, key)
-        extra[key] = tuple(_ensure_simple_editor_id(i) for i in items)
+        extra[key] = tuple(with_predicate_ids(_ensure_simple_editor_id(i)) for i in items)
     return replace(
         collection,
         groups=new_groups,
@@ -2213,8 +2415,17 @@ def mark_edited(collection: GppCollection) -> GppCollection:
     return replace(collection, source_files=())
 
 
+#: Import bookkeeping the API neither serves nor takes: the element records
+#: (WI-080), the provenance records of retained content (final-r13), which an
+#: inline GPO reference must not be able to supply either, and a tolerant
+#: load's problems (final-r14; validation reports them).
+_NOT_SERVED = frozenset({"native_xml", "retained_provenance", "load_problems"})
+
+
 def without_native_records(value: Any) -> Any:
-    """*value* with every ``native_xml`` key left out, at any depth (WI-080).
+    """*value* with every `_NOT_SERVED` key left out, at any depth: ``native_xml``
+    (WI-080), ``retained_provenance`` (final-r13) and ``load_problems``
+    (final-r14).
 
     ``native_xml`` is an imported item's element as Windows wrote it: import
     provenance the writer reads, never editable content. The API neither
@@ -2227,7 +2438,7 @@ def without_native_records(value: Any) -> Any:
         return {
             key: without_native_records(entry)
             for key, entry in value.items()
-            if key != "native_xml"
+            if key not in _NOT_SERVED
         }
     if isinstance(value, (list, tuple)):
         return [without_native_records(entry) for entry in value]
@@ -2310,22 +2521,29 @@ def _ilt_filter_to_dict(ilt: IltFilter | None) -> dict[str, Any] | None:
             if isinstance(p, IltPredicate) else p
             for p in ilt.items
         ],
+        # The stable predicate ids (final-r13); absent before them.
+        **({"ids": list(ilt.ids)} if ilt.ids else {}),
     }
 
 
 def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
     if not data:
         return None
+    # The legacy shapes -- a bare array of predicates, ``predicates`` with
+    # ``unknown_predicates`` -- were rewritten into ``items``, type-checked, by
+    # the typed load (`stored_types`) before this reads it.
+    if isinstance(data, list):
+        data = {"items": data}
     if isinstance(data, dict):
         items_data = data.get("items")
         if items_data is not None:
             items: list[IltPredicate | str] = []
             for item in items_data:
                 if isinstance(item, dict):
-                    value = str(item["value"])
+                    value = str(item.get("value", ""))
                     items.append(IltPredicate(
                         type=item["type"],
-                        negate=bool(item["negate"]),
+                        negate=stored_flag(item.get("negate", False), False),
                         value=value,
                         bool_op=str(item.get("bool_op", "AND")),
                         unknown_attrs=tuple(
@@ -2342,44 +2560,23 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
                         ),
                     ))
                 else:
+                    _check_stored_raw_predicate(str(item))
                     items.append(str(item))
-            return IltFilter(items=tuple(items))
-        predicates_data = data.get("predicates", [])
-        unknown = tuple(data.get("unknown_predicates", []))
-        predicates: list[IltPredicate] = []
-        for predicate in predicates_data:
-            value = str(predicate["value"])
-            predicates.append(
-                IltPredicate(
-                    type=predicate["type"],
-                    negate=bool(predicate["negate"]),
-                    value=value,
-                    bool_op=str(predicate.get("bool_op", "AND")),
-                    unknown_attrs=tuple(
-                        (str(k), str(v))
-                        for k, v in predicate.get("unknown_attrs", [])
-                    ),
-                    os_criteria=(
-                        _os_criteria_from_dict(
-                            predicate.get("os_criteria"),
-                            legacy_value=value,
-                        )
-                        if predicate["type"] == "os"
-                        else None
-                    ),
-                )
-            )
-        return IltFilter(items=tuple(predicates) + unknown)
-    else:
-        preds = tuple(
-            IltPredicate(
-                type=p["type"],
-                negate=bool(p["negate"]),
-                value=str(p["value"]),
-            )
-            for p in data
-        )
-        return IltFilter(items=preds)
+            ids = data.get("ids") or []
+            if not isinstance(ids, list) or len(ids) not in (0, len(items)) or not all(
+                isinstance(i, str) and i and len(i) <= 64 for i in ids
+            ):
+                # Server bookkeeping: malformed ids are re-derived on load
+                # (`store.gpo_from_dict`), never fatal (final-r14).
+                _LOG.warning("ignoring malformed targeting predicate ids in a stored item")
+                ids = []
+            try:
+                return IltFilter(items=tuple(items), ids=tuple(ids))
+            except IltError:
+                _LOG.warning("ignoring duplicate targeting predicate ids in a stored item")
+                return IltFilter(items=tuple(items))
+        return IltFilter()
+    raise GppError(f"a stored targeting filter must be an object, not {type(data).__name__}")
 
 
 def _common_options_to_dict(common: GppCommonOptions) -> dict[str, bool | str]:
@@ -2404,17 +2601,28 @@ def _common_options_from_dict(data: Any) -> GppCommonOptions:
         raise GppError("common.run_once_id must be a string of at most "
                        f"{_MAX_GPP_XML_ATTR_LENGTH} characters")
     return GppCommonOptions(
-        apply_once=bool(data.get("apply_once", False)),
-        remove_when_unapplied=bool(data.get("remove_when_unapplied", False)),
-        user_security_context=bool(data.get("user_security_context", False)),
-        disabled=bool(data.get("disabled", False)),
-        stop_on_error=bool(data.get("stop_on_error", False)),
+        apply_once=stored_flag(data.get("apply_once", False), False),
+        remove_when_unapplied=stored_flag(data.get("remove_when_unapplied", False), False),
+        user_security_context=stored_flag(data.get("user_security_context", False), False),
+        disabled=stored_flag(data.get("disabled", False), False),
+        stop_on_error=stored_flag(data.get("stop_on_error", False), False),
         # Absent in anything stored before WI-080: the writer derives an id.
         run_once_id=run_once_id,
     )
 
 
 def _native_xml_from_dict(raw: object, key: str, context: str) -> str:
+    try:
+        return _checked_native_xml(raw, key, context)
+    except GppError as error:
+        if not _tolerate(error):
+            raise
+        # Kept as stored: refused at export (the load problem is an error),
+        # never silently dropped.
+        return raw if isinstance(raw, str) else ""
+
+
+def _checked_native_xml(raw: object, key: str, context: str) -> str:
     """Load a stored ``native_xml`` (absent before WI-080: ``""``).
 
     It is written back verbatim wherever the model has not changed, so it is
@@ -2540,6 +2748,11 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
             [family, list(positions)]
             for family, positions in collection.root_unknown_positions
         ],
+        **(
+            {"retained_provenance": list(collection.retained_provenance)}
+            if collection.retained_provenance
+            else {}
+        ),
     }
 
 
@@ -2596,7 +2809,7 @@ def _gpp_registry_value_from_dict(v: dict[str, Any]) -> GppRegistryValue:
         value=v.get("value", ""),
         registry_type=str(v.get("registry_type", "REG_SZ")),
         action=_validate_gpp_registry_action(v.get("action", "create")),
-        default=bool(v.get("default", False)),
+        default=stored_flag(v.get("default", False), False),
         id=str(v.get("id", "")),
         unknown_attrs=tuple(
             (str(k), str(v2))
@@ -2656,9 +2869,28 @@ def _upgrade_stored_registry(reg: GppRegistry) -> GppRegistry:
 
 def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
     """Reconstruct a GppCollection from a plain dict."""
+    from .stored_types import check_stored, problem_message
+
+    # Held to the model's types first, never coerced (final-r18): a value of
+    # the wrong type is refused here, or -- loading stored data tolerantly --
+    # recorded as refused content and replaced by its default.
+    type_problems: list[tuple[str, str]] = []
+    data = check_stored(
+        GppCollection,
+        data,
+        f"gpp_collections/{data.get('scope', '?')}",
+        type_problems,
+        skip=frozenset({"load_problems", "source_files"}),
+    )
+    for path, what in type_problems:
+        type_error = GppError(problem_message(path, what))
+        if not _tolerate(type_error):
+            raise type_error
     scope_raw = str(data.get("scope", "computer"))
     if scope_raw not in ("computer", "user"):
-        raise GppError(f"Invalid GPP scope: {scope_raw!r}")
+        scope_error = GppError(f"Invalid GPP scope: {scope_raw!r}")
+        if not _tolerate(scope_error):
+            raise scope_error
     scope: GppScope = scope_raw  # type: ignore[assignment]
     raw_groups = list(data.get("groups", []))
     for legacy in data.get("local_groups", []):
@@ -2696,8 +2928,8 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 for m in g.get("members", [])
             ),
             description=str(g.get("description", "")),
-            remove_all_users=bool(g.get("remove_all_users", False)),
-            remove_all_groups=bool(g.get("remove_all_groups", False)),
+            remove_all_users=stored_flag(g.get("remove_all_users", False), False),
+            remove_all_groups=stored_flag(g.get("remove_all_groups", False), False),
             common=_common_options_from_dict(g.get("common")),
             ilt_filter=_parse_ilt_filter_from_dict(g.get("ilt_filter")),
             id=str(g.get("id", "")),
@@ -2752,107 +2984,49 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         )
         elem_unknown_children = tuple(r.get("unknown_children", []))
         elem_unknown_props_children = tuple(r.get("unknown_props_children", []))
-        if "value" in r and isinstance(r["value"], dict):
-            new_uid = str(r.get("uid", ""))
-            new_elem_attrs = elem_unknown_attrs
-            promoted = _promote_from_unknown_attrs(new_elem_attrs, "uid")
-            if promoted is not None and not new_uid:
-                new_uid = promoted
-                new_elem_attrs = tuple(
-                    (k, v) for k, v in new_elem_attrs
-                    if _local_name(k) != "uid"
-                )
-            value = _gpp_registry_value_from_dict(r["value"])
-            promoted_default = _promote_from_unknown_attrs(
-                value.unknown_attrs, "default"
+        # A legacy multi-value item (``values``) was expanded into current items
+        # by the typed load (`stored_types`), so every item has its ``value``.
+        new_uid = str(r.get("uid", ""))
+        new_elem_attrs = elem_unknown_attrs
+        promoted = _promote_from_unknown_attrs(new_elem_attrs, "uid")
+        if promoted is not None and not new_uid:
+            new_uid = promoted
+            new_elem_attrs = tuple(
+                (k, v) for k, v in new_elem_attrs
+                if _local_name(k) != "uid"
             )
-            if promoted_default is not None and not value.default:
-                value = replace(
-                    value,
-                    default=promoted_default == "1",
-                    unknown_attrs=tuple(
-                        (k, v) for k, v in value.unknown_attrs
-                        if _local_name(k) != "default"
-                    ),
-                )
-            registry.append(GppRegistry(
-                key=str(r.get("key", "")),
-                hive=_normalize_hive(str(r.get("hive", "HKEY_LOCAL_MACHINE"))),
-                action=_validate_gpp_action(r.get("action", "update")),
-                uid=new_uid,
-                value=value,
-                id=str(r.get("id", "")),
-                common=_common_options_from_dict(r.get("common")),
-                ilt_filter=ilt_filter,
-                unknown_attrs=new_elem_attrs,
-                unknown_props_children=elem_unknown_props_children,
-                unknown_children=elem_unknown_children,
-                document_position=_position_from_dict(
-                    r.get("document_position"), f"registry {r.get('key', '')!r}"
+        value = _gpp_registry_value_from_dict(r.get("value", {}))
+        promoted_default = _promote_from_unknown_attrs(
+            value.unknown_attrs, "default"
+        )
+        if promoted_default is not None and not value.default:
+            value = replace(
+                value,
+                default=promoted_default == "1",
+                unknown_attrs=tuple(
+                    (k, v) for k, v in value.unknown_attrs
+                    if _local_name(k) != "default"
                 ),
-                native_xml=_native_xml_from_dict(
-                    r.get("native_xml"), "registry", f"registry {r.get('key', '')!r}"
-                ),
-            ))
-        else:
-            old_values = r.get("values", [])
-            if not old_values:
-                old_values = [{}]
-            for idx, v in enumerate(old_values):
-                v_ilt = _parse_ilt_filter_from_dict(v.get("ilt_filter"))
-                if v_ilt is None and idx == 0:
-                    v_ilt = ilt_filter
-                v_elem_attrs = tuple(
-                    (str(k), str(v2))
-                    for k, v2 in v.get("unknown_elem_attrs", [])
-                )
-                if not v_elem_attrs and idx == 0:
-                    v_elem_attrs = elem_unknown_attrs
-                v_elem_children = tuple(v.get("unknown_children", []))
-                if not v_elem_children and idx == 0:
-                    v_elem_children = elem_unknown_children
-                v_props_children = tuple(v.get("unknown_props_children", []))
-                if not v_props_children and idx == 0:
-                    v_props_children = elem_unknown_props_children
-                v_uid = str(r.get("uid", "")) if idx == 0 else ""
-                promoted_uid = _promote_from_unknown_attrs(
-                    v_elem_attrs, "uid"
-                )
-                if promoted_uid is not None:
-                    v_uid = promoted_uid
-                    v_elem_attrs = tuple(
-                        (k, val) for k, val in v_elem_attrs
-                        if _local_name(k) != "uid"
-                    )
-                value = _gpp_registry_value_from_dict(v)
-                promoted_default = _promote_from_unknown_attrs(
-                    value.unknown_attrs, "default"
-                )
-                if promoted_default is not None:
-                    value = replace(
-                        value,
-                        default=promoted_default == "1",
-                        unknown_attrs=tuple(
-                            (k, val) for k, val in value.unknown_attrs
-                            if _local_name(k) != "default"
-                        ),
-                    )
-                registry.append(GppRegistry(
-                    key=str(r.get("key", "")),
-                    hive=_normalize_hive(str(r.get("hive", "HKEY_LOCAL_MACHINE"))),
-                    action=_validate_gpp_action(r.get("action", "update")),
-                    uid=v_uid,
-                    value=value,
-                    id=str(r.get("id", "")) if idx == 0 else "",
-                    common=_common_options_from_dict(r.get("common")),
-                    ilt_filter=v_ilt,
-                    unknown_attrs=v_elem_attrs,
-                    unknown_props_children=v_props_children,
-                    unknown_children=v_elem_children,
-                    document_position=_position_from_dict(
-                        r.get("document_position"), f"registry {r.get('key', '')!r}"
-                    ),
-                ))
+            )
+        registry.append(GppRegistry(
+            key=str(r.get("key", "")),
+            hive=_stored_hive(r.get("hive", "HKEY_LOCAL_MACHINE")),
+            action=_validate_gpp_action(r.get("action", "update")),
+            uid=new_uid,
+            value=value,
+            id=str(r.get("id", "")),
+            common=_common_options_from_dict(r.get("common")),
+            ilt_filter=ilt_filter,
+            unknown_attrs=new_elem_attrs,
+            unknown_props_children=elem_unknown_props_children,
+            unknown_children=elem_unknown_children,
+            document_position=_position_from_dict(
+                r.get("document_position"), f"registry {r.get('key', '')!r}"
+            ),
+            native_xml=_native_xml_from_dict(
+                r.get("native_xml"), "registry", f"registry {r.get('key', '')!r}"
+            ),
+        ))
     registry_tuple = tuple(_upgrade_stored_registry(r) for r in registry)
     for r in registry_tuple:
         _validate_unknown_attrs(
@@ -2895,10 +3069,107 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         root_unknown_positions=_root_unknown_positions_from_dict(
             data.get("root_unknown_positions"), collection
         ),
+        retained_provenance=_provenance_from_dict(data.get("retained_provenance")),
     )
-    _validate_document_positions(collection)
+    try:
+        _validate_document_positions(collection)
+    except GppError as error:
+        if not _tolerate(error, "warning"):
+            raise
+        # The stored order is not one an import wrote; the writer's own order
+        # stands in for it, so the GPO stays readable and writable.
+        collection = _without_document_positions(collection)
     _refuse_namespaced(collection, f"stored {scope} preference collection")
     return collection
+
+
+def _check_stored_raw_predicate(raw: str) -> None:
+    """A stored raw targeting predicate must parse: the pre-final-r11 API stored
+    them verbatim, and one that does not parse (an undeclared prefix, broken
+    XML) can be neither written nor exported. A tolerant load records it, so
+    the GPO is read and refused at export without writing it (final-r16)."""
+    from .ilt import _bounded_parse_ilt
+
+    try:
+        _bounded_parse_ilt(raw)
+    except IltError as error:
+        problem = GppError(f"a stored raw targeting predicate does not parse: {error}")
+        if not _tolerate(problem):
+            raise problem from error
+
+
+def _provenance_from_dict(raw: object) -> tuple[str, ...]:
+    """Stored import records; a malformed list is dropped, never trusted and
+    never fatal: its fragments read as unverified (final-r14)."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(
+        isinstance(d, str) and len(d) == 64 and all(c in "0123456789abcdef" for c in d)
+        for d in raw
+    ):
+        _LOG.warning("ignoring malformed retained_provenance records in a stored collection")
+        return ()
+    return tuple(sorted(set(raw)))
+
+
+def _without_document_positions(collection: GppCollection) -> GppCollection:
+    from .gpp_adapters import ADAPTER_KEYS
+
+    def strip(items: tuple[Any, ...]) -> tuple[Any, ...]:
+        return tuple(replace(item, document_position=None) for item in items)
+
+    adapters: dict[str, Any] = {key: strip(getattr(collection, key)) for key in ADAPTER_KEYS}
+    return replace(
+        collection,
+        groups=strip(collection.groups),
+        registry=strip(collection.registry),
+        root_unknown_positions=(),
+        **adapters,
+    )
+
+
+def gpp_collection_from_dict_tolerant(data: dict[str, Any]) -> GppCollection:
+    """`gpp_collection_from_dict` for STORED data (final-r14).
+
+    Stored data must never stop a workspace opening or a GPO being read: a
+    1.0.0 workspace may hold retained content a later release refuses (a
+    namespaced child, a reserved-name collision, an element record that no
+    longer validates). Those checks are recorded as ``load_problems`` instead
+    of raising; validation reports each as an error, so exports refuse the GPO
+    with the reason, and the operator can delete the item. The content itself
+    is kept as stored. A value outside a closed set is recorded too; a named
+    loader refusal reads the collection as empty and unreadable (final-r19).
+    """
+    from .closed_sets import closed_set_issues
+    from .stored_types import problem_message
+
+    problems: list[tuple[str, str]] = []
+    token = _TOLERATED.set(problems)
+    try:
+        collection = gpp_collection_from_dict(data)
+    except (GppError, IltError) as error:
+        # A named loader refusal no tolerance above covers (DeepSeek final-r19
+        # N2): the collection is unreadable. Read as empty, recorded as a value
+        # the read replaced -- the GPO is blocked and refuses every edit that
+        # would store the empty collection -- never fatal on read. A
+        # programming error (KeyError, TypeError) is not caught: the typed
+        # load leaves a loader no stored value to fail on that way.
+        scope: GppScope = "user" if data.get("scope") == "user" else "computer"
+        message = problem_message(f"gpp_collections/{scope}", f"unreadable ({error})")
+        return GppCollection(scope=scope, load_problems=(("error", message),))
+    finally:
+        _TOLERATED.reset(token)
+    # A value outside a closed set is kept as stored (validation reports it),
+    # but no writer may run on it: a writer's dispatch over the set has no
+    # branch for it (DeepSeek final-r19 B1, `assert_never` reached from a
+    # stored `action="BOGUS"` beside a retained record). Recorded, it marks
+    # the collection's records, so every hash and diff reads them raw and
+    # `serialize_gpp` refuses the collection.
+    for issue in closed_set_issues(collection, f"gpp_collections/{collection.scope}"):
+        problems.append(("error", issue.message))
+    if not problems:
+        return collection
+    return with_refused_marks(replace(collection, load_problems=tuple(problems)))
 
 
 def _validate_document_positions(collection: GppCollection) -> None:
@@ -2944,8 +3215,20 @@ def _claim_slot(holders: dict[int, str], path: str, slot: int, holder: str) -> N
 
 
 def _position_from_dict(value: object, context: str) -> int | None:
-    """Load a stored ``document_position``. Absent (stored before 1.1) is ``None``."""
-    return _checked_position(value, context)
+    """Load a stored ``document_position``. Absent (stored before 1.1) is ``None``.
+
+    One out of range (DeepSeek final-r19 N2: ``-1``) is, read tolerantly, a
+    value the read replaces -- by ``None``, no slot -- so it is recorded as
+    one (the GPO is blocked and refuses edits), never fatal on read."""
+    try:
+        return _checked_position(value, context)
+    except GppError as error:
+        from .stored_types import problem_message
+
+        replaced = GppError(problem_message(context, f"{error}; read as no slot"))
+        if not _tolerate(replaced):
+            raise error from None
+        return None
 
 
 def _root_unknown_positions_from_dict(
@@ -2997,51 +3280,12 @@ def _adapter_item_from_dict(
     adapter_cls: type,
     key: str,
 ) -> Any:
-    """Reconstruct a low-artifact adapter item from a dict."""
-    if (
-        adapter_cls.__name__ == "GppPrinter"
-        and "skip_local" not in item_data
-        and "use_local" in item_data
-    ):
-        # Stored before WI-081, when the field was ``use_local`` (written as a
-        # ``useLocal`` attribute no capture contains; it is GPMC's skipLocal).
-        item_data = dict(item_data)
-        item_data["skip_local"] = item_data["use_local"]
-    if adapter_cls.__name__ == "GppService":
-        item_data = dict(item_data)
-        if "program" not in item_data and "recovery_command" in item_data:
-            item_data["program"] = item_data["recovery_command"]
-        if (
-            "reset_fail_count_delay_seconds" not in item_data
-            and "reset_period_days" in item_data
-        ):
-            item_data["reset_fail_count_delay_seconds"] = (
-                int(item_data["reset_period_days"]) * 86400
-            )
-        if "restart_service_delay_milliseconds" not in item_data:
-            if "restart_service_delay_raw" in item_data:
-                item_data["restart_service_delay_milliseconds"] = item_data[
-                    "restart_service_delay_raw"
-                ]
-            elif "restart_delay_minutes" in item_data:
-                item_data["restart_service_delay_milliseconds"] = (
-                    int(item_data["restart_delay_minutes"]) * 60_000
-                )
-        if (
-            "restart_computer_delay_milliseconds" not in item_data
-            and "restart_computer_delay_seconds" in item_data
-        ):
-            item_data["restart_computer_delay_milliseconds"] = (
-                int(item_data["restart_computer_delay_seconds"]) * 1000
-            )
-        if "append_failure_count" not in item_data and "append_arguments" in item_data:
-            legacy_append = str(item_data["append_arguments"]).strip().lower()
-            item_data["append_failure_count"] = legacy_append not in {
-                "",
-                "0",
-                "false",
-                "no",
-            }
+    """Reconstruct a low-artifact adapter item from a dict.
+
+    Its legacy keys (a printer's ``use_local``, a service's pre-WI-081 delay
+    and recovery keys) were rewritten into the current fields, type-checked,
+    by the typed load (`stored_types.LEGACY_REWRITES`) before this reads it.
+    """
     kwargs: dict[str, Any] = {}
     for f in fields(adapter_cls):
         if f.name == "common":

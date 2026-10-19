@@ -198,6 +198,26 @@ exclude = [
   "dist/",
   "dist-repro/",
   "build/",
+  # What a release may change after its freeze commit (the final-tag gate's
+  # FREEZE_RECORDS and every banked batch): never in a distribution, so the
+  # sdist built at the tag is the sdist built at F
+  # (tests/test_release_artifacts_from_freeze.py).
+  "/docs/plan-033/*-evidence/",
+  "/docs/plan-033/*-cleanup/",
+  "/docs/plan-033/*-batch.json",
+  "/docs/plan-033/*-batch.md",
+  "/docs/plan-033/*-results.md",
+  "/docs/plan-033/environment-spec.md",
+  "/docs/plan-033/bound-source-cost.md",
+  "/docs/plan-033/verdict-registry.json",
+  "/docs/capability-matrix.md",
+  "/docs/work-items.md",
+  "/docs/release-evidence-*.md",
+  "/docs/release-evidence-report-*.json",
+  # The tests, platforms.json among them: an sdist that left out a fixture the
+  # tests read would carry a suite that cannot run. Nothing runs the sdist's
+  # tests (CI and the release workflow test the checkout), so none ship.
+  "/tests/",
 ]
 
 [tool.mypy]

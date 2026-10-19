@@ -6,6 +6,7 @@ import {
   groupSteps,
   renderAbsences,
   renderIssues,
+  renderPlanError,
   renderPublicationPlan,
   renderStep,
 } from "../../src/gpo_studio/static/js/publication.mjs";
@@ -210,5 +211,32 @@ describe("plain limitation sentences", () => {
     "rollback_unmeasured",
   ])("%s has a plain sentence", (code) => {
     expect(LIMITATION_SENTENCES[code]).toBeTruthy();
+  });
+});
+
+describe("a refused plan (DeepSeek final-r17 N7)", () => {
+  test("shows each issue of the 422 with its code, escaped", () => {
+    const html = renderPlanError({
+      message: "validation failed",
+      issues: [
+        {
+          code: "stored_preferences_refused",
+          message: "Delete the item <holding> it.",
+        },
+        { msg: "Field required" },
+      ],
+    });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Error: validation failed");
+    expect(html).toContain(
+      "<li>Delete the item &lt;holding&gt; it. (stored_preferences_refused)</li>",
+    );
+    expect(html).toContain("<li>Field required</li>");
+  });
+
+  test("shows the message alone when there are no issues", () => {
+    expect(renderPlanError({ message: "Network down" })).toBe(
+      '<p class="form-error" role="alert">Error: Network down</p>',
+    );
   });
 });
