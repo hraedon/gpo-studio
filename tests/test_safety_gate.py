@@ -57,7 +57,7 @@ def test_exempt_module_is_currently_unreachable(gate: ModuleType) -> None:
     """
     trees: dict[str, ast.Module] = {}
     for py_file in sorted((REPO_ROOT / "src" / "gpo_studio").rglob("*.py")):
-        trees[py_file.stem] = ast.parse(py_file.read_text(), filename=str(py_file))
+        trees[py_file.stem] = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
 
     reachable = gate._web_process_modules(trees)
     for category, exempt in gate.CATEGORY_EXEMPTIONS.items():
