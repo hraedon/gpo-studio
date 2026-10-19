@@ -588,22 +588,29 @@ def _nested_bkup_info(backup_dir: Path, backup_id: str, budget: _BackupBudget) -
 def _instance_directory(backup_dir: Path, backup_id: str) -> Path | None:
     """The backup instance directory *backup_id* names, matched without
     regard to case -- a backup made on Windows, read where names are case
-    sensitive (DeepSeek final-r23 N3) -- or ``None``. Two that differ only in
-    case are ambiguous, and refused."""
-    exact = backup_dir / backup_id
-    if exact.is_dir():
-        return exact
+    sensitive (DeepSeek final-r23 N3) -- or ``None`` where there is none.
+
+    Every entry whose name case-folds to the ID counts, the exact spelling
+    included (Sol final-r24 B1: the exact one used to win, and a second
+    spelling -- with its own identity or payload -- went unread). More than
+    one is ambiguous, and refused; so is one that is not a directory."""
     try:
-        candidates = [
-            entry
-            for entry in backup_dir.iterdir()
-            if entry.name.casefold() == backup_id.casefold() and entry.is_dir()
+        matches = [
+            entry for entry in backup_dir.iterdir() if entry.name.casefold() == backup_id.casefold()
         ]
-    except OSError:
+    except OSError as error:
+        raise BackupError(f"Cannot list the backup directory: {error}") from error
+    if not matches:
         return None
-    if len(candidates) > 1:
-        raise BackupError(f"Ambiguous backup instance directory: {backup_id}")
-    return candidates[0] if candidates else None
+    if len(matches) > 1:
+        names = ", ".join(sorted(entry.name for entry in matches))
+        raise BackupError(f"Ambiguous backup instance directory {backup_id}: {names}")
+    (instance,) = matches
+    if is_link_or_junction(instance):
+        raise BackupError(f"Symlinks are not allowed: {instance}")
+    if not instance.is_dir():
+        raise BackupError(f"Backup instance {backup_id} is not a directory")
+    return instance
 
 
 def _same_domain(left: str, right: str) -> bool:

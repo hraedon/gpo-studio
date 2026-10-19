@@ -18,9 +18,11 @@ the three sentinels; the stored revisions still do.
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import shutil
+import zipfile
 from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
@@ -75,8 +77,16 @@ def imported(
         yield client, store, guid, inbox
 
 
-def _leaks(content: bytes) -> list[str]:
-    return [name for name, value in SENTINELS.items() if value.encode() in content]
+def _leaks(content: bytes, depth: int = 0) -> list[str]:
+    """The sentinels *content* holds: in its bytes, and -- for a ZIP -- in
+    every member DECOMPRESSED, nested archives included (Sol final-r24 N1: a
+    compressed member hides its text from a search of the raw archive)."""
+    found = {name for name, value in SENTINELS.items() if value.encode() in content}
+    if depth < 4 and zipfile.is_zipfile(io.BytesIO(content)):
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            for member in archive.infolist():
+                found.update(_leaks(archive.read(member), depth + 1))
+    return sorted(found)
 
 
 def test_the_revision_detail_serves_the_public_snapshot(imported: Any) -> None:
@@ -315,3 +325,18 @@ def test_the_sweep_sees_a_leak(imported: Any, monkeypatch: pytest.MonkeyPatch) -
     client, _store, guid, _inbox = imported
     monkeypatch.setattr(api, "without_stored_only", lambda value: value)
     assert _leaks(client.get(f"/api/gpos/{guid}/revisions/1").content)
+
+
+def test_the_sweep_reads_inside_compressed_and_nested_archives() -> None:
+    """Control for `_leaks`: a sentinel in a DEFLATE-compressed member, and
+    in an archive nested in one, is found; the raw bytes do not show it."""
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("deep.json", json.dumps({"x": SENTINELS["source_domain"] * 50}))
+    outer = io.BytesIO()
+    with zipfile.ZipFile(outer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", json.dumps({"y": SENTINELS["source_gpo_guid"] * 50}))
+        archive.writestr("nested.zip", inner.getvalue())
+    content = outer.getvalue()
+    assert not any(value.encode() in content for value in SENTINELS.values())
+    assert _leaks(content) == ["source_domain", "source_gpo_guid"]

@@ -620,6 +620,17 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- After the twenty-fourth review (final-r24):
+  - **Every spelling of the backup instance directory counts (Sol B1,
+    DeepSeek N2).** The exact spelling was taken first, so a backup holding
+    both `{E9...}` and `{e9...}` was read from the one, the other -- with its
+    own identity or payload -- unread. Every entry whose name case-folds to
+    the backup ID now counts; more than one is ambiguous, and the backup is
+    refused (an import and a replacement alike), as is one that is not a
+    directory.
+  - The identity sweep opens every ZIP response and searches each member
+    decompressed, nested archives included, with a control that finds a
+    sentinel the raw archive bytes hide (Sol N1, DeepSeek N1).
 - After the twenty-third review (final-r23):
   - **The recorded identity is left out at the serializer, for every route
     (Sol B1, DeepSeek N1).** The revision detail served the stored snapshot,

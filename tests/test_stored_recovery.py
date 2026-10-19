@@ -772,3 +772,44 @@ def test_the_nested_bkupinfo_is_found_whatever_the_instance_directorys_case(
     assert source.domain_guid == DOMAIN_GUID
     # And its content is found there too, as the import's own read does.
     assert source.content_root is not None and source.backup_inventory is not None
+
+
+@pytest.mark.parametrize("difference", ["identity", "payload"])
+def test_two_spellings_of_the_instance_directory_are_refused(
+    workspace: Any, difference: str
+) -> None:
+    """Sol final-r24 B1: with the exact spelling AND a case variant present,
+    the exact one won and the variant -- its own identity or payload -- went
+    unread. Both count; two are ambiguous, refused for an import and a
+    replacement alike."""
+    from gpo_studio.backup import BackupError, read_backup
+
+    client, store, tmp_path = workspace
+    guid = _import(client, _inbox(tmp_path, "WI01A-DriveMaps-GPMC")).json()["gpo"]["guid"]
+    _unreadable_from_revision_1(store, guid)
+    store._connection.execute("UPDATE gpos SET name='Renamed' WHERE guid=?", (guid,))
+    store._connection.commit()
+    inbox = tmp_path / "inbox" / f"two-{difference}"
+    shutil.copytree(NATIVE / "WI01A-DriveMaps-GPMC", inbox)
+    variant = inbox / INSTANCE.lower()
+    shutil.copytree(inbox / INSTANCE, variant)
+    if difference == "identity":
+        nested = variant / "bkupInfo.xml"
+        nested.write_text(
+            nested.read_text(encoding="utf-8").replace(
+                DOMAIN_GUID, "11111111-2222-4333-8444-555555555555"
+            ),
+            encoding="utf-8",
+        )
+    else:
+        (drives,) = variant.glob("DomainSysvol/GPO/User/Preferences/Drives/Drives.xml")
+        original = drives.read_bytes()
+        drives.write_bytes(original.replace(b'letter="', b'letter="Z', 1))
+        assert drives.read_bytes() != original
+    with pytest.raises(BackupError, match="Ambiguous backup instance directory"):
+        read_backup(inbox)
+    assert _import(client, inbox).status_code == 422
+    replaced = _import(client, inbox, replace_guid=guid, expected_revision=1)
+    assert replaced.status_code == 422, replaced.text[:300]
+    assert store.get_gpo(guid).revision == 1
+    assert len(store.list_gpos()) == 1
