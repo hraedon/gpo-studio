@@ -2,7 +2,7 @@
 
 > **Date:** 2026-10-19 (final release; release candidate 1.1.0rc1 2026-10-09; draft opened 2026-10-08)
 > **Source commit:** resolved by the tagged release workflow
-> **Status:** release candidate; final approval pending
+> **Status:** approved for release
 
 This is the manifest for the final 1.1.0 release, tagged `v1.1.0`. It records
 what has been requalified, what the release workflow checks, and what 1.1.0
@@ -601,16 +601,14 @@ data. Each is pinned by a test:
 
 ## Remaining before approval
 
-1. **Done (2026-10-09).** Every Plan 034 row reached its exit on 2026-10-08.
-   Every lane was requalified at one commit after batch 2: the release 1.1.0
-   batch, 26 of 26 at `de9736e`, banked in
-   [`release110-batch.json`](plan-033/release110-batch.json) with a clean
-   post-batch directory check. Six of those lanes were re-run at `9940561`
-   by the successor batch
-   ([`release110-successors-batch.json`](plan-033/release110-successors-batch.json))
-   after the WI-080, WI-081 and WI-082 fix; the verdicts cited here are those
-   two batches' live runs. The
-   tagged commit's CI must still show that they bind its source
+1. **Done (2026-10-19).** Every Plan 034 row reached its exit on 2026-10-08.
+   Every lane was requalified at the freeze commit F by the release 1.1.0
+   final batch, 26 of 26 at `765b304`, banked in
+   [`release110-final-batch.json`](plan-033/release110-final-batch.json) with a
+   clean post-batch directory check; the verdicts cited here are that batch's
+   runs. For the candidate (2026-10-09) the same item was done by the release
+   1.1.0 batch at `de9736e` and its successor batch at `9940561`, now history.
+   The tagged commit's CI must still show that the verdicts bind its source
    (`tests/test_committed_evidence.py`).
 2. **Done at the freeze commit (2026-10-19).** `__version__` and the JSON
    report's `version` are `1.1.0` (the report's `status` stays `candidate` until
@@ -623,7 +621,8 @@ data. Each is pinned by a test:
    On 2026-10-17 the owner waived it for 1.1.0. It is recorded as not run,
    never as passed, here, under [Accessibility evidence](#accessibility-evidence)
    and in the JSON report.
-4. **Recorded by the tagged run, not a precondition.** The automated evidence
+4. **Closed by this approval (2026-10-19): recorded by the tagged run after
+   A, not a precondition.** The automated evidence
    comes from the release workflow run on the tag, so it cannot exist before
    A. When that run publishes, `scripts/record_release_identity.py` writes into
    the published `release-evidence.md` (replacing the Automated evidence
@@ -635,17 +634,16 @@ data. Each is pinned by a test:
    hashes. The job IDs and the tagged run's measured coverage total are in that
    workflow run itself (its jobs and the `verify` log), not in the assets. It
    refuses to publish if any of that is missing or the placeholder is not
-   resolved. A closes this item by saying so.
-5. **Pending.** Approve in the order under
+   resolved. The approval commit A closes this item by saying so.
+5. **Done (2026-10-19).** Approved in the order under
    [How this release is approved](#how-this-release-is-approved) (owner
-   decision, 2026-10-17): freeze commit F with its preparation, the full batch
-   of all 26 lanes at F, the banking commit B (parent F, evidence and records
-   only, the report's `freeze` set), the records-only approval commit A, and
-   the tag `v1.1.0` on A, on `main`. The release gate refuses the tag unless
+   decision, 2026-10-17): freeze commit F (`765b304`) with its preparation, the
+   full batch of all 26 lanes at F, the banking commit B (parent F, evidence and
+   records only, the report's `freeze` set) and this records-only approval
+   commit A. The tag `v1.1.0` goes on A, on `main`. The release gate refuses the tag unless
    the history from F is B, records-only commits and A, the tree differs from F
    only in the batch and the release records, and every live verdict is the
    batch's run recorded at F with its evidence tag (it does not authenticate
    the estate runs; see How this release is approved). Final promotion should not change the application behavior the
-   candidate showed. The requalified evidence described above (the release
-   candidate's two batches) is then history: the batch at F replaces every
-   verdict, and this file is updated in B to cite it.
+   candidate showed. The release candidate's two batches are history: the
+   batch at F replaced every verdict, and B updated this file to cite it.
