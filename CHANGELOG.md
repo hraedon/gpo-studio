@@ -627,7 +627,8 @@ Operator-facing:
     own identity or payload -- unread. Every entry whose name case-folds to
     the backup ID now counts; more than one is ambiguous, and the backup is
     refused (an import and a replacement alike), as is one that is not a
-    directory.
+    directory or is a symbolic link. A backup directory that cannot be listed
+    now fails the import with a backup error instead of reading no instance.
   - The identity sweep opens every ZIP response and searches each member
     decompressed, nested archives included, with a control that finds a
     sentinel the raw archive bytes hide (Sol N1, DeepSeek N1).
