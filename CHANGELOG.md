@@ -620,6 +620,20 @@ Operator-facing:
     retained member or registry-value attribute that would overwrite a typed
     one (now tested). A 422 for a field a request may not carry no longer
     echoes its value (final-r14 extends this to wrong-shape values).
+- CI on PR #107 (run 39182659419): the history secret scan's one finding --
+  `generic-api-key` on a vocabulary-table row of `emit_integrity.py` in
+  f728e22 (`secondFailure="token"`: "token" names a value kind) -- is
+  ignored by its exact fingerprint in `.gitleaksignore`; the scanner's rules
+  are unchanged. Windows: `scripts/check_safety.py` and
+  `scripts/generate_evidence_report.py` read UTF-8 explicitly, and a test now
+  holds every text open in `src/` and `scripts/` to an explicit encoding (the
+  evidence-bound firewall harness excepted, by name); the release-artifact
+  test copies the tree to a short temporary root, under MAX_PATH; the
+  attribute test passes paths to `git check-attr` on stdin; the two-spellings
+  test skips on a case-folding filesystem, detected, with the reader covered
+  by a given listing. Timeouts: `test` 25 to 40 min (3.13 measures branch
+  coverage with the C tracer, about 28 min), `test-windows` 40 to 60 min
+  (about 37 min measured).
 - After the twenty-fourth review (final-r24):
   - **Every spelling of the backup instance directory counts (Sol B1,
     DeepSeek N2).** The exact spelling was taken first, so a backup holding
