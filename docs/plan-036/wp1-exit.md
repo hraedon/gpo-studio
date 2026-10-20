@@ -24,6 +24,27 @@ Coverage floors, static safety, the installed-package smoke, and the
 upgrade/rollback rehearsal all passed. The run directory and caches were
 removed on exit.
 
+## Post-review cold-cache pass on the merged implementation
+
+After merging `origin/main` at `b6a6b40` and applying the executing-review
+fixes, the committed implementation `a8b54e5bb24ca050cb1192247263e142e5f4a7d4`
+was checked once with:
+
+```bash
+export TMPDIR=/home/itadmin/wt/drive-20261020/tmp/wp1
+uv run --extra dev python scripts/ci-local.py \
+  --python python3.14 --commit HEAD
+```
+
+Outcome: exit 0; all 12 steps passed in **1,173.9 seconds (19m33.9s)** from a
+fresh clone with throwaway caches and isolated user package-tool
+configuration. The Python step reported **13,138 passed, 150 skipped, 67
+subtests passed**; the frontend unit step reported **171 passed**; Playwright
+reported **70 passed and 3 flaky tests that passed on the configured retry**.
+Coverage floors, static safety, installed-package smoke, and upgrade/rollback
+rehearsal passed. The run directory was removed on exit. This supplements,
+and does not replace, the published-`main` evidence above.
+
 ## Historical cold-cache reproductions
 
 Both scratch branches were based on `badcaf9`, existed only locally, were
