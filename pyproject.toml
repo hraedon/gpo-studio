@@ -23,7 +23,6 @@ dev = [
   "pytest>=8.3,<10",
   "pytest-cov>=6.1,<8",
   "ruff>=0.16,<0.17",
-  "types-PyYAML>=6.0.12.20250915",
   "jsonschema>=4.26.0",
   "pyyaml>=6.0.2,<7",
 ]
@@ -158,7 +157,6 @@ no-build-package = [
   "tomlkit",
   "trove-classifiers",
   "truststore",
-  "types-pyyaml",
   "typing-extensions",
   "typing-inspection",
   "tzdata",

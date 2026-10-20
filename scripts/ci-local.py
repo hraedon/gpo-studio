@@ -25,7 +25,7 @@ from pathlib import Path
 from types import FrameType
 from typing import NoReturn
 
-import yaml
+import yaml  # type: ignore[import-untyped]  # no stubs in the dev lock; mypy gates src only
 
 WINDOWS_REFUSAL = (
     "the Windows leg is unavailable: Plan 036 D-7 leaves installing uv on "
