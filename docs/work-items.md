@@ -3097,6 +3097,15 @@ What this means for `export.py`:
   pass. `test_user_side_scripts_land_under_user` in `test_native_scripts_export.py`
   pins the current (wrong) user pair and must be updated in the same change.
 
+**2026-10-20, window 20: requalified at revision 2, bytes now record-bound.** The
+reviewers asked for exactness and for bindings. In response, windows-console-driver
+revision 2 asserts both extension lists as the exact measured strings, the exact SYSVOL
+delta and no `psscripts.ini`. It cleans up only the GPO whose GUID it created, and it
+records the invocation and setup output. Run `w20-r1` verified with the same values. Its
+cleanup journal binds both `scripts.ini` SHA-256s (`f8fa4009…`, `ba526db6…`, Hidden),
+byte-identical to window 19's, so the fixture bytes are now carried by a record and not
+only by the operator's collection.
+
 **Still open:** the `export.py` change itself. `export.py` is bound by **six** lanes
 (`docs/plan-033/bound-source-cost.md`: endpoint, firewall, publication,
 scripts-metadata, wp1b and wp2), so the change rides a requalification batch that
@@ -3385,6 +3394,16 @@ Security > Inbound Rules, opened one rule's Properties, and cancelled.
 
 What this means for `export.py`: **no change.** GPME handles the imported rules under
 the registration the export now writes (`B05566AC`), so batch 2's registration stands.
+
+**2026-10-20, window 20: requalified at revision 2 with an exact, bound blast radius.**
+windows-console-driver revision 2 (`w20-r2`, verified) re-ran the observation after the
+review. Its envelope pins the exact permitted SYSVOL change: the `GptTmpl.inf` stub (142
+bytes, SHA-256 `07cba636…`, absent before), its SecEdit parents and
+`Machine/Scripts/{Startup,Shutdown}`. Versions, both extension lists and the imported
+`Registry.pol` stay equal. The record binds its input (bundle `3f146885…`, backup id,
+imported `Registry.pol` hash) and the saved UIA dumps by digest. GPME listed the same 10
+inbound rules, cell for cell. The display and editability half is still person-reviewed
+surface evidence.
 
 **Still open, so not closed:** the closing condition also asks that
 `gpme_display_unmeasured` be narrowed. That limitation's text in `api.py` is stale as

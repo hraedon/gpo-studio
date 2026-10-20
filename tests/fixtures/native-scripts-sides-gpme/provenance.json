@@ -9,7 +9,7 @@
       "measured_cr_count": 4,
       "measured_lf_count": 4,
       "raw_sha256": "f8fa40097ac3335282934200cacb2fba33deda6dbc1c8ab6876dabc14f6db489",
-      "file_attributes": "Hidden, Archive",
+      "file_attributes": "Hidden, Archive (bound by the w20-r1 record's cleanup journal; operator-observed in window 19)",
       "role": "one computer-side Shutdown entry; no [Startup] section is written, not even an empty one"
     },
     "user-scripts.ini.txt": {
@@ -19,7 +19,7 @@
       "measured_cr_count": 4,
       "measured_lf_count": 4,
       "raw_sha256": "ba526db64be0bbd4daf72d51083e7f91f4f36a81798fb68a3ce63d47a2182cf5",
-      "file_attributes": "Hidden, Archive",
+      "file_attributes": "Hidden, Archive (bound by the w20-r1 record's cleanup journal; operator-observed in window 19)",
       "role": "one user-side Logon entry; no [Logoff] section is written"
     }
   },
@@ -39,5 +39,6 @@
   "native_byte_reconstruction": "b'\\xff\\xfe' + transcript_content.replace('\\n', '\\r\\n').encode('utf-16-le'); the tests assert the reconstructed length equals measured_total_bytes and its SHA-256 equals raw_sha256",
   "raw_artifacts": "mvmcc03:/home/itadmin/gpo-studio-evidence/inbox/plan035-w19/wp1-backups.zip (SHA-256 494be98ca6c31b20079cf26ca2654a7466b7d9ec1ba2f599d28abb18429898ae), outside the repository. It also holds the r1 backup (an indeterminate run that committed the Shutdown sheet only; its machine scripts.ini is byte-identical to r2's).",
   "sanitisation": "Verified before copying: the files contain only the synthetic names zz-studio-shutdown.cmd / zz-studio-logon.cmd and the literal parameters '/c shutdown-alpha' / '/c logon-beta'. No domain, host, account, SID, IP or user-path identifiers. The extension GUIDs are well-known Microsoft CSE/tool identifiers.",
-  "copied_into_repo": "2026-10-20"
+  "copied_into_repo": "2026-10-20",
+  "record_binding": "Revision 1 (w19-r2) bound sizes and CR/LF counts only. Revision 2 re-ran the same authoring in windows-console-driver estate window 20 (docs/estate-window-20/records/w20-r1-record.json, verified, both extension lists asserted exactly): its cleanup journal binds Machine/Scripts/scripts.ini sha256=f8fa40097ac3335282934200cacb2fba33deda6dbc1c8ab6876dabc14f6db489 bytes=158 attrs=Hidden,Archive and User/Scripts/scripts.ini sha256=ba526db64be0bbd4daf72d51083e7f91f4f36a81798fb68a3ce63d47a2182cf5 bytes=138 attrs=Hidden,Archive -- the raw_sha256 values below, now carried by the record itself. The raw INIs and a MANIFEST.sha256 are banked in windows-console-driver docs/estate-window-19/captures/ and docs/estate-window-20/captures/."
 }

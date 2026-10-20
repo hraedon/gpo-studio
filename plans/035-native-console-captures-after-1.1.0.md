@@ -2,8 +2,9 @@
 
 Status: **active: captures only, nothing implemented or surfaced** (updated
 2026-10-20). WP-1 and WP-2 were captured in windows-console-driver estate
-window 19, with fixtures and tests banked here (WI-071, WI-077). Their
-revision-2 requalification is pending (windows-console-driver). No product code has
+window 19, with fixtures and tests banked here (WI-071, WI-077). After review they
+were requalified at revision 2 in window 20, with exact envelopes and record-bound inputs
+and bytes. No product code has
 changed: WP-1's `export.py` change is not made, so it is neither surfaced nor
 Windows-verified, and it waits for a requalification batch over the six lanes
 that bind `export.py`. WP-2 needs no `export.py` change. WP-3 has not started.
