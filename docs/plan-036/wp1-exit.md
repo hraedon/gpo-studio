@@ -57,6 +57,30 @@ Coverage floors, static safety, installed-package smoke, and upgrade/rollback
 rehearsal passed. The run directory was removed on exit. This supplements,
 and does not replace, the published-`main` evidence above.
 
+## Round-3 unprivileged cold-cache pass
+
+The privilege- and process-isolation fixes were committed as
+`faa21a28f18e25cb672b82b91ade54f6ecb94901` and checked as UID 1000 with:
+
+```bash
+export TMPDIR=/home/itadmin/wt/drive-20261020/tmp/wp1
+uv run --extra dev python scripts/ci-local.py \
+  --python python3.14 --commit HEAD
+```
+
+Outcome: exit 0; all 13 steps passed in **1,142.7 seconds (19m02.7s)** from a
+fresh clone with empty language-package caches and isolated package-tool
+configuration. The non-mutating Playwright dependency check reported that all
+system dependencies were installed. The Python step reported **13,147 passed,
+150 skipped, 67 subtests passed**; the frontend unit step reported **171
+passed**; Playwright reported **73 passed**. Coverage floors, static safety,
+installed-package smoke, and upgrade/rollback rehearsal passed.
+
+A read-only `journalctl _COMM=sudo` query bounded from 14:18:30 through
+14:37:42 local time returned `-- No entries --`. The disposable run directory
+was absent after exit. No elevated command was run to prepare or verify this
+evidence.
+
 ## Historical cold-cache reproductions
 
 Both scratch branches were based on `badcaf9`, existed only locally, were
