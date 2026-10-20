@@ -1,0 +1,16 @@
+{
+  "source": "windows-console-driver estate window 19 (GPME on Windows Server 2025, capability gpmc.observe_imported_firewall_rules revision 1, record docs/estate-window-19/records/w19-r3-record.json, 2026-10-20, state verified). Plan 035 WP-2, WI-077.",
+  "what_was_imported": "studio-firewall-backup.zip built at gpo-studio badcaf9 by scripts/plan-033/build-firewall-candidate.py (sha256 3f146885bb8e362e4d178582cc5710cd8067980cb9413a5411c75e2edf651e0f, the same bytes the 1.1.0 batch's firewall lane imported), Import-GPO into a disposable unlinked GPO. The record's pre-state gPCMachineExtensionNames equals [{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{B05566AC-FE9C-4368-BE01-7A4CBB6CBA11}], the export's firewall-only registration (WI-075). The D02B1F72 registration that WI-077 originally asked about was not observed: badcaf9 no longer writes it for a firewall-only GPO.",
+  "oracle": "State half: the w19-r3 envelope, post == pre on both version halves, versionNumber, both extension lists and the imported Registry.pol (PSDirect SYSVOL + AD reads, controller-side). The only change was GptTmpl.inf, which GPME writes when Security Settings is opened, as recon in the same window measured on a fresh GPO. Display half: NOT an oracle. It is GPME's own Inbound Rules list as the UIA tree exposes it, kept for a person to review beside the screenshots.",
+  "files": {
+    "inbound-rules.json": {
+      "derived_from": "windows-console-driver docs/estate-window-19/captures/wp2-inbound-rules.uia.json",
+      "derived_from_sha256": "44e3f62fc00db4e18d20fe95cf09fd86c412623b3c12aa82656350473300f951",
+      "derivation": "The results list's 18 HeaderItem names become columns. Each ListItem (the rule name), its in-place Edit twin and the following 17 Text cells become one row, in GPME's display order (sorted by Name, the disabled rule last). Values are verbatim."
+    }
+  },
+  "companion_evidence": "windows-console-driver docs/estate-window-19/captures/: wp2-firewall-overview.{png,uia.json}, wp2-inbound-rules.png, wp2-rule-properties.{png,uia.json} (StudioFwLane in tcp allow Properties: General tab, nine tabs, Enabled ticked, Allow selected, Apply greyed), wp2-after-cancel.png.",
+  "limitations": "Display and controls only. No edit was made, so nothing shows that an edit through GPME persists to Registry.pol. UIA exposes no enabled/disabled state for the sheet's controls, so editability is read off the screenshot by a person. One build, one estate, one run.",
+  "sanitisation": "Synthetic StudioFwLane rule names and group, RFC 5737/3849 documentation addresses (198.51.100.7, 192.0.2.0/24, 2001:db8::/32), synthetic ports 65001-65007. No domain, host, account or SID values.",
+  "copied_into_repo": "2026-10-20"
+}

@@ -1,0 +1,43 @@
+{
+  "source": "windows-console-driver estate window 19 (GPME on Windows Server 2025, capability gpmc.author_scripts_logon_shutdown revision 1, transaction record docs/estate-window-19/records/w19-r2-record.json, 2026-10-20, state verified). Plan 035 WP-1.",
+  "oracle": "The w19-r2 envelope (r2_core observer: PowerShell Direct SYSVOL byte reads and AD attribute reads, controller-side, independent of the helper UIA/keyboard actuation). It banks the encoding facts (BOM, CR/LF counts, total bytes), every scripts.ini entry, both extension lists and both version halves. The bytes transcribed here come from the Backup-GPO the run-sheet's cleanup took BEFORE removing the GPO, collected from the guest before the checkpoint revert; their sizes and CR/LF counts equal the oracle's facts.",
+  "files": {
+    "machine-scripts.ini.txt": {
+      "native_path_in_backup": "DomainSysvol/GPO/Machine/Scripts/scripts.ini",
+      "measured_total_bytes": 158,
+      "measured_bom": "utf-16le (FF FE), width 2",
+      "measured_cr_count": 4,
+      "measured_lf_count": 4,
+      "raw_sha256": "f8fa40097ac3335282934200cacb2fba33deda6dbc1c8ab6876dabc14f6db489",
+      "file_attributes": "Hidden, Archive",
+      "role": "one computer-side Shutdown entry; no [Startup] section is written, not even an empty one"
+    },
+    "user-scripts.ini.txt": {
+      "native_path_in_backup": "DomainSysvol/GPO/User/Scripts/scripts.ini",
+      "measured_total_bytes": 138,
+      "measured_bom": "utf-16le (FF FE), width 2",
+      "measured_cr_count": 4,
+      "measured_lf_count": 4,
+      "raw_sha256": "ba526db64be0bbd4daf72d51083e7f91f4f36a81798fb68a3ce63d47a2182cf5",
+      "file_attributes": "Hidden, Archive",
+      "role": "one user-side Logon entry; no [Logoff] section is written"
+    }
+  },
+  "measured_extension_lists": {
+    "gPCMachineExtensionNames": "[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3}]",
+    "gPCUserExtensionNames": "[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B66650-4972-11D1-A7CA-0000F87571E3}]",
+    "note": "Read from AD by the oracle (record delta) and repeated verbatim in the backup's Backup.xml GroupPolicyCoreSettings. The user-side TOOL GUID differs from the machine side's: 40B66650 on the user side, 40B6664F on the machine side. The envelope deliberately did not assert the user-side tool GUID; this value is the measurement WI-071 asked for."
+  },
+  "measured_versions": {
+    "version.machine": "0 -> 1",
+    "version.user": "0 -> 1",
+    "versionNumber": "0 -> 65537 (= 1*65536 + 1)",
+    "note": "One OK on the Shutdown sheet and one OK on the Logon sheet each moved its own half by exactly 1 in this run; the envelope asserted only '>' plus the packing relation."
+  },
+  "not_written": "No psscripts.ini on either side (no PowerShell entry was authored); both sides' config_shape was 'none'. The backup's GPO.cmt is the New-GPO comment, not GPME output.",
+  "transcript_format": "ASCII rendering of the captured UTF-16LE files: a two-line measurement header (first 4 bytes, CR/LF counts, total byte size), then the decoded content verbatim except that each CRLF was transcribed as LF. The leading blank line after the header belongs to the native content, as do CRLF terminators on every line including the last. Same format as tests/fixtures/native-scripts-gpmc.",
+  "native_byte_reconstruction": "b'\\xff\\xfe' + transcript_content.replace('\\n', '\\r\\n').encode('utf-16-le'); the tests assert the reconstructed length equals measured_total_bytes and its SHA-256 equals raw_sha256",
+  "raw_artifacts": "mvmcc03:/home/itadmin/gpo-studio-evidence/inbox/plan035-w19/wp1-backups.zip (SHA-256 494be98ca6c31b20079cf26ca2654a7466b7d9ec1ba2f599d28abb18429898ae), outside the repository. It also holds the r1 backup (an indeterminate run that committed the Shutdown sheet only; its machine scripts.ini is byte-identical to r2's).",
+  "sanitisation": "Verified before copying: the files contain only the synthetic names zz-studio-shutdown.cmd / zz-studio-logon.cmd and the literal parameters '/c shutdown-alpha' / '/c logon-beta'. No domain, host, account, SID, IP or user-path identifiers. The extension GUIDs are well-known Microsoft CSE/tool identifiers.",
+  "copied_into_repo": "2026-10-20"
+}

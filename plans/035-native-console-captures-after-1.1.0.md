@@ -1,6 +1,11 @@
 # Plan 035: Native console captures after 1.1.0
 
-Status: **proposed** (2026-10-09). Nothing here blocks 1.1.0. The three work
+Status: **proposed** (2026-10-09). Nothing here blocks 1.1.0.
+**2026-10-20:** WP-1 and WP-2 captured and banked in one estate window
+(windows-console-driver window 19; see WI-071 and WI-077 for what each
+measured). WP-1 changes `export.py`'s user-side Scripts pair; WP-2 leaves
+`export.py` as it is. The `export.py` edit waits for the requalification
+batch. WP-3 has not started. The three work
 items it covers each need evidence that only the Group Policy consoles produce,
 and the grounding they unlock edits bound files, so it belongs to the batch
 after the release.

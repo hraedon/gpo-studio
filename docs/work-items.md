@@ -3054,6 +3054,42 @@ and this item records the proposal instead.
 confirmed already correct), and a lane covering a user-side logon script and a
 computer-side shutdown script has a banked verdict.
 
+**2026-10-20: the user-side pair is captured, and `export.py` does not match it** (Plan 035
+WP-1). windows-console-driver estate window 19 ran `gpmc.author_scripts_logon_shutdown`
+(record `w19-r2`, `verified`). The capability authored one `.cmd` Shutdown entry on the
+computer side and one `.cmd` Logon entry on the user side of a disposable GPO through
+GPME, and its envelope deliberately did not assert a user-side tool GUID. Measured:
+
+- `gPCUserExtensionNames` = `[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B66650-4972-11D1-A7CA-0000F87571E3}]`.
+  The user-side tool half is **`{40B66650-…}`**, the value this item called a hypothesis,
+  now a capture. The machine side in the same session kept R2's `{40B6664F-…}`.
+- One OK per sheet moved its own version half by exactly one: machine 0→1, user 0→1,
+  `versionNumber` 65537.
+- `scripts.ini` on each side holds only the populated trigger: `[Shutdown]` (158 bytes)
+  and `[Logon]` (138 bytes). Both are UTF-16LE with BOM, CRLF, split style, with a leading
+  blank line and no empty sibling section. No `psscripts.ini` is written. GPME writes the
+  INIs Hidden. Byte-exact transcripts are banked with provenance in
+  `tests/fixtures/native-scripts-sides-gpme/`.
+
+What this means for `export.py`:
+
+- **The user-side Scripts pair changes.** `_extension_guids` must write
+  `[{42B5FAAE-…}{40B66650-…}]` when `side == "User"` and keep `{40B6664F-…}` for
+  `Machine`. That needs a `_SCRIPTS_USER_TOOL_GUID` constant, a side branch beside
+  the registry tool's, and the new GUID added to `EMITTED_EXTENSION_GUIDS`, so a
+  re-import does not flag Studio's own list as unknown.
+- **The per-trigger `scripts.ini` writer needs no change.** Studio already writes both
+  captures byte for byte (`tests/test_native_scripts_sides_capture.py`).
+- `test_user_side_pair_matches_the_capture` asserts the captured user pair and is
+  `xfail(strict=True)` until the change lands, so it fails loudly once the fix makes it
+  pass. `test_user_side_scripts_land_under_user` in `test_native_scripts_export.py`
+  pins the current (wrong) user pair and must be updated in the same change.
+
+**Still open:** the `export.py` change itself, which is bound and rides the Plan 035
+requalification batch with the publication, scripts-metadata and firewall lanes. After
+that, the separate logon/shutdown lane this item proposes, with the finalizer comparing
+the user pair against the captured value and pinning the report rows from a first run.
+
 ## WI-072 — serialize_gpp drops adapter root content the model retained
 
 **Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
@@ -3300,6 +3336,40 @@ in the [release 1.1.0 batch](plan-033/release110-batch.md)
 (`firewall-20261009001906-2614294`), and its write leg imported Studio's
 export registered `[{35378EAC-…}{B05566AC-…}]`, the native pair. Only the GPME
 observation remains.
+
+**2026-10-20: the GPME observation is made, and display is shown** (Plan 035 WP-2).
+windows-console-driver estate window 19 ran `gpmc.observe_imported_firewall_rules`
+(record `w19-r3`, `verified`). It imported the firewall lane's candidate bundle into a
+disposable GPO. The bundle was built at `badcaf9` and is byte-identical to the one the
+1.1.0 batch imported (`3f146885…`). The record's pre-state machine list is the export's
+`[{35378EAC-…}{B05566AC-…}]`. The walk went to Windows Defender Firewall with Advanced
+Security > Inbound Rules, opened one rule's Properties, and cancelled.
+
+- **Displayed:** all 10 inbound rules the candidate authors are listed with the profile,
+  enabled state, action (the authenticated bypass rule as `Secure`, Override `Yes`) and
+  group Studio wrote. The overview shows the authored Domain and Private profile policy.
+  `tests/fixtures/native-firewall-gpme-view/` banks the list, and
+  `tests/test_native_firewall_gpme_view.py` checks it against the candidate.
+- **Offered for editing, not proven editable:** `StudioFwLane in tcp allow Properties` opens
+  on the General tab with all nine tabs, the name field, Enabled ticked, Allow selected
+  and Apply greyed (screenshot). No edit was made, so nothing shows that an edit persists
+  to `Registry.pol`. The evidence is person-reviewed surface evidence, not a certified
+  claim.
+- **The walk changed nothing:** both version halves, `versionNumber`, both extension
+  lists and the imported `Registry.pol` were post == pre. GPME's only write was a
+  `GptTmpl.inf` stub when Security Settings opened, which recon measured on a fresh GPO.
+- The `D02B1F72` question this item first asked was not observed. `badcaf9` no longer
+  writes `D02B1F72` for a firewall-only GPO. Mixed firewall-plus-other machine policy
+  still registers `D02B1F72` and was not imported.
+
+What this means for `export.py`: **no change.** GPME handles the imported rules under
+the registration the export now writes (`B05566AC`), so batch 2's registration stands.
+
+**Still open, so not closed:** the closing condition also asks that
+`gpme_display_unmeasured` be narrowed. That limitation's text in `api.py` is stale as
+well: it still says the backup registers `D02B1F72`. Narrowing it is a code change
+outside this evidence-only pass. If "editable" is read as "an edit persists", it also
+needs a mutating GPME capability (edit one imported rule, OK, observe `Registry.pol`).
 
 ## WI-075 — native GPMC export refused GPP Registry, and the 1.x contract said it did not
 
