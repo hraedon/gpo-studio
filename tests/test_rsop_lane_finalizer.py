@@ -780,12 +780,12 @@ def _token_observe(**overrides: Any) -> dict[str, Any]:
     observe: dict[str, Any] = {
         "token_group": "StudioRsopGroup",
         "token_groups_session": [
-            "LAB\Domain Computers",
-            "LAB\StudioRsopGroup-20260907000000-1234",
+            "LAB\\Domain Computers",
+            "LAB\\StudioRsopGroup-20260907000000-1234",
         ],
         "token_groups_ldap": [
-            "LAB\Domain Computers",
-            "LAB\StudioRsopGroup-20260907000000-1234",
+            "LAB\\Domain Computers",
+            "LAB\\StudioRsopGroup-20260907000000-1234",
         ],
         "token_groups_ldap_status": "collected",
         "token_groups_ldap_error": None,
@@ -819,7 +819,7 @@ def test_a_group_absent_from_the_machine_token_is_a_lane_problem() -> None:
     carried.
     """
     problems = finalize_rsop_run._token_problems(
-        _token_observe(token_groups_session=["LAB\Domain Computers"]),
+        _token_observe(token_groups_session=["LAB\\Domain Computers"]),
         _token_expected(),
     )
     assert any("machine token does not contain" in p for p in problems)
