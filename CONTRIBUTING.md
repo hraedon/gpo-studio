@@ -47,6 +47,20 @@ clone and caches. `--windows` currently refuses because D-7's approval to
 install uv on mvmcitest01 is still open. This pre-R1 mode does not reproduce
 inline workflow shell or Windows-only failures.
 
+The run is unprivileged: it never invokes `sudo` or `su`, installs browser
+binaries without Playwright's `--with-deps`, and first checks OS packages with
+`playwright install-deps --dry-run`. If that check finds missing packages, the
+runner stops and prints the `playwright install-deps chromium firefox` command
+for you to review and run yourself. No system package is installed or upgraded
+by `ci-local`.
+
+Allow at least **1.4 GB** of temporary space. The clone, caches, browsers and
+pytest basetemp live under `$TMPDIR` and are removed on exit unless `--keep` is
+used. If `$TMPDIR` is unset they normally land under `/tmp`, which is RAM-backed
+on some hosts; point `TMPDIR` at a private, disk-backed directory when memory or
+`/tmp` space is limited. Pytest's basetemp is deliberately beside the checkout,
+not inside it, so test cleanup cannot dirty or remove files in the clone.
+
 A parser or codec change needs a bounded property test or a minimized
 regression fixture. Model variants use closed typed dispatch, with
 `typing.assert_never()` at every exhaustive boundary.

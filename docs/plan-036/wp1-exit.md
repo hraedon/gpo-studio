@@ -6,6 +6,18 @@ The mutable local `main` ref advanced to `b6a6b40` while this work was running,
 so the acceptance command names the required commit rather than relying on the
 later ref value.
 
+## Correction: the recorded runs changed host packages
+
+The runs recorded below on 2026-10-20 used the original browser preparation
+command, `playwright install --with-deps chromium firefox`. Playwright used
+passwordless `sudo` to run `apt-get` as root. The host's apt history records
+`xserver-common` and `xvfb` being upgraded from `1ubuntu1.2` to `1ubuntu1.3` at
+10:40. The clone and language-package caches were disposable, but those runs
+were therefore **not isolated from the host OS**. The round-3 implementation
+removes `--with-deps`, refuses `sudo`/`su`, and uses the non-mutating
+`playwright install-deps --dry-run` check; its unprivileged cold run is recorded
+separately below.
+
 ## Cold-cache pass on main
 
 ```bash

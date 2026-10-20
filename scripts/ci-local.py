@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -34,10 +35,7 @@ WINDOWS_REFUSAL = (
 _JOB_BY_COMMAND = {
     "uv run ruff check .": "test",
     "uv run mypy src": "test",
-    (
-        "uv run pytest -q --cov=src/gpo_studio --cov-branch "
-        "--cov-report=json:coverage.json"
-    ): "test",
+    ("uv run pytest -q --cov=src/gpo_studio --cov-branch --cov-report=json:coverage.json"): "test",
     "uv run python scripts/check_coverage.py coverage.json": "test",
     "uv run python scripts/check_safety.py": "static-safety",
     "npm run check": "frontend",
@@ -68,6 +66,13 @@ _PASSTHROUGH_ENVIRONMENT = frozenset(
     }
 )
 
+_INTERRUPT_SIGNALS = (
+    signal.SIGINT,
+    signal.SIGTERM,
+    signal.SIGHUP,
+    signal.SIGQUIT,
+)
+
 
 @dataclass(frozen=True)
 class Step:
@@ -85,9 +90,7 @@ class _SignalInterruption(BaseException):
 
 @contextmanager
 def _interrupt_on_signals() -> Iterator[None]:
-    previous = {
-        signum: signal.getsignal(signum) for signum in (signal.SIGINT, signal.SIGTERM)
-    }
+    previous = {signum: signal.getsignal(signum) for signum in _INTERRUPT_SIGNALS}
 
     def interrupt(signum: int, _frame: FrameType | None) -> NoReturn:
         raise _SignalInterruption(signum)
@@ -99,6 +102,16 @@ def _interrupt_on_signals() -> Iterator[None]:
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
+
+
+@contextmanager
+def _blocked_interrupt_signals() -> Iterator[None]:
+    """Defer repeated termination signals until process and file cleanup finishes."""
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, _INTERRUPT_SIGNALS)
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -164,8 +177,12 @@ def required_commands(contributing: Path) -> list[str]:
     lines = contributing.read_text(encoding="utf-8").splitlines()
     try:
         heading = lines.index("## Required checks")
+        section_end = next(
+            (index for index in range(heading + 1, len(lines)) if lines[index].startswith("## ")),
+            len(lines),
+        )
         opening = next(
-            index for index in range(heading + 1, len(lines)) if lines[index] == "```bash"
+            index for index in range(heading + 1, section_end) if lines[index] == "```bash"
         )
         closing = lines.index("```", opening + 1)
     except (ValueError, StopIteration) as error:
@@ -250,22 +267,31 @@ def fresh_clone(source: Path, commit: str, run_root: Path) -> Path:
 
 
 def _stop_process(process: subprocess.Popen[str]) -> None:
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
+    with _blocked_interrupt_signals():
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            process.wait()
+            return
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=5)
+        # The group leader can exit before a descendant that ignores SIGTERM.
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
         process.wait()
-        return
-    with contextlib.suppress(subprocess.TimeoutExpired):
-        process.wait(timeout=5)
-    # The group leader can exit before a descendant that ignores SIGTERM.
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(process.pid, signal.SIGKILL)
-    process.wait()
 
 
-def run_step(step: Step, *, checkout: Path, environment: dict[str, str]) -> tuple[bool, float]:
+def run_step(
+    step: Step,
+    *,
+    checkout: Path,
+    environment: dict[str, str],
+    remaining_seconds: float | None = None,
+) -> tuple[bool, float]:
+    timeout = step.timeout_seconds if remaining_seconds is None else remaining_seconds
     print(
-        f"\n=== {step.name} (ci job {step.job}, timeout {step.timeout_seconds // 60} min) ===",
+        f"\n=== {step.name} (ci job {step.job}, {timeout:.1f}s remaining of "
+        f"{step.timeout_seconds}s) ===",
         flush=True,
     )
     print(f"$ {step.command}", flush=True)
@@ -279,22 +305,53 @@ def run_step(step: Step, *, checkout: Path, environment: dict[str, str]) -> tupl
     )
     timed_out = False
     try:
-        returncode = process.wait(timeout=step.timeout_seconds)
+        returncode = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         timed_out = True
+        returncode = 1
+    finally:
+        # A successful shell can still leave descendants in its process group.
         _stop_process(process)
+    if process.returncode is not None:
         returncode = process.returncode
-    except (KeyboardInterrupt, _SignalInterruption):
-        _stop_process(process)
-        raise
     duration = time.monotonic() - started
     outcome = "TIMEOUT" if timed_out else "PASS" if returncode == 0 else "FAIL"
     print(
-        f"[{outcome}] {step.name}: {duration:.1f}s / {step.timeout_seconds}s "
-        f"({step.job} job timeout)",
+        f"[{outcome}] {step.name}: {duration:.1f}s; {step.job} job limit {step.timeout_seconds}s",
         flush=True,
     )
     return returncode == 0 and not timed_out, duration
+
+
+def run_steps(steps: Sequence[Step], *, checkout: Path, environment: dict[str, str]) -> bool:
+    """Run steps against one cumulative timeout budget per workflow job."""
+    elapsed_by_job: defaultdict[str, float] = defaultdict(float)
+    total_steps = len(steps)
+    for index, step in enumerate(steps, start=1):
+        remaining = step.timeout_seconds - elapsed_by_job[step.job]
+        print(f"\nStep {index}/{total_steps}", flush=True)
+        if remaining <= 0:
+            print(
+                f"[TIMEOUT] {step.name}: {step.job} exhausted its cumulative "
+                f"{step.timeout_seconds}s job budget",
+                flush=True,
+            )
+            return False
+        passed, duration = run_step(
+            step,
+            checkout=checkout,
+            environment=environment,
+            remaining_seconds=remaining,
+        )
+        elapsed_by_job[step.job] += duration
+        print(
+            f"[{step.job} budget] {elapsed_by_job[step.job]:.1f}s / "
+            f"{step.timeout_seconds}s cumulative",
+            flush=True,
+        )
+        if not passed:
+            return False
+    return True
 
 
 def _preparation_steps(timeouts: dict[str, int], python: Path) -> list[Step]:
@@ -313,7 +370,19 @@ def _preparation_steps(timeouts: dict[str, int], python: Path) -> list[Step]:
         ),
         Step(
             name="fresh browser install",
-            command="node_modules/.bin/playwright install --with-deps chromium firefox",
+            command="node_modules/.bin/playwright install chromium firefox",
+            job="frontend",
+            timeout_seconds=timeouts["frontend"],
+        ),
+        Step(
+            name="browser OS dependency check",
+            command=(
+                "node_modules/.bin/playwright install-deps --dry-run chromium firefox || "
+                "{ status=$?; echo 'ci-local never installs OS packages or elevates "
+                "privileges.' >&2; echo 'Install the missing dependencies yourself with: "
+                "node_modules/.bin/playwright install-deps chromium firefox' >&2; "
+                'exit "$status"; }'
+            ),
             job="frontend",
             timeout_seconds=timeouts["frontend"],
         ),
@@ -348,18 +417,40 @@ def step_environment(*, run_root: Path, checkout: Path, python: Path) -> dict[st
     isolated_home = run_root / "home"
     isolated_config = run_root / "config"
     npm_userconfig = run_root / "empty-npmrc"
-    for directory in (isolated_home, isolated_config):
+    npm_globalconfig = run_root / "empty-global-npmrc"
+    privilege_guard = run_root / "privilege-guard"
+    for directory in (isolated_home, isolated_config, privilege_guard):
         directory.mkdir()
     npm_userconfig.touch()
+    npm_globalconfig.touch()
+    inherited_path = os.pathsep.join(
+        component
+        for component in environment.get("PATH", "").split(os.pathsep)
+        if component and not (Path(component).resolve().parent / "pyvenv.cfg").is_file()
+    )
+    for command in ("sudo", "su"):
+        guard = privilege_guard / command
+        guard.write_text(
+            "#!/bin/sh\n"
+            f"echo 'ci-local refuses to invoke {command}; install OS dependencies yourself.' >&2\n"
+            "exit 126\n",
+            encoding="utf-8",
+        )
+        guard.chmod(0o755)
     environment.update(
         {
             "CI": "true",
             "HOME": str(isolated_home),
             "XDG_CONFIG_HOME": str(isolated_config),
+            "PATH": os.pathsep.join(
+                component for component in (str(privilege_guard), inherited_path) if component
+            ),
             "TMPDIR": str(run_root / "tmp"),
             "UV_CACHE_DIR": str(run_root / "uv-cache"),
+            "UV_NO_CONFIG": "1",
             "UV_PYTHON_DOWNLOADS": "never",
             "NPM_CONFIG_CACHE": str(run_root / "npm-cache"),
+            "NPM_CONFIG_GLOBALCONFIG": str(npm_globalconfig),
             "NPM_CONFIG_USERCONFIG": str(npm_userconfig),
             "PIP_CONFIG_FILE": os.devnull,
             "PLAYWRIGHT_BROWSERS_PATH": str(run_root / "playwright-browsers"),
@@ -416,9 +507,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ):
                     directory.mkdir()
                 steps = with_external_pytest_base(steps, pytest_base)
-                environment = step_environment(
-                    run_root=run_root, checkout=checkout, python=python
-                )
+                environment = step_environment(run_root=run_root, checkout=checkout, python=python)
 
                 print(f"Commit: {commit}")
                 print(f"Python: {python}")
@@ -427,14 +516,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "does not reproduce inline workflow shell or Windows-only failures."
                 )
                 total_steps = len(steps)
-                for index, step in enumerate(steps, start=1):
-                    print(f"\nStep {index}/{total_steps}", flush=True)
-                    passed, _duration = run_step(
-                        step, checkout=checkout, environment=environment
-                    )
-                    if not passed:
-                        print(f"ci-local failed after {time.monotonic() - started:.1f}s")
-                        return 1
+                if not run_steps(steps, checkout=checkout, environment=environment):
+                    print(f"ci-local failed after {time.monotonic() - started:.1f}s")
+                    return 1
                 print(
                     f"\nci-local passed all {total_steps} steps in "
                     f"{time.monotonic() - started:.1f}s"
@@ -447,12 +531,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.keep:
                     print(f"Kept run directory: {run_root}")
                 else:
-                    shutil.rmtree(run_root, ignore_errors=True)
+                    with _blocked_interrupt_signals():
+                        shutil.rmtree(run_root, ignore_errors=True)
     except (KeyboardInterrupt, _SignalInterruption) as interruption:
         signum = (
-            signal.SIGINT
-            if isinstance(interruption, KeyboardInterrupt)
-            else interruption.signum
+            signal.SIGINT if isinstance(interruption, KeyboardInterrupt) else interruption.signum
         )
         print(f"ci-local: interrupted by {signal.Signals(signum).name}", file=sys.stderr)
         return 128 + signum
