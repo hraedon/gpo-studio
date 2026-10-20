@@ -2,7 +2,7 @@
 
 > **Date:** 2026-10-20 (final release; release candidate 1.1.0rc1 2026-10-09; draft opened 2026-10-08)
 > **Source commit:** resolved by the tagged release workflow
-> **Status:** release candidate; final approval pending
+> **Status:** approved for release
 
 This is the manifest for the final 1.1.0 release, tagged `v1.1.0`. It records
 what has been requalified, what the release workflow checks, and what 1.1.0
@@ -661,7 +661,8 @@ data. Each is pinned by a test:
    On 2026-10-17 the owner waived it for 1.1.0. It is recorded as not run,
    never as passed, here, under [Accessibility evidence](#accessibility-evidence)
    and in the JSON report.
-4. **Recorded by the tagged run, not a precondition.** The automated evidence
+4. **Closed by this approval (2026-10-20): recorded by the tagged run after
+   A, not a precondition.** The automated evidence
    comes from the release workflow run on the tag, so it cannot exist before
    A. When that run publishes, `scripts/record_release_identity.py` writes into
    the published `release-evidence.md` (replacing the Automated evidence
@@ -673,20 +674,20 @@ data. Each is pinned by a test:
    hashes. The job IDs and the tagged run's measured coverage total are in that
    workflow run itself (its jobs and the `verify` log), not in the assets. It
    refuses to publish if any of that is missing or the placeholder is not
-   resolved. A closes this item by saying so. The first tag's run published
-   nothing, so nothing was recorded from it.
-5. **Pending.** Approve in the order under
+   resolved. The approval commit A closes this item by saying so. The first
+   tag's run published nothing, so nothing was recorded from it.
+5. **Done (2026-10-20).** Approved in the order under
    [How this release is approved](#how-this-release-is-approved) (owner
-   decision, 2026-10-17), from the re-freeze commit as F: the full batch of all
-   26 lanes at F, the banking commit B (parent F, evidence and records only,
-   the report's `freeze` set to F and that batch), the records-only approval
-   commit A, and the tag `v1.1.0` moved to A, on `main` (owner decision,
-   2026-10-19). The release gate refuses the tag unless
+   decision, 2026-10-17), from the re-freeze commit `5ffa026` as F: the full
+   batch of all 26 lanes at F, the banking commit B (parent F, evidence and
+   records only, the report's `freeze` set to F and that batch) and this
+   records-only approval commit A. The tag `v1.1.0` moves to A, on `main`
+   (owner decision, 2026-10-19). The release gate refuses the tag unless
    the history from F is B, records-only commits and A, the tree differs from F
    only in the batch and the release records, and every live verdict is the
    batch's run recorded at F with its evidence tag (it does not authenticate
    the estate runs; see How this release is approved); the first freeze's
    commits come before F and are not part of that history. Final promotion
    should not change the application behavior the candidate showed. The first
-   freeze's batch at `765b304` is then history: the batch at F replaces every
-   verdict, and this file is updated in B to cite it.
+   freeze's batch at `765b304` is history: the batch at F replaced every
+   verdict, and B updated this file to cite it.
