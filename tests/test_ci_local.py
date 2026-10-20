@@ -17,6 +17,13 @@ from types import ModuleType
 
 import pytest
 
+if sys.platform == "win32":
+    pytest.skip(
+        "ci-local is Linux-only: its pre-R1 mode runs the Linux checks, and --windows "
+        "refuses until D-7 is decided",
+        allow_module_level=True,
+    )
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci-local.py"
 

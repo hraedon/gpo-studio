@@ -66,11 +66,11 @@ _PASSTHROUGH_ENVIRONMENT = frozenset(
     }
 )
 
-_INTERRUPT_SIGNALS = (
-    signal.SIGINT,
-    signal.SIGTERM,
-    signal.SIGHUP,
-    signal.SIGQUIT,
+# SIGHUP and SIGQUIT do not exist on Windows; main() refuses there anyway.
+_INTERRUPT_SIGNALS = tuple(
+    getattr(signal, name)
+    for name in ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT")
+    if hasattr(signal, name)
 )
 
 
@@ -315,8 +315,7 @@ def run_step(
         command = [setpriv, "--no-new-privs", *command]
     else:
         print(
-            "ci-local: setpriv is unavailable; this step runs without "
-            "no-new-privileges protection",
+            "ci-local: setpriv is unavailable; this step runs without no-new-privileges protection",
             file=sys.stderr,
             flush=True,
         )
@@ -581,6 +580,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if browser_dependencies_available(Path.cwd()) else 1
     if args.windows:
         _die(WINDOWS_REFUSAL)
+    if sys.platform != "linux":
+        _die(f"ci-local runs the Linux checks and needs a Linux host (this is {sys.platform})")
     if args.python is None:
         _die("--python is required for the Linux checks")
     if args.commit.startswith("-"):
