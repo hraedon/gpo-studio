@@ -1,0 +1,16 @@
+﻿
+
+DisplayName      : zz-studio-rp-report-parity-20261020073320-2127-17
+DomainName       : AD.LABDOMAIN.DEV
+Owner            : LAB\Domain Admins
+Id               : 55e99977-fce9-409d-935c-d04e473bbf4a
+GpoStatus        : AllSettingsEnabled
+Description      : 
+CreationTime     : 10/20/2026 7:32:59 AM
+ModificationTime : 10/20/2026 7:33:00 AM
+UserVersion      : AD Version: 1, SysVol Version: 1
+ComputerVersion  : AD Version: 1, SysVol Version: 1
+WmiFilter        : 
+
+
+

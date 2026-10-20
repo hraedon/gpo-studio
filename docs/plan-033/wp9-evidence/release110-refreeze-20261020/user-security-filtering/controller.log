@@ -1,0 +1,30 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=user-security-filtering
+built rsop candidate for user-security-filtering (4 GPOs) in /home/itadmin/gpo-batch-110g/tmp/rsop-user-candidate-20261020075931
+  predicted winners: AllowOnly=1(Studio-RSOP-FilterAllow), Control=present(Studio-RSOP-UserControl), Filter=allow(Studio-RSOP-FilterAllow), NestedOnly=1(Studio-RSOP-FilterNested)
+  predicted denied:  Studio-RSOP-FilterReadOnly(security_filter_mismatch)
+RUN_ID=rsop-user-observe-20261020080007-6568
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261020080007-6568
+PREFLIGHT_VALUES=
+RUN_ID=rsop-author-20261020080011-2461
+WORK_DIR=C:\gpo-studio\out\rsop-author-20261020080011-2461
+--- re-establishing the interactive session (group 'StudioRsopGroup') ---
+OperationStopped: /projects/gpo-studio-110g/scripts/windows-oracle/psdirect.ps1:379
+Line |
+ 379 |          $out = Receive-Job -Job $job -ErrorAction Stop
+     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | harness exited 1
+at <ScriptBlock>, <No file>: line 1
+at <ScriptBlock>, <No file>: line 5
+RUN_ID=rsop-user-observe-20261020080044-9770
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261020080044-9770
+RESESSION_PROBLEMS=
+RUN_ID=rsop-user-observe-20261020080055-6849
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261020080055-6849
+--- authoring cleanup ---
+{"run_id":"rsop-author-20261020080011-2461","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":"CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev","user_restored":true,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/home/itadmin/gpo-batch-110g/tmp/rsop-user-run-20261020075931
+CANDIDATE_DIR=/home/itadmin/gpo-batch-110g/tmp/rsop-user-candidate-20261020075931
+
+run rsop-user-observe-20261020080055-6849: state=pass (source 5ffa026516830139f8607ef5706f2bf8f4e002d5, dirty=False)
+  loopback intended='disabled' observed='disabled'

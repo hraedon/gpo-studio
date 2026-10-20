@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<NTServices clsid="{2CFB484A-4E96-4b5d-A0B6-093D2F91E6AE}"><NTService clsid="{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}" name="SyntheticSvc" removePolicy="0" userContext="0" disabled="0" bypassErrors="1"><Properties startupType="AUTOMATIC" serviceName="SyntheticSvc" timeout="30" /></NTService></NTServices>

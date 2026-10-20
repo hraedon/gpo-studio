@@ -9,38 +9,44 @@ The single source of truth for the profile is `FROZEN_ENVIRONMENT` in
 `src/gpo_studio/oracle_evidence.py` (rule 7). Keep this document in sync with
 it; `tests/test_oracle_evidence.py` checks that every frozen value appears here.
 
-Status: environment frozen; requalified 2026-10-19 by the release 1.1.0 final batch.
+Status: environment frozen; requalified 2026-10-20 by the release 1.1.0 re-freeze batch.
 The validation hosts are the isolated member server, domain controller and
 client, reached over PowerShell Direct, with the build-family requirements
 below.
 
 ## Current qualification
 
-The [release 1.1.0 final batch](release110-final-batch.md) is current: all 26
-lanes passed on 2026-10-19 at the freeze commit,
-`765b30405f59e12f05c518ae16ddcc8437be5cd3`, the commit 1.1.0 ships, driven by
+The [release 1.1.0 re-freeze batch](release110-refreeze-batch.md) is current:
+all 26 lanes passed on 2026-10-20 at the re-freeze commit,
+`5ffa026516830139f8607ef5706f2bf8f4e002d5`, the commit 1.1.0 ships, driven by
 `scripts/plan-033/run-requal-batch.sh` under its per-lane watchdog and
 containment layer (manifest-form bound source). Every row below binds that one
 commit.
 
-It replaced every release candidate verdict: the 20 still cited from the
-[release 1.1.0 batch](release110-batch.md) at `de9736e` and the six from its
-[successor batch](release110-successors-batch.md) at `9940561`, all pending
-requalification since the 2026-10-17 whole-value validator sweep changed files
-every lane binds. Their packs and tags are kept as history.
+It replaced every verdict of the [release 1.1.0 final
+batch](release110-final-batch.md), 26 of 26 at the first freeze commit
+`765b304` on 2026-10-19. The tag `v1.1.0` on that freeze's approval published
+nothing (release workflow run 39361251167 cancelled its `verify` job at the
+time limit), so 1.1.0 was frozen again at `5ffa026` and every lane re-run
+there; the release gate holds every live verdict to the freeze commit. That
+batch had itself replaced every release candidate verdict, from the
+[release 1.1.0 batch](release110-batch.md) at `de9736e` and its
+[successor batch](release110-successors-batch.md) at `9940561`. Their packs and
+tags are kept as history.
 
-Every run id's stamp falls inside its lane's driver window except the DC's
-(`wp3-dc`): the guest stamps that id with its own clock, and it is 39 seconds
-before the lane started, so the DC's clock ran at least that far behind the
-controller's. The [batch note](release110-final-batch.md) records it. The
-release candidate batches, the [Plan 034 batch](plan034-batch.md), the four
-lane certifications banked after it, and the WI-062, WI-059 and WI-060 batches
-remain the binding history for their commits.
+Compared at its one-second precision, every run id's stamp falls inside its
+lane's driver window except the DC's (`wp3-dc`): the guest stamps that id with
+its own clock, and it is 42 seconds before the lane started, so the DC's clock
+ran at least that far behind the controller's (39 seconds in the first freeze's batch). The
+[batch note](release110-refreeze-batch.md) records it. The first freeze's
+batch, the release candidate batches, the [Plan 034 batch](plan034-batch.md),
+the four lane certifications banked after it, and the WI-062, WI-059 and WI-060
+batches remain the binding history for their commits.
 
-**WP-0.** The current run is `live-synthetic-registry-basic-20261019155134-6415`
-at `765b30405f59e12f05c518ae16ddcc8437be5cd3`. Canonical manifest hash:
-`6c4303bff8de0801b3d822de9bfefa3b6bbdbdbf6fee2f1c7c9c140b6f7f29ad`. Its
-[pack](wp0-evidence/release110-final-20261019/wp0/manifest.json) carries the recipe,
+**WP-0.** The current run is `live-synthetic-registry-basic-20261020072705-9695`
+at `5ffa026516830139f8607ef5706f2bf8f4e002d5`. Canonical manifest hash:
+`a5210eb11b878b5c4309d84407f5e661ba7313de24964bee6b5343c164908f59`. Its
+[pack](wp0-evidence/release110-refreeze-20261020/wp0/manifest.json) carries the recipe,
 guest scripts and every artifact and command stream, and binds the controller,
 transport, finalizer and shared enforcement library by `(commit, path, sha256)`
 rather than by copy. Every artifact rehashes intact, and cleanup passed.
@@ -60,35 +66,35 @@ produced a verdict.
 
 | Lane | Environment | Transport | Qualified | Certifying run (tagged `evidence/<run-id>`) |
 |---|---|---|---|---|
-| wp0 | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `live-synthetic-registry-basic-20261019155134-6415` (`pass`) |
-| wp1b | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `wp1b-writer-20261019155315-9046` (`pass`) |
-| wp2 | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `wp2-native-import-20261019155422-5328` (`pass`) |
-| wp3-member | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `wp3-security-template-20261019155513-8477` (`pass`) |
-| wp3-dc | estate, domain controller (role 5) | `psdirect` | 2026-10-19 | `wp3-security-template-20261019155452-1648` (`pass`) |
-| object-security | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `object-security-20261019155637-6032` (`pass`) |
-| scripts-metadata | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `scripts-r10-20261019155712-3835` (`pass`) |
-| publication | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `publication-completeness-20261019155758-4530` (`pass`) |
-| lifecycle | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `lifecycle-20261019155839-7141-cbc99747b80b4645` (`pass`) |
-| report-parity | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `report-parity-20261019155932-2646` (`pass`) |
-| fdeploy | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `fd-20261019160401-3653` (`pass`) |
-| endpoint | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `endpoint-observe-20261019160520-5888` (`pass`) |
-| lsdou-precedence | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-observe-20261019160859-9265` (`pass`) |
-| disabled-block-enforced | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-observe-20261019161122-7582` (`pass`) |
-| wmi-filtering | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-observe-20261019161318-7026` (`pass`) |
-| wmi-filtering-error | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-observe-20261019161509-1243` (`pass`) |
-| computer-security-filtering | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-observe-20261019161659-3576` (`pass`) |
-| computer-security-filtering-group-deny | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-observe-20261019163644-2281` (`pass`) |
-| computer-security-filtering-deny-read | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-observe-20261019161851-1960` (`pass`) |
-| loopback-merge | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-user-observe-20261019162047-3911` (`pass`) |
-| loopback-replace | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-user-observe-20261019162306-2809` (`pass`) |
-| user-side-disabled | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-user-observe-20261019162524-3630` (`pass`) |
-| user-security-filtering | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-user-observe-20261019162824-9670` (`pass`) |
-| user-security-filtering-deny | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-user-observe-20261019163131-5611` (`pass`) |
-| user-security-filtering-read-deny | estate, member server + client (26200) | `psdirect` | 2026-10-19 | `rsop-user-observe-20261019163359-6458` (`pass`) |
-| firewall | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-19 | `firewall-20261019160121-1083478` (`pass`) |
+| wp0 | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `live-synthetic-registry-basic-20261020072705-9695` (`pass`) |
+| wp1b | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `wp1b-writer-20261020072808-8446` (`pass`) |
+| wp2 | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `wp2-native-import-20261020072858-5525` (`pass`) |
+| wp3-member | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `wp3-security-template-20261020072938-4029` (`pass`) |
+| wp3-dc | estate, domain controller (role 5) | `psdirect` | 2026-10-20 | `wp3-security-template-20261020072911-9635` (`pass`) |
+| object-security | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `object-security-20261020073052-3290` (`pass`) |
+| scripts-metadata | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `scripts-r10-20261020073126-4216` (`pass`) |
+| publication | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `publication-completeness-20261020073202-7563` (`pass`) |
+| lifecycle | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `lifecycle-20261020073233-9178-40aaabfb07a44f6d` (`pass`) |
+| report-parity | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `report-parity-20261020073320-2127` (`pass`) |
+| fdeploy | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `fd-20261020073719-5157` (`pass`) |
+| endpoint | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `endpoint-observe-20261020073835-9781` (`pass`) |
+| lsdou-precedence | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-observe-20261020074127-4290` (`pass`) |
+| disabled-block-enforced | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-observe-20261020074322-5597` (`pass`) |
+| wmi-filtering | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-observe-20261020074546-9797` (`pass`) |
+| wmi-filtering-error | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-observe-20261020074753-3255` (`pass`) |
+| computer-security-filtering | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-observe-20261020074945-9317` (`pass`) |
+| computer-security-filtering-group-deny | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-observe-20261020080904-2605` (`pass`) |
+| computer-security-filtering-deny-read | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-observe-20261020075135-6601` (`pass`) |
+| loopback-merge | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-user-observe-20261020075328-1230` (`pass`) |
+| loopback-replace | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-user-observe-20261020075545-2837` (`pass`) |
+| user-side-disabled | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-user-observe-20261020075802-7706` (`pass`) |
+| user-security-filtering | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-user-observe-20261020080055-6849` (`pass`) |
+| user-security-filtering-deny | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-user-observe-20261020080359-8373` (`pass`) |
+| user-security-filtering-read-deny | estate, member server + client (26200) | `psdirect` | 2026-10-20 | `rsop-user-observe-20261020080623-7133` (`pass`) |
+| firewall | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-20 | `firewall-20261020073459-2222842` (`pass`) |
 
 Every row binds the freeze commit
-`765b30405f59e12f05c518ae16ddcc8437be5cd3`. The shared byte guard and finalizer inputs are
+`5ffa026516830139f8607ef5706f2bf8f4e002d5`. The shared byte guard and finalizer inputs are
 part of the recorded evidence.
 
 Each lane needed its own qualifying run rather than inheriting WP-1B's. The
@@ -105,7 +111,7 @@ original scope and commit.
 | Role | OS | Build | Notes |
 |------|----|-------|-------|
 | DC / server | Windows Server 2025 Standard | 26100 family | Primary validation target |
-| Client | Windows 11 Enterprise (25H2) | 26200 family | Endpoint processing oracle; **requalified 2026-10-19** by `endpoint-observe-20261019160520-5888` |
+| Client | Windows 11 Enterprise (25H2) | 26200 family | Endpoint processing oracle; **requalified 2026-10-20** by `endpoint-observe-20261020073835-9781` |
 
 Builds are qualified by **family**, not by exact servicing revision. A run on
 `26100.4652` and a run on `26100.5011` are both on-target for the 26100 family.
@@ -137,7 +143,7 @@ re-freeze: record it here first.
 | PowerShell | 5.1.26100 family, Desktop edition | Built into Windows |
 | GroupPolicy module | 1.0.0.0 (exact) | `Get-Module GroupPolicy` — **server only**, absent on the client |
 | GPMC | built-in (matched to OS build) | Server Manager feature |
-| secedit | rides the server OS build family (26100) | Built into Windows; 20/20 on member `wp3-security-template-20261019155513-8477` and DC `wp3-security-template-20261019155452-1648` (release 1.1.0 final batch, 2026-10-19) |
+| secedit | rides the server OS build family (26100) | Built into Windows; 20/20 on member `wp3-security-template-20261020072938-4029` and DC `wp3-security-template-20261020072911-9635` (release 1.1.0 re-freeze batch, 2026-10-20) |
 | gpresult.exe | rides the client OS build family (26200) | Built into Windows; requalified with the client 2026-10-08 |
 | LGPO.exe | **recorded, not qualified** — see below | Microsoft Security Compliance Toolkit |
 

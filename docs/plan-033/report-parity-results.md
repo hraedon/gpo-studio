@@ -1,6 +1,15 @@
 # Report parity — Windows results
 
-**Current qualification (2026-10-19):** `report-parity-20261019155932-2646`, 26/26, on
+**Current qualification (2026-10-20):** `report-parity-20261020073320-2127`, 26/26, on
+clean freeze commit `5ffa026516830139f8607ef5706f2bf8f4e002d5`
+([evidence](wp2-evidence/release110-refreeze-20261020/report-parity/verification.json),
+[release 1.1.0 re-freeze batch](release110-refreeze-batch.md)), tagged
+`evidence/report-parity-20261020073320-2127`. 30 corpus cases plus the guest-authored case; the WI-072 and WI-073 cases agree with Windows exactly, as `fixed_work_item_cases_agree_exactly` requires. It replaces the first freeze's run below: 1.1.0
+was frozen again at `5ffa026` because the tag on the first freeze's approval
+published nothing (release workflow run 39361251167), and every live verdict
+must be the freeze batch's run; its pack and tag are kept.
+
+**Previous qualification (2026-10-19):** `report-parity-20261019155932-2646`, 26/26, on
 clean freeze commit `765b30405f59e12f05c518ae16ddcc8437be5cd3`
 ([evidence](wp2-evidence/release110-final-20261019/report-parity/verification.json),
 [release 1.1.0 final batch](release110-final-batch.md)), tagged

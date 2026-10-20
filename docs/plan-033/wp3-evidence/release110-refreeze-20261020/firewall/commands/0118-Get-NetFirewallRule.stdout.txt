@@ -1,0 +1,317 @@
+﻿
+
+Name                          : StudioFwLane-01
+DisplayName                   : StudioFwLane in tcp allow
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Domain
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Allow
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-02
+DisplayName                   : StudioFwLane out udp block range
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Domain, Private
+Platform                      : {}
+Direction                     : Outbound
+Action                        : Block
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-03
+DisplayName                   : StudioFwLane icmpv4 echo
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Allow
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-04
+DisplayName                   : StudioFwLane icmpv6 any
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Allow
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-05
+DisplayName                   : StudioFwLane any protocol addresses
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Block
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-06
+DisplayName                   : StudioFwLane program
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Outbound
+Action                        : Allow
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-07
+DisplayName                   : StudioFwLane service
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Allow
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-08
+DisplayName                   : StudioFwLane rpc keyword
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Allow
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-09
+DisplayName                   : StudioFwLane rpc epmap
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Allow
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-10
+DisplayName                   : StudioFwLane disabled grouped
+Description                   : synthetic probe rule
+DisplayGroup                  : StudioFwLane Group
+Group                         : StudioFwLane Group
+Enabled                       : False
+Profile                       : Any
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Allow
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-11
+DisplayName                   : StudioFwLane edge and interface
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Allow
+EdgeTraversalPolicy           : Allow
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-12
+DisplayName                   : StudioFwLane protocol number
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Outbound
+Action                        : Block
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+Name                          : StudioFwLane-13
+DisplayName                   : StudioFwLane override block
+Description                   : 
+DisplayGroup                  : 
+Group                         : 
+Enabled                       : True
+Profile                       : Any
+Platform                      : {}
+Direction                     : Inbound
+Action                        : Allow
+EdgeTraversalPolicy           : Block
+LooseSourceMapping            : False
+LocalOnlyMapping              : False
+Owner                         : 
+PrimaryStatus                 : OK
+Status                        : The rule was parsed successfully from the 
+                                store. (65536)
+EnforcementStatus             : NotApplicable
+PolicyStoreSource             : 
+PolicyStoreSourceType         : GroupPolicy
+RemoteDynamicKeywordAddresses : {}
+PolicyAppId                   : 
+PackageFamilyName             : 
+
+
+
+

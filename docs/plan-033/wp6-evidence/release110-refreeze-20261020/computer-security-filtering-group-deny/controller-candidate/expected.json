@@ -1,0 +1,26 @@
+{
+  "control_gpo": "Studio-RSOP-Control",
+  "control_value_name": "Control",
+  "endpoint_user": "",
+  "expect_finding": "",
+  "group_member": "computer",
+  "group_name": "StudioRsopGroup",
+  "loopback_mode": "disabled",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-CompFilterDenyGroup",
+      "isolates": "WI-054: an APPLY deny matched THROUGH A GROUP the client's computer account belongs to, resolved on the COMPUTER side. The group is the only identity the deny names, so a block can only have come through the membership -- and the machine token only carries the group because the run rebooted the client after authoring it in. The model says BLOCKED, the same answer it gives for a user-side group deny; whether Windows agrees about a machine token is what this row measures. ABSENT-applied => the model over-withholds on the computer side; PRESENT where the model said applied => it over-promises. Either divergence is a finding, not a lane failure."
+    },
+    {
+      "gpo": "Studio-RSOP-CompFilterAllow",
+      "isolates": "CONTROL for the row above: no group filter at all, so the group gate cannot touch it. Applied, and winner of Filter once the deny row is out -- which is what separates a working deny from a DACL or membership that blocked everything the run authored."
+    },
+    {
+      "gpo": "Studio-RSOP-Control",
+      "isolates": "CONTROL: default filtering, unconflicted. Absent => nothing applied."
+    }
+  ],
+  "scenario_id": "computer-security-filtering-group-deny",
+  "scope": "computer"
+}

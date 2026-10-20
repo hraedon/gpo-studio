@@ -1,0 +1,58 @@
+{
+  "applied_gpos": [
+    "Studio-RSOP-CompFilterAllow",
+    "Studio-RSOP-Control"
+  ],
+  "computer_group_memberships": [
+    "StudioRsopGroup"
+  ],
+  "denied_gpos": [
+    {
+      "gpo": "Studio-RSOP-CompFilterDenyGroup",
+      "reasons": [
+        "security_filter_denied"
+      ]
+    }
+  ],
+  "expect_finding": "",
+  "loopback_mode": "disabled",
+  "out_of_scope_gpos": [],
+  "query_id": "wp6b-computer-security-filtering-group-deny",
+  "scenario_id": "computer-security-filtering-group-deny",
+  "scope": "computer",
+  "target": {
+    "computer_name": "LabCL01",
+    "domain": "ad.labdomain.dev",
+    "site_name": "Default-First-Site-Name",
+    "user_name": ""
+  },
+  "unevaluable_gpos": [],
+  "user_group_memberships": [],
+  "warnings": [],
+  "winners": [
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "1",
+      "value_name": "AllowOnly",
+      "winning_gpo": "Studio-RSOP-CompFilterAllow"
+    },
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "present",
+      "value_name": "Control",
+      "winning_gpo": "Studio-RSOP-Control"
+    },
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "allow",
+      "value_name": "Filter",
+      "winning_gpo": "Studio-RSOP-CompFilterAllow"
+    }
+  ]
+}

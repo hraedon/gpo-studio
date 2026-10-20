@@ -1,0 +1,72 @@
+{
+  "schema_version": "1",
+  "fixture_id": "wi01a-drivemaps-gpmc",
+  "description": "Drive Maps GPO authored via GPMC Editor — user scope, four items covering update/replace/delete/create actions, FilterOs+FilterRunOnce ILT, Unicode path and XML-entity label",
+  "classification": "native-gpmc-authored",
+  "classification_note": "Authored through gpme.msc on Windows Server 2025 and captured via Backup-GPO. GPMC natively emitted all elements.",
+  "origin": {
+    "method": "Backup-GPO on Windows Server 2025 build 26100, PowerShell 5.1",
+    "domain": "ad.hraedon.com",
+    "captured_at": "2026-07-26T17:55:38Z",
+    "backup_id": "{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}",
+    "gpo_guid": "{F0197E25-3E19-4835-B296-3C35DC069635}",
+    "gpo_display_name": "WI01A-DriveMaps-GPMC"
+  },
+  "native_layout": {
+    "format": "gpmc-backup-v2",
+    "root": "{BACKUP_ID}/DomainSysvol/GPO",
+    "gpp_file": "User/Preferences/Drives/Drives.xml"
+  },
+  "items": [
+    {
+      "uid": "{0C6877AF-4BF2-43F1-8615-851BCA128E87}",
+      "windows_meaning": "Map \\\\filesrv\\home to drive M: with label 'Home Drive'. Persistent, uses specified letter. Action Update: create if absent, modify if present. FilterRunOnce promoted to apply_once; FilterOs ILT retained.",
+      "element": "Drive",
+      "scope": "user",
+      "action": "U",
+      "drive_letter": "M",
+      "unc_path": "\\\\filesrv\\home",
+      "label": "Home Drive",
+      "persistent": true,
+      "item_level_targeting": ["FilterOs", "FilterRunOnce"]
+    },
+    {
+      "uid": "{2DB93EAD-4B50-426A-9978-79EABCF2D8AF}",
+      "windows_meaning": "Map \\\\filesrv\\projects to drive P: with label 'Projects'. Not persistent. Action Replace: delete and recreate unconditionally. removePolicy=1, bypassErrors=1.",
+      "element": "Drive",
+      "scope": "user",
+      "action": "R",
+      "drive_letter": "P",
+      "unc_path": "\\\\filesrv\\projects",
+      "label": "Projects",
+      "persistent": false
+    },
+    {
+      "uid": "{47A31127-FCA5-4584-89ED-6F7704CC278E}",
+      "windows_meaning": "Delete the drive X: mapping. Action Delete: remove the mapping if it exists.",
+      "element": "Drive",
+      "scope": "user",
+      "action": "D",
+      "drive_letter": "X"
+    },
+    {
+      "uid": "{98C078D3-5A7C-412C-B956-34AAC110AA6A}",
+      "windows_meaning": "Create drive H: mapping to \\\\filesrv\\shäre-ünïcode with Unicode label containing XML entities. Action Create: create only if absent. bypassErrors=1.",
+      "element": "Drive",
+      "scope": "user",
+      "action": "C",
+      "drive_letter": "H",
+      "unc_path": "\\\\filesrv\\shäre-ünïcode",
+      "label": "Ünïcödé <\"&> label",
+      "persistent": false
+    }
+  ],
+  "parser_gaps": [
+    {
+      "gap": "collect_gpp_collections does not discover Drives/Drives.xml from backup directories",
+      "impact": "Import through the public backup-import path will not parse drive map items",
+      "severity": "resolved",
+      "note": "collect_gpp_collections now discovers all GPP adapter files"
+    }
+  ]
+}

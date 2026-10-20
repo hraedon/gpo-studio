@@ -1,0 +1,154 @@
+{
+  "domain": "ad.labdomain.dev",
+  "endpoint_computer": "LabCL01",
+  "endpoint_user": "labauto1",
+  "gpos": [
+    {
+      "enforced": false,
+      "filters": [],
+      "link_enabled": true,
+      "name": "Studio-RSOP-Loopback",
+      "order": 1,
+      "raw_values": [
+        {
+          "key": "Software\\Policies\\Microsoft\\Windows\\System",
+          "type": "DWord",
+          "value": 2,
+          "value_name": "UserPolicyMode",
+          "why": "'Configure user Group Policy loopback processing mode' = replace. A COMPUTER-side value that changes how the USER side is resolved."
+        }
+      ],
+      "scope": "ou",
+      "scope_dn": "OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "scope_key": "child",
+      "user_enabled": true,
+      "user_values": [],
+      "values": [
+        {
+          "type": "String",
+          "value": "replace",
+          "value_name": "LoopbackOn"
+        }
+      ],
+      "wmi_filter": null
+    },
+    {
+      "enforced": false,
+      "filters": [],
+      "link_enabled": true,
+      "name": "Studio-RSOP-CompLocation",
+      "order": 2,
+      "raw_values": [],
+      "scope": "ou",
+      "scope_dn": "OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "scope_key": "child",
+      "user_enabled": true,
+      "user_values": [
+        {
+          "type": "String",
+          "value": "1",
+          "value_name": "CompOnly"
+        },
+        {
+          "type": "String",
+          "value": "computerLocation",
+          "value_name": "Loop"
+        }
+      ],
+      "values": [],
+      "wmi_filter": null
+    },
+    {
+      "enforced": false,
+      "filters": [],
+      "link_enabled": true,
+      "name": "Studio-RSOP-UserLocation",
+      "order": 1,
+      "raw_values": [],
+      "scope": "ou",
+      "scope_dn": "OU=StudioRsopUser,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "scope_key": "user",
+      "user_enabled": true,
+      "user_values": [
+        {
+          "type": "String",
+          "value": "userLocation",
+          "value_name": "Loop"
+        },
+        {
+          "type": "String",
+          "value": "1",
+          "value_name": "UserOnly"
+        }
+      ],
+      "values": [],
+      "wmi_filter": null
+    },
+    {
+      "enforced": false,
+      "filters": [],
+      "link_enabled": true,
+      "name": "Studio-RSOP-UserControl",
+      "order": 3,
+      "raw_values": [],
+      "scope": "ou",
+      "scope_dn": "OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "scope_key": "child",
+      "user_enabled": true,
+      "user_values": [
+        {
+          "type": "String",
+          "value": "present",
+          "value_name": "Control"
+        }
+      ],
+      "values": [],
+      "wmi_filter": null
+    }
+  ],
+  "group_member": "",
+  "group_name": "",
+  "loopback_mode": "replace",
+  "ous": [
+    {
+      "block_inheritance": false,
+      "dn": "OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "key": "root",
+      "name": "StudioRsop",
+      "parent_dn": "DC=ad,DC=labdomain,DC=dev",
+      "parent_key": "domain"
+    },
+    {
+      "block_inheritance": false,
+      "dn": "OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "key": "parent",
+      "name": "StudioRsopParent",
+      "parent_dn": "OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "parent_key": "root"
+    },
+    {
+      "block_inheritance": false,
+      "dn": "OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "key": "child",
+      "name": "StudioRsopChild",
+      "parent_dn": "OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "parent_key": "parent"
+    },
+    {
+      "block_inheritance": false,
+      "dn": "OU=StudioRsopUser,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "key": "user",
+      "name": "StudioRsopUser",
+      "parent_dn": "OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "parent_key": "root"
+    }
+  ],
+  "policy_key": "Software\\Policies\\StudioLab",
+  "scenario_id": "loopback-replace",
+  "scope": "user",
+  "site_name": "Default-First-Site-Name",
+  "target_ou_dn": "OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+  "target_ou_key": "child",
+  "user_ou_dn": "OU=StudioRsopUser,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+  "user_ou_key": "user"
+}

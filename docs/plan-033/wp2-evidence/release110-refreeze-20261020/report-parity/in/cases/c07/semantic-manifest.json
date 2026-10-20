@@ -1,0 +1,70 @@
+{
+  "schema_version": "1",
+  "fixture_id": "wi01a-mixedcse-gpmc",
+  "description": "Mixed CSE GPO authored via GPMC Editor — one GPO with three CSE extensions: User-scope Drive (replace with Unicode label), Machine-scope Group (update Administrators), Machine-scope TaskV2 (create with daily trigger)",
+  "classification": "native-gpmc-authored",
+  "classification_note": "Authored through gpme.msc on Windows Server 2025 and captured via Backup-GPO. Tests multi-CSE GPO with all three adapters exercised from a single backup.",
+  "origin": {
+    "method": "Backup-GPO on Windows Server 2025 build 26100, PowerShell 5.1",
+    "domain": "ad.hraedon.com",
+    "captured_at": "2026-07-26T17:55:39Z",
+    "backup_id": "{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}",
+    "gpo_guid": "{E6C12A1A-B830-4B2E-BF63-5A8969802816}",
+    "gpo_display_name": "WI01A-MixedCSE-GPMC"
+  },
+  "native_layout": {
+    "format": "gpmc-backup-v2",
+    "root": "{BACKUP_ID}/DomainSysvol/GPO",
+    "gpp_file": "User/Preferences/Drives/Drives.xml, Machine/Preferences/Groups/Groups.xml, Machine/Preferences/ScheduledTasks/ScheduledTasks.xml"
+  },
+  "items": [
+    {
+      "uid": "{6594460C-136A-4AA4-964A-0596C220DF63}",
+      "windows_meaning": "Replace drive X: mapping to \\\\filesrv\\replace-mixed with Unicode label containing XML entities. Persistent. Action Replace.",
+      "element": "Drive",
+      "scope": "user",
+      "action": "R",
+      "drive_letter": "X",
+      "unc_path": "\\\\filesrv\\replace-mixed",
+      "label": "Ünïcödé <\"&> label",
+      "persistent": true
+    },
+    {
+      "uid": "{D07D1705-AA3C-4713-B20C-B42BBC698DE9}",
+      "windows_meaning": "Update built-in Administrators group: add HRAENET\\lab-admins. Action Update.",
+      "element": "Group",
+      "scope": "computer",
+      "action": "U",
+      "group_name": "Administrators (built-in)",
+      "group_sid": "S-1-5-32-544",
+      "members": [
+        {"name": "HRAENET\\lab-admins", "action": "ADD", "sid": "S-1-5-21-0000000000-0000000000-0000000000-4674"}
+      ]
+    },
+    {
+      "uid": "{5BE00225-8C30-4FB6-84CE-1F74A364B4F3}",
+      "windows_meaning": "Create scheduled task 'Mixed Task': runs notepad.exe daily as NT AUTHORITY\\System. Unicode description. Action Create.",
+      "element": "TaskV2",
+      "scope": "computer",
+      "action": "C",
+      "task_name": "Mixed Task",
+      "run_as": "NT AUTHORITY\\System",
+      "command": "C:\\windows\\system32\\notepad.exe",
+      "triggers": ["CalendarTrigger/ScheduleByDay"]
+    }
+  ],
+  "parser_gaps": [
+    {
+      "gap": "collect_gpp_collections does not discover Drives or ScheduledTasks XML from backup directories",
+      "impact": "Only Groups.xml is imported; drive and task items from multi-CSE GPOs are lost",
+      "severity": "resolved",
+      "note": "Fixed: collect_gpp_collections now discovers all GPP adapter files"
+    },
+    {
+      "gap": "parse_gpp_scheduled_tasks searches for <Task> elements but GPMC emits <TaskV2>",
+      "impact": "TaskV2 items in the mixed GPO are invisible to the parser",
+      "severity": "resolved",
+      "note": "Fixed: parser now searches for both <TaskV2> and <Task> elements"
+    }
+  ]
+}

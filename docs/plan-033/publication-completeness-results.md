@@ -1,6 +1,15 @@
 # Publication completeness — Windows results
 
-**Current qualification (2026-10-19):** `publication-completeness-20261019155758-4530`, 21/21, on
+**Current qualification (2026-10-20):** `publication-completeness-20261020073202-7563`, 21/21, on
+clean freeze commit `5ffa026516830139f8607ef5706f2bf8f4e002d5`
+([evidence](wp1b-evidence/release110-refreeze-20261020/publication/verification.json),
+[release 1.1.0 re-freeze batch](release110-refreeze-batch.md)), tagged
+`evidence/publication-completeness-20261020073202-7563`. It replaces the first freeze's run below: 1.1.0
+was frozen again at `5ffa026` because the tag on the first freeze's approval
+published nothing (release workflow run 39361251167), and every live verdict
+must be the freeze batch's run; its pack and tag are kept.
+
+**Previous qualification (2026-10-19):** `publication-completeness-20261019155758-4530`, 21/21, on
 clean freeze commit `765b30405f59e12f05c518ae16ddcc8437be5cd3`
 ([evidence](wp1b-evidence/release110-final-20261019/publication/verification.json),
 [release 1.1.0 final batch](release110-final-batch.md)), tagged

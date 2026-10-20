@@ -1,0 +1,30 @@
+{
+  "control_gpo": "Studio-RSOP-UserControl",
+  "control_value_name": "Control",
+  "endpoint_user": "labauto1",
+  "expect_finding": "",
+  "group_member": "user",
+  "group_name": "StudioRsopGroup",
+  "loopback_mode": "disabled",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-FilterAllow",
+      "isolates": "Read + Apply for the principal: applies, and wins the conflict at order 1"
+    },
+    {
+      "gpo": "Studio-RSOP-FilterReadOnly",
+      "isolates": "Read WITHOUT Apply: the principal can see the GPO and must not receive it. ReadOnlyOnly must be ABSENT"
+    },
+    {
+      "gpo": "Studio-RSOP-FilterNested",
+      "isolates": "Apply granted to a GROUP the principal belongs to: applies through the token. NestedOnly must be present"
+    },
+    {
+      "gpo": "Studio-RSOP-UserControl",
+      "isolates": "CONTROL: default Authenticated Users Read+Apply, unconflicted. Absent => the experiment did not run, and every absence above means nothing."
+    }
+  ],
+  "scenario_id": "user-security-filtering",
+  "scope": "user"
+}

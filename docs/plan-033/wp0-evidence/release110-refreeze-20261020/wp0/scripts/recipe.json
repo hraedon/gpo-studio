@@ -1,0 +1,34 @@
+{
+  "fixture_id": "synthetic-registry-basic",
+  "description": "Basic registry settings for WP-0 dry run validation",
+  "gpo_name_prefix": "WP0-DryRun-Registry",
+  "settings": [
+    {
+      "side": "computer",
+      "hive": "HKLM",
+      "key": "SOFTWARE\\Policies\\GPOStudio\\Test",
+      "value_name": "TestString",
+      "value_type": "REG_SZ",
+      "value": "synthetic-test-value",
+      "action": "set"
+    },
+    {
+      "side": "computer",
+      "hive": "HKLM",
+      "key": "SOFTWARE\\Policies\\GPOStudio\\Test",
+      "value_name": "TestDword",
+      "value_type": "REG_DWORD",
+      "value": 42,
+      "action": "set"
+    },
+    {
+      "side": "user",
+      "hive": "HKCU",
+      "key": "SOFTWARE\\Policies\\GPOStudio\\Test",
+      "value_name": "UserString",
+      "value_type": "REG_SZ",
+      "value": "synthetic-user-value",
+      "action": "set"
+    }
+  ]
+}

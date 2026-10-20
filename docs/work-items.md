@@ -3824,16 +3824,23 @@ these fail except the add.
 ## WI-083 — live verdicts are fresh only for a hand-written subset of what they execute
 
 **Opened:** 2026-10-13 (measuring change cost for [Plan 036](../plans/036-change-cost.md)).
-**Status:** closed 2026-10-19 for 1.1.0, by construction, as the owner decided
-on 2026-10-17: all 26 live lanes were requalified at the freeze commit `F`,
-`765b30405f59e12f05c518ae16ddcc8437be5cd3`, by the
-[release 1.1.0 final batch](plan-033/release110-final-batch.md) (label
-`release110-final-20261019`, 26 of 26 passed, clean post-batch directory
-check), banked in the evidence-only commit `B` whose parent is `F`. Every
-earlier live verdict is retired, so every live verdict and the WP-0 manifest
+**Status:** closed 2026-10-20 for 1.1.0, by construction, as the owner decided
+on 2026-10-17: all 26 live lanes were requalified at the freeze commit `F`, the
+re-freeze commit `5ffa026516830139f8607ef5706f2bf8f4e002d5`, by the
+[release 1.1.0 re-freeze batch](plan-033/release110-refreeze-batch.md) (label
+`release110-refreeze-20261020`, 26 of 26 passed, clean post-batch directory
+check), banked in commit `B` whose parent is `F`, evidence and records only
+(the batch's packs, manifest, note and post-batch check added, and only the
+release records modified). Every earlier live verdict is retired, so every live verdict and the WP-0 manifest
 name `F`; the release evidence report records `F` and the batch manifest; and
 `check_release_manifest.py` accepts `v1.1.0` on the records-only approval
-commit `A` that follows `B`. The hand-written binding it describes is
+commit `A` that follows `B`. A first attempt closed it on 2026-10-19 at the
+first freeze commit `765b30405f59e12f05c518ae16ddcc8437be5cd3`, with the
+[release 1.1.0 final batch](plan-033/release110-final-batch.md) (label
+`release110-final-20261019`, 26 of 26 passed); it was superseded because the
+tag `v1.1.0` on its approval commit `d19f846` never published (release workflow
+run 39361251167 cancelled `verify` at its 25-minute limit), so 1.1.0 was frozen
+again and every lane re-run at the new freeze commit. The hand-written binding it describes is
 unchanged and stays WI-084's (WP-0, post-1.1.0). It was accepted as a 1.1.0
 final blocker by the owner on 2026-10-13, with Plan 036 ("Your recommendations are fine: no qualms
 about the plan detailed in 106"). On 2026-10-17 the owner, on the

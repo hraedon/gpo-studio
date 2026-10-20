@@ -1,0 +1,15 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=wmi-filtering-error
+built rsop candidate for wmi-filtering-error (3 GPOs) in /home/itadmin/gpo-batch-110g/tmp/rsop-candidate-20261020074703
+  predicted winners: Control=present(Studio-RSOP-Control), Wmi=true(Studio-RSOP-WmiTrue), WmiTrueOnly=1(Studio-RSOP-WmiTrue)
+  predicted denied:  Studio-RSOP-WmiError(wmi_filter_unevaluatable)
+RUN_ID=rsop-author-20261020074743-3291
+WORK_DIR=C:\gpo-studio\out\rsop-author-20261020074743-3291
+RUN_ID=rsop-observe-20261020074753-3255
+WORK_DIR=C:\gpo-studio\out\rsop-observe-20261020074753-3255
+--- authoring cleanup ---
+{"run_id":"rsop-author-20261020074743-3291","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":null,"user_restored":null,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/home/itadmin/gpo-batch-110g/tmp/rsop-run-20261020074703
+CANDIDATE_DIR=/home/itadmin/gpo-batch-110g/tmp/rsop-candidate-20261020074703
+
+run rsop-observe-20261020074753-3255: state=pass (source 5ffa026516830139f8607ef5706f2bf8f4e002d5, dirty=False)

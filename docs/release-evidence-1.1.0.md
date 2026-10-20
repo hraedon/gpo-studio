@@ -1,20 +1,22 @@
 # Release evidence manifest - GPO Studio 1.1.0
 
-> **Date:** 2026-10-19 (final release; release candidate 1.1.0rc1 2026-10-09; draft opened 2026-10-08)
+> **Date:** 2026-10-20 (final release; release candidate 1.1.0rc1 2026-10-09; draft opened 2026-10-08)
 > **Source commit:** resolved by the tagged release workflow
 > **Status:** release candidate; final approval pending
 
 This is the manifest for the final 1.1.0 release, tagged `v1.1.0`. It records
 what has been requalified, what the release workflow checks, and what 1.1.0
 does **not** claim. Every Plan 034 row has reached its exit. Every lane was
-requalified at the freeze commit F, `765b30405f59e12f05c518ae16ddcc8437be5cd3`,
-by the [release 1.1.0 final batch](#requalified-evidence-the-release-110-final-batch)
-on 2026-10-19, so every live verdict records the tree that ships.
+requalified at the freeze commit F, `5ffa026516830139f8607ef5706f2bf8f4e002d5`,
+by the [release 1.1.0 re-freeze batch](#requalified-evidence-the-release-110-re-freeze-batch)
+on 2026-10-20, so every live verdict records the tree that ships.
 
 The release candidate, `1.1.0rc1` (tag `v1.1.0-rc.1`), was published on
 2026-10-09 as a GitHub prerelease so that its wheel and checksum were fixed for
 hands-on validation. Its evidence, two batches at `de9736e` and `9940561`, is
-history: the final batch replaced every verdict (see
+history: the first freeze's batch replaced every verdict, and the re-freeze
+batch replaced that batch's (see
+[the first freeze's evidence](#the-first-freezes-evidence) and
 [the release candidate's evidence](#the-release-candidates-evidence)). Line 5
 and the JSON report say where the approval stands; what remained before it is
 listed under [Remaining before approval](#remaining-before-approval).
@@ -25,19 +27,20 @@ from that commit only in evidence and records, and the hands-on NVDA
 acceptance is waived for 1.1.0 and recorded as not run. The sequence is under
 [How this release is approved](#how-this-release-is-approved).
 
-1.1.0 is frozen a second time. The first freeze commit, `765b304`, was
-requalified by the batch banked in `3cec82b` and approved in `d19f846`, and the
-tag `v1.1.0` was pushed on `d19f846`, but the release workflow run on that tag
-(run 39361251167) published nothing: its `verify` job, the full suite with
-branch coverage on Python 3.13, was cancelled at its 25-minute limit on every
+1.1.0 was frozen twice. The first freeze commit, `765b304`, was requalified by
+the batch banked in `3cec82b` and approved in `d19f846`, and the tag `v1.1.0`
+was pushed on `d19f846`, but the release workflow run on that tag (run
+39361251167) published nothing: its `verify` job, the full suite with branch
+coverage on Python 3.13, was cancelled at its 25-minute limit on every
 attempt. Workflows are frozen from F to the tag, so the fix needed a new freeze
-commit. The re-freeze commit is the child of `d19f846`; it raises the workflow
-timeouts, makes the release gate require both records to stay a candidate's
-until the approval commit, puts these records back to their state before
-banking, and changes no application code. Every lane is requalified again at it, banked and approved
-in the same order, and the tag `v1.1.0` moves to the new approval commit (owner
-decision, 2026-10-19). Until that batch is banked, the verdicts this file cites
-are the first freeze's batch at `765b304`.
+commit. The re-freeze commit, `5ffa026`, is the child of `d19f846`; it raises
+the workflow timeouts, makes the release gate require both records to stay a
+candidate's until the approval commit, puts these records back to their state
+before banking, and changes no application code. It is F for this release:
+every lane was requalified again at it on 2026-10-20, the release is banked
+and approved from it in the same order, and the tag `v1.1.0` moves to the new
+approval commit (owner decision, 2026-10-19). The first freeze's batch is
+history; the verdicts this file cites are the re-freeze batch's.
 
 ## How this release is approved
 
@@ -285,16 +288,16 @@ count as 1.1.0 capabilities only if they meet both halves of the exit
 condition in [`domain-layer-status.md`](domain-layer-status.md): a re-runnable
 evidence lane, **then** a delivery surface an operator can reach.
 
-## Requalified evidence: the release 1.1.0 final batch
+## Requalified evidence: the release 1.1.0 re-freeze batch
 
-The [release 1.1.0 final batch](plan-033/release110-final-batch.md) ran on
-2026-10-19 (UTC), from 15:50:37Z to 16:38:02Z. **All 26 lanes passed** at the
-freeze commit F, `765b30405f59e12f05c518ae16ddcc8437be5cd3`, every one with a
+The [release 1.1.0 re-freeze batch](plan-033/release110-refreeze-batch.md) ran
+on 2026-10-20 (UTC), from 07:26:28Z to 08:10:20Z. **All 26 lanes passed** at the
+freeze commit F, `5ffa026516830139f8607ef5706f2bf8f4e002d5`, every one with a
 clean source tree (`source.dirty=false`): WP-0's manifest plus 25 lane
 verdicts. F is the commit 1.1.0 ships, so no file any lane binds differs
 between its verdict's commit and the tag.
 
-- The [batch manifest](plan-033/release110-final-batch.json) (schema 3) is the
+- The [batch manifest](plan-033/release110-refreeze-batch.json) (schema 3) is the
   record: every run id, verdict path, window, exit and banked file's SHA-256.
   Every row states `test_scope_tool: false` and `exec_failed: false`, and no
   lane timed out, was cancelled, lost containment, failed its scope or left a
@@ -304,57 +307,57 @@ between its verdict's commit and the tag.
   `scripts/plan-033/bank-requal-batch.py`, which checked every staged file
   against the controller by SHA-256. Every passing run has an annotated
   `evidence/` tag at F, named after its run id.
-- It retired every verdict that was current at F: the 25 lane verdicts pending
-  requalification since 2026-10-17 (the whole-value validator sweep edited
-  files every lane binds) and WP-0's manifest. Their packs and tags are
-  unchanged and certify nothing for this release.
+- It retired every verdict that was current at F: the first freeze's batch at
+  `765b304`, its 25 lane verdicts and WP-0's manifest (see
+  [the first freeze's evidence](#the-first-freezes-evidence)). Their packs and
+  tags are unchanged and certify nothing for this release.
 - `pending_requalification` in `docs/plan-033/verdict-registry.json` is empty.
-- The [post-batch directory check](plan-033/release110-final-cleanup/directory.json),
-  captured at 2026-10-19T16:38:09Z after the last lane, is clean: the computer
+- The [post-batch directory check](plan-033/release110-refreeze-cleanup/directory.json),
+  captured at 2026-10-20T08:11:30Z after the last lane, is clean: the computer
   and user account are restored, and no experiment OUs, GPOs, groups or WMI
   filters survived. The operator ran the committed
-  [collector](plan-033/release110-final-cleanup/collector.ps1), whose bytes the
-  manifest hashes and which is byte-identical to the release candidate batch's,
-  read-only on the lab domain controller with
-  `scripts/plan-033/run-post-batch-collector.sh`.
-- Every run id's stamp falls inside its lane's driver window except the DC's
-  WP-3 run (`wp3-dc`), which the domain controller stamped with its own clock
-  39 seconds before the lane started; that clock ran at least that far behind
-  the controller's. The [batch note](plan-033/release110-final-batch.md)
-  records it.
+  [collector](plan-033/release110-refreeze-cleanup/collector.ps1), whose bytes
+  the manifest hashes and which is byte-identical to the release candidate
+  batch's and the first freeze's batch's, read-only on the lab domain
+  controller with `scripts/plan-033/run-post-batch-collector.sh`.
+- Compared at its one-second precision, every run id's stamp falls inside its
+  lane's driver window except the DC's WP-3 run (`wp3-dc`), which the domain
+  controller stamped with its own clock 42 seconds before the lane started;
+  that clock ran at least that far behind the controller's (39 seconds in the first freeze's batch). The
+  [batch note](plan-033/release110-refreeze-batch.md) records it.
 
 ### The runs
 
-All 26 at `765b304`, as the batch manifest records them:
+All 26 at `5ffa026`, as the batch manifest records them:
 
 | Experiment | Passing run | Checks |
 |---|---|---|
-| wp0 | `live-synthetic-registry-basic-20261019155134-6415` | pass |
-| wp1b | `wp1b-writer-20261019155315-9046` | pass |
-| wp2 | `wp2-native-import-20261019155422-5328` | 18/18 |
-| wp3-member | `wp3-security-template-20261019155513-8477` | 20/20 |
-| wp3-dc | `wp3-security-template-20261019155452-1648` | 20/20 |
-| object-security | `object-security-20261019155637-6032` | 20/20 |
-| scripts-metadata | `scripts-r10-20261019155712-3835` | 20/20 |
-| publication | `publication-completeness-20261019155758-4530` | 21/21 |
-| lifecycle | `lifecycle-20261019155839-7141-cbc99747b80b4645` | 73/73 |
-| report-parity | `report-parity-20261019155932-2646` | 26/26 |
-| firewall | `firewall-20261019160121-1083478` | 36/36 |
-| fdeploy | `fd-20261019160401-3653` | 29/29 |
-| endpoint | `endpoint-observe-20261019160520-5888` | pass |
-| lsdou-precedence | `rsop-observe-20261019160859-9265` | pass |
-| disabled-block-enforced | `rsop-observe-20261019161122-7582` | pass |
-| wmi-filtering | `rsop-observe-20261019161318-7026` | pass |
-| wmi-filtering-error | `rsop-observe-20261019161509-1243` | pass |
-| computer-security-filtering | `rsop-observe-20261019161659-3576` | pass |
-| computer-security-filtering-deny-read | `rsop-observe-20261019161851-1960` | pass |
-| loopback-merge | `rsop-user-observe-20261019162047-3911` | pass |
-| loopback-replace | `rsop-user-observe-20261019162306-2809` | pass |
-| user-side-disabled | `rsop-user-observe-20261019162524-3630` | pass |
-| user-security-filtering | `rsop-user-observe-20261019162824-9670` | pass |
-| user-security-filtering-deny | `rsop-user-observe-20261019163131-5611` | pass |
-| user-security-filtering-read-deny | `rsop-user-observe-20261019163359-6458` | pass |
-| computer-security-filtering-group-deny | `rsop-observe-20261019163644-2281` | pass |
+| wp0 | `live-synthetic-registry-basic-20261020072705-9695` | pass |
+| wp1b | `wp1b-writer-20261020072808-8446` | pass |
+| wp2 | `wp2-native-import-20261020072858-5525` | 18/18 |
+| wp3-member | `wp3-security-template-20261020072938-4029` | 20/20 |
+| wp3-dc | `wp3-security-template-20261020072911-9635` | 20/20 |
+| object-security | `object-security-20261020073052-3290` | 20/20 |
+| scripts-metadata | `scripts-r10-20261020073126-4216` | 20/20 |
+| publication | `publication-completeness-20261020073202-7563` | 21/21 |
+| lifecycle | `lifecycle-20261020073233-9178-40aaabfb07a44f6d` | 73/73 |
+| report-parity | `report-parity-20261020073320-2127` | 26/26 |
+| firewall | `firewall-20261020073459-2222842` | 36/36 |
+| fdeploy | `fd-20261020073719-5157` | 29/29 |
+| endpoint | `endpoint-observe-20261020073835-9781` | pass |
+| lsdou-precedence | `rsop-observe-20261020074127-4290` | pass |
+| disabled-block-enforced | `rsop-observe-20261020074322-5597` | pass |
+| wmi-filtering | `rsop-observe-20261020074546-9797` | pass |
+| wmi-filtering-error | `rsop-observe-20261020074753-3255` | pass |
+| computer-security-filtering | `rsop-observe-20261020074945-9317` | pass |
+| computer-security-filtering-deny-read | `rsop-observe-20261020075135-6601` | pass |
+| loopback-merge | `rsop-user-observe-20261020075328-1230` | pass |
+| loopback-replace | `rsop-user-observe-20261020075545-2837` | pass |
+| user-side-disabled | `rsop-user-observe-20261020075802-7706` | pass |
+| user-security-filtering | `rsop-user-observe-20261020080055-6849` | pass |
+| user-security-filtering-deny | `rsop-user-observe-20261020080359-8373` | pass |
+| user-security-filtering-read-deny | `rsop-user-observe-20261020080623-7133` | pass |
+| computer-security-filtering-group-deny | `rsop-observe-20261020080904-2605` | pass |
 
 Verdicts bind their source files by `(commit, path, sha256)`. An edit to a
 bound file between F and the tag would expire the verdicts that bind it, and
@@ -364,6 +367,15 @@ requires on the tagged commit. See [`bound-source-cost.md`](plan-033/bound-sourc
 
 The batch re-earns existing lanes. It does not by itself move any module to
 `yes`.
+
+### The first freeze's evidence
+
+The first freeze commit, `765b30405f59e12f05c518ae16ddcc8437be5cd3`, was
+qualified by the [release 1.1.0 final batch](plan-033/release110-final-batch.md),
+all 26 lanes on 2026-10-19, banked in `3cec82b` and approved in `d19f846`. The
+tag on `d19f846` published nothing (see the opening of this file), so 1.1.0 was
+frozen again and every lane re-run. Every verdict of that batch is retired; its
+packs, tags and batch note are kept as history.
 
 ### The release candidate's evidence
 
@@ -383,16 +395,17 @@ and their batch notes keep the details.
 ## What the newer lanes certify
 
 The four lanes first certified on 2026-10-08 first ran in a batch in the
-release 1.1.0 batch, and the final batch re-ran them. All four ran on the
+release 1.1.0 batch, and the first freeze's batch and the re-freeze batch
+re-ran them. All four ran on the
 estate member server (Windows Server 2025, build
 26100, Windows PowerShell 5.1).
 
 | Lane | Certifying run | What it certifies |
 |---|---|---|
-| firewall | `firewall-20261019160121-1083478` (36/36) | `firewall_policy.py` for one measured tranche: the 13 rule shapes and the Domain and Private profile literals. Read leg: rules authored with `New-NetFirewallRule -PolicyStore` parse with zero unrecognised records and equal the authored policy. Write leg: `Import-GPO` of Studio's backup, now registered with the firewall tool's native GUID pair (`B05566AC`), returns Studio's Registry.pol byte for byte. [Results](plan-033/firewall-results.md) |
-| lifecycle (same-domain) | `lifecycle-20261019155839-7141-cbc99747b80b4645` (73/73; all 30 cells) | `lifecycle.SCOPE_SURVIVAL`: five GPMC operations by six scope dimensions, each agreeing with what Windows did, plus the five plan-identity claims and the backup bridge. One topology. [Results](plan-033/lifecycle-results.md) |
-| fdeploy (read target) | `fd-20261019160401-3653` (29/29) | `fdeploy.py`'s reader for four shapes: R3's GPMC-written `fdeploy1.ini` verbatim (`Flags=1021`) and three builder-written `Flags`-only variants (1020, 1023, 3069). `Import-GPO` placed the exact bytes, `Backup-GPO` re-exported them byte for byte, and Studio's reading of Windows' own backup agreed with a fresh `Get-GPOReport` row for row (folder, principal SID, destination). [Results](plan-033/fdeploy-results.md) |
-| report-parity | `report-parity-20261019155932-2646` (26/26; 30 corpus cases plus a guest-authored GPO) | `backup.py` / `report.py` over the existing import and plain-text report surfaces, for registry (`REG_SZ`/`REG_DWORD`), Drive Maps, Environment, Files, Folders, GPP Registry (the three WI-075 captures), Ini Files, Local Users and Groups, Power Options, Printers, Scheduled Tasks (including the interleaving of scheduled and immediate tasks), Services and Shortcuts, at the level of each preference item's element, name, `uid`, action and document order (not its other `Properties` attributes). No Studio defect is accepted. [Results](plan-033/report-parity-results.md) |
+| firewall | `firewall-20261020073459-2222842` (36/36) | `firewall_policy.py` for one measured tranche: the 13 rule shapes and the Domain and Private profile literals. Read leg: rules authored with `New-NetFirewallRule -PolicyStore` parse with zero unrecognised records and equal the authored policy. Write leg: `Import-GPO` of Studio's backup, now registered with the firewall tool's native GUID pair (`B05566AC`), returns Studio's Registry.pol byte for byte. [Results](plan-033/firewall-results.md) |
+| lifecycle (same-domain) | `lifecycle-20261020073233-9178-40aaabfb07a44f6d` (73/73; all 30 cells) | `lifecycle.SCOPE_SURVIVAL`: five GPMC operations by six scope dimensions, each agreeing with what Windows did, plus the five plan-identity claims and the backup bridge. One topology. [Results](plan-033/lifecycle-results.md) |
+| fdeploy (read target) | `fd-20261020073719-5157` (29/29) | `fdeploy.py`'s reader for four shapes: R3's GPMC-written `fdeploy1.ini` verbatim (`Flags=1021`) and three builder-written `Flags`-only variants (1020, 1023, 3069). `Import-GPO` placed the exact bytes, `Backup-GPO` re-exported them byte for byte, and Studio's reading of Windows' own backup agreed with a fresh `Get-GPOReport` row for row (folder, principal SID, destination). [Results](plan-033/fdeploy-results.md) |
+| report-parity | `report-parity-20261020073320-2127` (26/26; 30 corpus cases plus a guest-authored GPO) | `backup.py` / `report.py` over the existing import and plain-text report surfaces, for registry (`REG_SZ`/`REG_DWORD`), Drive Maps, Environment, Files, Folders, GPP Registry (the three WI-075 captures), Ini Files, Local Users and Groups, Power Options, Printers, Scheduled Tasks (including the interleaving of scheduled and immediate tasks), Services and Shortcuts, at the level of each preference item's element, name, `uid`, action and document order (not its other `Properties` attributes). No Studio defect is accepted. [Results](plan-033/report-parity-results.md) |
 
 What these runs do **not** certify:
 
@@ -434,7 +447,7 @@ Every Plan 034 exit landed on 2026-10-08 (no exit is open). The table matches
 the [capability matrix](capability-matrix.md), the
 [Plan 034 status line](../plans/034-post-1.0-layer-reconciliation.md) and the
 [rulings](direction-2026-10-07-plan-034-completion.md), and every lane it
-cites is the release 1.1.0 final batch's run at `765b304`. The last column
+cites is the release 1.1.0 re-freeze batch's run at `5ffa026`. The last column
 says what
 1.1.0 may claim. It says "capability" only for a row whose lane **and**
 surface both exist.
@@ -442,14 +455,14 @@ surface both exist.
 | Module | Ruling | Lane | Surface | 1.1.0 claim |
 |---|---|---|---|---|
 | `policy_families.py` | `yes` | certified (WP-3 member and DC, 20/20 each) | `POST /api/security-template/policy-families` | capability: emission direction only |
-| `object_security.py` | `yes` | certified (`object-security-20261019155637-6032`, 20/20) | `POST /api/security-template/object-security` | capability: registry, file-system and service security; **restricted groups are lane-certified but not surfaced** |
+| `object_security.py` | `yes` | certified (`object-security-20261020073052-3290`, 20/20) | `POST /api/security-template/object-security` | capability: registry, file-system and service security; **restricted groups are lane-certified but not surfaced** |
 | `security_template.py` | exits through its consumers | bound by three live verdicts | via the two endpoints above | no standalone claim; reading GPME-authored `GptTmpl.inf` is out of scope |
-| `publication.py` | `yes` | publication completeness (`publication-completeness-20261019155758-4530`, 21/21) | `GET /api/gpos/{guid}/publication-plan` and the Publication preview panel (review-only) | capability: review-only preview; steps marked `measured`, `unmeasured` or `refused`; nothing writes |
-| `script_policy.py` | `yes` | Scripts metadata (`scripts-r10-20261019155712-3835`, 20/20) | `POST /api/gpos/{guid}/gpmc-backup-with-scripts` (+ `/preview`) and the Scripts panel | capability: the measured shape only; unmeasured shapes refused with 422 |
-| `fdeploy.py` | lane, or the writer stays deferred (WI-066) | fdeploy read lane (`fd-20261019160401-3653`, 29/29) | `POST /api/folder-redirection/fdeploy`, imported backups' report and diffs, and the Folder Redirection review panel | capability: reading the four measured shapes; `Flags` decoding and the writer stay deferred under WI-066 |
-| `network_security.py` / `firewall_policy.py` | firewall: codec, lane, surface; the rest out of scope | firewall (`firewall-20261019160121-1083478`, 36/36) | `POST /api/network-security/firewall/render`, `GET /api/gpos/{guid}/firewall-policy` | capability: the measured tranche only, everything else refused; IPsec, Public Key, wired and wireless are not claimed |
-| `lifecycle.py` | same-domain lane plus restore-plan surface; cross-domain out of scope | same-domain lifecycle (`lifecycle-20261019155839-7141-cbc99747b80b4645`, 73/73, all 30 cells) | `POST /api/lifecycle/restore-plan` (review only) | capability: same-domain restore plans over GPOs imported from a Windows backup; cross-domain is refused and not claimed |
-| `backup.py` / `report.py` | report-parity lane for modelled families | report-parity (`report-parity-20261019155932-2646`, 26/26, 30 cases) | existing backup import and plain-text report | capability: item-level report parity (element, name, `uid`, action, order) for the families listed above, not property-level; the six uncaptured families are not claimed |
+| `publication.py` | `yes` | publication completeness (`publication-completeness-20261020073202-7563`, 21/21) | `GET /api/gpos/{guid}/publication-plan` and the Publication preview panel (review-only) | capability: review-only preview; steps marked `measured`, `unmeasured` or `refused`; nothing writes |
+| `script_policy.py` | `yes` | Scripts metadata (`scripts-r10-20261020073126-4216`, 20/20) | `POST /api/gpos/{guid}/gpmc-backup-with-scripts` (+ `/preview`) and the Scripts panel | capability: the measured shape only; unmeasured shapes refused with 422 |
+| `fdeploy.py` | lane, or the writer stays deferred (WI-066) | fdeploy read lane (`fd-20261020073719-5157`, 29/29) | `POST /api/folder-redirection/fdeploy`, imported backups' report and diffs, and the Folder Redirection review panel | capability: reading the four measured shapes; `Flags` decoding and the writer stay deferred under WI-066 |
+| `network_security.py` / `firewall_policy.py` | firewall: codec, lane, surface; the rest out of scope | firewall (`firewall-20261020073459-2222842`, 36/36) | `POST /api/network-security/firewall/render`, `GET /api/gpos/{guid}/firewall-policy` | capability: the measured tranche only, everything else refused; IPsec, Public Key, wired and wireless are not claimed |
+| `lifecycle.py` | same-domain lane plus restore-plan surface; cross-domain out of scope | same-domain lifecycle (`lifecycle-20261020073233-9178-40aaabfb07a44f6d`, 73/73, all 30 cells) | `POST /api/lifecycle/restore-plan` (review only) | capability: same-domain restore plans over GPOs imported from a Windows backup; cross-domain is refused and not claimed |
+| `backup.py` / `report.py` | report-parity lane for modelled families | report-parity (`report-parity-20261020073320-2127`, 26/26, 30 cases) | existing backup import and plain-text report | capability: item-level report parity (element, name, `uid`, action, order) for the families listed above, not property-level; the six uncaptured families are not claimed |
 | `artifact_store.py` | deleted | n/a | n/a | not shipped |
 | `software_install.py` | deleted | n/a | n/a | not shipped |
 | `folder_redirection.py` | deleted (superseded by `fdeploy.py`) | n/a | n/a | not shipped |
@@ -621,16 +634,15 @@ data. Each is pinned by a test:
 
 ## Remaining before approval
 
-1. **Done for the first freeze (2026-10-19); owed again at the re-freeze.**
-   Every Plan 034 row reached its exit on 2026-10-08. Every lane was
-   requalified at the first freeze commit by the release 1.1.0 final batch, 26
-   of 26 at `765b304`, banked in
-   [`release110-final-batch.json`](plan-033/release110-final-batch.json) with a
-   clean post-batch directory check; the verdicts cited here are that batch's
-   runs until the batch at the re-freeze commit is banked (item 5). For the
-   candidate (2026-10-09) the same item was done by the release 1.1.0 batch at
-   `de9736e` and its successor batch at `9940561`, now history. The tagged
-   commit's CI must still show that the verdicts bind its source
+1. **Done (2026-10-20).** Every Plan 034 row reached its exit on 2026-10-08.
+   Every lane was requalified at the freeze commit F, the re-freeze commit, by
+   the release 1.1.0 re-freeze batch, 26 of 26 at `5ffa026`, banked in
+   [`release110-refreeze-batch.json`](plan-033/release110-refreeze-batch.json)
+   with a clean post-batch directory check; the verdicts cited here are that
+   batch's runs. The first freeze's batch, 26 of 26 at `765b304` (2026-10-19),
+   is history, as are the candidate's batches (2026-10-09), the release 1.1.0
+   batch at `de9736e` and its successor batch at `9940561`. The tagged commit's
+   CI must still show that the verdicts bind its source
    (`tests/test_committed_evidence.py`).
 2. **Done at the freeze commit (2026-10-19), and kept by the re-freeze.**
    `__version__` and the JSON report's `version` are `1.1.0` (the report's

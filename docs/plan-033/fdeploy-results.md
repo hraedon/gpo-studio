@@ -1,6 +1,15 @@
 # fdeploy lane results
 
-**Current qualification (2026-10-19):** `fd-20261019160401-3653`, 29/29, on
+**Current qualification (2026-10-20):** `fd-20261020073719-5157`, 29/29, on
+clean freeze commit `5ffa026516830139f8607ef5706f2bf8f4e002d5`
+([evidence](wp4-evidence/release110-refreeze-20261020/fdeploy/verification.json),
+[release 1.1.0 re-freeze batch](release110-refreeze-batch.md)), tagged
+`evidence/fd-20261020073719-5157`. It replaces the first freeze's run below: 1.1.0
+was frozen again at `5ffa026` because the tag on the first freeze's approval
+published nothing (release workflow run 39361251167), and every live verdict
+must be the freeze batch's run; its pack and tag are kept.
+
+**Previous qualification (2026-10-19):** `fd-20261019160401-3653`, 29/29, on
 clean freeze commit `765b30405f59e12f05c518ae16ddcc8437be5cd3`
 ([evidence](wp4-evidence/release110-final-20261019/fdeploy/verification.json),
 [release 1.1.0 final batch](release110-final-batch.md)), tagged
