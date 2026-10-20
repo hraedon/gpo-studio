@@ -277,7 +277,7 @@ $Body = 'sh'; & $Body
 function Invoke-RestartableTransfer { param([string] $Body) & $Body 1 }
 function Invoke-Other { param([scriptblock] $Body) & $Body 1 }
 Get-Item -LiteralPath .
-Microsoft.PowerShell.Management\Start-Process sh
+Microsoft.PowerShell.Management\\Start-Process sh
 Set-Alias pstart Start-Process
 pstart sh
 New-Alias -Name other -Value Start-Process
