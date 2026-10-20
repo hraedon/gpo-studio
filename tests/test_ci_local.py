@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -180,7 +181,25 @@ def test_preparation_uses_ci_timeouts_and_named_python(ci_local: ModuleType) -> 
     assert "/synthetic/python" in steps[0].command
     assert steps[2].command.endswith("install chromium firefox")
     assert "--with-deps" not in "\n".join(step.command for step in steps)
-    assert "--dry-run" in steps[3].command
+    assert "--check-browser-os-dependencies" in steps[3].command
+
+
+@pytest.mark.parametrize(
+    ("apt_output", "expected"),
+    [
+        ("Inst libmissing (1.2.3 synthetic [amd64])\n", ["libmissing"]),
+        ("Inst libupgrade [1.2.2] (1.2.3 synthetic [amd64])\n", []),
+        (
+            "Inst libupgrade [1.2.2] (1.2.3 synthetic [amd64])\n"
+            "Inst libmissing (4.5.6 synthetic [amd64])\n",
+            ["libmissing"],
+        ),
+    ],
+)
+def test_apt_simulation_counts_new_installs_but_not_upgrades(
+    ci_local: ModuleType, apt_output: str, expected: list[str]
+) -> None:
+    assert ci_local.missing_apt_packages(apt_output) == expected
 
 
 def test_default_preparation_never_invokes_sudo_or_su(ci_local: ModuleType, tmp_path: Path) -> None:
@@ -197,7 +216,14 @@ def test_default_preparation_never_invokes_sudo_or_su(ci_local: ModuleType, tmp_
             fake_bin / command,
             f"from pathlib import Path\nPath({str(invoked)!r}).write_text({command!r})\n",
         )
-    _write_executable(playwright_bin / "playwright", "raise SystemExit(0)\n")
+    _write_executable(
+        playwright_bin / "playwright",
+        "import subprocess, sys\n"
+        "if sys.argv[1:2] == ['install-deps']:\n"
+        "    raise SystemExit(subprocess.run(['apt-get', 'install', '-s', "
+        "'--no-install-recommends', 'bash']).returncode)\n"
+        "raise SystemExit(0)\n",
+    )
     environment = {"PATH": f"{fake_bin}{os.pathsep}/usr/bin{os.pathsep}/bin"}
 
     for step in ci_local._preparation_steps(
@@ -226,8 +252,50 @@ def test_missing_browser_dependencies_name_the_manual_command(
 
     assert not passed
     output = capfd.readouterr()
-    assert "never installs OS packages or elevates privileges" in output.err
+    assert "browser dependency simulation failed" in output.err
     assert "playwright install-deps chromium firefox" in output.err
+
+
+def test_steps_run_with_no_new_privileges(ci_local: ModuleType, tmp_path: Path) -> None:
+    if shutil.which("setpriv") is None:
+        pytest.skip("util-linux setpriv is unavailable")
+    output = tmp_path / "status"
+    command = (
+        f"awk '/^NoNewPrivs:/ {{print $2}}' /proc/self/status > {shlex.quote(str(output))}"
+    )
+
+    passed, _duration = ci_local.run_step(
+        ci_local.Step("no-new-privileges probe", command, "test", 10),
+        checkout=tmp_path,
+        environment=os.environ.copy(),
+    )
+
+    assert passed
+    assert output.read_text(encoding="utf-8").strip() == "1"
+
+
+def test_missing_setpriv_is_reported(
+    ci_local: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    real_which = ci_local.shutil.which
+
+    def without_setpriv(command: str, *args: object, **kwargs: object) -> str | None:
+        if command == "setpriv":
+            return None
+        return real_which(command, *args, **kwargs)
+
+    monkeypatch.setattr(ci_local.shutil, "which", without_setpriv)
+    passed, _duration = ci_local.run_step(
+        ci_local.Step("unprotected probe", "true", "test", 10),
+        checkout=tmp_path,
+        environment=os.environ.copy(),
+    )
+
+    assert passed
+    assert "setpriv is unavailable" in capfd.readouterr().err
 
 
 def test_job_timeout_is_a_cumulative_budget(
@@ -401,7 +469,7 @@ def test_signal_stops_real_child_process_tree_and_cleans_run_directory(
                 os.kill(pid, signal.SIGKILL)
 
 
-def test_two_signals_cannot_interrupt_stop_and_cleanup(tmp_path: Path) -> None:
+def test_three_different_signals_cannot_interrupt_stop_and_cleanup(tmp_path: Path) -> None:
     repository = tmp_path / "repository"
     repository.mkdir()
     _git(repository, "init", "-b", "main")
@@ -458,9 +526,10 @@ def test_two_signals_cannot_interrupt_stop_and_cleanup(tmp_path: Path) -> None:
         os.kill(process.pid, signal.SIGINT)
         time.sleep(0.1)
         os.kill(process.pid, signal.SIGTERM)
+        os.kill(process.pid, signal.SIGHUP)
         process.communicate(timeout=10)
 
-        assert process.returncode in {128 + signal.SIGINT, 128 + signal.SIGTERM}
+        assert process.returncode == 128 + signal.SIGINT
         assert not list(temp_root.glob("gpo-studio-ci-local-*"))
         _wait_for_stopped_processes(child_pids)
     finally:

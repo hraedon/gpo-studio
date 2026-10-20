@@ -47,19 +47,28 @@ clone and caches. `--windows` currently refuses because D-7's approval to
 install uv on mvmcitest01 is still open. This pre-R1 mode does not reproduce
 inline workflow shell or Windows-only failures.
 
-The run is unprivileged: it never invokes `sudo` or `su`, installs browser
-binaries without Playwright's `--with-deps`, and first checks OS packages with
-`playwright install-deps --dry-run`. If that check finds missing packages, the
-runner stops and prints the `playwright install-deps chromium firefox` command
-for you to review and run yourself. No system package is installed or upgraded
-by `ci-local`.
+The runner requests no elevation and installs browser binaries without
+Playwright's `--with-deps`. When util-linux `setpriv` is available, every step
+runs with `--no-new-privs`, so it and its descendants cannot gain privileges
+through a setuid or setgid program; otherwise the runner prints a warning.
+`sudo` and `su` shims also reject conventional PATH-resolved calls, but those
+shims are not a sandbox for the trusted commit's shell commands.
 
-Allow at least **1.4 GB** of temporary space. The clone, caches, browsers and
-pytest basetemp live under `$TMPDIR` and are removed on exit unless `--keep` is
-used. If `$TMPDIR` is unset they normally land under `/tmp`, which is RAM-backed
-on some hosts; point `TMPDIR` at a private, disk-backed directory when memory or
-`/tmp` space is limited. Pytest's basetemp is deliberately beside the checkout,
-not inside it, so test cleanup cannot dirty or remove files in the clone.
+The browser OS-package check is Debian/Ubuntu-specific: it runs Playwright's
+`apt-get install -s` simulation and counts only packages that are not installed,
+not installed packages with a pending upgrade. If dependencies are missing, the
+runner stops and prints the `playwright install-deps chromium firefox` command
+for you to review and run yourself. On another OS, or a Linux host without
+`apt-get`, it stops at this check with an unsupported-host message. No system
+package is installed or upgraded by `ci-local`.
+
+Allow at least **2.5 GB** of temporary space (2,111 MB was measured). The clone,
+caches, browsers and pytest basetemp live under `$TMPDIR` and are removed on exit
+unless `--keep` is used. If `$TMPDIR` is unset they normally land under `/tmp`,
+which is RAM-backed on some hosts; point `TMPDIR` at a private, disk-backed
+directory when memory or `/tmp` space is limited. Pytest's basetemp is
+deliberately beside the checkout, not inside it, so test cleanup cannot dirty or
+remove files in the clone.
 
 A parser or codec change needs a bounded property test or a minimized
 regression fixture. Model variants use closed typed dispatch, with

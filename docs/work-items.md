@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**4 open.**
+**5 open.**
 
+- [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
@@ -3935,3 +3936,21 @@ placed where binding is cheap; 17 review rounds for the grammar's creation.
 
 **Closes when:** Plan 036 exits: every risk in its exit table has a tested
 control or a recorded owner acceptance naming the residual risk.
+
+## WI-085 — the pre-launch stop test can signal before its intended pause
+
+**Opened:** 2026-10-20 (Plan 036 WP-1 round-3 polish).
+**Status:** open.
+
+`tests/test_requal_batch_driver.py::test_a_stop_after_the_last_check_but_before_the_launch_prevents_the_lane`
+can fail under full-suite load because its SIGTERM can arrive before the lane
+supervisor reaches the intended pre-launch pause. The watchdog still prevents
+the launch and reports `watchdog: stopped before launch (signal 15)`, so this is
+a test synchronization defect rather than evidence that a lane ran after stop.
+The bound `scripts/plan-033` tooling and the flaky test are deliberately not
+changed as part of WP-1.
+
+**Closes when:** the test has a positive handshake proving the supervisor has
+reached the final-check/pre-launch pause before SIGTERM is sent, and repeated
+full-suite runs no longer reproduce the race while still proving that the lane
+command never launches.

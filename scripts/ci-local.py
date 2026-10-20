@@ -92,7 +92,15 @@ class _SignalInterruption(BaseException):
 def _interrupt_on_signals() -> Iterator[None]:
     previous = {signum: signal.getsignal(signum) for signum in _INTERRUPT_SIGNALS}
 
+    def ignore_repeated_interrupt(_signum: int, _frame: FrameType | None) -> None:
+        """Keep the first interruption authoritative while cleanup completes."""
+
     def interrupt(signum: int, _frame: FrameType | None) -> NoReturn:
+        # Cleanup blocks these signals while stopping a process group and removing
+        # its run tree. Different blocked signals are all delivered when the mask
+        # is restored, so make every later delivery harmless before unwinding.
+        for repeated in _INTERRUPT_SIGNALS:
+            signal.signal(repeated, ignore_repeated_interrupt)
         raise _SignalInterruption(signum)
 
     for signum in previous:
@@ -134,6 +142,11 @@ def parser() -> argparse.ArgumentParser:
         "--keep",
         action="store_true",
         help="retain the fresh clone and throwaway caches after the run",
+    )
+    result.add_argument(
+        "--check-browser-os-dependencies",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     return result
 
@@ -296,8 +309,19 @@ def run_step(
     )
     print(f"$ {step.command}", flush=True)
     started = time.monotonic()
+    command = ["bash", "-o", "pipefail", "-c", step.command]
+    setpriv = shutil.which("setpriv", path=environment.get("PATH", os.defpath))
+    if setpriv is not None:
+        command = [setpriv, "--no-new-privs", *command]
+    else:
+        print(
+            "ci-local: setpriv is unavailable; this step runs without "
+            "no-new-privileges protection",
+            file=sys.stderr,
+            flush=True,
+        )
     process = subprocess.Popen(
-        ["bash", "-o", "pipefail", "-c", step.command],
+        command,
         cwd=checkout,
         env=environment,
         text=True,
@@ -377,16 +401,101 @@ def _preparation_steps(timeouts: dict[str, int], python: Path) -> list[Step]:
         Step(
             name="browser OS dependency check",
             command=(
-                "node_modules/.bin/playwright install-deps --dry-run chromium firefox || "
-                "{ status=$?; echo 'ci-local never installs OS packages or elevates "
-                "privileges.' >&2; echo 'Install the missing dependencies yourself with: "
-                "node_modules/.bin/playwright install-deps chromium firefox' >&2; "
-                'exit "$status"; }'
+                f"{shlex.quote(sys.executable)} "
+                f"{shlex.quote(str(Path(__file__).resolve()))} "
+                "--check-browser-os-dependencies"
             ),
             job="frontend",
             timeout_seconds=timeouts["frontend"],
         ),
     ]
+
+
+def missing_apt_packages(output: str) -> list[str]:
+    """Return packages apt would newly install, excluding upgrades.
+
+    In ``apt-get install -s`` output, an installed package has its current
+    version in square brackets: ``Inst pkg [old] (new ...)``. A package with no
+    current version is not installed: ``Inst pkg (version ...)``.
+    """
+    missing: list[str] = []
+    for line in output.splitlines():
+        fields = line.split(maxsplit=2)
+        if len(fields) != 3 or fields[0] != "Inst":
+            continue
+        if not fields[2].startswith("["):
+            missing.append(fields[1])
+    return sorted(set(missing))
+
+
+def browser_dependencies_available(checkout: Path) -> bool:
+    """Check Playwright's apt dependencies without trusting its upgrade parser."""
+    playwright = checkout / "node_modules" / ".bin" / "playwright"
+    apt_get = shutil.which("apt-get")
+    if sys.platform != "linux" or apt_get is None:
+        print(
+            "ci-local: the browser OS dependency check supports Debian/Ubuntu "
+            "hosts with apt-get only",
+            file=sys.stderr,
+        )
+        return False
+    if not playwright.is_file():
+        print(f"ci-local: Playwright executable is missing: {playwright}", file=sys.stderr)
+        return False
+
+    with tempfile.TemporaryDirectory(prefix="gpo-studio-apt-probe-") as temporary:
+        probe_root = Path(temporary)
+        apt_output = probe_root / "apt-output"
+        wrapper = probe_root / "apt-get"
+        wrapper.write_text(
+            f"#!{sys.executable}\n"
+            "import os, pathlib, subprocess, sys\n"
+            f"completed = subprocess.run([{apt_get!r}, *sys.argv[1:]], "
+            "capture_output=True, text=True)\n"
+            "pathlib.Path(os.environ['GPO_STUDIO_APT_OUTPUT']).write_text("
+            "completed.stdout, encoding='utf-8')\n"
+            "sys.stderr.write(completed.stderr)\n"
+            "raise SystemExit(completed.returncode)\n",
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+        environment = os.environ.copy()
+        environment["GPO_STUDIO_APT_OUTPUT"] = str(apt_output)
+        environment["LC_ALL"] = "C"
+        environment["PATH"] = os.pathsep.join((str(probe_root), environment.get("PATH", "")))
+        completed = subprocess.run(
+            [str(playwright), "install-deps", "--dry-run", "chromium", "firefox"],
+            cwd=checkout,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        if completed.returncode != 0 or not apt_output.is_file():
+            detail = (completed.stderr or completed.stdout).strip()
+            print(f"ci-local: browser dependency simulation failed: {detail}", file=sys.stderr)
+            print(
+                "Install the missing dependencies yourself with: "
+                "node_modules/.bin/playwright install-deps chromium firefox",
+                file=sys.stderr,
+            )
+            return False
+        missing = missing_apt_packages(apt_output.read_text(encoding="utf-8"))
+
+    if missing:
+        print(
+            f"ci-local: missing browser OS dependencies: {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        print(
+            "Install the missing dependencies yourself with: "
+            "node_modules/.bin/playwright install-deps chromium firefox",
+            file=sys.stderr,
+        )
+        return False
+    print("All browser OS dependencies are installed.")
+    return True
 
 
 def with_external_pytest_base(steps: Sequence[Step], pytest_base: Path) -> list[Step]:
@@ -468,6 +577,8 @@ def _die(message: str) -> NoReturn:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.check_browser_os_dependencies:
+        return 0 if browser_dependencies_available(Path.cwd()) else 1
     if args.windows:
         _die(WINDOWS_REFUSAL)
     if args.python is None:
