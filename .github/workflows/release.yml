@@ -74,7 +74,19 @@ jobs:
   verify:
     needs: release-identity
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # The full suite with branch coverage on Python 3.13, as ci.yml's `test`
+    # job runs it, plus the release gates around it. Run 39361251167 (the first
+    # v1.1.0 tag, 2026-10-20 UTC): cancelled at the old 25-min limit on all
+    # three attempts, pytest at 85 %, 95 % and 91 % after 24.4-24.5 min; the
+    # same run's `ci / test (3.13)` reached 85 % at 22.6 min, 95 % at 28.8 min
+    # and took 34m54s in full (the fuzz files run last). That puts this job's
+    # pytest at 30-38 min. Everything before pytest took 46 s in that run
+    # (setup, the 33 s install step, which also installs the npm packages and
+    # downloads the Playwright browsers and their system packages, then ruff
+    # and mypy); the browser tests and rehearsal after it take about 1.5 min
+    # (ci.yml's `frontend` and `installed-package`). So the job is about
+    # 32-40 min, and 60 min is about 1.5x the upper estimate.
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:

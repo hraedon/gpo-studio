@@ -35,9 +35,12 @@ jobs:
     # branch measurement uses sys.monitoring only from Python 3.14, and on 3.13
     # coverage falls back to its C tracer -- 5.6x on CPU-heavy tests measured
     # locally (test_gpp_native_preservation: 32 s bare and 33 s measured on
-    # 3.14, 32 s bare and 179 s measured on 3.13). 40 min is about 1.4x the
-    # 3.13 job (owner approved raising CI timeouts, 2026-10-12).
-    timeout-minutes: 40
+    # 3.14, 32 s bare and 179 s measured on 3.13). 40 min was about 1.4x the
+    # 3.13 job (owner approved raising CI timeouts, 2026-10-12). Run
+    # 39361251167 (the first v1.1.0 tag, 2026-10-20 UTC): 3.13 took 35m20s
+    # (pytest 34m54s), only 1.13x under 40; 3.14 took 14m22s. 55 min is about
+    # 1.55x the 3.13 job.
+    timeout-minutes: 55
     strategy:
       matrix:
         python-version: ["3.13", "3.14"]
@@ -107,8 +110,10 @@ jobs:
     # Run 39191236939: 3.13 was cancelled at 60 min with pytest at 95 % (the
     # fuzz files run last, and 3.13's branch coverage uses the slow C tracer,
     # ~5.6x), so ~63-65 min in full; 3.14 took 36m10s. 90 min is ~1.4x the
-    # 3.13 estimate. Dropping branch coverage on 3.13 is the structural fix,
-    # left to an owner decision after 1.1.0.
+    # 3.13 estimate. Run 39361251167 (the first v1.1.0 tag, 2026-10-20 UTC):
+    # 3.13 took 62m23s (pytest 61m48s), 1.44x under 90; 3.14 took 35m47s.
+    # Dropping branch coverage on 3.13 is the structural fix, left to an owner
+    # decision after 1.1.0.
     timeout-minutes: 90
     strategy:
       matrix:

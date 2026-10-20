@@ -2,7 +2,7 @@
 
 > **Date:** 2026-10-19 (final release; release candidate 1.1.0rc1 2026-10-09; draft opened 2026-10-08)
 > **Source commit:** resolved by the tagged release workflow
-> **Status:** approved for release
+> **Status:** release candidate; final approval pending
 
 This is the manifest for the final 1.1.0 release, tagged `v1.1.0`. It records
 what has been requalified, what the release workflow checks, and what 1.1.0
@@ -24,6 +24,20 @@ D-9 addendum): every lane is requalified at a freeze commit, the tag differs
 from that commit only in evidence and records, and the hands-on NVDA
 acceptance is waived for 1.1.0 and recorded as not run. The sequence is under
 [How this release is approved](#how-this-release-is-approved).
+
+1.1.0 is frozen a second time. The first freeze commit, `765b304`, was
+requalified by the batch banked in `3cec82b` and approved in `d19f846`, and the
+tag `v1.1.0` was pushed on `d19f846`, but the release workflow run on that tag
+(run 39361251167) published nothing: its `verify` job, the full suite with
+branch coverage on Python 3.13, was cancelled at its 25-minute limit on every
+attempt. Workflows are frozen from F to the tag, so the fix needed a new freeze
+commit. The re-freeze commit is the child of `d19f846`; it raises the workflow
+timeouts, makes the release gate require both records to stay a candidate's
+until the approval commit, puts these records back to their state before
+banking, and changes no application code. Every lane is requalified again at it, banked and approved
+in the same order, and the tag `v1.1.0` moves to the new approval commit (owner
+decision, 2026-10-19). Until that batch is banked, the verdicts this file cites
+are the first freeze's batch at `765b304`.
 
 ## How this release is approved
 
@@ -52,14 +66,18 @@ commit or action, in this order:
    `docs/plan-033/verdict-registry.json`, registers the new verdicts with the
    finalizer each lane had at F, retires every earlier live one and points
    `wp0_manifest` at the new WP-0 manifest; the records that cite runs are
-   edited by hand (this file, the JSON report's evidence, the environment spec,
-   the capability matrix, the lane results documents), and
+   edited by hand (this file, its Date line set to the release day included,
+   the JSON report's evidence, the environment spec, the capability matrix, the
+   lane results documents), and
    `report-bound-source-cost.py --write` regenerates the cost table; and the
    JSON report's `freeze` is set to F's full commit and the batch manifest's
    path. Nothing else changes: no test (they read the current batch from
    `freeze`), no code, and neither `README.md` nor `CHANGELOG.md`, which ship
    in the distributions and so are final at F. Records-only commits may follow
-   B, before A; each must change a record (an empty commit is refused).
+   B, before A; each must change a record (an empty commit is refused). B and
+   every commit after it until A keep both release records a candidate's: the
+   report's `candidate`, this file's line 5 the candidate line, and an item
+   still marked pending in each remaining list. Approval is A's alone.
 4. **Approve, commit A, the last commit.** Records only, and only the
    approval: in the JSON report, set `"version"` to `1.1.0` and `"status"` to
    `"approved"`, and close every item of `remaining_before_approval`; in this
@@ -206,8 +224,10 @@ requires, on a full-history checkout:
   commit is the approval commit A, the only commit
   whose report is approved, and it changes only the report's status, version
   and remaining items and this file's line 5 and remaining section, keeping
-  both remaining lists non-empty with no item still marked pending. A refusal
-  names the commit;
+  both remaining lists non-empty with no item still marked pending. Every
+  commit before A keeps both records a candidate's (the report's `candidate`,
+  this file's line 5 the candidate line, an item still pending in each
+  remaining list), so A approves both at once. A refusal names the commit;
 - the tagged tree to differ from F only in those files. The release records
   are a closed list (`FREEZE_RECORDS` in the gate: the capability matrix, the
   work-item register, this file and the JSON report, the environment spec, the
@@ -601,28 +621,35 @@ data. Each is pinned by a test:
 
 ## Remaining before approval
 
-1. **Done (2026-10-19).** Every Plan 034 row reached its exit on 2026-10-08.
-   Every lane was requalified at the freeze commit F by the release 1.1.0
-   final batch, 26 of 26 at `765b304`, banked in
+1. **Done for the first freeze (2026-10-19); owed again at the re-freeze.**
+   Every Plan 034 row reached its exit on 2026-10-08. Every lane was
+   requalified at the first freeze commit by the release 1.1.0 final batch, 26
+   of 26 at `765b304`, banked in
    [`release110-final-batch.json`](plan-033/release110-final-batch.json) with a
    clean post-batch directory check; the verdicts cited here are that batch's
-   runs. For the candidate (2026-10-09) the same item was done by the release
-   1.1.0 batch at `de9736e` and its successor batch at `9940561`, now history.
-   The tagged commit's CI must still show that the verdicts bind its source
+   runs until the batch at the re-freeze commit is banked (item 5). For the
+   candidate (2026-10-09) the same item was done by the release 1.1.0 batch at
+   `de9736e` and its successor batch at `9940561`, now history. The tagged
+   commit's CI must still show that the verdicts bind its source
    (`tests/test_committed_evidence.py`).
-2. **Done at the freeze commit (2026-10-19).** `__version__` and the JSON
-   report's `version` are `1.1.0` (the report's `status` stays `candidate` until
-   the approval commit), `CHANGELOG.md` has a dated `1.1.0` section, and
-   `SECURITY.md`'s supported-versions table and compatibility policy are for the
-   `1.1.x` line. For the candidate (2026-10-09) the same item was done for
-   `1.1.0rc1` and `1.1.0-rc.1`, with `1.0.x` still the supported line.
+2. **Done at the freeze commit (2026-10-19), and kept by the re-freeze.**
+   `__version__` and the JSON report's `version` are `1.1.0` (the report's
+   state stays `candidate` until the approval commit), `CHANGELOG.md` has a
+   dated `1.1.0` section, and `SECURITY.md`'s supported-versions table and
+   compatibility policy are for the `1.1.x` line. `765b304` did this first. The
+   re-freeze commit, the child of the unpublished approval `d19f846`, keeps it
+   and changes only the `verify` and `test` timeouts in the workflows (release
+   workflow run 39361251167), the `CHANGELOG.md` date and one entry about that
+   run, the release gate's check that every commit before A keeps both records
+   a candidate's, with its tests and the re-freeze's, and these records. For the
+   candidate (2026-10-09) the same item was done for `1.1.0rc1` and
+   `1.1.0-rc.1`, with `1.0.x` still the supported line.
 3. **Waived; not run (owner decision, 2026-10-17).** The owner's hands-on
    NVDA acceptance was planned for after the candidate (decided 2026-10-09).
    On 2026-10-17 the owner waived it for 1.1.0. It is recorded as not run,
    never as passed, here, under [Accessibility evidence](#accessibility-evidence)
    and in the JSON report.
-4. **Closed by this approval (2026-10-19): recorded by the tagged run after
-   A, not a precondition.** The automated evidence
+4. **Recorded by the tagged run, not a precondition.** The automated evidence
    comes from the release workflow run on the tag, so it cannot exist before
    A. When that run publishes, `scripts/record_release_identity.py` writes into
    the published `release-evidence.md` (replacing the Automated evidence
@@ -634,16 +661,20 @@ data. Each is pinned by a test:
    hashes. The job IDs and the tagged run's measured coverage total are in that
    workflow run itself (its jobs and the `verify` log), not in the assets. It
    refuses to publish if any of that is missing or the placeholder is not
-   resolved. The approval commit A closes this item by saying so.
-5. **Done (2026-10-19).** Approved in the order under
+   resolved. A closes this item by saying so. The first tag's run published
+   nothing, so nothing was recorded from it.
+5. **Pending.** Approve in the order under
    [How this release is approved](#how-this-release-is-approved) (owner
-   decision, 2026-10-17): freeze commit F (`765b304`) with its preparation, the
-   full batch of all 26 lanes at F, the banking commit B (parent F, evidence and
-   records only, the report's `freeze` set) and this records-only approval
-   commit A. The tag `v1.1.0` goes on A, on `main`. The release gate refuses the tag unless
+   decision, 2026-10-17), from the re-freeze commit as F: the full batch of all
+   26 lanes at F, the banking commit B (parent F, evidence and records only,
+   the report's `freeze` set to F and that batch), the records-only approval
+   commit A, and the tag `v1.1.0` moved to A, on `main` (owner decision,
+   2026-10-19). The release gate refuses the tag unless
    the history from F is B, records-only commits and A, the tree differs from F
    only in the batch and the release records, and every live verdict is the
    batch's run recorded at F with its evidence tag (it does not authenticate
-   the estate runs; see How this release is approved). Final promotion should not change the application behavior the
-   candidate showed. The release candidate's two batches are history: the
-   batch at F replaced every verdict, and B updated this file to cite it.
+   the estate runs; see How this release is approved); the first freeze's
+   commits come before F and are not part of that history. Final promotion
+   should not change the application behavior the candidate showed. The first
+   freeze's batch at `765b304` is then history: the batch at F replaces every
+   verdict, and this file is updated in B to cite it.

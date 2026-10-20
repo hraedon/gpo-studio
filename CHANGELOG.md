@@ -9,7 +9,7 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
-## [1.1.0] - 2026-10-19
+## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the
 > work done on it since: security fixes (below), a hardening of everything
@@ -795,6 +795,12 @@ workspaces load unchanged and nothing is migrated (the schema is still 4).
   reader covered by a given listing. Timeouts: `test` 25 to 40 minutes (3.13
   measures branch coverage with the C tracer, about 28 minutes), `test-windows`
   40 to 60 minutes (about 37 minutes measured) and later 90 minutes.
+- **The first `v1.1.0` tag did not publish, so 1.1.0 was re-frozen.** Release
+  workflow run 39361251167 cancelled `verify` (the suite with branch coverage on
+  Python 3.13) at its 25-minute limit; `verify` is now 60 minutes and `test` 55
+  (35 minutes measured in that run), and the tag moves to the new approval.
+  The gate now also requires every commit between the freeze and the approval
+  to keep both release records a candidate's, so A approves both at once.
 
 ### Evidence
 

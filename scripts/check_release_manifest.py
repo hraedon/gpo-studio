@@ -57,8 +57,10 @@ needs full history and tags (``fetch-depth: 0``):
   and modifies only :data:`FREEZE_RECORDS`; any later commit modifies only
   those records; ``HEAD`` is the approval commit ``A``, the only commit whose
   report is ``approved``, and it changes only the report's status, version and
-  remaining items and the manifest's line 5 and remaining section. Every
-  refusal names the commit;
+  remaining items and the manifest's line 5 and remaining section. Every commit
+  before ``A`` keeps both records a candidate's (report status ``candidate``,
+  manifest line 5 the candidate line, an item still pending in each remaining
+  list), so ``A`` approves both at once. Every refusal names the commit;
 * the tagged tree is ``F``'s except for those files: ``src/``, ``scripts/``,
   ``pyproject.toml``, ``uv.lock``, ``.github/``, ``.gitattributes``,
   ``README.md``, ``CHANGELOG.md`` and every test are byte-identical to ``F``.
@@ -1031,6 +1033,49 @@ def _remaining_section(lines: list[str]) -> tuple[int, int]:
     return start, end
 
 
+_PENDING = re.compile(r"\bpending\b", re.IGNORECASE)
+
+
+def _require_candidate_records(root: Path, base: str, commit: str) -> None:
+    """Before A, both release records are still a candidate's (Sol refreeze-r1 B1).
+
+    Approval is one transition, made by A in both records at once. A commit
+    between F and A that approved only the manifest (line 5, or its remaining
+    items closed) while the report stayed a candidate would leave A changing only
+    the report. So every such commit must have the report's status
+    ``candidate``, the manifest's line 5 the candidate line, and at least one
+    item still marked pending in each remaining list; ``check()`` and
+    :func:`_check_approval` then hold A to the approved form of both.
+    """
+    report = _report_at(root, commit, base)
+    manifest_rel = f"docs/release-evidence-{base}.md"
+    try:
+        lines = _blob(root, commit, manifest_rel).decode("utf-8").split("\n")
+    except UnicodeDecodeError as error:
+        raise ReleaseGateError(f"{manifest_rel} at {commit[:12]} is not UTF-8: {error}") from error
+    problems = []
+    if report.get("status") != "candidate":
+        problems.append(f"the report's status is {report.get('status')!r}, not 'candidate'")
+    line5 = lines[STATUS_LINE_INDEX] if len(lines) > STATUS_LINE_INDEX else None
+    if line5 != CANDIDATE:
+        problems.append(f"{manifest_rel} line 5 is {line5!r}, not the candidate line")
+    evidence = report.get("evidence")
+    remaining = evidence.get("remaining_before_approval") if isinstance(evidence, dict) else None
+    if not isinstance(remaining, list) or not any(
+        type(item) is str and _PENDING.search(item) for item in remaining
+    ):
+        problems.append("the report's remaining_before_approval marks no item pending")
+    start, end = _remaining_section(lines)
+    if not any(_PENDING.search(line) for line in lines[start:end]):
+        problems.append(f"{manifest_rel}'s Remaining before approval section marks no item pending")
+    if problems:
+        raise ReleaseGateError(
+            f"commit {commit} comes before the approval commit, so both release records must "
+            "still be a candidate's (approval is A's alone, in both at once): "
+            + "; ".join(problems)
+        )
+
+
 def _check_approval(root: Path, base: str, parent: str, approval: str) -> None:
     """A changes only the approval: status, version, line 5 and the remaining items."""
     changes = _changes(root, parent, approval)
@@ -1078,6 +1123,15 @@ def _check_approval(root: Path, base: str, parent: str, approval: str) -> None:
     manifest = f"docs/release-evidence-{base}.md"
     old = _blob(root, parent, manifest).decode("utf-8").split("\n")
     new = _blob(root, approval, manifest).decode("utf-8").split("\n")
+    # A flips both records together: the manifest from the candidate line to the
+    # approved line, as the report from candidate to approved (Sol refreeze-r1 B1).
+    if old[STATUS_LINE_INDEX : STATUS_LINE_INDEX + 1] != [CANDIDATE] or new[
+        STATUS_LINE_INDEX : STATUS_LINE_INDEX + 1
+    ] != [APPROVED]:
+        raise ReleaseGateError(
+            f"the approval commit {approval} must change {manifest}'s line 5 from the "
+            "candidate line to the approved line, as it changes the report's status"
+        )
     new_start, new_end = _remaining_section(new)
     if new_start == len(new) or not any(
         re.match(r"^(?:\d+\.|-) \S", line) for line in new[new_start:new_end]
@@ -1147,11 +1201,13 @@ def _check_history(
             "the approval commit" if commit == approval else "a records-only commit"
         )
         _refuse_paths(f"{what} {commit} changes what it may not", refused)
-        if commit != approval and _report_at(root, commit, base).get("status") == "approved":
-            raise ReleaseGateError(
-                f"commit {commit} approves before the tagged commit; approval is the last "
-                "commit, A, and only A"
-            )
+        if commit != approval:
+            if _report_at(root, commit, base).get("status") == "approved":
+                raise ReleaseGateError(
+                    f"commit {commit} approves before the tagged commit; approval is the last "
+                    "commit, A, and only A"
+                )
+            _require_candidate_records(root, base, commit)
     for path in (batch.path, batch.path.removesuffix(".json") + ".md"):
         if _git(root, "cat-file", "-e", f"{banking}:{path}").returncode == 0:
             _check_text(root, banking, path)

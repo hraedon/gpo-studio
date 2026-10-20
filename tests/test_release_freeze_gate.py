@@ -1003,6 +1003,257 @@ def test_a_consistent_forgery_with_its_tags_passes_which_is_the_stated_limit(
     assert "does not authenticate the estate runs" in summary
 
 
+# --- a re-freeze: F0 -> B0 -> A0 (approved, never published) -> F -> B -> A ------
+#
+# 1.1.0's first tag went on an approval commit A0 whose release run published
+# nothing (run 39361251167: `verify` timed out). Workflows are frozen from F to
+# the tag, so the fix is a new freeze commit F, a child of A0, then a new batch,
+# B and A, and the tag moves to A. The gate reads only F..A, so the approved
+# history before F is allowed; F resets the report to a candidate (keeping the
+# first freeze in `freeze` until B moves it, because the evidence tests read the
+# current batch from it), and B retires the first freeze's live verdicts.
+
+REFREEZE_LABEL = "refreeze-20261021"
+REFREEZE_BATCH = "docs/plan-033/refreeze-batch.json"
+
+
+@dataclass
+class Refreeze:
+    """How to re-freeze after the passing history. Each test changes one thing."""
+
+    #: F puts the report and the manifest back to a candidate's.
+    reset_records: bool = True
+    #: B retires the first freeze's verdicts, live at F.
+    retire_first: bool = True
+    #: B sets `freeze` to F and the new batch.
+    move_freeze: bool = True
+    #: Files written into B as well; applied last.
+    extra_banked: dict[str, str | bytes | None] = field(default_factory=dict)
+
+
+def _candidate_again(root: Path) -> dict[str, str | bytes | None]:
+    """F's records: the approved report and manifest back to a candidate's."""
+    report = json.loads((root / REPORT).read_text("utf-8"))
+    report["status"] = "candidate"
+    report["evidence"]["remaining_before_approval"] = [
+        "the batch at the re-freeze commit (pending)", "final approval (pending)",
+    ]
+    lines = (root / MANIFEST).read_text("utf-8").split("\n")
+    lines[4] = gate.CANDIDATE
+    start, end = gate._remaining_section(lines)
+    lines[start + 1 : end] = ["", "1. **Pending.** The batch at the re-freeze, and approval.", ""]
+    return {REPORT: _json(report), MANIFEST: "\n".join(lines)}
+
+
+def _refreeze(history: History, how: Refreeze | None = None) -> History:
+    """F (a child of the approved A0), the batch at F banked in B, and A."""
+    how = how or Refreeze()
+    root = history.root
+    assert _git(root, "rev-parse", "HEAD") == history.approved
+    at_freeze: dict[str, str | bytes | None] = {
+        ".github/workflows/release.yml": "name: release\n# verify: 60 minutes\n",
+    }
+    if how.reset_records:
+        at_freeze |= _candidate_again(root)
+    freeze = _commit(root, at_freeze, "F: re-freeze")
+
+    banked: dict[str, str | bytes | None] = {}
+    runs = []
+    for lane in LANES:
+        run_id = f"{lane}-refreeze"
+        files = {
+            _verdict_path(lane, REFREEZE_LABEL).rsplit("/", 1)[1]:
+                _json(_verdict(lane, freeze, run_id)).encode(),
+            "controller.log": _log(lane),
+        }
+        pack = f"{LANES[lane]}/{REFREEZE_LABEL}/{lane}"
+        banked |= {f"docs/plan-033/{pack}/{name}": data for name, data in files.items()}
+        runs.append({
+            "name": lane,
+            "run_id": run_id,
+            "verdict": _verdict_path(lane, REFREEZE_LABEL),
+            "commit": freeze,
+            "exit_status": 0,
+            "files": {name: hashlib.sha256(data).hexdigest() for name, data in files.items()},
+        })
+    cleanup = {
+        "refreeze-cleanup/collector.ps1": b"Get-ADObject\n",
+        "refreeze-cleanup/directory.json": _json({"result": "clean"}).encode(),
+    }
+    banked |= {f"docs/plan-033/{name}": data for name, data in cleanup.items()}
+    banked[REFREEZE_BATCH] = _json({
+        "schema_version": 3,
+        "source_commit": freeze,
+        "driver": "scripts/plan-033/run-requal-batch.sh",
+        "lanes_started": len(runs),
+        "runs": runs,
+        "not_passed": [],
+        "successors": [],
+        "post_batch_cleanup": {
+            name: hashlib.sha256(data).hexdigest() for name, data in cleanup.items()
+        },
+    })
+    banked["docs/plan-033/refreeze-batch.md"] = "# The batch at the re-freeze\n"
+    registry = json.loads((root / REGISTRY).read_text("utf-8"))
+    first = sorted(_verdict_path(lane, LABEL) for lane in FINALIZERS)
+    assert not set(first) & set(registry["retired_verdicts"]), "live at F"
+    registry["lane_verdicts"].update({
+        _verdict_path(lane, REFREEZE_LABEL): FINALIZERS[lane] for lane in FINALIZERS
+    })
+    if how.retire_first:
+        registry["retired_verdicts"] = sorted(registry["retired_verdicts"] + first)
+    registry["wp0_manifest"] = _verdict_path("wp0", REFREEZE_LABEL)
+    banked[REGISTRY] = _registry_json(registry)
+    if how.move_freeze:
+        report = json.loads((root / REPORT).read_text("utf-8"))
+        report["freeze"] = {"commit": freeze, "batch_manifest": REFREEZE_BATCH}
+        banked[REPORT] = _json(report)
+    banked["tests/fixtures/scenarios/platforms.json"] = _json({"runs": ["refreeze"]})
+    banked["docs/plan-033/firewall-results.md"] = "# Firewall results\n\nfirewall-refreeze\n"
+    banked |= how.extra_banked
+    banked_commit = _commit(root, banked, "B: bank the batch at the re-freeze")
+    for run in runs:
+        name = f"evidence/{run['run_id']}"
+        _git(root, "tag", "-a", "-m", f"Source tree for {run['run_id']}", name, freeze)
+    approved = _commit(root, _approve_files(root), "A: approve 1.1.0 again")
+    return History(root, history.freeze, freeze, banked_commit, approved)
+
+
+def _report_status(history: History, commit: str) -> object:
+    return json.loads(_git(history.root, "show", f"{commit}:{REPORT}"))["status"]
+
+
+def test_a_re_freeze_after_an_unpublished_approval_passes(
+    history: History, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The approved history before F is not held against it: the gate reads F..A."""
+    first_approval = history.approved
+    again = _refreeze(history)
+    assert _report_status(again, first_approval) == "approved"
+    assert _report_status(again, again.freeze) == "candidate"
+    assert _git(again.root, "rev-parse", f"{again.freeze}^") == first_approval
+    summary = _verify(again)
+    assert f"freeze {again.freeze[:12]}: the tagged tree is F plus" in summary
+    assert f"-> B {again.banked[:12]} -> A {again.approved[:12]} (2 commits)" in summary
+    assert "records 3 runs at F, each with its evidence tag" in summary
+    assert gate.main(["--tag", "v1.1.0", "--root", str(again.root)]) == 0
+    assert "does not authenticate the estate runs" in capsys.readouterr().out
+
+
+def test_the_re_freeze_commit_itself_is_refused_only_as_a_candidate(history: History) -> None:
+    """At F the gate stops at the report's state, before any history is read."""
+    again = _refreeze(history)
+    _git(again.root, "checkout", "-q", "--detach", again.freeze)
+    with pytest.raises(
+        gate.ReleaseGateError, match="status is 'candidate'; tag v1.1.0 requires 'approved'"
+    ):
+        gate.check(again.root, "v1.1.0")
+
+
+def test_a_re_freeze_still_refuses_a_planted_change_under_src(history: History) -> None:
+    again = _refreeze(history, Refreeze(extra_banked={"src/gpo_studio/core.py": "VALUE = 2\n"}))
+    with pytest.raises(gate.ReleaseGateError, match="differs from the freeze commit") as caught:
+        _verify(again)
+    assert "M src/gpo_studio/core.py" in str(caught.value)
+
+
+def test_a_re_freeze_that_keeps_the_first_freeze_live_is_refused(history: History) -> None:
+    """B must retire the first freeze's verdicts, which are live at F."""
+    with pytest.raises(gate.ReleaseGateError, match="more than one live verdict"):
+        _verify(_refreeze(history, Refreeze(retire_first=False)))
+
+
+def test_a_re_freeze_whose_report_still_names_the_first_freeze_is_refused(
+    history: History,
+) -> None:
+    """Without B moving `freeze`, the gate holds the tag to the first freeze, and
+    the history from it carries the first approval and the workflow change."""
+    with pytest.raises(gate.ReleaseGateError, match="differs from the freeze commit") as caught:
+        _verify(_refreeze(history, Refreeze(move_freeze=False)))
+    assert "M .github/workflows/release.yml" in str(caught.value)
+
+
+def test_a_re_freeze_that_leaves_the_report_approved_is_refused(history: History) -> None:
+    """F must reset the report: otherwise B, not A, is the first approved commit."""
+    again = _refreeze(history, Refreeze(reset_records=False))
+    with pytest.raises(gate.ReleaseGateError, match=f"commit {again.banked} approves before"):
+        _verify(again)
+
+
+# --- approval is A's alone, in both records at once (Sol refreeze-r1 B1) ----------
+
+
+def test_b_cannot_approve_the_manifest_before_a(history: History) -> None:
+    """Sol's reproducer: B restores the first approval's manifest (line 5 approved,
+    remaining items closed) while the report stays a candidate, so A changes only
+    the report. Before the fix the gate accepted it."""
+    approved_manifest = (history.root / MANIFEST).read_text("utf-8")
+    again = _refreeze(history, Refreeze(extra_banked={MANIFEST: approved_manifest}))
+    assert _report_status(again, again.banked) == "candidate"
+    assert gate.APPROVED in _git(again.root, "show", f"{again.banked}:{MANIFEST}").split("\n")
+    with pytest.raises(
+        gate.ReleaseGateError,
+        match=f"commit {again.banked} comes before the approval commit, so both release "
+        "records must still be a candidate's",
+    ) as caught:
+        _verify(again)
+    assert "line 5 is '> **Status:** approved for release'" in str(caught.value)
+
+
+def _approve_early(again: History, early: str) -> None:
+    """Rebuild B (and A after it) with part of A's approval already made in B."""
+    approval = _files_of(again, again.approved)
+    report = json.loads(approval[REPORT])  # type: ignore[arg-type]
+    text = approval[MANIFEST]
+    manifest = (text.decode() if isinstance(text, bytes) else str(text)).split("\n")
+    changes: dict[str, str | bytes | None] = {}
+    if early in ("manifest", "both"):
+        changes[MANIFEST] = approval[MANIFEST]
+    if early in ("report", "both"):
+        changes[REPORT] = approval[REPORT]
+    if early == "manifest-items":
+        manifest[4] = gate.CANDIDATE
+        changes[MANIFEST] = "\n".join(manifest)
+    if early == "report-items":
+        changes[REPORT] = _json({**report, "status": "candidate"})
+    _rebuild_on(again, again.freeze, [{**_files_of(again, again.banked), **changes}, approval])
+
+
+@pytest.mark.parametrize(
+    ("early", "message"),
+    [
+        # The reproducer's shape, built the other way: B carries A's manifest.
+        ("manifest", "line 5 is '> \\*\\*Status:\\*\\* approved for release', not the candidate"),
+        # The mirror: B approves the report and leaves the manifest a candidate's.
+        ("report", "approves before the tagged commit"),
+        ("both", "approves before the tagged commit"),
+        # Line 5 still the candidate's, but every remaining item closed in B.
+        ("manifest-items", "Remaining before approval section marks no item pending"),
+        ("report-items", "remaining_before_approval marks no item pending"),
+    ],
+)
+def test_a_re_freeze_whose_banking_commit_approves_early_is_refused(
+    history: History, early: str, message: str
+) -> None:
+    again = _refreeze(history)
+    _approve_early(again, early)
+    banked = _git(again.root, "rev-parse", "HEAD~1")
+    with pytest.raises(gate.ReleaseGateError, match=message) as caught:
+        _verify(again)
+    assert f"commit {banked}" in str(caught.value)
+
+
+def test_a_records_only_commit_that_approves_the_manifest_is_refused(history: History) -> None:
+    """Not only B: any commit between F and A keeps both records a candidate's."""
+    approval = _files_of(history, history.approved)
+    _rebuild_on(history, history.banked, [{MANIFEST: approval[MANIFEST]}, approval])
+    records = _git(history.root, "rev-parse", "HEAD~1")
+    with pytest.raises(
+        gate.ReleaseGateError, match=f"commit {records} comes before the approval commit"
+    ):
+        _verify(history)
+
+
 # --- release candidates are not subject to it ---------------------------------
 
 

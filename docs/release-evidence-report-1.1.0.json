@@ -2,7 +2,7 @@
   "report_type": "GPO Studio release evidence report",
   "report_version": 3,
   "version": "1.1.0",
-  "status": "approved",
+  "status": "candidate",
   "manifest": "docs/release-evidence-1.1.0.md",
   "workspace_schema_version": 4,
   "artifact_hashes": {
@@ -501,10 +501,10 @@
     ],
     "remaining_before_approval": [
       "owner's hands-on NVDA acceptance: waived for 1.1.0 by the owner on 2026-10-17; not run",
-      "freeze commit F with __version__ 1.1.0 and the preparation release-evidence-1.1.0.md lists: done at the freeze commit (2026-10-19)",
-      "all 26 live lanes requalified at F in one batch, banked in commit B whose parent is F, evidence and records only, with freeze set in this report: done (2026-10-19), the release 1.1.0 final batch, 26 of 26 at 765b30405f59e12f05c518ae16ddcc8437be5cd3 (docs/plan-033/release110-final-batch.json)",
-      "closed by the approval (2026-10-19): automated evidence, recorded after A by the tagged release workflow run, not a precondition of approval: the published release-evidence.md and release-evidence-report.json carry the tag, source commit, workflow run URL, id, attempt and ref, and the wheel, sdist and SBOM hashes, and state that release-identity, ci, identifier-gate and verify passed before publish and that verify checked coverage against the floor; the job ids and that run's coverage total are in the workflow run itself, not in the assets",
-      "final approval in a records-only commit A after B: version 1.1.0, status approved, manifest line 5: done (2026-10-19) in commit A; the tag v1.1.0 goes on A, on main"
+      "freeze commit F with __version__ 1.1.0 and the preparation release-evidence-1.1.0.md lists: done at the freeze commit (2026-10-19) and kept by the re-freeze commit, the child of the unpublished approval d19f846aca2cd0e9aa1d5adb2f50250b1cbaceff, which changes only the verify and test workflow timeouts (release workflow run 39361251167 published nothing: verify was cancelled at 25 minutes), the CHANGELOG date and one entry about that run, the release gate's check that every commit before A keeps both records a candidate's (with its tests and the re-freeze's), and the release records; the re-freeze commit is F from here on, and freeze still names the first freeze 765b30405f59e12f05c518ae16ddcc8437be5cd3 and its batch until B sets it",
+      "all 26 live lanes requalified at F in one batch, banked in commit B whose parent is F, evidence and records only, with freeze set to F in this report; the first freeze's batch at 765b30405f59e12f05c518ae16ddcc8437be5cd3 is then history (pending)",
+      "automated evidence, recorded after A by the tagged release workflow run, not a precondition of approval: the published release-evidence.md and release-evidence-report.json carry the tag, source commit, workflow run URL, id, attempt and ref, and the wheel, sdist and SBOM hashes, and state that release-identity, ci, identifier-gate and verify passed before publish and that verify checked coverage against the floor; the job ids and that run's coverage total are in the workflow run itself, not in the assets",
+      "final approval in a records-only commit A after B: version 1.1.0, status approved, manifest line 5; tag v1.1.0 moved to A (owner decision 2026-10-19), on main (pending)"
     ]
   }
 }
