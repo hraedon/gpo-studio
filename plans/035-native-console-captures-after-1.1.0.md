@@ -2,7 +2,10 @@
 
 Status: **active: captures only, nothing implemented or surfaced** (updated
 2026-10-20). WP-1 and WP-2 were captured in windows-console-driver estate
-window 19, with fixtures and tests banked here (WI-071, WI-077). After review they
+window 19, with fixtures and tests banked here
+(`tests/fixtures/native-scripts-sides-gpme/`, `tests/fixtures/native-firewall-gpme-view/`;
+[WI-071](../docs/work-items.md#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger),
+[WI-077](../docs/work-items.md#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid)). After review they
 were requalified at revision 2 in window 20, with exact envelopes and record-bound inputs
 and bytes. No product code has
 changed: WP-1's `export.py` change is not made, so it is neither surfaced nor
