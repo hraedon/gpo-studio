@@ -3068,16 +3068,28 @@ GPME, and its envelope deliberately did not assert a user-side tool GUID. Measur
 - `scripts.ini` on each side holds only the populated trigger: `[Shutdown]` (158 bytes)
   and `[Logon]` (138 bytes). Both are UTF-16LE with BOM, CRLF, split style, with a leading
   blank line and no empty sibling section. No `psscripts.ini` is written. GPME writes the
-  INIs Hidden. Byte-exact transcripts are banked with provenance in
-  `tests/fixtures/native-scripts-sides-gpme/`.
+  INIs Hidden (operator-observed in the collection listing; no record carries file
+  attributes). Byte-exact transcripts are banked with provenance in
+  `tests/fixtures/native-scripts-sides-gpme/`. The revision-1 record binds the INIs'
+  sizes and CR/LF counts, but not their bytes. The bytes come from the operator's
+  collection of the cleanup-time backup. windows-console-driver banks them with a hash
+  manifest (`docs/estate-window-19/captures/`).
 
 What this means for `export.py`:
 
 - **The user-side Scripts pair changes.** `_extension_guids` must write
   `[{42B5FAAE-…}{40B66650-…}]` when `side == "User"` and keep `{40B6664F-…}` for
-  `Machine`. That needs a `_SCRIPTS_USER_TOOL_GUID` constant, a side branch beside
-  the registry tool's, and the new GUID added to `EMITTED_EXTENSION_GUIDS`, so a
-  re-import does not flag Studio's own list as unknown.
+  `Machine`. That needs a `_SCRIPTS_USER_TOOL_GUID` constant and a side branch beside
+  the registry tool's. Add the new GUID to `EMITTED_EXTENSION_GUIDS` for completeness
+  of that inventory. The set currently has no consumer: the known-CSE check that read
+  it went with the `gpmc_interop` reduction, and `_unknown_cse_refusal` refuses on any
+  preserved `cse_metadata`, so the comment at `export.py:98-104` describing that
+  check is stale and should be corrected in the same change.
+- **`api.py` needs the same GUID.** `_EXTENSION_GUID_FAMILIES` (around
+  `api.py:6487`) has no entry for the user-side tool GUID, so `_extension_families_of`
+  would label the user-side Scripts registration with the raw GUID. Add
+  `_SCRIPTS_USER_TOOL_GUID: "Scripts"` (cosmetic: Scripts is not a publication-measured
+  family).
 - **The per-trigger `scripts.ini` writer needs no change.** Studio already writes both
   captures byte for byte (`tests/test_native_scripts_sides_capture.py`).
 - `test_user_side_pair_matches_the_capture` asserts the captured user pair and is
@@ -3085,8 +3097,10 @@ What this means for `export.py`:
   pass. `test_user_side_scripts_land_under_user` in `test_native_scripts_export.py`
   pins the current (wrong) user pair and must be updated in the same change.
 
-**Still open:** the `export.py` change itself, which is bound and rides the Plan 035
-requalification batch with the publication, scripts-metadata and firewall lanes. After
+**Still open:** the `export.py` change itself. `export.py` is bound by **six** lanes
+(`docs/plan-033/bound-source-cost.md`: endpoint, firewall, publication,
+scripts-metadata, wp1b and wp2), so the change rides a requalification batch that
+re-runs all six. After
 that, the separate logon/shutdown lane this item proposes, with the finalizer comparing
 the user pair against the captured value and pinning the report rows from a first run.
 
@@ -3355,9 +3369,16 @@ Security > Inbound Rules, opened one rule's Properties, and cancelled.
   and Apply greyed (screenshot). No edit was made, so nothing shows that an edit persists
   to `Registry.pol`. The evidence is person-reviewed surface evidence, not a certified
   claim.
-- **The walk changed nothing:** both version halves, `versionNumber`, both extension
-  lists and the imported `Registry.pol` were post == pre. GPME's only write was a
-  `GptTmpl.inf` stub when Security Settings opened, which recon measured on a fresh GPO.
+- **The walk left the policy as imported, but did write SYSVOL:** both version halves,
+  `versionNumber`, both extension lists and the imported `Registry.pol` were post ==
+  pre. GPME wrote a `GptTmpl.inf` stub (`[Unicode]`/`[Version]`) with its SecEdit
+  parent directories when Security Settings opened, and also the
+  `Machine/Scripts/{Startup,Shutdown}` directories. The revision-1 envelope did not pin
+  that delta exactly: it accepted any stub content and any added path. So this is what
+  the run observed, not a certified exact blast radius.
+- **The input is operator-identified, not record-bound:** the revision-1 record does
+  not carry the bundle hash or backup id the setup script emitted. The bundle identity
+  (`3f146885…`) rests on the operator's push and the setup script's hash check.
 - The `D02B1F72` question this item first asked was not observed. `badcaf9` no longer
   writes `D02B1F72` for a firewall-only GPO. Mixed firewall-plus-other machine policy
   still registers `D02B1F72` and was not imported.

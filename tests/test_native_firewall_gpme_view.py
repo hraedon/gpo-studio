@@ -62,7 +62,14 @@ def test_each_row_shows_the_authored_profile_state_action_and_group() -> None:
         assert row["Group"] == (rule.group or ""), name
 
 
-def test_the_view_is_bound_to_the_imported_registration_and_bundle() -> None:
+def test_provenance_names_the_registration_and_the_operator_identified_bundle() -> None:
+    """A consistency check on the provenance text, not a binding.
+
+    The revision-1 record (w19-r3) does not carry the bundle hash; the bundle
+    identity rests on the operator's push and the setup script's hash check.
+    This pins only that the provenance states which bytes and registration
+    were meant, so a later edit cannot silently change them.
+    """
     imported = _PROVENANCE["what_was_imported"]
     assert "3f146885bb8e362e4d178582cc5710cd8067980cb9413a5411c75e2edf651e0f" in imported
     assert "{B05566AC-FE9C-4368-BE01-7A4CBB6CBA11}" in imported
