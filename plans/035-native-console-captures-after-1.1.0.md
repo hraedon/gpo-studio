@@ -6,8 +6,8 @@ window 19, with fixtures and tests banked here
 (`tests/fixtures/native-scripts-sides-gpme/`, `tests/fixtures/native-firewall-gpme-view/`;
 [WI-071](../docs/work-items.md#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger),
 [WI-077](../docs/work-items.md#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid)). After review they
-were requalified at revision 2 in window 20, with exact envelopes and record-bound inputs
-and bytes. No product code has
+were requalified at revision 2 in window 20 and, after a second review, at revision 3 in
+window 21, with leaf-exact envelopes and record-bound inputs and bytes. No product code has
 changed: WP-1's `export.py` change is not made, so it is neither surfaced nor
 Windows-verified, and it waits for a requalification batch over the six lanes
 that bind `export.py`. WP-2 needs no `export.py` change. WP-3 has not started.

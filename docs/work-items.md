@@ -3106,6 +3106,12 @@ cleanup journal binds both `scripts.ini` SHA-256s (`f8fa4009…`, `ba526db6…`,
 byte-identical to window 19's, so the fixture bytes are now carried by a record and not
 only by the operator's collection.
 
+**2026-10-20, window 21: requalified at revision 3 after the round-2 review.** Revision
+2's envelope covered whole `scripts_ini` subtrees, so an extra populated trigger could
+have verified. Revision 3 asserts every fact leaf by leaf and pins both files by length
+and SHA-256 in the envelope itself. `w21-r1` verified: the same bytes, and the record
+carries its arguments and setup output whole.
+
 **Still open:** the `export.py` change itself. `export.py` is bound by **six** lanes
 (`docs/plan-033/bound-source-cost.md`: endpoint, firewall, publication,
 scripts-metadata, wp1b and wp2), so the change rides a requalification batch that
@@ -3404,6 +3410,11 @@ bytes, SHA-256 `07cba636…`, absent before), its SecEdit parents and
 imported `Registry.pol` hash) and the saved UIA dumps by digest. GPME listed the same 10
 inbound rules, cell for cell. The display and editability half is still person-reviewed
 surface evidence.
+
+**2026-10-20, window 21: requalified at revision 3** (`w21-r2`, verified). The stub's
+parse is now asserted leaf by leaf, and the record carries the import step's whole output
+(backup id, bundle hash, imported `Registry.pol` hash) instead of a note cut at 512
+characters.
 
 **Still open, so not closed:** the closing condition also asks that
 `gpme_display_unmeasured` be narrowed. That limitation's text in `api.py` is stale as
