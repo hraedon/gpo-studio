@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Run GPO Studio's documented Linux checks in a fresh, cold-cache clone."""
+"""Run GPO Studio's documented Linux checks in a fresh, cold-cache clone.
+
+The named commit supplies the documented shell commands, so run only commits
+whose contents are trusted to execute with the invoking user's privileges.
+"""
 
 from __future__ import annotations
 
@@ -13,9 +17,11 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from types import FrameType
 from typing import NoReturn
 
 import yaml
@@ -37,8 +43,30 @@ _JOB_BY_COMMAND = {
     "npm run check": "frontend",
     "npm run test:browser": "frontend",
     "bash scripts/installed_package_smoke.sh": "installed-package",
+    # CONTRIBUTING runs this in the editable environment; the installed-package
+    # job supplies its timeout even though CI rehearses against the wheel.
     "uv run python scripts/rehearse_upgrade_rollback.py": "installed-package",
 }
+
+_PASSTHROUGH_ENVIRONMENT = frozenset(
+    {
+        "ALL_PROXY",
+        "CURL_CA_BUNDLE",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "LANG",
+        "NO_PROXY",
+        "PATH",
+        "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TERM",
+        "all_proxy",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -47,6 +75,30 @@ class Step:
     command: str
     job: str
     timeout_seconds: int
+
+
+class _SignalInterruption(BaseException):
+    def __init__(self, signum: int) -> None:
+        self.signum = signum
+        super().__init__(signum)
+
+
+@contextmanager
+def _interrupt_on_signals() -> Iterator[None]:
+    previous = {
+        signum: signal.getsignal(signum) for signum in (signal.SIGINT, signal.SIGTERM)
+    }
+
+    def interrupt(signum: int, _frame: FrameType | None) -> NoReturn:
+        raise _SignalInterruption(signum)
+
+    for signum in previous:
+        signal.signal(signum, interrupt)
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -200,11 +252,15 @@ def fresh_clone(source: Path, commit: str, run_root: Path) -> Path:
 def _stop_process(process: subprocess.Popen[str]) -> None:
     try:
         os.killpg(process.pid, signal.SIGTERM)
-        process.wait(timeout=5)
-    except (ProcessLookupError, subprocess.TimeoutExpired):
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
         process.wait()
+        return
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=5)
+    # The group leader can exit before a descendant that ignores SIGTERM.
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    process.wait()
 
 
 def run_step(step: Step, *, checkout: Path, environment: dict[str, str]) -> tuple[bool, float]:
@@ -228,6 +284,9 @@ def run_step(step: Step, *, checkout: Path, environment: dict[str, str]) -> tupl
         timed_out = True
         _stop_process(process)
         returncode = process.returncode
+    except (KeyboardInterrupt, _SignalInterruption):
+        _stop_process(process)
+        raise
     duration = time.monotonic() - started
     outcome = "TIMEOUT" if timed_out else "PASS" if returncode == 0 else "FAIL"
     print(
@@ -279,6 +338,38 @@ def with_external_pytest_base(steps: Sequence[Step], pytest_base: Path) -> list[
     return result
 
 
+def step_environment(*, run_root: Path, checkout: Path, python: Path) -> dict[str, str]:
+    """Build a small, reproducible environment without user package settings."""
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key in _PASSTHROUGH_ENVIRONMENT or key.startswith("LC_")
+    }
+    isolated_home = run_root / "home"
+    isolated_config = run_root / "config"
+    npm_userconfig = run_root / "empty-npmrc"
+    for directory in (isolated_home, isolated_config):
+        directory.mkdir()
+    npm_userconfig.touch()
+    environment.update(
+        {
+            "CI": "true",
+            "HOME": str(isolated_home),
+            "XDG_CONFIG_HOME": str(isolated_config),
+            "TMPDIR": str(run_root / "tmp"),
+            "UV_CACHE_DIR": str(run_root / "uv-cache"),
+            "UV_PYTHON_DOWNLOADS": "never",
+            "NPM_CONFIG_CACHE": str(run_root / "npm-cache"),
+            "NPM_CONFIG_USERCONFIG": str(npm_userconfig),
+            "PIP_CONFIG_FILE": os.devnull,
+            "PLAYWRIGHT_BROWSERS_PATH": str(run_root / "playwright-browsers"),
+            "PYTHON": str(python),
+            "GPO_STUDIO_TEST_PYTHON": str(checkout / ".venv" / "bin" / "python"),
+        }
+    )
+    return environment
+
+
 def _die(message: str) -> NoReturn:
     print(f"ci-local: {message}", file=sys.stderr)
     raise SystemExit(2)
@@ -290,6 +381,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         _die(WINDOWS_REFUSAL)
     if args.python is None:
         _die("--python is required for the Linux checks")
+    if args.commit.startswith("-"):
+        _die("--commit must not begin with '-'")
     try:
         python = resolve_interpreter(args.python)
         source = repository_root(Path.cwd())
@@ -297,60 +390,72 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (RuntimeError, ValueError) as error:
         _die(str(error))
 
-    run_root = Path(tempfile.mkdtemp(prefix="gpo-studio-ci-local-"))
-    print(f"Run directory: {run_root}")
-    started = time.monotonic()
+    run_root: Path | None = None
     try:
-        checkout = fresh_clone(source, commit, run_root)
-        commands = required_commands(checkout / "CONTRIBUTING.md")
-        workflow = checkout / ".github" / "workflows" / "ci.yml"
-        timeouts = workflow_timeouts(workflow)
-        steps = [*_preparation_steps(timeouts, python), *derive_steps(commands, workflow)]
+        with _interrupt_on_signals():
+            run_root = Path(tempfile.mkdtemp(prefix="gpo-studio-ci-local-"))
+            print(f"Run directory: {run_root}", flush=True)
+            started = time.monotonic()
+            try:
+                checkout = fresh_clone(source, commit, run_root)
+                commands = required_commands(checkout / "CONTRIBUTING.md")
+                workflow = checkout / ".github" / "workflows" / "ci.yml"
+                timeouts = workflow_timeouts(workflow)
+                steps = [
+                    *_preparation_steps(timeouts, python),
+                    *derive_steps(commands, workflow),
+                ]
 
-        command_tmp = run_root / "tmp"
-        uv_cache = run_root / "uv-cache"
-        npm_cache = run_root / "npm-cache"
-        playwright_browsers = run_root / "playwright-browsers"
-        pytest_base = run_root / "pytest"
-        for directory in (command_tmp, uv_cache, npm_cache, playwright_browsers, pytest_base):
-            directory.mkdir()
-        steps = with_external_pytest_base(steps, pytest_base)
-        environment = {
-            **os.environ,
-            "CI": "true",
-            "TMPDIR": str(command_tmp),
-            "UV_CACHE_DIR": str(uv_cache),
-            "npm_config_cache": str(npm_cache),
-            "PLAYWRIGHT_BROWSERS_PATH": str(playwright_browsers),
-            "UV_PYTHON_DOWNLOADS": "never",
-            "PYTHON": str(python),
-            "GPO_STUDIO_TEST_PYTHON": str(checkout / ".venv" / "bin" / "python"),
-        }
-        environment.pop("VIRTUAL_ENV", None)
+                pytest_base = run_root / "pytest"
+                for directory in (
+                    run_root / "tmp",
+                    run_root / "uv-cache",
+                    run_root / "npm-cache",
+                    run_root / "playwright-browsers",
+                    pytest_base,
+                ):
+                    directory.mkdir()
+                steps = with_external_pytest_base(steps, pytest_base)
+                environment = step_environment(
+                    run_root=run_root, checkout=checkout, python=python
+                )
 
-        print(f"Commit: {commit}")
-        print(f"Python: {python}")
-        print(
-            "Scope: Linux cold-cache and fresh-install checks only. This pre-R1 mode "
-            "does not reproduce inline workflow shell or Windows-only failures."
+                print(f"Commit: {commit}")
+                print(f"Python: {python}")
+                print(
+                    "Scope: Linux cold-cache and fresh-install checks only. This pre-R1 mode "
+                    "does not reproduce inline workflow shell or Windows-only failures."
+                )
+                total_steps = len(steps)
+                for index, step in enumerate(steps, start=1):
+                    print(f"\nStep {index}/{total_steps}", flush=True)
+                    passed, _duration = run_step(
+                        step, checkout=checkout, environment=environment
+                    )
+                    if not passed:
+                        print(f"ci-local failed after {time.monotonic() - started:.1f}s")
+                        return 1
+                print(
+                    f"\nci-local passed all {total_steps} steps in "
+                    f"{time.monotonic() - started:.1f}s"
+                )
+                return 0
+            except (RuntimeError, ValueError, KeyError) as error:
+                print(f"ci-local: {error}", file=sys.stderr)
+                return 2
+            finally:
+                if args.keep:
+                    print(f"Kept run directory: {run_root}")
+                else:
+                    shutil.rmtree(run_root, ignore_errors=True)
+    except (KeyboardInterrupt, _SignalInterruption) as interruption:
+        signum = (
+            signal.SIGINT
+            if isinstance(interruption, KeyboardInterrupt)
+            else interruption.signum
         )
-        total_steps = len(steps)
-        for index, step in enumerate(steps, start=1):
-            print(f"\nStep {index}/{total_steps}", flush=True)
-            passed, _duration = run_step(step, checkout=checkout, environment=environment)
-            if not passed:
-                print(f"ci-local failed after {time.monotonic() - started:.1f}s")
-                return 1
-        print(f"\nci-local passed all {total_steps} steps in {time.monotonic() - started:.1f}s")
-        return 0
-    except (RuntimeError, ValueError, KeyError) as error:
-        print(f"ci-local: {error}", file=sys.stderr)
-        return 2
-    finally:
-        if args.keep:
-            print(f"Kept run directory: {run_root}")
-        else:
-            shutil.rmtree(run_root, ignore_errors=True)
+        print(f"ci-local: interrupted by {signal.Signals(signum).name}", file=sys.stderr)
+        return 128 + signum
 
 
 if __name__ == "__main__":

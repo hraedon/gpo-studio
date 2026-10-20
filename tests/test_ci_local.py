@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import json
+import os
+import shlex
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import ModuleType
 
@@ -39,6 +45,25 @@ def _git(repository: Path, *arguments: str) -> str:
     return completed.stdout.strip()
 
 
+def _wait_for_file(path: Path, process: subprocess.Popen[str]) -> None:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if path.is_file():
+            return
+        if process.poll() is not None:
+            stdout, stderr = process.communicate()
+            pytest.fail(f"ci-local exited before {path.name}: {stdout}\n{stderr}")
+        time.sleep(0.02)
+    pytest.fail(f"timed out waiting for {path}")
+
+
+def _process_is_stopped(pid: int) -> bool:
+    stat = Path(f"/proc/{pid}/stat")
+    if not stat.exists():
+        return True
+    return stat.read_text(encoding="utf-8").split()[2] == "Z"
+
+
 def test_arguments_require_an_explicit_python(ci_local: ModuleType) -> None:
     with pytest.raises(SystemExit) as caught:
         ci_local.main([])
@@ -51,6 +76,15 @@ def test_arguments_require_an_explicit_python(ci_local: ModuleType) -> None:
     assert args.commit == "main"
     assert args.keep is True
     assert args.windows is False
+
+
+def test_commit_ref_beginning_with_dash_is_refused(
+    ci_local: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as caught:
+        ci_local.main(["--python", sys.executable, "--commit=-synthetic"])
+    assert caught.value.code == 2
+    assert "must not begin" in capsys.readouterr().err
 
 
 def test_timeouts_are_derived_from_the_jobs_that_run_each_check(
@@ -118,6 +152,140 @@ def test_preparation_uses_ci_timeouts_and_named_python(ci_local: ModuleType) -> 
     assert [step.timeout_seconds for step in steps] == [55 * 60, 20 * 60, 20 * 60]
     assert "/synthetic/python" in steps[0].command
     assert steps[2].command.endswith("install --with-deps chromium firefox")
+
+
+def test_step_environment_drops_parent_package_configuration(
+    ci_local: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inherited = {
+        "PYTHONPATH": "/synthetic/pythonpath",
+        "UV_INDEX_URL": "https://uv.example.invalid/simple",
+        "PIP_INDEX_URL": "https://pip.example.invalid/simple",
+        "npm_config_registry": "https://npm.example.invalid/",
+    }
+    for key, value in inherited.items():
+        monkeypatch.setenv(key, value)
+    run_root = tmp_path / "run"
+    checkout = tmp_path / "checkout"
+    run_root.mkdir()
+    checkout.mkdir()
+    for name in ("tmp", "uv-cache", "npm-cache", "playwright-browsers"):
+        (run_root / name).mkdir()
+    output = tmp_path / "environment.json"
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import json, os, pathlib, sys\n"
+        "pathlib.Path(sys.argv[1]).write_text(json.dumps(dict(os.environ)))\n",
+        encoding="utf-8",
+    )
+    environment = ci_local.step_environment(
+        run_root=run_root, checkout=checkout, python=Path(sys.executable)
+    )
+    command = " ".join(
+        shlex.quote(value) for value in (sys.executable, str(probe), str(output))
+    )
+
+    passed, _duration = ci_local.run_step(
+        ci_local.Step("environment probe", command, "test", 10),
+        checkout=checkout,
+        environment=environment,
+    )
+
+    assert passed
+    child_environment = json.loads(output.read_text(encoding="utf-8"))
+    assert not inherited.keys() & child_environment.keys()
+    assert child_environment["PIP_CONFIG_FILE"] == os.devnull
+    npm_userconfig = Path(child_environment["NPM_CONFIG_USERCONFIG"])
+    assert npm_userconfig.read_bytes() == b""
+    assert Path(child_environment["HOME"]).parent == run_root
+    assert Path(child_environment["XDG_CONFIG_HOME"]).parent == run_root
+
+
+@pytest.mark.parametrize("requested_signal", [signal.SIGINT, signal.SIGTERM])
+def test_signal_stops_real_child_process_tree_and_cleans_run_directory(
+    tmp_path: Path, requested_signal: signal.Signals
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    _git(repository, "init", "-b", "main")
+    _git(repository, "config", "user.name", "Synthetic Test")
+    _git(repository, "config", "user.email", "synthetic@example.invalid")
+    (repository / ".github" / "workflows").mkdir(parents=True)
+    (repository / "CONTRIBUTING.md").write_text(
+        "# Synthetic\n\n## Required checks\n\n```bash\nuv run ruff check .\n```\n",
+        encoding="utf-8",
+    )
+    (repository / ".github" / "workflows" / "ci.yml").write_text(
+        "jobs:\n  test:\n    timeout-minutes: 1\n"
+        "  frontend:\n    timeout-minutes: 1\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "fixture")
+
+    state = tmp_path / "state"
+    state.mkdir()
+    step_pid = state / "step.pid"
+    grandchild_pid = state / "grandchild.pid"
+    grandchild_code = (
+        "import os, pathlib, signal, time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        f"pathlib.Path({str(grandchild_pid)!r}).write_text(str(os.getpid())); "
+        "time.sleep(60)"
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text(
+        f"#!{sys.executable}\n"
+        "import os, pathlib, subprocess, time\n"
+        f"pathlib.Path({str(step_pid)!r}).write_text(str(os.getpid()))\n"
+        f"subprocess.Popen([{sys.executable!r}, '-c', {grandchild_code!r}])\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    temp_root = tmp_path / "tmp"
+    temp_root.mkdir()
+    environment = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "TMPDIR": str(temp_root),
+    }
+    process = subprocess.Popen(
+        [sys.executable, str(SCRIPT), "--python", sys.executable],
+        cwd=repository,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    child_pids: list[int] = []
+    try:
+        _wait_for_file(grandchild_pid, process)
+        child_pids = [int(step_pid.read_text()), int(grandchild_pid.read_text())]
+        os.kill(process.pid, requested_signal)
+        stdout, stderr = process.communicate(timeout=10)
+
+        assert process.returncode == 128 + requested_signal
+        assert requested_signal.name in stderr
+        assert "Run directory:" in stdout
+        assert not list(temp_root.glob("gpo-studio-ci-local-*"))
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not all(
+            _process_is_stopped(pid) for pid in child_pids
+        ):
+            time.sleep(0.02)
+        assert all(_process_is_stopped(pid) for pid in child_pids)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        for pid in child_pids:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
 
 
 def test_windows_leg_refuses_with_d7_reason(
