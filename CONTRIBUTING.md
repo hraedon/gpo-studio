@@ -35,9 +35,36 @@ bash scripts/installed_package_smoke.sh
 uv run python scripts/rehearse_upgrade_rollback.py
 ```
 
+To run these checks on Linux in the fresh-clone, cold-cache environment used
+for Plan 036 WP-1, name the interpreter explicitly:
+
+```bash
+uv run --extra dev python scripts/ci-local.py --python python3.14
+```
+
+Use `--commit REF` to check another commit and `--keep` to retain the temporary
+clone and caches. `--windows` currently refuses because D-7's approval to
+install uv on mvmcitest01 is still open. This pre-R1 mode does not reproduce
+inline workflow shell or Windows-only failures.
+
 A parser or codec change needs a bounded property test or a minimized
 regression fixture. Model variants use closed typed dispatch, with
 `typing.assert_never()` at every exhaustive boundary.
+
+## Risk-tiered review
+
+Review tiers are based on what a change can affect, not on whether a file is
+currently bound by a Windows evidence lane.
+
+| Tier | Touches | Before review is requested | Review |
+|---|---|---|---|
+| 0 | Prose that no test, gate or release step reads | CI green | One reviewer, any lineage, static |
+| 1 | Product or UI code that no lane executes (by R4b's derived closure, or until then by import closure) and that writes nothing to AD, SYSVOL or a workspace; tests | Local checks pass | One cross-lineage reviewer |
+| 2 | Anything a lane executes, evidence or registry, workflows, the grammar or the job manifest, release tooling, security- or privilege-relevant code, and **prose a test or gate reads** (`release-evidence-*.md`, the work-item register, status lines, batch notes) | Local checks pass, with the Windows leg where available | Two independent reviewers, one executing probes |
+
+When three consecutive review rounds find defects of the same class, the next
+step is a design change, not a fourth fix. Per Plan 036 D-7, review these tiers
+on **2026-11-13**, one month after the owner's 2026-10-13 decision.
 
 ## Fixtures and identifiers
 

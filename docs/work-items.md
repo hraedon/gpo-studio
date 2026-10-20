@@ -3892,7 +3892,10 @@ which is WI-084's (WP-0 and R4b).
 
 **Opened:** 2026-10-13 ([Plan 036](../plans/036-change-cost.md)).
 **Status:** open. An accepted programme: the owner accepted Plan 036 and all of
-its recommendations on 2026-10-13.
+its recommendations on 2026-10-13. WP-1's Linux local-CI runner and exit
+evidence and WP-7's risk-tiered review policy are complete as of 2026-10-20;
+the Windows leg remains open under D-7, and the other Plan 036 work packages
+remain open, so WI-084 stays open.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
