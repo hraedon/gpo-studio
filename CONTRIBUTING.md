@@ -43,9 +43,29 @@ uv run --extra dev python scripts/ci-local.py --python python3.14
 ```
 
 Use `--commit REF` to check another commit and `--keep` to retain the temporary
-clone and caches. `--windows` currently refuses because D-7's approval to
-install uv on mvmcitest01 is still open. This pre-R1 mode does not reproduce
-inline workflow shell or Windows-only failures.
+clone and caches. To run one Python version of the Windows `test-windows` job,
+use the SSH-backed leg:
+
+```bash
+uv run --extra dev python scripts/ci-local.py --windows --windows-python 3.14
+```
+
+Choose `3.13` or `3.14`; `--windows-host` defaults to
+`cw-admin@mvmcitest01`. The controller needs key-authenticated SSH access to
+that host. The leg copies a `git archive`, verifies the pinned uv executable's
+SHA-256 before use, sets `UV_PYTHON_DOWNLOADS=never`, and runs exactly the
+Install, Ruff, mypy, pytest and coverage-floor commands from `test-windows`
+under its cumulative timeout. It never changes remote `PATH` or installs a
+system tool. If a command needs a tool the host lacks, the leg refuses that
+step and names the missing prerequisite.
+
+The Windows host currently lacks `git.exe`. Several pytest tests invoke Git to
+make throwaway repositories, so the leg passes Install, Ruff and mypy and then
+refuses pytest; it cannot claim a full Windows pass until the host owner
+provides Git. Node and npm are also absent but are irrelevant: `test-windows`
+does not run frontend checks. The remote run directory is always removed; a
+stale directory owned by this runner is cleaned before the next run. Pre-R1
+mode still does not reproduce inline workflow shell.
 
 The runner requests no elevation and installs browser binaries without
 Playwright's `--with-deps`. When util-linux `setpriv` is available, every step

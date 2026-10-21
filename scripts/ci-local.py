@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run GPO Studio's documented Linux checks in a fresh, cold-cache clone.
+"""Run GPO Studio's documented Linux checks or Windows CI test job.
 
 The named commit supplies the documented shell commands, so run only commits
 whose contents are trusted to execute with the invoking user's privileges.
@@ -8,8 +8,11 @@ whose contents are trusted to execute with the invoking user's privileges.
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import os
+import re
+import secrets
 import shlex
 import shutil
 import signal
@@ -24,12 +27,42 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
 from typing import NoReturn
+from xml.etree import ElementTree
 
 import yaml  # type: ignore[import-untyped]  # no stubs in the dev lock; mypy gates src only
 
-WINDOWS_REFUSAL = (
-    "the Windows leg is unavailable: Plan 036 D-7 leaves installing uv on "
-    "mvmcitest01 open until the box's other users agree"
+WINDOWS_UV = r"C:\Users\cw-admin\.ci-local\uv\0.12.0\uv.exe"
+WINDOWS_UV_SHA256 = "268CD62B99395EB53825795518E067E4B27EC4B445175DF343824689F307C807"
+WINDOWS_PYTHONS = {
+    "3.13": r"C:\Program Files\Python313\python.exe",
+    "3.14": r"C:\Users\cw-admin\AppData\Local\Python\pythoncore-3.14-64\python.exe",
+}
+WINDOWS_JOB = "test-windows"
+WINDOWS_RUN_PREFIX = "gpo-studio-ci-local"
+_REMOTE_PATH = re.compile(r"^[A-Za-z]:\\[A-Za-z0-9_.\\-]+$")
+
+_WINDOWS_PHASES = (
+    ("Install", ("sync", "--locked", "--extra", "dev"), False),
+    ("Ruff", ("run", "--locked", "ruff", "check", "."), False),
+    ("Mypy", ("run", "--locked", "mypy", "src"), False),
+    (
+        "Pytest",
+        (
+            "run",
+            "--locked",
+            "pytest",
+            "-q",
+            "--cov=src/gpo_studio",
+            "--cov-branch",
+            "--cov-report=json:coverage.json",
+        ),
+        True,
+    ),
+    (
+        "Risk-based coverage floors",
+        ("run", "--locked", "python", "-I", "scripts/check_coverage.py", "coverage.json"),
+        False,
+    ),
 )
 
 _JOB_BY_COMMAND = {
@@ -80,6 +113,13 @@ class Step:
     command: str
     job: str
     timeout_seconds: int
+
+
+@dataclass(frozen=True)
+class WindowsWorkspace:
+    run: str
+    checkout: str
+    archive: str
 
 
 class _SignalInterruption(BaseException):
@@ -136,7 +176,18 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--windows",
         action="store_true",
-        help="request the Windows leg (currently refused by Plan 036 D-7)",
+        help="run the test-windows job on a remote Windows host",
+    )
+    result.add_argument(
+        "--windows-host",
+        default="cw-admin@mvmcitest01",
+        help="SSH destination for --windows (default: cw-admin@mvmcitest01)",
+    )
+    result.add_argument(
+        "--windows-python",
+        choices=sorted(WINDOWS_PYTHONS),
+        default="3.14",
+        help="test-windows Python matrix version (default: 3.14)",
     )
     result.add_argument(
         "--keep",
@@ -569,6 +620,378 @@ def step_environment(*, run_root: Path, checkout: Path, python: Path) -> dict[st
     return environment
 
 
+def encode_powershell(script: str) -> str:
+    """Encode a PowerShell script for Windows PowerShell's ``-EncodedCommand``."""
+    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+
+
+def powershell_ssh_command(host: str, script: str) -> list[str]:
+    if not host or host.startswith("-"):
+        raise ValueError("--windows-host must be a non-option SSH destination")
+    return [
+        "ssh",
+        host,
+        "powershell",
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        encode_powershell(script),
+    ]
+
+
+def _powershell_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _powershell_prelude() -> str:
+    return "\n".join(
+        (
+            "$ProgressPreference='SilentlyContinue'",
+            "$ErrorActionPreference='Stop'",
+            "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)",
+        )
+    )
+
+
+def decode_powershell_output(output: str) -> str:
+    """Turn PowerShell remoting CLIXML errors into readable text."""
+    marker = "#< CLIXML"
+    if marker not in output:
+        return output.strip()
+    prefix, xml = output.split(marker, 1)
+    xml = xml.strip()
+    try:
+        root = ElementTree.fromstring(xml)
+    except ElementTree.ParseError:
+        return output.strip()
+
+    def unescape(value: str) -> str:
+        return re.sub(
+            r"_x([0-9A-Fa-f]{4})_",
+            lambda match: chr(int(match.group(1), 16)),
+            value,
+        )
+
+    messages = [unescape(item.text or "") for item in root.iter() if item.tag.endswith("}S")]
+    return "\n".join(part for part in (prefix.strip(), *messages) if part).strip()
+
+
+def _stop_and_wait(process: subprocess.Popen[str]) -> None:
+    if process.poll() is None:
+        _stop_process(process)
+
+
+def _run_captured(arguments: Sequence[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        list(arguments),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _stop_and_wait(process)
+        raise RuntimeError(f"command timed out after {timeout:.1f}s: {arguments[0]}") from None
+    except BaseException:
+        _stop_and_wait(process)
+        raise
+    return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+
+
+def _run_remote_capture(host: str, script: str, *, timeout: float) -> str:
+    completed = _run_captured(powershell_ssh_command(host, script), timeout=timeout)
+    if completed.returncode != 0:
+        detail = decode_powershell_output(completed.stderr or completed.stdout)
+        raise RuntimeError(f"remote PowerShell failed: {detail or 'no diagnostic'}")
+    if completed.stderr:
+        # OpenSSH warnings are local diagnostics, not remote command output.
+        print(completed.stderr.rstrip(), file=sys.stderr)
+    return decode_powershell_output(completed.stdout)
+
+
+def _run_streamed(arguments: Sequence[str], *, timeout: float) -> int:
+    process = subprocess.Popen(list(arguments), text=True, start_new_session=True)
+    try:
+        return process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _stop_and_wait(process)
+        return 124
+    except BaseException:
+        _stop_and_wait(process)
+        raise
+    finally:
+        _stop_and_wait(process)
+
+
+def _parse_key_values(output: str, required: set[str]) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in output.splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key in required:
+            values[key] = value.strip()
+    missing = required - values.keys()
+    if missing:
+        raise RuntimeError(f"remote preflight omitted: {', '.join(sorted(missing))}")
+    return values
+
+
+def verify_windows_uv_digest(actual: str) -> None:
+    if actual.upper() != WINDOWS_UV_SHA256:
+        raise RuntimeError(
+            "refusing Windows uv: SHA-256 mismatch "
+            f"(expected {WINDOWS_UV_SHA256}, got {actual or '<missing>'})"
+        )
+
+
+def windows_preflight(host: str, python: str, *, timeout: float) -> bool:
+    script = (
+        _powershell_prelude()
+        + "\n"
+        + f"$uv={_powershell_literal(WINDOWS_UV)}\n"
+        + f"$python={_powershell_literal(python)}\n"
+        + "if (-not (Test-Path -LiteralPath $uv -PathType Leaf)) { throw 'pinned uv is missing' }\n"
+        + "if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { "
+        + "throw 'selected Python is missing' }\n"
+        + "Write-Output ('UV_SHA256=' + (Get-FileHash -Algorithm SHA256 $uv).Hash)\n"
+        + "Write-Output ('PYTHON=' + $python)\n"
+        + "$git=Get-Command git.exe -ErrorAction SilentlyContinue\n"
+        + "Write-Output ('GIT=' + $(if ($git) { $git.Source } else { 'MISSING' }))\n"
+    )
+    values = _parse_key_values(
+        _run_remote_capture(host, script, timeout=timeout), {"UV_SHA256", "PYTHON", "GIT"}
+    )
+    verify_windows_uv_digest(values["UV_SHA256"])
+    if values["PYTHON"] != python:
+        raise RuntimeError("remote preflight returned a different Python path")
+    return values["GIT"] != "MISSING"
+
+
+def _validate_remote_path(value: str) -> str:
+    if not _REMOTE_PATH.fullmatch(value):
+        raise RuntimeError(f"remote returned an unsafe run path: {value!r}")
+    return value
+
+
+def windows_initialize(host: str, token: str, *, timeout: float) -> WindowsWorkspace:
+    if not re.fullmatch(r"[0-9a-f]{24}", token):
+        raise ValueError("Windows run token is not 24 lowercase hex characters")
+    script = (
+        _powershell_prelude()
+        + "\n"
+        + "$runs=Join-Path $HOME '.ci-local\\runs'\n"
+        + f"$owned=Join-Path $runs {_powershell_literal(WINDOWS_RUN_PREFIX)}\n"
+        + "New-Item -ItemType Directory -Force -Path $owned | Out-Null\n"
+        + "Get-ChildItem -LiteralPath $owned -Force | ForEach-Object {\n"
+        + "  if (-not $_.PSIsContainer) {\n"
+        + "    throw ('unknown file in owned run root: ' + $_.FullName)\n"
+        + "  }\n"
+        + "  Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop\n"
+        + "}\n"
+        + f"$run=Join-Path $owned {_powershell_literal(token)}\n"
+        + "$checkout=Join-Path $run 'checkout'\n"
+        + "$archive=Join-Path $run 'source.zip'\n"
+        + "New-Item -ItemType Directory -Path $run | Out-Null\n"
+        + "Write-Output ('RUN=' + $run)\n"
+        + "Write-Output ('CHECKOUT=' + $checkout)\n"
+        + "Write-Output ('ARCHIVE=' + $archive)\n"
+    )
+    values = _parse_key_values(
+        _run_remote_capture(host, script, timeout=timeout), {"RUN", "CHECKOUT", "ARCHIVE"}
+    )
+    return WindowsWorkspace(
+        run=_validate_remote_path(values["RUN"]),
+        checkout=_validate_remote_path(values["CHECKOUT"]),
+        archive=_validate_remote_path(values["ARCHIVE"]),
+    )
+
+
+def windows_cleanup(host: str, workspace: WindowsWorkspace, *, timeout: float = 60) -> None:
+    script = (
+        _powershell_prelude()
+        + "\n"
+        + f"$target=[IO.Path]::GetFullPath({_powershell_literal(workspace.run)})\n"
+        + "$owned=[IO.Path]::GetFullPath((Join-Path $HOME "
+        + f"{_powershell_literal('.ci-local\\runs\\' + WINDOWS_RUN_PREFIX)}))\n"
+        + "$prefix=$owned.TrimEnd('\\') + '\\'\n"
+        + "if (-not $target.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {\n"
+        + "  throw 'refusing to remove a path outside the owned run root'\n"
+        + "}\n"
+        + "if (Test-Path -LiteralPath $target) { "
+        + "Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop }\n"
+    )
+    _run_remote_capture(host, script, timeout=timeout)
+
+
+def _windows_setup_script(workspace: WindowsWorkspace) -> str:
+    return (
+        _powershell_prelude()
+        + "\n"
+        + f"$archive={_powershell_literal(workspace.archive)}\n"
+        + f"$checkout={_powershell_literal(workspace.checkout)}\n"
+        + "if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {\n"
+        + "  throw 'archive is missing'\n"
+        + "}\n"
+        + "New-Item -ItemType Directory -Path $checkout | Out-Null\n"
+        + "Expand-Archive -LiteralPath $archive -DestinationPath $checkout -Force\n"
+        + "Remove-Item -LiteralPath $archive -Force\n"
+    )
+
+
+def _windows_phase_script(
+    workspace: WindowsWorkspace,
+    python: str,
+    arguments: Sequence[str],
+    *,
+    requires_git: bool,
+) -> str:
+    invocation = " ".join(_powershell_literal(argument) for argument in arguments)
+    git_check = ""
+    if requires_git:
+        git_check = (
+            "if (-not (Get-Command git.exe -ErrorAction SilentlyContinue)) {\n"
+            "  [Console]::Error.WriteLine('ci-local: refusing Pytest: test-windows needs "
+            "git.exe, but the remote host does not have it')\n"
+            "  exit 2\n"
+            "}\n"
+        )
+    return (
+        _powershell_prelude()
+        + "\n"
+        + f"$uv={_powershell_literal(WINDOWS_UV)}\n"
+        + f"$expected={_powershell_literal(WINDOWS_UV_SHA256)}\n"
+        + "$actual=(Get-FileHash -Algorithm SHA256 $uv).Hash\n"
+        + "if ($actual -ne $expected) { throw ('refusing uv SHA-256 ' + $actual) }\n"
+        + f"$env:UV_PYTHON={_powershell_literal(python)}\n"
+        + "$env:UV_PYTHON_DOWNLOADS='never'\n"
+        + "$env:CI='true'\n"
+        + f"$env:UV_CACHE_DIR={_powershell_literal(workspace.run + r'\\uv-cache')}\n"
+        + f"Set-Location -LiteralPath {_powershell_literal(workspace.checkout)}\n"
+        + git_check
+        + f"& $uv {invocation}\n"
+        + "exit $LASTEXITCODE\n"
+    )
+
+
+def _remaining_seconds(started: float, limit: int) -> float:
+    remaining = limit - (time.monotonic() - started)
+    if remaining <= 0:
+        raise RuntimeError(f"{WINDOWS_JOB} exhausted its cumulative {limit}s job budget")
+    return remaining
+
+
+def _windows_job_timeout(source: Path, commit: str) -> int:
+    yaml_text = _run_git(["show", f"{commit}:.github/workflows/ci.yml"], cwd=source)
+    document = yaml.safe_load(yaml_text)
+    try:
+        minutes = document["jobs"][WINDOWS_JOB]["timeout-minutes"]
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"ci.yml has no {WINDOWS_JOB} timeout-minutes") from error
+    if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
+        raise ValueError(f"ci.yml {WINDOWS_JOB} timeout-minutes is not a positive integer")
+    return minutes * 60
+
+
+def run_windows_job(
+    *,
+    source: Path,
+    commit: str,
+    host: str,
+    version: str,
+    local_root: Path,
+) -> bool:
+    python = WINDOWS_PYTHONS[version]
+    timeout_seconds = _windows_job_timeout(source, commit)
+    started = time.monotonic()
+    workspace: WindowsWorkspace | None = None
+    git_available = False
+    unwinding = False
+    try:
+        git_available = windows_preflight(
+            host, python, timeout=_remaining_seconds(started, timeout_seconds)
+        )
+        workspace = windows_initialize(
+            host, secrets.token_hex(12), timeout=_remaining_seconds(started, timeout_seconds)
+        )
+        archive = local_root / "source.zip"
+        _run_git(["archive", "--format=zip", f"--output={archive}", commit], cwd=source)
+        remote_archive = workspace.archive.replace("\\", "/")
+        print("\n=== Transfer git archive ===", flush=True)
+        if (
+            _run_streamed(
+                ["scp", str(archive), f"{host}:{remote_archive}"],
+                timeout=_remaining_seconds(started, timeout_seconds),
+            )
+            != 0
+        ):
+            return False
+        print("\n=== Expand git archive ===", flush=True)
+        if (
+            _run_streamed(
+                powershell_ssh_command(host, _windows_setup_script(workspace)),
+                timeout=_remaining_seconds(started, timeout_seconds),
+            )
+            != 0
+        ):
+            return False
+
+        total = len(_WINDOWS_PHASES)
+        for index, (name, arguments, requires_git) in enumerate(_WINDOWS_PHASES, start=1):
+            remaining = _remaining_seconds(started, timeout_seconds)
+            print(
+                f"\n=== Windows step {index}/{total}: {name} "
+                f"({remaining:.1f}s remaining of {timeout_seconds}s) ===",
+                flush=True,
+            )
+            if requires_git and not git_available:
+                print(
+                    "ci-local: refusing Pytest: test-windows needs git.exe, but the remote "
+                    "host does not have it; ci-local will not install it",
+                    file=sys.stderr,
+                )
+                print(
+                    f"[REFUSED] {name}; Windows leg stopped after "
+                    f"{time.monotonic() - started:.1f}s",
+                    flush=True,
+                )
+                return False
+            phase_started = time.monotonic()
+            returncode = _run_streamed(
+                powershell_ssh_command(
+                    host,
+                    _windows_phase_script(
+                        workspace, python, arguments, requires_git=requires_git
+                    ),
+                ),
+                timeout=remaining,
+            )
+            duration = time.monotonic() - phase_started
+            outcome = "PASS" if returncode == 0 else "TIMEOUT" if returncode == 124 else "FAIL"
+            print(f"[{outcome}] {name}: {duration:.1f}s", flush=True)
+            if returncode != 0:
+                return False
+        print(
+            f"\nci-local Windows {version} passed all {total} test-windows phases in "
+            f"{time.monotonic() - started:.1f}s"
+        )
+        return True
+    except BaseException:
+        unwinding = True
+        raise
+    finally:
+        if workspace is not None:
+            with _blocked_interrupt_signals():
+                try:
+                    windows_cleanup(host, workspace)
+                except RuntimeError as error:
+                    print(f"ci-local: remote cleanup failed: {error}", file=sys.stderr)
+                    if not unwinding:
+                        raise
+
+
 def _die(message: str) -> NoReturn:
     print(f"ci-local: {message}", file=sys.stderr)
     raise SystemExit(2)
@@ -578,18 +1001,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.check_browser_os_dependencies:
         return 0 if browser_dependencies_available(Path.cwd()) else 1
-    if args.windows:
-        _die(WINDOWS_REFUSAL)
     if sys.platform != "linux":
-        _die(f"ci-local runs the Linux checks and needs a Linux host (this is {sys.platform})")
-    if args.python is None:
+        _die(f"ci-local needs a Linux controller host (this is {sys.platform})")
+    if not args.windows and args.python is None:
         _die("--python is required for the Linux checks")
+    if args.windows and args.python is not None:
+        _die("--python is for the Linux checks; use --windows-python with --windows")
     if args.commit.startswith("-"):
         _die("--commit must not begin with '-'")
     try:
-        python = resolve_interpreter(args.python)
         source = repository_root(Path.cwd())
         commit = _run_git(["rev-parse", "--verify", f"{args.commit}^{{commit}}"], cwd=source)
+        python = None if args.windows else resolve_interpreter(args.python)
     except (RuntimeError, ValueError) as error:
         _die(str(error))
 
@@ -600,6 +1023,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Run directory: {run_root}", flush=True)
             started = time.monotonic()
             try:
+                if args.windows:
+                    print(f"Commit: {commit}")
+                    print(f"Windows host: {args.windows_host}")
+                    print(f"Windows Python: {args.windows_python}")
+                    print(
+                        "Scope: the test-windows job's install, Ruff, mypy, pytest and "
+                        "coverage-floor commands, from a git archive. No AD or SYSVOL access, "
+                        "frontend checks, Node tooling, or system installation is included."
+                    )
+                    return (
+                        0
+                        if run_windows_job(
+                            source=source,
+                            commit=commit,
+                            host=args.windows_host,
+                            version=args.windows_python,
+                            local_root=run_root,
+                        )
+                        else 1
+                    )
+                assert python is not None
                 checkout = fresh_clone(source, commit, run_root)
                 commands = required_commands(checkout / "CONTRIBUTING.md")
                 workflow = checkout / ".github" / "workflows" / "ci.yml"

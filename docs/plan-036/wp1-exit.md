@@ -122,7 +122,24 @@ run directory.
 
 ## Windows disposition
 
-`--windows` refuses with Plan 036 D-7's reason: installing uv on mvmcitest01
-remains conditional on agreement from the box's other users. No Windows result
-is claimed. Pre-R1 mode also states that it does not reproduce inline workflow
-shell or Windows-only failures.
+The owner decided on 2026-10-21 that uv may be installed on mvmcitest01, and the
+coordinator installed the CI-pinned uv 0.12.0. The Windows leg is implemented:
+it uses encoded Windows PowerShell 5.1 over SSH, copies a `git archive` into a
+unique owned remote directory, checks uv's SHA-256 before use, selects Python
+3.13 or 3.14 explicitly with downloads disabled, applies the `test-windows`
+job's cumulative 90-minute timeout, and removes the remote directory on every
+exit path.
+
+An opt-in integration preflight passed against mvmcitest01. A real Python 3.14
+run against `2a37970c6471ddea079b5a22bb1606ed9ea75546` then passed archive
+transfer and extraction, Install, Ruff and mypy. It refused before pytest
+because the host has no `git.exe`. This is a job prerequisite, not a checkout
+transport preference: repository tests invoke Git directly to create temporary
+repositories. The brief says to refuse a step whose prerequisite is absent and
+not install it, so the leg did so; Node and npm were also absent, but
+`test-windows` does not use them. Local and remote run directories were absent
+afterward.
+
+No Windows main pass and no historical Windows-only reproduction is claimed.
+Both WP-1 Windows exit conditions remain open until the host owner provides
+Git. Pre-R1 mode also still does not reproduce inline workflow shell.

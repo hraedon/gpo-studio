@@ -19,8 +19,7 @@ import pytest
 
 if sys.platform == "win32":
     pytest.skip(
-        "ci-local is Linux-only: its pre-R1 mode runs the Linux checks, and --windows "
-        "refuses until D-7 is decided",
+        "ci-local uses a Linux controller for both its local and remote Windows legs",
         allow_module_level=True,
     )
 
@@ -94,6 +93,150 @@ def test_arguments_require_an_explicit_python(ci_local: ModuleType) -> None:
     assert args.commit == "main"
     assert args.keep is True
     assert args.windows is False
+
+    windows = ci_local.parser().parse_args(
+        ["--windows", "--windows-host", "builder@synthetic", "--windows-python", "3.13"]
+    )
+    assert windows.windows_host == "builder@synthetic"
+    assert windows.windows_python == "3.13"
+
+
+def test_windows_ssh_command_is_an_encoded_noninteractive_powershell_command(
+    ci_local: ModuleType,
+) -> None:
+    script = "Write-Output 'quoted value'; Write-Output 'café'"
+
+    command = ci_local.powershell_ssh_command("builder@synthetic", script)
+
+    assert command[:-1] == [
+        "ssh",
+        "builder@synthetic",
+        "powershell",
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+    ]
+    import base64
+
+    assert base64.b64decode(command[-1]).decode("utf-16-le") == script
+
+
+def test_powershell_literal_doubles_quotes_without_shell_interpolation(
+    ci_local: ModuleType,
+) -> None:
+    assert ci_local._powershell_literal(r"C:\Synthetic User\owner's file") == (
+        r"'C:\Synthetic User\owner''s file'"
+    )
+
+
+def test_windows_uv_digest_mismatch_is_refused(ci_local: ModuleType) -> None:
+    ci_local.verify_windows_uv_digest(ci_local.WINDOWS_UV_SHA256.lower())
+    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
+        ci_local.verify_windows_uv_digest("0" * 64)
+
+
+def test_clixml_errors_are_decoded(ci_local: ModuleType) -> None:
+    encoded = (
+        '#< CLIXML\n<Objs xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+        '<S S="Error">first_x000D__x000A_second</S></Objs>'
+    )
+    assert ci_local.decode_powershell_output(encoded) == "first\r\nsecond"
+
+
+def test_windows_job_uses_one_decreasing_timeout_budget(
+    ci_local: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = ci_local.WindowsWorkspace(
+        run=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc",
+        checkout=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\checkout",
+        archive=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.zip",
+    )
+    clock = iter(float(value) for value in range(100, 200))
+    timeouts: list[float] = []
+    cleaned: list[str] = []
+    monkeypatch.setattr(ci_local.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(ci_local, "_windows_job_timeout", lambda _source, _commit: 90)
+    monkeypatch.setattr(
+        ci_local,
+        "windows_preflight",
+        lambda _host, _python, *, timeout: timeouts.append(timeout) or True,
+    )
+    monkeypatch.setattr(
+        ci_local,
+        "windows_initialize",
+        lambda _host, _token, *, timeout: timeouts.append(timeout) or workspace,
+    )
+    monkeypatch.setattr(ci_local, "_run_git", lambda *_args, **_kwargs: "")
+
+    def streamed(_arguments: object, *, timeout: float) -> int:
+        timeouts.append(timeout)
+        return 0
+
+    monkeypatch.setattr(ci_local, "_run_streamed", streamed)
+    monkeypatch.setattr(
+        ci_local,
+        "windows_cleanup",
+        lambda _host, target, *, timeout=60: cleaned.append(target.run),
+    )
+
+    assert ci_local.run_windows_job(
+        source=tmp_path,
+        commit="a" * 40,
+        host="builder@synthetic",
+        version="3.14",
+        local_root=tmp_path,
+    )
+    assert all(timeouts[index + 1] < timeouts[index] for index in range(len(timeouts) - 1))
+    assert cleaned == [workspace.run]
+
+
+@pytest.mark.parametrize("failure", ["return", "interrupt"])
+def test_windows_job_attempts_remote_cleanup_on_failure_and_interruption(
+    ci_local: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    workspace = ci_local.WindowsWorkspace(
+        run=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc",
+        checkout=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\checkout",
+        archive=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.zip",
+    )
+    cleaned: list[str] = []
+    monkeypatch.setattr(ci_local, "_windows_job_timeout", lambda _source, _commit: 90)
+    monkeypatch.setattr(ci_local, "windows_preflight", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(ci_local, "windows_initialize", lambda *_args, **_kwargs: workspace)
+    monkeypatch.setattr(ci_local, "_run_git", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        ci_local,
+        "windows_cleanup",
+        lambda _host, target, *, timeout=60: cleaned.append(target.run),
+    )
+
+    if failure == "return":
+        monkeypatch.setattr(ci_local, "_run_streamed", lambda *_args, **_kwargs: 1)
+        assert not ci_local.run_windows_job(
+            source=tmp_path,
+            commit="a" * 40,
+            host="builder@synthetic",
+            version="3.14",
+            local_root=tmp_path,
+        )
+    else:
+        def interrupt(*_args: object, **_kwargs: object) -> int:
+            raise ci_local._SignalInterruption(signal.SIGTERM)
+
+        monkeypatch.setattr(ci_local, "_run_streamed", interrupt)
+        with pytest.raises(ci_local._SignalInterruption):
+            ci_local.run_windows_job(
+                source=tmp_path,
+                commit="a" * 40,
+                host="builder@synthetic",
+                version="3.14",
+                local_root=tmp_path,
+            )
+
+    assert cleaned == [workspace.run]
 
 
 def test_commit_ref_beginning_with_dash_is_refused(
@@ -548,6 +691,20 @@ def test_three_different_signals_cannot_interrupt_stop_and_cleanup(tmp_path: Pat
                 os.kill(pid, signal.SIGKILL)
 
 
+@pytest.mark.skipif(
+    os.environ.get("GPO_STUDIO_WINDOWS_INTEGRATION") != "1",
+    reason="set GPO_STUDIO_WINDOWS_INTEGRATION=1 for the opt-in SSH preflight",
+)
+def test_opt_in_windows_ssh_preflight(ci_local: ModuleType) -> None:
+    """Exercise encoded SSH and the pinned tools without creating a remote run."""
+    assert isinstance(
+        ci_local.windows_preflight(
+            "cw-admin@mvmcitest01", ci_local.WINDOWS_PYTHONS["3.14"], timeout=30
+        ),
+        bool,
+    )
+
+
 def test_normal_exit_kills_background_process_group(ci_local: ModuleType, tmp_path: Path) -> None:
     child_pid = tmp_path / "child.pid"
     child_code = (
@@ -599,15 +756,14 @@ def test_timeout_kills_real_child_process_tree(ci_local: ModuleType, tmp_path: P
     _wait_for_stopped_processes([pid])
 
 
-def test_windows_leg_refuses_with_d7_reason(
+def test_windows_leg_refuses_linux_python_option(
     ci_local: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with pytest.raises(SystemExit) as caught:
-        ci_local.main(["--windows"])
+        ci_local.main(["--windows", "--python", sys.executable])
     assert caught.value.code == 2
     error = capsys.readouterr().err
-    assert "D-7" in error
-    assert "other users agree" in error
+    assert "use --windows-python" in error
 
 
 def test_fresh_clone_is_detached_unconverted_and_cleanup_is_external(

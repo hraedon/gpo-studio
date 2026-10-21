@@ -1,11 +1,12 @@
 # Plan 036: Reducing what a change costs
 
-Status: **implemented in part**: WP-1 and WP-7 are complete after 1.1.0 and
+Status: **implemented in part**: WP-1's Linux leg and WP-7 are complete after 1.1.0 and
 surfaced through `scripts/ci-local.py`, `CONTRIBUTING.md`, and `AGENTS.md`;
 WP-1's Linux exit is recorded in
-[`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md), while its Windows
-leg is not implemented or Windows-verified because D-7's uv decision remains
-open. The remaining work packages are active. The owner accepted every
+[`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md). Its Windows leg is
+implemented following D-7's 2026-10-21 uv decision, but its exit remains open:
+mvmcitest01 lacks the `git.exe` that pytest requires, and the leg refuses that
+step rather than installing another system tool. The remaining work packages are active. The owner accepted every
 recommendation on 2026-10-13 ("Your recommendations are fine: no qualms about
 the plan detailed in 106"; see [Owner decisions](#owner-decisions)). It was
 written for a two-lineage design review. Rounds 1 to 6
@@ -1970,9 +1971,9 @@ in 106"); each decision is recorded below.
   three-rounds rule, and whether uv may be installed on mvmcitest01, a box
   other projects use for AD validation. *Recommend: adopt the tiers and review
   them after a month; install uv there only if the box's other users agree.*
-  Decided by the owner, 2026-10-13: adopt the tiers and review them after a month. Installing uv
-  on mvmcitest01 stays conditional on the box's other users agreeing, and is
-  still open.
+  Decided by the owner, 2026-10-13: adopt the tiers and review them after a month. The owner
+  decided on 2026-10-21 that uv may be installed on mvmcitest01; the coordinator
+  installed the CI-pinned uv 0.12.0 under cw-admin's `.ci-local` directory.
 - **D-8. When R1 switches the workflows.** *Recommend: after 1.1.0 final*, with
   Python 3.15 landing on the new shape rather than as one more grammar
   extension. Decided by the owner, 2026-10-13: after 1.1.0 final.
@@ -2162,12 +2163,16 @@ D-9 selects (five on the current data). Specified, with its ordering, in
 After 1.1.0 final. A new script; no workflow change. (It may be drafted
 outside the repository before then.)
 
-- **Status (2026-10-20): complete and surfaced on Linux.**
+- **Status (2026-10-21): complete and surfaced on Linux; Windows leg implemented,
+  exit blocked on a host prerequisite.**
   `scripts/ci-local.py` is operator-reachable, and
   [`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md) records its
   cold-cache main pass and both historical cold-cache reproductions. The
-  Windows leg refuses explicitly and is not Windows-verified because D-7's
-  approval to install uv on mvmcitest01 remains open.
+  Windows leg copies a `git archive` over SSH and ran Install, Ruff and mypy on
+  mvmcitest01 under the job's cumulative timeout. It refuses pytest because the
+  host lacks `git.exe`, which repository tests invoke; under D-7's no-install
+  boundary it therefore has neither a main pass nor the two required historical
+  reproductions yet.
 
 - **Exit:** the Linux checks pass on `main` from a cold cache and reproduce the
   two historical cold-cache failures when they are re-introduced on a scratch
