@@ -135,12 +135,16 @@ not list `requirements-lock.txt` has no attestation for it, and the loop skips i
 In the same PowerShell window, run:
 
 ```powershell
+if (-not $Wheel) {
+    throw "`$Wheel is not set. Run the checksum block from step 2 in this same PowerShell window first, in the folder holding the release wheel. The green Code button's ZIP has no wheel."
+}
 $Root = Join-Path $env:LOCALAPPDATA "GPO Studio"
 $Venv = Join-Path $Root "venv"
 $Data = Join-Path $Root "data"
 $Backups = Join-Path $Root "backups"
 New-Item -ItemType Directory -Force $Root, $Data, $Backups | Out-Null
 py -3.13 -m venv $Venv
+if ($LASTEXITCODE -ne 0) { throw "Creating the virtual environment failed." }
 $Python = Join-Path $Venv "Scripts\python.exe"
 $App = Join-Path $Venv "Scripts\gpo-studio.exe"
 & $Python -m pip install --upgrade pip
@@ -153,6 +157,7 @@ if ($Requirements) {
     if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
 } else {
     & $Python -m pip install $Wheel.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
 }
 & $App --help
 ```
@@ -161,6 +166,12 @@ With `requirements-lock.txt`, pip installs exactly the dependency versions the
 release was tested with and refuses any file whose hash differs; the wheel then
 goes in without fetching anything else. Only a release without the file
 resolves dependencies from the package index at install time.
+
+The block refuses to start unless step 2 has set `$Wheel` in the same
+window. In PowerShell ISE, pip's warnings (for example `Cache entry
+deserialization failed`) appear in red as `NativeCommandError`; they are not
+failures. A failure stops the block with one of its own messages or a pip
+`ERROR:` line.
 
 The last command should print GPO Studio's help text. The application and
 its workspace are now under `%LOCALAPPDATA%\GPO Studio`. The commands do not
@@ -253,6 +264,9 @@ in [workspace backup and recovery](workspace-recovery.md).
 5. Run this block in the same PowerShell window:
 
 ```powershell
+if (-not $Wheel) {
+    throw "`$Wheel is not set. Run the checksum block from step 2 in this same PowerShell window first, in the folder holding the release wheel. The green Code button's ZIP has no wheel."
+}
 $Root = Join-Path $env:LOCALAPPDATA "GPO Studio"
 $Python = Join-Path $Root "venv\Scripts\python.exe"
 $App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
@@ -265,6 +279,7 @@ if ($Requirements) {
     if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
 } else {
     & $Python -m pip install --upgrade $Wheel.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
 }
 & $App --help
 ```
@@ -301,6 +316,9 @@ changes are not deleted.
    run:
 
 ```powershell
+if (-not $Wheel) {
+    throw "`$Wheel is not set. Run the checksum block from step 2 in this same PowerShell window first, in the folder holding the release wheel. The green Code button's ZIP has no wheel."
+}
 $Root = Join-Path $env:LOCALAPPDATA "GPO Studio"
 $Python = Join-Path $Root "venv\Scripts\python.exe"
 $App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
@@ -315,6 +333,7 @@ if ($Requirements) {
     if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
 } else {
     & $Python -m pip install $Wheel.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
 }
 & $App workspace restore $Backup $Database --replace
 & $App workspace check --database $Database --full
