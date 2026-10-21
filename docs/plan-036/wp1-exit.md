@@ -131,8 +131,9 @@ job's cumulative 90-minute timeout, and removes the remote directory on every
 exit path.
 
 An opt-in integration preflight passed against mvmcitest01. A real Python 3.14
-run against `2a37970c6471ddea079b5a22bb1606ed9ea75546` then passed archive
-transfer and extraction, Install, Ruff and mypy. It refused before pytest
+run against implementation commit `cde1a4367d261935f0a97d80046d4771362a7dc7`
+then passed archive transfer and extraction, Install (11.5 seconds), Ruff (2.7
+seconds) and mypy (10.2 seconds). It refused before pytest after **74.2 seconds**
 because the host has no `git.exe`. This is a job prerequisite, not a checkout
 transport preference: repository tests invoke Git directly to create temporary
 repositories. The brief says to refuse a step whose prerequisite is absent and
