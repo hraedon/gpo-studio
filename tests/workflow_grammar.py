@@ -2121,7 +2121,7 @@ TOOL_DISCOVERY: dict[str, tuple[str | None, list[str]]] = {
     "vitest": ("4.1.11", [*_variants("vitest.config", _JS), *_variants("vite.config", _JS)]),
     # vite DEFAULT_CONFIG_FILES, its .env files, postcss-load-config's search places.
     "vite": (
-        "8.3.1",
+        "8.3.4",
         [
             *_variants("vite.config", _JS),
             ".env",
