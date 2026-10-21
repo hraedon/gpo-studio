@@ -3112,6 +3112,12 @@ have verified. Revision 3 asserts every fact leaf by leaf and pins both files by
 and SHA-256 in the envelope itself. `w21-r1` verified: the same bytes, and the record
 carries its arguments and setup output whole.
 
+**2026-10-21, window 22: requalified at revision 4 as record-schema v3.** The round-3
+review found that `w21-r1` stamped record-schema v2 with a retrofitted field, so it is
+banked as superseded. `w22-r1` (verified) is the current evidence: the same bytes, the
+expected values pinned to the banked ones, and the invocation verifiable against the
+committed run sheet.
+
 **Still open:** the `export.py` change itself. `export.py` is bound by **six** lanes
 (`docs/plan-033/bound-source-cost.md`: endpoint, firewall, publication,
 scripts-metadata, wp1b and wp2), so the change rides a requalification batch that
@@ -3415,6 +3421,9 @@ surface evidence.
 parse is now asserted leaf by leaf, and the record carries the import step's whole output
 (backup id, bundle hash, imported `Registry.pol` hash) instead of a note cut at 512
 characters.
+
+**2026-10-21, window 22: requalified at revision 4 as record-schema v3** (`w22-r2`,
+verified). `w21-r2` is banked as superseded for the same v2-retrofit reason.
 
 **Still open, so not closed:** the closing condition also asks that
 `gpme_display_unmeasured` be narrowed. That limitation's text in `api.py` is stale as
