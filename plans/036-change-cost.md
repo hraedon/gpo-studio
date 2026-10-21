@@ -1,9 +1,14 @@
 # Plan 036: Reducing what a change costs
 
-Status: **active**: accepted by the owner on 2026-10-13 ("Your
-recommendations are fine: no qualms about the plan detailed in 106"), with
-every recommendation taken (see [Owner decisions](#owner-decisions)). None of
-it is built yet. It was written for a two-lineage design review. Rounds 1 to 6
+Status: **implemented in part**: WP-1 and WP-7 are complete after 1.1.0 and
+surfaced through `scripts/ci-local.py`, `CONTRIBUTING.md`, and `AGENTS.md`;
+WP-1's Linux exit is recorded in
+[`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md), while its Windows
+leg is not implemented or Windows-verified because D-7's uv decision remains
+open. The remaining work packages are active. The owner accepted every
+recommendation on 2026-10-13 ("Your recommendations are fine: no qualms about
+the plan detailed in 106"; see [Owner decisions](#owner-decisions)). It was
+written for a two-lineage design review. Rounds 1 to 6
 (Sol and DeepSeek; approve-with-changes in rounds 1 to 4, one blocker from Sol
 and none from DeepSeek in round 5, none in round 6) are folded in; the
 disposition of each finding is under
@@ -2157,6 +2162,13 @@ D-9 selects (five on the current data). Specified, with its ordering, in
 After 1.1.0 final. A new script; no workflow change. (It may be drafted
 outside the repository before then.)
 
+- **Status (2026-10-20): complete and surfaced on Linux.**
+  `scripts/ci-local.py` is operator-reachable, and
+  [`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md) records its
+  cold-cache main pass and both historical cold-cache reproductions. The
+  Windows leg refuses explicitly and is not Windows-verified because D-7's
+  approval to install uv on mvmcitest01 remains open.
+
 - **Exit:** the Linux checks pass on `main` from a cold cache and reproduce the
   two historical cold-cache failures when they are re-introduced on a scratch
   branch; the Windows leg, if D-7 allows it, reproduces at least two of the
@@ -2243,6 +2255,10 @@ After WP-4 (the fencing check rides WP-4).
 
 After 1.1.0 final. A document (`CONTRIBUTING.md` and `AGENTS.md`), tier 2
 itself because the release ships it and reviewers read it as policy.
+
+- **Status (2026-10-20): complete and surfaced.** The tiers, three-rounds rule,
+  and D-7's 2026-11-13 review date are recorded in both policy documents.
+  Windows verification does not apply to this documentation-only policy.
 
 - **Exit:** the tiers and the three-rounds rule are recorded and D-7 is taken.
 
