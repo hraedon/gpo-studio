@@ -145,20 +145,50 @@ def test_windows_phase_hashes_tools_and_prepends_only_the_pinned_git_directory(
         run=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc",
         checkout=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\checkout",
         archive=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.zip",
+        bundle=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.bundle",
     )
 
     script = ci_local._windows_phase_script(
         workspace,
         ci_local.WINDOWS_PYTHONS["3.14"],
         ("run", "--locked", "pytest", "-q"),
-        requires_git=True,
     )
 
     assert f"$git='{ci_local.WINDOWS_GIT}'" in script
     assert ci_local.WINDOWS_GIT_SHA256 in script
     assert "$actualGit=(Get-FileHash -Algorithm SHA256 $git).Hash" in script
     assert "$env:PATH=$gitDir + [IO.Path]::PathSeparator + $env:PATH" in script
+    assert "Start-Process -FilePath $uv" in script
+    assert "phase-owner" in script
     assert "[Environment]::SetEnvironmentVariable" not in script
+
+
+def test_windows_setup_restores_git_metadata_and_cleanup_owns_the_phase_tree(
+    ci_local: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = ci_local.WindowsWorkspace(
+        run=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc",
+        checkout=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\checkout",
+        archive=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.zip",
+        bundle=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.bundle",
+    )
+    setup = ci_local._windows_setup_script(workspace, "a" * 40)
+    captured: list[str] = []
+    monkeypatch.setattr(
+        ci_local,
+        "_run_remote_capture",
+        lambda _host, script, *, timeout: captured.append(script) or "",
+    )
+
+    ci_local.windows_cleanup("builder@synthetic", workspace)
+
+    assert ci_local.WINDOWS_GIT_SHA256 in setup
+    assert "fetch --quiet --force $bundle" in setup
+    assert "checkout --quiet --force --detach $commit" in setup
+    cleanup = captured[0]
+    assert "StartTime.ToFileTimeUtc() -eq $started" in cleanup
+    assert "taskkill.exe /PID $processId /T /F" in cleanup
+    assert "$attempt -lt 20" in cleanup
 
 
 def test_clixml_errors_are_decoded(ci_local: ModuleType) -> None:
@@ -176,6 +206,7 @@ def test_windows_job_uses_one_decreasing_timeout_budget(
         run=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc",
         checkout=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\checkout",
         archive=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.zip",
+        bundle=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.bundle",
     )
     clock = iter(float(value) for value in range(100, 200))
     timeouts: list[float] = []
@@ -227,6 +258,7 @@ def test_windows_job_attempts_remote_cleanup_on_failure_and_interruption(
         run=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc",
         checkout=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\checkout",
         archive=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.zip",
+        bundle=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.bundle",
     )
     cleaned: list[str] = []
     monkeypatch.setattr(ci_local, "_windows_job_timeout", lambda _source, _commit: 90)

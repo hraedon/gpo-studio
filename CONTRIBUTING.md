@@ -52,8 +52,9 @@ uv run --extra dev python scripts/ci-local.py --windows --windows-python 3.14
 
 Choose `3.13` or `3.14`; `--windows-host` defaults to
 `cw-admin@mvmcitest01`. The controller needs key-authenticated SSH access to
-that host. The leg copies a `git archive`, verifies the pinned uv and portable
-MinGit executables' SHA-256 digests before use, prepends MinGit's `cmd`
+that host. The leg copies a `git archive` plus a Git metadata bundle so the
+tests see the full-history checkout that CI provides. It verifies the pinned uv
+and portable MinGit executables' SHA-256 digests before use, prepends MinGit's `cmd`
 directory to `PATH` for each remote command only, sets
 `UV_PYTHON_DOWNLOADS=never`, and runs exactly the
 Install, Ruff, mypy, pytest and coverage-floor commands from `test-windows`

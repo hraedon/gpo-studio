@@ -44,9 +44,9 @@ WINDOWS_RUN_PREFIX = "gpo-studio-ci-local"
 _REMOTE_PATH = re.compile(r"^[A-Za-z]:\\[A-Za-z0-9_.\\-]+$")
 
 _WINDOWS_PHASES = (
-    ("Install", ("sync", "--locked", "--extra", "dev"), False),
-    ("Ruff", ("run", "--locked", "ruff", "check", "."), False),
-    ("Mypy", ("run", "--locked", "mypy", "src"), False),
+    ("Install", ("sync", "--locked", "--extra", "dev")),
+    ("Ruff", ("run", "--locked", "ruff", "check", ".")),
+    ("Mypy", ("run", "--locked", "mypy", "src")),
     (
         "Pytest",
         (
@@ -58,12 +58,10 @@ _WINDOWS_PHASES = (
             "--cov-branch",
             "--cov-report=json:coverage.json",
         ),
-        True,
     ),
     (
         "Risk-based coverage floors",
         ("run", "--locked", "python", "-I", "scripts/check_coverage.py", "coverage.json"),
-        False,
     ),
 )
 
@@ -122,6 +120,7 @@ class WindowsWorkspace:
     run: str
     checkout: str
     archive: str
+    bundle: str
 
 
 class _SignalInterruption(BaseException):
@@ -790,6 +789,36 @@ def _validate_remote_path(value: str) -> str:
     return value
 
 
+def _windows_remove_owned_run_function() -> str:
+    return (
+        "function Remove-OwnedRun([string]$target) {\n"
+        "  $owner=Join-Path $target 'phase-owner'\n"
+        "  if (Test-Path -LiteralPath $owner -PathType Leaf) {\n"
+        "    $parts=((Get-Content -LiteralPath $owner -Raw).Trim()).Split('|')\n"
+        "    if ($parts.Count -ne 2) { throw 'invalid phase-owner record' }\n"
+        "    try { $processId=[int]$parts[0]; $started=[long]$parts[1] } "
+        "catch { throw 'invalid phase-owner record' }\n"
+        "    $process=Get-Process -Id $processId -ErrorAction SilentlyContinue\n"
+        "    if ($process -and $process.StartTime.ToFileTimeUtc() -eq $started) {\n"
+        "      & taskkill.exe /PID $processId /T /F 2>$null | Out-Null\n"
+        "    }\n"
+        "    Remove-Item -LiteralPath $owner -Force -ErrorAction SilentlyContinue\n"
+        "  }\n"
+        "  if (Test-Path -LiteralPath $target) {\n"
+        "    for ($attempt=0; $attempt -lt 20; $attempt++) {\n"
+        "      try {\n"
+        "        Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop\n"
+        "        break\n"
+        "      } catch {\n"
+        "        if ($attempt -eq 19) { throw }\n"
+        "        Start-Sleep -Milliseconds 250\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+
+
 def windows_initialize(host: str, token: str, *, timeout: float) -> WindowsWorkspace:
     if not re.fullmatch(r"[0-9a-f]{24}", token):
         raise ValueError("Windows run token is not 24 lowercase hex characters")
@@ -798,28 +827,33 @@ def windows_initialize(host: str, token: str, *, timeout: float) -> WindowsWorks
         + "\n"
         + "$runs=Join-Path $HOME '.ci-local\\runs'\n"
         + f"$owned=Join-Path $runs {_powershell_literal(WINDOWS_RUN_PREFIX)}\n"
+        + _windows_remove_owned_run_function()
         + "New-Item -ItemType Directory -Force -Path $owned | Out-Null\n"
         + "Get-ChildItem -LiteralPath $owned -Force | ForEach-Object {\n"
         + "  if (-not $_.PSIsContainer) {\n"
         + "    throw ('unknown file in owned run root: ' + $_.FullName)\n"
         + "  }\n"
-        + "  Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop\n"
+        + "  Remove-OwnedRun $_.FullName\n"
         + "}\n"
         + f"$run=Join-Path $owned {_powershell_literal(token)}\n"
         + "$checkout=Join-Path $run 'checkout'\n"
         + "$archive=Join-Path $run 'source.zip'\n"
+        + "$bundle=Join-Path $run 'source.bundle'\n"
         + "New-Item -ItemType Directory -Path $run | Out-Null\n"
         + "Write-Output ('RUN=' + $run)\n"
         + "Write-Output ('CHECKOUT=' + $checkout)\n"
         + "Write-Output ('ARCHIVE=' + $archive)\n"
+        + "Write-Output ('BUNDLE=' + $bundle)\n"
     )
     values = _parse_key_values(
-        _run_remote_capture(host, script, timeout=timeout), {"RUN", "CHECKOUT", "ARCHIVE"}
+        _run_remote_capture(host, script, timeout=timeout),
+        {"RUN", "CHECKOUT", "ARCHIVE", "BUNDLE"},
     )
     return WindowsWorkspace(
         run=_validate_remote_path(values["RUN"]),
         checkout=_validate_remote_path(values["CHECKOUT"]),
         archive=_validate_remote_path(values["ARCHIVE"]),
+        bundle=_validate_remote_path(values["BUNDLE"]),
     )
 
 
@@ -834,24 +868,44 @@ def windows_cleanup(host: str, workspace: WindowsWorkspace, *, timeout: float = 
         + "if (-not $target.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {\n"
         + "  throw 'refusing to remove a path outside the owned run root'\n"
         + "}\n"
-        + "if (Test-Path -LiteralPath $target) { "
-        + "Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop }\n"
+        + _windows_remove_owned_run_function()
+        + "Remove-OwnedRun $target\n"
     )
     _run_remote_capture(host, script, timeout=timeout)
 
 
-def _windows_setup_script(workspace: WindowsWorkspace) -> str:
+def _windows_setup_script(workspace: WindowsWorkspace, commit: str) -> str:
     return (
         _powershell_prelude()
         + "\n"
         + f"$archive={_powershell_literal(workspace.archive)}\n"
+        + f"$bundle={_powershell_literal(workspace.bundle)}\n"
         + f"$checkout={_powershell_literal(workspace.checkout)}\n"
+        + f"$commit={_powershell_literal(commit)}\n"
+        + f"$git={_powershell_literal(WINDOWS_GIT)}\n"
+        + f"$expectedGit={_powershell_literal(WINDOWS_GIT_SHA256)}\n"
         + "if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {\n"
         + "  throw 'archive is missing'\n"
         + "}\n"
+        + "if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) {\n"
+        + "  throw 'Git bundle is missing'\n"
+        + "}\n"
+        + "$actualGit=(Get-FileHash -Algorithm SHA256 $git).Hash\n"
+        + "if ($actualGit -ne $expectedGit) { "
+        + "throw ('refusing Git SHA-256 ' + $actualGit) }\n"
+        + "$env:PATH=(Split-Path -Parent $git) + [IO.Path]::PathSeparator + $env:PATH\n"
         + "New-Item -ItemType Directory -Path $checkout | Out-Null\n"
         + "Expand-Archive -LiteralPath $archive -DestinationPath $checkout -Force\n"
         + "Remove-Item -LiteralPath $archive -Force\n"
+        + "& $git -C $checkout init --quiet\n"
+        + "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n"
+        + "& $git -C $checkout fetch --quiet --force $bundle "
+        + "'+refs/heads/*:refs/remotes/ci-local/*' '+refs/tags/*:refs/tags/*' "
+        + "'+refs/ci-local/*:refs/ci-local/*'\n"
+        + "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n"
+        + "& $git -C $checkout checkout --quiet --force --detach $commit\n"
+        + "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n"
+        + "Remove-Item -LiteralPath $bundle -Force\n"
     )
 
 
@@ -859,10 +913,8 @@ def _windows_phase_script(
     workspace: WindowsWorkspace,
     python: str,
     arguments: Sequence[str],
-    *,
-    requires_git: bool,
 ) -> str:
-    invocation = " ".join(_powershell_literal(argument) for argument in arguments)
+    invocation = "@(" + ",".join(_powershell_literal(argument) for argument in arguments) + ")"
     return (
         _powershell_prelude()
         + "\n"
@@ -884,8 +936,18 @@ def _windows_phase_script(
         + "$env:CI='true'\n"
         + f"$env:UV_CACHE_DIR={_powershell_literal(workspace.run + r'\\uv-cache')}\n"
         + f"Set-Location -LiteralPath {_powershell_literal(workspace.checkout)}\n"
-        + f"& $uv {invocation}\n"
-        + "exit $LASTEXITCODE\n"
+        + f"$arguments={invocation}\n"
+        + f"$owner={_powershell_literal(workspace.run + r'\phase-owner')}\n"
+        + "$process=Start-Process -FilePath $uv -ArgumentList $arguments "
+        + "-NoNewWindow -PassThru\n"
+        + "$started=$process.StartTime.ToFileTimeUtc()\n"
+        + "Set-Content -LiteralPath $owner -Value "
+        + "($process.Id.ToString() + '|' + $started.ToString()) -Encoding Ascii\n"
+        + "$code=1\n"
+        + "try { $process.WaitForExit(); $code=$process.ExitCode } finally {\n"
+        + "  Remove-Item -LiteralPath $owner -Force -ErrorAction SilentlyContinue\n"
+        + "}\n"
+        + "exit $code\n"
     )
 
 
@@ -920,22 +982,27 @@ def run_windows_job(
     timeout_seconds = _windows_job_timeout(source, commit)
     started = time.monotonic()
     workspace: WindowsWorkspace | None = None
-    git_available = False
     unwinding = False
     try:
-        git_available = windows_preflight(
-            host, python, timeout=_remaining_seconds(started, timeout_seconds)
-        )
+        windows_preflight(host, python, timeout=_remaining_seconds(started, timeout_seconds))
+        token = secrets.token_hex(12)
         workspace = windows_initialize(
-            host, secrets.token_hex(12), timeout=_remaining_seconds(started, timeout_seconds)
+            host, token, timeout=_remaining_seconds(started, timeout_seconds)
         )
         archive = local_root / "source.zip"
+        bundle = local_root / "source.bundle"
         _run_git(["archive", "--format=zip", f"--output={archive}", commit], cwd=source)
-        remote_archive = workspace.archive.replace("\\", "/")
-        print("\n=== Transfer git archive ===", flush=True)
+        bundle_ref = f"refs/ci-local/{token}"
+        _run_git(["update-ref", bundle_ref, commit], cwd=source)
+        try:
+            _run_git(["bundle", "create", str(bundle), "--all"], cwd=source)
+        finally:
+            _run_git(["update-ref", "-d", bundle_ref], cwd=source)
+        remote_run = workspace.run.replace("\\", "/") + "/"
+        print("\n=== Transfer git archive and metadata bundle ===", flush=True)
         if (
             _run_streamed(
-                ["scp", str(archive), f"{host}:{remote_archive}"],
+                ["scp", str(archive), str(bundle), f"{host}:{remote_run}"],
                 timeout=_remaining_seconds(started, timeout_seconds),
             )
             != 0
@@ -944,7 +1011,7 @@ def run_windows_job(
         print("\n=== Expand git archive ===", flush=True)
         if (
             _run_streamed(
-                powershell_ssh_command(host, _windows_setup_script(workspace)),
+                powershell_ssh_command(host, _windows_setup_script(workspace, commit)),
                 timeout=_remaining_seconds(started, timeout_seconds),
             )
             != 0
@@ -952,32 +1019,18 @@ def run_windows_job(
             return False
 
         total = len(_WINDOWS_PHASES)
-        for index, (name, arguments, requires_git) in enumerate(_WINDOWS_PHASES, start=1):
+        for index, (name, arguments) in enumerate(_WINDOWS_PHASES, start=1):
             remaining = _remaining_seconds(started, timeout_seconds)
             print(
                 f"\n=== Windows step {index}/{total}: {name} "
                 f"({remaining:.1f}s remaining of {timeout_seconds}s) ===",
                 flush=True,
             )
-            if requires_git and not git_available:
-                print(
-                    "ci-local: refusing Pytest: test-windows needs git.exe, but the remote "
-                    "host does not have it; ci-local will not install it",
-                    file=sys.stderr,
-                )
-                print(
-                    f"[REFUSED] {name}; Windows leg stopped after "
-                    f"{time.monotonic() - started:.1f}s",
-                    flush=True,
-                )
-                return False
             phase_started = time.monotonic()
             returncode = _run_streamed(
                 powershell_ssh_command(
                     host,
-                    _windows_phase_script(
-                        workspace, python, arguments, requires_git=requires_git
-                    ),
+                    _windows_phase_script(workspace, python, arguments),
                 ),
                 timeout=remaining,
             )
