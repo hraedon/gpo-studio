@@ -183,6 +183,7 @@ def test_windows_setup_restores_git_metadata_and_cleanup_owns_the_phase_tree(
     ci_local.windows_cleanup("builder@synthetic", workspace)
 
     assert ci_local.WINDOWS_GIT_SHA256 in setup
+    assert "config --local core.longpaths true" in setup
     assert "fetch --quiet --force $bundle" in setup
     assert "checkout --quiet --force --detach $commit" in setup
     cleanup = captured[0]

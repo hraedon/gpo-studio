@@ -899,6 +899,8 @@ def _windows_setup_script(workspace: WindowsWorkspace, commit: str) -> str:
         + "Remove-Item -LiteralPath $archive -Force\n"
         + "& $git -C $checkout init --quiet\n"
         + "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n"
+        + "& $git -C $checkout config --local core.longpaths true\n"
+        + "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n"
         + "& $git -C $checkout fetch --quiet --force $bundle "
         + "'+refs/heads/*:refs/remotes/ci-local/*' '+refs/tags/*:refs/tags/*' "
         + "'+refs/ci-local/*:refs/ci-local/*'\n"
