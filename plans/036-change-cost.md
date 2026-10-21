@@ -1973,7 +1973,11 @@ in 106"); each decision is recorded below.
   them after a month; install uv there only if the box's other users agree.*
   Decided by the owner, 2026-10-13: adopt the tiers and review them after a month. The owner
   decided on 2026-10-21 that uv may be installed on mvmcitest01; the coordinator
-  installed the CI-pinned uv 0.12.0 under cw-admin's `.ci-local` directory.
+  installed the CI-pinned uv 0.12.0 under cw-admin's `.ci-local` directory. On
+  2026-10-21 the owner also approved a user-scoped portable MinGit there; the
+  coordinator installed MinGit 2.56.0.2 under cw-admin's `.ci-local` directory.
+  The Windows leg must hash-check `git.exe` on every run and prepend its `cmd`
+  directory to `PATH` for the remote process only, with no persistent change.
 - **D-8. When R1 switches the workflows.** *Recommend: after 1.1.0 final*, with
   Python 3.15 landing on the new shape rather than as one more grammar
   extension. Decided by the owner, 2026-10-13: after 1.1.0 final.

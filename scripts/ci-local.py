@@ -33,6 +33,8 @@ import yaml  # type: ignore[import-untyped]  # no stubs in the dev lock; mypy ga
 
 WINDOWS_UV = r"C:\Users\cw-admin\.ci-local\uv\0.12.0\uv.exe"
 WINDOWS_UV_SHA256 = "268CD62B99395EB53825795518E067E4B27EC4B445175DF343824689F307C807"
+WINDOWS_GIT = r"C:\Users\cw-admin\.ci-local\git\2.56.0.2\cmd\git.exe"
+WINDOWS_GIT_SHA256 = "54BDA91C773C6BBA2B970424423CFCB80552D92DC6967D766F98931FE1251A54"
 WINDOWS_PYTHONS = {
     "3.13": r"C:\Program Files\Python313\python.exe",
     "3.14": r"C:\Users\cw-admin\AppData\Local\Python\pythoncore-3.14-64\python.exe",
@@ -747,27 +749,39 @@ def verify_windows_uv_digest(actual: str) -> None:
         )
 
 
+def verify_windows_git_digest(actual: str) -> None:
+    if actual.upper() != WINDOWS_GIT_SHA256:
+        raise RuntimeError(
+            "refusing Windows Git: SHA-256 mismatch "
+            f"(expected {WINDOWS_GIT_SHA256}, got {actual or '<missing>'})"
+        )
+
+
 def windows_preflight(host: str, python: str, *, timeout: float) -> bool:
     script = (
         _powershell_prelude()
         + "\n"
         + f"$uv={_powershell_literal(WINDOWS_UV)}\n"
+        + f"$git={_powershell_literal(WINDOWS_GIT)}\n"
         + f"$python={_powershell_literal(python)}\n"
         + "if (-not (Test-Path -LiteralPath $uv -PathType Leaf)) { throw 'pinned uv is missing' }\n"
+        + "if (-not (Test-Path -LiteralPath $git -PathType Leaf)) { "
+        + "throw 'pinned MinGit is missing' }\n"
         + "if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { "
         + "throw 'selected Python is missing' }\n"
         + "Write-Output ('UV_SHA256=' + (Get-FileHash -Algorithm SHA256 $uv).Hash)\n"
+        + "Write-Output ('GIT_SHA256=' + (Get-FileHash -Algorithm SHA256 $git).Hash)\n"
         + "Write-Output ('PYTHON=' + $python)\n"
-        + "$git=Get-Command git.exe -ErrorAction SilentlyContinue\n"
-        + "Write-Output ('GIT=' + $(if ($git) { $git.Source } else { 'MISSING' }))\n"
     )
     values = _parse_key_values(
-        _run_remote_capture(host, script, timeout=timeout), {"UV_SHA256", "PYTHON", "GIT"}
+        _run_remote_capture(host, script, timeout=timeout),
+        {"UV_SHA256", "GIT_SHA256", "PYTHON"},
     )
     verify_windows_uv_digest(values["UV_SHA256"])
+    verify_windows_git_digest(values["GIT_SHA256"])
     if values["PYTHON"] != python:
         raise RuntimeError("remote preflight returned a different Python path")
-    return values["GIT"] != "MISSING"
+    return True
 
 
 def _validate_remote_path(value: str) -> str:
@@ -849,28 +863,27 @@ def _windows_phase_script(
     requires_git: bool,
 ) -> str:
     invocation = " ".join(_powershell_literal(argument) for argument in arguments)
-    git_check = ""
-    if requires_git:
-        git_check = (
-            "if (-not (Get-Command git.exe -ErrorAction SilentlyContinue)) {\n"
-            "  [Console]::Error.WriteLine('ci-local: refusing Pytest: test-windows needs "
-            "git.exe, but the remote host does not have it')\n"
-            "  exit 2\n"
-            "}\n"
-        )
     return (
         _powershell_prelude()
         + "\n"
         + f"$uv={_powershell_literal(WINDOWS_UV)}\n"
-        + f"$expected={_powershell_literal(WINDOWS_UV_SHA256)}\n"
-        + "$actual=(Get-FileHash -Algorithm SHA256 $uv).Hash\n"
-        + "if ($actual -ne $expected) { throw ('refusing uv SHA-256 ' + $actual) }\n"
+        + f"$expectedUv={_powershell_literal(WINDOWS_UV_SHA256)}\n"
+        + "$actualUv=(Get-FileHash -Algorithm SHA256 $uv).Hash\n"
+        + "if ($actualUv -ne $expectedUv) { throw ('refusing uv SHA-256 ' + $actualUv) }\n"
+        + f"$git={_powershell_literal(WINDOWS_GIT)}\n"
+        + f"$expectedGit={_powershell_literal(WINDOWS_GIT_SHA256)}\n"
+        + "if (-not (Test-Path -LiteralPath $git -PathType Leaf)) { "
+        + "throw 'pinned MinGit is missing' }\n"
+        + "$actualGit=(Get-FileHash -Algorithm SHA256 $git).Hash\n"
+        + "if ($actualGit -ne $expectedGit) { "
+        + "throw ('refusing Git SHA-256 ' + $actualGit) }\n"
+        + "$gitDir=Split-Path -Parent $git\n"
+        + "$env:PATH=$gitDir + [IO.Path]::PathSeparator + $env:PATH\n"
         + f"$env:UV_PYTHON={_powershell_literal(python)}\n"
         + "$env:UV_PYTHON_DOWNLOADS='never'\n"
         + "$env:CI='true'\n"
         + f"$env:UV_CACHE_DIR={_powershell_literal(workspace.run + r'\\uv-cache')}\n"
         + f"Set-Location -LiteralPath {_powershell_literal(workspace.checkout)}\n"
-        + git_check
         + f"& $uv {invocation}\n"
         + "exit $LASTEXITCODE\n"
     )

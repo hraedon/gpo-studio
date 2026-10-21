@@ -129,10 +129,36 @@ def test_powershell_literal_doubles_quotes_without_shell_interpolation(
     )
 
 
-def test_windows_uv_digest_mismatch_is_refused(ci_local: ModuleType) -> None:
+def test_windows_tool_digest_mismatch_is_refused(ci_local: ModuleType) -> None:
     ci_local.verify_windows_uv_digest(ci_local.WINDOWS_UV_SHA256.lower())
     with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
         ci_local.verify_windows_uv_digest("0" * 64)
+    ci_local.verify_windows_git_digest(ci_local.WINDOWS_GIT_SHA256.lower())
+    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
+        ci_local.verify_windows_git_digest("0" * 64)
+
+
+def test_windows_phase_hashes_tools_and_prepends_only_the_pinned_git_directory(
+    ci_local: ModuleType,
+) -> None:
+    workspace = ci_local.WindowsWorkspace(
+        run=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc",
+        checkout=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\checkout",
+        archive=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.zip",
+    )
+
+    script = ci_local._windows_phase_script(
+        workspace,
+        ci_local.WINDOWS_PYTHONS["3.14"],
+        ("run", "--locked", "pytest", "-q"),
+        requires_git=True,
+    )
+
+    assert f"$git='{ci_local.WINDOWS_GIT}'" in script
+    assert ci_local.WINDOWS_GIT_SHA256 in script
+    assert "$actualGit=(Get-FileHash -Algorithm SHA256 $git).Hash" in script
+    assert "$env:PATH=$gitDir + [IO.Path]::PathSeparator + $env:PATH" in script
+    assert "[Environment]::SetEnvironmentVariable" not in script
 
 
 def test_clixml_errors_are_decoded(ci_local: ModuleType) -> None:
