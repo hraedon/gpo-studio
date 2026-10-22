@@ -859,11 +859,29 @@ def windows_initialize(host: str, token: str, *, timeout: float) -> WindowsWorks
     )
 
 
-def windows_cleanup(host: str, workspace: WindowsWorkspace, *, timeout: float = 60) -> None:
+def windows_cleanup(
+    host: str,
+    workspace: WindowsWorkspace | None,
+    *,
+    token: str | None = None,
+    timeout: float = 60,
+) -> None:
+    if workspace is None:
+        if token is None or not re.fullmatch(r"[0-9a-f]{24}", token):
+            raise ValueError("Windows cleanup needs a valid run token")
+        target = (
+            "(Join-Path (Join-Path $HOME "
+            + _powershell_literal(".ci-local\\runs\\" + WINDOWS_RUN_PREFIX)
+            + ") "
+            + _powershell_literal(token)
+            + ")"
+        )
+    else:
+        target = _powershell_literal(workspace.run)
     script = (
         _powershell_prelude()
         + "\n"
-        + f"$target=[IO.Path]::GetFullPath({_powershell_literal(workspace.run)})\n"
+        + f"$target=[IO.Path]::GetFullPath({target})\n"
         + "$owned=[IO.Path]::GetFullPath((Join-Path $HOME "
         + f"{_powershell_literal('.ci-local\\runs\\' + WINDOWS_RUN_PREFIX)}))\n"
         + "$prefix=$owned.TrimEnd('\\') + '\\'\n"
@@ -1020,6 +1038,7 @@ def run_windows_job(
     timeout_seconds = _windows_job_timeout(source, commit)
     started = time.monotonic()
     workspace: WindowsWorkspace | None = None
+    token: str | None = None
     unwinding = False
     try:
         windows_preflight(host, python, timeout=_remaining_seconds(started, timeout_seconds))
@@ -1086,10 +1105,13 @@ def run_windows_job(
         unwinding = True
         raise
     finally:
-        if workspace is not None:
+        if workspace is not None or token is not None:
             with _blocked_interrupt_signals():
                 try:
-                    windows_cleanup(host, workspace)
+                    if workspace is not None:
+                        windows_cleanup(host, workspace)
+                    else:
+                        windows_cleanup(host, None, token=token)
                 except RuntimeError as error:
                     print(f"ci-local: remote cleanup failed: {error}", file=sys.stderr)
                     if not unwinding:

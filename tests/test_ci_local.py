@@ -331,6 +331,47 @@ def test_windows_job_attempts_remote_cleanup_on_failure_and_interruption(
     assert cleaned == [workspace.run]
 
 
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_windows_job_cleans_by_token_if_initialization_never_returns_a_workspace(
+    ci_local: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool
+) -> None:
+    tokens: list[str] = []
+    cleaned: list[tuple[object, str | None]] = []
+    monkeypatch.setattr(ci_local, "_windows_job_timeout", lambda *_args: 90)
+    monkeypatch.setattr(ci_local, "windows_preflight", lambda *_args, **_kwargs: True)
+
+    def initialize(_host: str, token: str, *, timeout: float) -> object:
+        tokens.append(token)
+        if interrupted:
+            raise ci_local._SignalInterruption(signal.SIGTERM)
+        raise RuntimeError("initialization response was lost")
+
+    def cleanup(
+        _host: str, workspace: object, *, token: str | None = None, timeout: float = 60
+    ) -> None:
+        cleaned.append((workspace, token))
+
+    monkeypatch.setattr(ci_local, "windows_initialize", initialize)
+    monkeypatch.setattr(ci_local, "windows_cleanup", cleanup)
+    exception = ci_local._SignalInterruption if interrupted else RuntimeError
+    with pytest.raises(exception):
+        ci_local.run_windows_job(
+            source=tmp_path, commit="a" * 40, host="builder@synthetic",
+            version="3.14", local_root=tmp_path,
+        )
+
+    assert len(tokens) == 1
+    assert cleaned == [(None, tokens[0])]
+
+
+@pytest.mark.parametrize("token", [None, "", "../outside", "a" * 23, "A" * 24])
+def test_windows_cleanup_without_a_workspace_refuses_invalid_tokens(
+    ci_local: ModuleType, token: str | None
+) -> None:
+    with pytest.raises(ValueError, match="valid run token"):
+        ci_local.windows_cleanup("builder@synthetic", None, token=token)
+
+
 def test_commit_ref_beginning_with_dash_is_refused(
     ci_local: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
