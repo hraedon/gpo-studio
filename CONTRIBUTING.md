@@ -43,9 +43,65 @@ uv run --extra dev python scripts/ci-local.py --python python3.14
 ```
 
 Use `--commit REF` to check another commit and `--keep` to retain the temporary
-clone and caches. `--windows` currently refuses because D-7's approval to
-install uv on mvmcitest01 is still open. This pre-R1 mode does not reproduce
-inline workflow shell or Windows-only failures.
+clone and caches. To run one Python version of the Windows `test-windows` job,
+use the SSH-backed leg:
+
+```bash
+uv run --extra dev python scripts/ci-local.py --windows --windows-python 3.14
+```
+
+Choose `3.13` or `3.14`; `--windows-host` defaults to
+`cw-admin@mvmcitest01`. The controller needs key-authenticated SSH access to
+that host. The leg copies a `git archive` plus a Git metadata bundle so the
+tests see full history, origin branches and tags, not private local refs. It verifies uv.exe
+and the MinGit `cmd\git.exe` launcher's SHA-256 digests before use, prepends MinGit's `cmd`
+directory to `PATH` for each remote command only, sets
+`UV_PYTHON_DOWNLOADS=never`, and runs exactly the
+commands and Python matrix from the **tested commit's** `test-windows` job;
+unsupported shell, action or environment changes are refused. It applies that job's
+cumulative timeout, with a remote watchdog and SSH connection/keepalive limits.
+It makes no persistent `PATH` change and installs no system software (Python
+dependencies go into the run's virtual environment). The owner approved the
+user-scoped portable MinGit on 2026-10-21; the
+approved executable is
+`C:\Users\cw-admin\.ci-local\git\2.56.0.2\cmd\git.exe` from
+MinGit 2.56.0.2. The digest covers the launcher only, **not** MinGit's implementation,
+DLLs or configuration. Those remain trusted user-scoped installation files;
+neither digest check prevents a privileged account replacing files between hash and launch.
+A missing or mismatched pinned executable is refused. Node and npm
+are absent but irrelevant: `test-windows` does not run frontend checks. The
+runner attempts remote cleanup on every exit, including interrupted
+initialization; cleanup failures are reported and fail an otherwise successful
+run. Startup holds an OS file lock during inspection/creation, refuses a sibling
+whose recorded PID and start time are live, and only removes a dead-owner run or
+an unowned run older than the 90-minute maximum job budget plus 10 minutes.
+Recent unowned, malformed, linked, unknown or unremovable entries are refused.
+Setup records ownership before archive extraction; only cleanup of the current
+token may terminate its wrapper and descendants. TEMP/TMP and caches are run-local.
+TEMP uses that directory's existing DOS short-name alias (at most 60 characters)
+so the MAX_PATH-sensitive release-artifact tests still fit; missing/too-long
+aliases are refused. The tool creates no drive mapping or short-name configuration.
+The checkout's `core.longpaths=true` setting is repository-local. Test children
+also receive that setting through process-only Git configuration, covering
+temporary repositories after pytest expands DOS aliases. The runner does not
+alter the host's Git configuration.
+The installed MinGit system configuration has `core.autocrlf=true`: the forced
+checkout rewrites ordinary text to CRLF (verified from post-setup bytes), while
+`.gitattributes` protects LF/byte-exact evidence. Archive transport does not make
+this checkout LF-only. The installed Python patches (currently 3.13.14/3.14.5)
+and cold uv cache differ from CI's setup-uv interpreter provisioning and warm cache.
+Pre-R1 mode still does not reproduce inline workflow shell.
+
+Run Windows legs and opt-in probes serially on the shared box; a second invocation
+now refuses instead of deleting the first run. The qualified absolute tool paths
+are for `cw-admin`; `--windows-host` changes transport, not that account profile.
+The default selects only 3.14: request 3.13 separately to exercise the whole matrix.
+To check SSH, executable pins, checkout bytes, live-sibling refusal, quoted arguments,
+UTF-8 output, real process exits and the watchdog without running the full suite:
+
+```bash
+GPO_STUDIO_WINDOWS_INTEGRATION=1 uv run pytest -q tests/test_ci_local.py -k opt_in
+```
 
 The runner requests no elevation and installs browser binaries without
 Playwright's `--with-deps`. When util-linux `setpriv` is available, every step

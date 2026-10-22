@@ -4025,8 +4025,36 @@ which is WI-084's (WP-0 and R4b).
 **Status:** open. An accepted programme: the owner accepted Plan 036 and all of
 its recommendations on 2026-10-13. WP-1's Linux local-CI runner and exit
 evidence and WP-7's risk-tiered review policy are complete as of 2026-10-20;
-the Windows leg remains open under D-7, and the other Plan 036 work packages
-remain open, so WI-084 stays open.
+the owner allowed uv and portable MinGit on mvmcitest01 on 2026-10-21. WP-1's
+Windows exit is now complete: the corrected runner passed pinned `main` on
+3.14 in 2,758.2s and 3.13 in 4,644.9s of each job's 90-minute budget, and caught
+both historical Windows-only
+failures on local scratch branches (`SIGHUP` on 3.13; provenance path separators
+on 3.14). Real exit-status and stale-directory recovery probes passed; see
+[the exit evidence](plan-036/wp1-exit.md). The other Plan 036 work packages
+remain open; WI-084 stays open.
+
+**2026-10-22, WP-1 Windows review round 1:** corrected the shared-root cleanup
+that could terminate another live run. Startup now locks inspection/creation,
+refuses live or recent unowned siblings, and sweeps only proven-stale token
+directories; setup records ownership before extraction. Workflow commands and
+matrix come from the tested commit. Remaining-budget remote watchdogs,
+run-local TEMP/TMP, scoped bundles and legacy-ref recovery are implemented.
+The launcher-only MinGit digest trust boundary is explicit. Round-1 validation
+and post-setup CRLF byte observations are recorded in the exit evidence below;
+the prior two historical reproductions remain valid. No product capability or
+estate qualification is claimed by these tooling checks.
+
+**Round-1 delivery validation:** final implementation `48b5e6e` passed the
+complete Windows 3.14 job in **2,697.9s of 5,400s** (44m57.9s; 50.0%),
+2,745.87s including cleanup/controller overhead, with 12,863 passed and
+91.84% coverage. Run-owned short TEMP aliases and process-only Git long-path
+configuration fixed the ten environment-induced release-test failures;
+all ten and the three opt-ins passed serially. The final local suite passed
+13,205 tests (146 skipped, 1 xfailed, 67 subtests) in 894.84s. Cleanup and a
+fresh SSH environment check confirmed no run-directory, PATH or Git-config
+leak. Earlier main/matrix and historical-reproduction evidence is retained;
+WI-084 remains open for the other work packages.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It

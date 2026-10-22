@@ -1,12 +1,16 @@
 # Plan 036: Reducing what a change costs
 
-Status: **implemented in part**: WP-1 and WP-7 are complete after 1.1.0 and
-surfaced through `scripts/ci-local.py`, `CONTRIBUTING.md`, and `AGENTS.md`;
-WP-1's Linux exit is recorded in
-[`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md), while its Windows
-leg is not implemented or Windows-verified because D-7's uv decision remains
-open. The remaining work packages are active. The owner accepted every
-recommendation on 2026-10-13 ("Your recommendations are fine: no qualms about
+Status: **implemented in part**: WP-1's Linux and Windows legs and WP-7 are
+complete after 1.1.0 and surfaced through `scripts/ci-local.py`,
+`CONTRIBUTING.md`, and `AGENTS.md`;
+WP-1's Linux and Windows exits are recorded in
+[`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md). Its Windows leg is
+Windows-verified as local CI tooling following D-7's 2026-10-21 uv and portable
+MinGit decisions: pinned-main 3.13/3.14 passes and two historical Windows-only
+reproductions are recorded there. The round-1 shared-run safety and workflow
+contract fixes passed all Windows 3.14 phases on `48b5e6e` on 2026-10-22.
+The remaining work packages are active. The
+owner accepted every recommendation on 2026-10-13 ("Your recommendations are fine: no qualms about
 the plan detailed in 106"; see [Owner decisions](#owner-decisions)). It was
 written for a two-lineage design review. Rounds 1 to 6
 (Sol and DeepSeek; approve-with-changes in rounds 1 to 4, one blocker from Sol
@@ -1774,12 +1778,18 @@ not claim to be.
   manifest, which the grammar tests already validate, rather than parsing
   workflow YAML itself, so it adds no new unchecked parser.
 - **The Windows leg** (`--windows`) is the only way it can catch the Windows
-  failures, which were most of them. mvmcitest01 has Python 3.13 and pwsh 7
-  but no uv and no git (checked 2026-10-13). The leg copies a `git archive` of
-  the commit over SSH as `cw-admin`, runs a pinned, hash-checked uv standalone
-  binary placed there once, and runs the test job's commands. It needs the box
-  to reach PyPI and an owner decision to install uv on a box other projects use
-  for AD validation (D-7). Without it, Windows stays CI-only.
+  failures, which were most of them. The initial 2026-10-13 check found Python
+  but no uv or Git on mvmcitest01. D-7's 2026-10-21 owner decisions allowed
+  pinned uv and user-scoped portable MinGit there. The leg copies a `git
+  archive` and a full-history metadata bundle over SSH as `cw-admin`, verifies
+  uv.exe and the MinGit cmd/git.exe launcher digests before use, and derives
+  commands and the Python matrix from the tested commit's test-windows job with an
+  explicit installed Python. MinGit's `cmd` directory is added to each remote
+  process's `PATH` only. The checkout's long-path setting is repository-local;
+  test children also get it through process-only Git configuration so temporary
+  repositories work after pytest expands short aliases. TEMP/TMP use an existing
+  short alias inside the run, with no drive mapping or filesystem configuration.
+  the host's configuration is unchanged. The box needs access to PyPI.
 
 **Risk-tiered review.** Review rounds were the largest visible human cost in
 the grammar's history (17 rounds for one PR). Tiers are by what a change can
@@ -1970,9 +1980,25 @@ in 106"); each decision is recorded below.
   three-rounds rule, and whether uv may be installed on mvmcitest01, a box
   other projects use for AD validation. *Recommend: adopt the tiers and review
   them after a month; install uv there only if the box's other users agree.*
-  Decided by the owner, 2026-10-13: adopt the tiers and review them after a month. Installing uv
-  on mvmcitest01 stays conditional on the box's other users agreeing, and is
-  still open.
+  Decided by the owner, 2026-10-13: adopt the tiers and review them after a month. The owner
+  decided on 2026-10-21 that uv may be installed on mvmcitest01; the coordinator
+  installed the CI-pinned uv 0.12.0 under cw-admin's `.ci-local` directory. On
+  2026-10-21 the owner also approved a user-scoped portable MinGit there; the
+  coordinator installed MinGit 2.56.0.2 under cw-admin's `.ci-local` directory.
+  The Windows leg must hash-check `git.exe` on every run and prepend its `cmd`
+  directory to `PATH` for the remote process only, with no persistent change.
+  The coordinator verified the portable ZIP against Git for Windows' published
+  SHA-256 (`da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be`);
+  the runner pins `git.exe` to
+  `54BDA91C773C6BBA2B970424423CFCB80552D92DC6967D766F98931FE1251A54`.
+  This runtime pin covers `cmd\git.exe` only, not the MinGit implementation,
+  DLLs or configuration; the installation remains trusted user-scoped state,
+  and hash-to-launch replacement by privileged accounts is not prevented.
+  Round-1 correction (2026-10-22): shared-box startup must refuse live siblings
+  (PID plus process start time), never kill them. An OS startup lock serializes
+  inspection/creation; only dead-owner runs or unowned runs older than the
+  maximum job budget plus ten minutes may be swept. Setup records ownership
+  before extraction, and setup/phase watchdogs use the remaining job budget.
 - **D-8. When R1 switches the workflows.** *Recommend: after 1.1.0 final*, with
   Python 3.15 landing on the new shape rather than as one more grammar
   extension. Decided by the owner, 2026-10-13: after 1.1.0 final.
@@ -2162,12 +2188,25 @@ D-9 selects (five on the current data). Specified, with its ordering, in
 After 1.1.0 final. A new script; no workflow change. (It may be drafted
 outside the repository before then.)
 
-- **Status (2026-10-20): complete and surfaced on Linux.**
+- **Status (2026-10-22): complete and surfaced; Windows-verified as local CI tooling.**
   `scripts/ci-local.py` is operator-reachable, and
   [`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md) records its
   cold-cache main pass and both historical cold-cache reproductions. The
-  Windows leg refuses explicitly and is not Windows-verified because D-7's
-  approval to install uv on mvmcitest01 remains open.
+  Windows leg uses a `git archive` plus metadata bundle, pinned uv and portable
+  MinGit, and the job's cumulative timeout. The corrected wrapper passed all
+  five phases on pinned `main` (`2a37970c`): Python 3.14 in 2,758.2s and 3.13
+  in 4,644.9s of each job's 5,400s budget. Local-only scratch branches
+  reproduced historical
+  `SIGHUP` collection (3.13) and provenance path-separator (3.14) failures;
+  the runner failed each and cleaned up. The evidence also records real
+  process-exit controls and stale-directory recovery.
+  Round-1 review corrections on the coordinator's merged-main source plus
+  fixes (`48b5e6e`) passed all five Windows 3.14 phases in **2,697.9s**
+  (50.0% of 5,400s; 2,745.87s including cleanup/controller overhead), with
+  12,863 tests passed and 91.84% coverage. Live-sibling refusal and the ten
+  MAX_PATH regression cases passed separate real-host probes. Phase argv did
+  not change, so the requested final rerun was 3.14 only; the earlier 3.13
+  pass and both historical reproductions remain recorded, not re-counted.
 
 - **Exit:** the Linux checks pass on `main` from a cold cache and reproduce the
   two historical cold-cache failures when they are re-introduced on a scratch
