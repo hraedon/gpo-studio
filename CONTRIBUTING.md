@@ -69,6 +69,14 @@ is cleaned before the next run. The checkout's `core.longpaths=true` setting is
 repository-local; the runner does not alter the host's Git configuration.
 Pre-R1 mode still does not reproduce inline workflow shell.
 
+Run Windows legs and the opt-in process probe serially: startup clears stale
+directories in this runner's owned remote root. To check SSH, pinned tools,
+quoted arguments and real process exit codes without running the full suite:
+
+```bash
+GPO_STUDIO_WINDOWS_INTEGRATION=1 uv run pytest -q tests/test_ci_local.py -k opt_in
+```
+
 The runner requests no elevation and installs browser binaries without
 Playwright's `--with-deps`. When util-linux `setpriv` is available, every step
 runs with `--no-new-privs`, so it and its descendants cannot gain privileges

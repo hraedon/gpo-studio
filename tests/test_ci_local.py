@@ -187,6 +187,9 @@ def test_windows_phase_hashes_tools_and_prepends_only_the_pinned_git_directory(
     assert "$process=[System.Diagnostics.Process]::new()" in script
     assert "$process.StartInfo.UseShellExecute=$false" in script
     assert "$process.StartInfo.Arguments='run --locked pytest -q'" in script
+    assert f"$process.StartInfo.WorkingDirectory='{workspace.checkout}'" in script
+    assert "$process.StartInfo.RedirectStandardOutput=$true" in script
+    assert "$process.StartInfo.RedirectStandardError=$true" in script
     assert "if ($null -eq $code) { throw" in script
     assert "if ($process.HasExited)" in script
     assert "phase-owner" in script
@@ -818,7 +821,11 @@ def test_opt_in_windows_phase_preserves_exit_codes_and_quoted_arguments(
         for code in (0, 7):
             arguments = (
                 "run", "--no-project", "--python", python, "python", "-c",
-                f"import sys; assert sys.argv[1] == 'café value'; raise SystemExit({code})",
+                "import os, sys; "
+                "assert os.path.basename(os.getcwd()) == 'checkout'; "
+                "assert sys.argv[1] == 'café value'; "
+                "print('PROBE_STDOUT'); print('PROBE_STDERR', file=sys.stderr); "
+                f"raise SystemExit({code})",
                 "café value",
             )
             completed = ci_local._run_captured(
@@ -828,6 +835,8 @@ def test_opt_in_windows_phase_preserves_exit_codes_and_quoted_arguments(
                 timeout=30,
             )
             assert completed.returncode == code, completed.stderr
+            assert "PROBE_STDOUT" in completed.stdout
+            assert "PROBE_STDERR" in completed.stderr
     finally:
         ci_local.windows_cleanup(host, workspace)
 

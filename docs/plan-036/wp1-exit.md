@@ -221,7 +221,10 @@ reproduction, and the positive run above is superseded for acceptance.
 
 The corrected wrapper owns a `System.Diagnostics.Process`, waits for it,
 rejects a null exit code, and retains the phase-owner record if the process
-has not exited. The outer SSH PowerShell also explicitly returns
-`$LASTEXITCODE`. Real-host probes verified exact exit codes 0 and 7 and quoted
-arguments; the opt-in integration test now pins this negative control. The
-full main pass and historical cases are repeated below with the correction.
+has not exited. It explicitly sets the child's working directory (PowerShell's
+`Set-Location` does not set .NET's child directory) and drains stdout/stderr
+concurrently. The outer SSH PowerShell explicitly returns `$LASTEXITCODE`.
+Real-host probes verified exact exit codes 0 and 7, working directory, both
+output streams, and Unicode/quoted arguments; the opt-in integration test now
+pins these controls. The full main pass and historical cases are repeated
+below with the correction.
