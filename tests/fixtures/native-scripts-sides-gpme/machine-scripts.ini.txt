@@ -1,0 +1,6 @@
+first 4 bytes: FF FE 0D 00
+CR count: 4  LF count: 4  size: 158 bytes
+
+[Shutdown]
+0CmdLine=zz-studio-shutdown.cmd
+0Parameters=/c shutdown-alpha

@@ -3055,6 +3055,77 @@ and this item records the proposal instead.
 confirmed already correct), and a lane covering a user-side logon script and a
 computer-side shutdown script has a banked verdict.
 
+**2026-10-20: the user-side pair is captured, and `export.py` does not match it** (Plan 035
+WP-1). windows-console-driver estate window 19 ran `gpmc.author_scripts_logon_shutdown`
+(record `w19-r2`, `verified`). The capability authored one `.cmd` Shutdown entry on the
+computer side and one `.cmd` Logon entry on the user side of a disposable GPO through
+GPME, and its envelope deliberately did not assert a user-side tool GUID. Measured:
+
+- `gPCUserExtensionNames` = `[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B66650-4972-11D1-A7CA-0000F87571E3}]`.
+  The user-side tool half is **`{40B66650-…}`**, the value this item called a hypothesis,
+  now a capture. The machine side in the same session kept R2's `{40B6664F-…}`.
+- One OK per sheet moved its own version half by exactly one: machine 0→1, user 0→1,
+  `versionNumber` 65537.
+- `scripts.ini` on each side holds only the populated trigger: `[Shutdown]` (158 bytes)
+  and `[Logon]` (138 bytes). Both are UTF-16LE with BOM, CRLF, split style, with a leading
+  blank line and no empty sibling section. No `psscripts.ini` is written. GPME writes the
+  INIs Hidden (operator-observed in the collection listing; no record carries file
+  attributes). Byte-exact transcripts are banked with provenance in
+  `tests/fixtures/native-scripts-sides-gpme/`. The revision-1 record binds the INIs'
+  sizes and CR/LF counts, but not their bytes. The bytes come from the operator's
+  collection of the cleanup-time backup. windows-console-driver banks them with a hash
+  manifest (`docs/estate-window-19/captures/`).
+
+What this means for `export.py`:
+
+- **The user-side Scripts pair changes.** `_extension_guids` must write
+  `[{42B5FAAE-…}{40B66650-…}]` when `side == "User"` and keep `{40B6664F-…}` for
+  `Machine`. That needs a `_SCRIPTS_USER_TOOL_GUID` constant and a side branch beside
+  the registry tool's. Add the new GUID to `EMITTED_EXTENSION_GUIDS` for completeness
+  of that inventory. The set currently has no consumer: the known-CSE check that read
+  it went with the `gpmc_interop` reduction, and `_unknown_cse_refusal` refuses on any
+  preserved `cse_metadata`, so the comment at `export.py:98-104` describing that
+  check is stale and should be corrected in the same change.
+- **`api.py` needs the same GUID.** `_EXTENSION_GUID_FAMILIES` (around
+  `api.py:6487`) has no entry for the user-side tool GUID, so `_extension_families_of`
+  would label the user-side Scripts registration with the raw GUID. Add
+  `_SCRIPTS_USER_TOOL_GUID: "Scripts"` (cosmetic: Scripts is not a publication-measured
+  family).
+- **The per-trigger `scripts.ini` writer needs no change.** Studio already writes both
+  captures byte for byte (`tests/test_native_scripts_sides_capture.py`).
+- `test_user_side_pair_matches_the_capture` asserts the captured user pair and is
+  `xfail(strict=True)` until the change lands, so it fails loudly once the fix makes it
+  pass. `test_user_side_scripts_land_under_user` in `test_native_scripts_export.py`
+  pins the current (wrong) user pair and must be updated in the same change.
+
+**2026-10-20, window 20: requalified at revision 2, bytes now record-bound.** The
+reviewers asked for exactness and for bindings. In response, windows-console-driver
+revision 2 asserts both extension lists as the exact measured strings, the exact SYSVOL
+delta and no `psscripts.ini`. It cleans up only the GPO whose GUID it created, and it
+records the invocation and setup output. Run `w20-r1` verified with the same values. Its
+cleanup journal binds both `scripts.ini` SHA-256s (`f8fa4009…`, `ba526db6…`, Hidden),
+byte-identical to window 19's, so the fixture bytes are now carried by a record and not
+only by the operator's collection.
+
+**2026-10-20, window 21: requalified at revision 3 after the round-2 review.** Revision
+2's envelope covered whole `scripts_ini` subtrees, so an extra populated trigger could
+have verified. Revision 3 asserts every fact leaf by leaf and pins both files by length
+and SHA-256 in the envelope itself. `w21-r1` verified: the same bytes, and the record
+carries its arguments and setup output whole.
+
+**2026-10-21, window 22: requalified at revision 4 as record-schema v3.** The round-3
+review found that `w21-r1` stamped record-schema v2 with a retrofitted field, so it is
+banked as superseded. `w22-r1` (verified) is the current evidence: the same bytes, the
+expected values pinned to the banked ones, and the invocation verifiable against the
+committed run sheet.
+
+**Still open:** the `export.py` change itself. `export.py` is bound by **six** lanes
+(`docs/plan-033/bound-source-cost.md`: endpoint, firewall, publication,
+scripts-metadata, wp1b and wp2), so the change rides a requalification batch that
+re-runs all six. After
+that, the separate logon/shutdown lane this item proposes, with the finalizer comparing
+the user pair against the captured value and pinning the report rows from a first run.
+
 ## WI-072 — serialize_gpp drops adapter root content the model retained
 
 **Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
@@ -3301,6 +3372,65 @@ in the [release 1.1.0 batch](plan-033/release110-batch.md)
 (`firewall-20261009001906-2614294`), and its write leg imported Studio's
 export registered `[{35378EAC-…}{B05566AC-…}]`, the native pair. Only the GPME
 observation remains.
+
+**2026-10-20: the GPME observation is made, and display is shown** (Plan 035 WP-2).
+windows-console-driver estate window 19 ran `gpmc.observe_imported_firewall_rules`
+(record `w19-r3`, `verified`). It imported the firewall lane's candidate bundle into a
+disposable GPO. The bundle was built at `badcaf9` and is byte-identical to the one the
+1.1.0 batch imported (`3f146885…`). The record's pre-state machine list is the export's
+`[{35378EAC-…}{B05566AC-…}]`. The walk went to Windows Defender Firewall with Advanced
+Security > Inbound Rules, opened one rule's Properties, and cancelled.
+
+- **Displayed:** all 10 inbound rules the candidate authors are listed with the profile,
+  enabled state, action (the authenticated bypass rule as `Secure`, Override `Yes`) and
+  group Studio wrote. The overview shows the authored Domain and Private profile policy.
+  `tests/fixtures/native-firewall-gpme-view/` banks the list, and
+  `tests/test_native_firewall_gpme_view.py` checks it against the candidate.
+- **Offered for editing, not proven editable:** `StudioFwLane in tcp allow Properties` opens
+  on the General tab with all nine tabs, the name field, Enabled ticked, Allow selected
+  and Apply greyed (screenshot). No edit was made, so nothing shows that an edit persists
+  to `Registry.pol`. The evidence is person-reviewed surface evidence, not a certified
+  claim.
+- **The walk left the policy as imported, but did write SYSVOL:** both version halves,
+  `versionNumber`, both extension lists and the imported `Registry.pol` were post ==
+  pre. GPME wrote a `GptTmpl.inf` stub (`[Unicode]`/`[Version]`) with its SecEdit
+  parent directories when Security Settings opened, and also the
+  `Machine/Scripts/{Startup,Shutdown}` directories. The revision-1 envelope did not pin
+  that delta exactly: it accepted any stub content and any added path. So this is what
+  the run observed, not a certified exact blast radius.
+- **The input is operator-identified, not record-bound:** the revision-1 record does
+  not carry the bundle hash or backup id the setup script emitted. The bundle identity
+  (`3f146885…`) rests on the operator's push and the setup script's hash check.
+- The `D02B1F72` question this item first asked was not observed. `badcaf9` no longer
+  writes `D02B1F72` for a firewall-only GPO. Mixed firewall-plus-other machine policy
+  still registers `D02B1F72` and was not imported.
+
+What this means for `export.py`: **no change.** GPME handles the imported rules under
+the registration the export now writes (`B05566AC`), so batch 2's registration stands.
+
+**2026-10-20, window 20: requalified at revision 2 with an exact, bound blast radius.**
+windows-console-driver revision 2 (`w20-r2`, verified) re-ran the observation after the
+review. Its envelope pins the exact permitted SYSVOL change: the `GptTmpl.inf` stub (142
+bytes, SHA-256 `07cba636…`, absent before), its SecEdit parents and
+`Machine/Scripts/{Startup,Shutdown}`. Versions, both extension lists and the imported
+`Registry.pol` stay equal. The record binds its input (bundle `3f146885…`, backup id,
+imported `Registry.pol` hash) and the saved UIA dumps by digest. GPME listed the same 10
+inbound rules, cell for cell. The display and editability half is still person-reviewed
+surface evidence.
+
+**2026-10-20, window 21: requalified at revision 3** (`w21-r2`, verified). The stub's
+parse is now asserted leaf by leaf, and the record carries the import step's whole output
+(backup id, bundle hash, imported `Registry.pol` hash) instead of a note cut at 512
+characters.
+
+**2026-10-21, window 22: requalified at revision 4 as record-schema v3** (`w22-r2`,
+verified). `w21-r2` is banked as superseded for the same v2-retrofit reason.
+
+**Still open, so not closed:** the closing condition also asks that
+`gpme_display_unmeasured` be narrowed. That limitation's text in `api.py` is stale as
+well: it still says the backup registers `D02B1F72`. Narrowing it is a code change
+outside this evidence-only pass. If "editable" is read as "an edit persists", it also
+needs a mutating GPME capability (edit one imported rule, OK, observe `Registry.pol`).
 
 ## WI-075 — native GPMC export refused GPP Registry, and the 1.x contract said it did not
 

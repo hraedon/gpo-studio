@@ -1,6 +1,19 @@
 # Plan 035: Native console captures after 1.1.0
 
-Status: **proposed** (2026-10-09). Nothing here blocks 1.1.0. The three work
+Status: **active: captures only, nothing implemented or surfaced** (updated
+2026-10-20). WP-1 and WP-2 were captured in windows-console-driver estate
+window 19, with fixtures and tests banked here
+(`tests/fixtures/native-scripts-sides-gpme/`, `tests/fixtures/native-firewall-gpme-view/`;
+[WI-071](../docs/work-items.md#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger),
+[WI-077](../docs/work-items.md#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid)). After review they
+were requalified over three review rounds, most recently at revision 4 in window 22
+(record-schema v3 records), with leaf-exact envelopes and record-bound inputs and bytes. No product code has
+changed: WP-1's `export.py` change is not made, so it is neither surfaced nor
+Windows-verified, and it waits for a requalification batch over the six lanes
+that bind `export.py`. WP-2 needs no `export.py` change. WP-3 has not started.
+Nothing here blocks 1.1.0.
+
+The three work
 items it covers each need evidence that only the Group Policy consoles produce,
 and the grounding they unlock edits bound files, so it belongs to the batch
 after the release.
