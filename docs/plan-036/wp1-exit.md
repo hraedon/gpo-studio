@@ -519,3 +519,20 @@ Node/npm were still unavailable and unused. Both review-fix controller run
 directories and the previously crash-left archive/bundle directory were absent;
 no source `refs/ci-local/` remained. No other project's processes or directories
 were cleaned. Final follow-up edits are records/documentation only.
+
+### Recovery review, 2026-10-22
+
+The follow-up independent executing review (`ollama-cloud/deepseek-v4.1-flash`)
+passed on implementation `48b5e6ee` and records commit `754c8fce`. It checked
+65 focused tests (three real-host opt-ins skipped), workflow-derived commands,
+private bundle staging and the retained Windows logs. No remote run was needed
+for this review; the full Windows qualification above still names the exact
+implementation tested.
+
+One operational recovery limit remains: if the remote PowerShell wrapper itself
+is terminated, its in-process watchdog ends too. The owner record identifies the
+wrapper, not a separately recorded phase-child PID. A surviving child may then
+keep files open and make later cleanup fail closed. The controller's death while
+SSH and the wrapper remain alive is covered by the watchdog; abrupt wrapper death
+is not. A separately authenticated child record or detached watcher needs its own
+implementation and Windows qualification. WI-084 remains open.
