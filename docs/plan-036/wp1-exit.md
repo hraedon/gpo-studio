@@ -127,8 +127,9 @@ coordinator installed the CI-pinned uv 0.12.0. The Windows leg is implemented:
 it uses encoded Windows PowerShell 5.1 over SSH, copies a `git archive` into a
 unique owned remote directory, checks uv's SHA-256 before use, selects Python
 3.13 or 3.14 explicitly with downloads disabled, applies the `test-windows`
-job's cumulative 90-minute timeout, and removes the remote directory on every
-exit path.
+job's cumulative 90-minute timeout, and attempts remote removal on every exit
+path. Later review found the initial startup sweep unsafe for concurrent runs;
+the round-1 correction below supersedes that cleanup design.
 
 An opt-in integration preflight passed against mvmcitest01. A real Python 3.14
 run against implementation commit `cde1a4367d261935f0a97d80046d4771362a7dc7`
@@ -151,9 +152,12 @@ The owner approved user-scoped portable MinGit on mvmcitest01 on 2026-10-21.
 The coordinator installed `MinGit-2.56.0.2-64-bit.zip` under
 `C:\Users\cw-admin\.ci-local\git\2.56.0.2` after matching its SHA-256,
 `da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be`,
-against Git for Windows' published digest. The runner pins `cmd\git.exe` to
+against Git for Windows' published digest. The runner pins only the `cmd\git.exe` launcher to
 `54BDA91C773C6BBA2B970424423CFCB80552D92DC6967D766F98931FE1251A54`.
-Preflight checks both uv and Git; every phase checks them again before use.
+Preflight checks uv.exe and this launcher; every phase checks them again before use.
+The launcher digest does not cover MinGit's implementation, DLLs or configuration.
+Those are trusted user-scoped installation state; neither executable check prevents
+replacement between hashing and launch by an account able to modify that state.
 Only each remote process receives the MinGit `cmd` directory on `PATH`.
 The real-host refusal path was also checked by generating a phase script with
 an all-zero expected Git digest while leaving the installed executable intact:
@@ -375,3 +379,68 @@ and no Git on the inherited default `PATH`; the portable Git prefix did not
 persist. Node/npm were still unavailable on that default path and were not
 needed by `test-windows`. The four qualifying controller run directories were
 also confirmed absent, with no leftover `refs/ci-local/` or scratch branches.
+
+## Windows review round 1 correction (2026-10-22)
+
+Review source: `4fcc0abb7fdd2f066dd970c8981cf782585f0766` (the earlier
+delivery plus the coordinator's merge of main). Opus requested changes;
+DeepSeek passed with notes. Both demonstrated that the old namespace-wide
+startup sweep could destroy another reviewer's live run. That design, and
+the earlier implication that serialization was sufficient protection, are
+superseded here. The historical full passes and two failure reproductions
+above are retained; they were serial and are not invalidated by this finding.
+
+- **B1 / DS N1–N2 / Opus N7:** startup locks inspection and creation using an
+  OS file handle beside the owned root. It refuses any live PID+StartTime
+  owner, regardless of age, and any ownerless directory no older than 100
+  minutes (maximum 90-minute job plus ten-minute margin). Only dead-owner or
+  older ownerless token directories can be swept; malformed/unknown/linked
+  entries fail closed. Startup never taskkills a sibling. Only cleanup for
+  the invoking token can kill its wrapper tree. Setup records its wrapper
+  before extraction; normal wrappers remove the record before exiting, so
+  the recent-ownerless rule protects handoffs. Disappearing trees are benign
+  during deletion. Eight native PowerShell behavioural cases exercise live,
+  recent, stale, PID-reuse and malformed records without SSH; separate tests
+  execute the startup-lock and deletion-race paths. An actual Windows setup
+  was paused before extraction: the second initializer refused its live
+  wrapper, after which the first completed normally and was cleaned.
+- **B2:** commands, matrix and timeout come from the tested commit's workflow;
+  unsupported action/shell/environment/strategy changes refuse. A HEAD
+  binding test and a historical `2f21ceb4` test prove the old coverage-floor
+  command is used without `-I`, instead of silently substituting HEAD's.
+- **CRLF disagreement / DS N3:** post-setup bytes of `CONTRIBUTING.md` from
+  `4fcc0abb` contained **147 CRLFs, zero lone LFs**. `git config --show-origin
+  --get core.autocrlf` returned `true` from the installed MinGit
+  `etc/gitconfig`. Opus was correct: forced checkout smudges ordinary text;
+  `.gitattributes` still preserves pinned LF/byte-exact files. See
+  `r1-checkout-probe.log` under the existing external log directory.
+- **Opus N1–N2:** documentation now precisely describes the launcher-only
+  MinGit pin, not a whole-tree attestation. Implementation/DLL/configuration
+  files remain trusted installation state, and privileged hash-to-launch
+  replacement is not excluded. No additional installation or ACL change was
+  authorized or made.
+- **Opus N3–N4 / DS N4:** native remote watchdogs use the remaining setup/phase
+  budget; SSH/SCP have 15-second connection/keepalive settings (three missed
+  replies). TEMP/TMP are inside the run. Python child output and pipe decoding
+  use UTF-8. Real probes preserved exits 0/7, quoted arguments, cwd, both
+  streams and `café 日本語`; a sleeping child was stopped by the four-second
+  remote deadline with exit **124**, not the controller's 30-second timeout
+  (`r1-integration.log`). The watchdog lives in the remote wrapper, not in a
+  persistent host service.
+- **Opus N5–N6:** bundle staging is a private bare repository containing only
+  origin branches, tags and the selected commit ref, never local backup/probe
+  refs. Source refs are no longer created. Legacy loose 24-hex token refs can
+  be compare-and-deleted only when older than 100 minutes; recent, packed or
+  unrecognized refs are preserved. Tests check both scope and age. No legacy
+  source refs were present. The crash-left local `gpo-studio-ci-local-6_g8lakz`
+  (only regenerable source.zip/source.bundle, approximately 52 MB) was removed.
+- **Opus N8 / DS N5–N6:** fixed cache separator, formatting and `--keep` help;
+  documented account-specific paths, installed patch versions/cold cache,
+  default single-version coverage and 3.13's existing 86% budget consumption.
+  Dot-segment remote paths are now refused. The 90-minute job budget and phase
+  arguments are unchanged; the final review-fix rerun uses 3.14 only.
+
+Before the final full run, focused runner/register checks passed **65 tests,
+3 opt-in skips**; Ruff and strict mypy src (71 files) passed. The three opt-in
+tests were run serially (two process/preflight tests: 19.34s; checkout/setup
+probe: 109.97s). Final full-run results are appended below.

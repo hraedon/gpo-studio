@@ -4034,6 +4034,17 @@ on 3.14). Real exit-status and stale-directory recovery probes passed; see
 [the exit evidence](plan-036/wp1-exit.md). The other Plan 036 work packages
 remain open; WI-084 stays open.
 
+**2026-10-22, WP-1 Windows review round 1:** corrected the shared-root cleanup
+that could terminate another live run. Startup now locks inspection/creation,
+refuses live or recent unowned siblings, and sweeps only proven-stale token
+directories; setup records ownership before extraction. Workflow commands and
+matrix come from the tested commit. Remaining-budget remote watchdogs,
+run-local TEMP/TMP, scoped bundles and legacy-ref recovery are implemented.
+The launcher-only MinGit digest trust boundary is explicit. Round-1 validation
+and post-setup CRLF byte observations are recorded in the exit evidence below;
+the prior two historical reproductions remain valid. No product capability or
+estate qualification is claimed by these tooling checks.
+
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
 restarts from branch `wp0/live-closure` at `432c751` (pushed), with these

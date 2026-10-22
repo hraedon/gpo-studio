@@ -41,29 +41,16 @@ WINDOWS_PYTHONS = {
 }
 WINDOWS_JOB = "test-windows"
 WINDOWS_RUN_PREFIX = "gpo-studio-ci-local"
+WINDOWS_STALE_MARGIN = 600
+SSH_OPTIONS = [
+    "-o",
+    "ConnectTimeout=15",
+    "-o",
+    "ServerAliveInterval=15",
+    "-o",
+    "ServerAliveCountMax=3",
+]
 _REMOTE_PATH = re.compile(r"^[A-Za-z]:\\[A-Za-z0-9_.\\-]+$")
-
-_WINDOWS_PHASES = (
-    ("Install", ("sync", "--locked", "--extra", "dev")),
-    ("Ruff", ("run", "--locked", "ruff", "check", ".")),
-    ("Mypy", ("run", "--locked", "mypy", "src")),
-    (
-        "Pytest",
-        (
-            "run",
-            "--locked",
-            "pytest",
-            "-q",
-            "--cov=src/gpo_studio",
-            "--cov-branch",
-            "--cov-report=json:coverage.json",
-        ),
-    ),
-    (
-        "Risk-based coverage floors",
-        ("run", "--locked", "python", "-I", "scripts/check_coverage.py", "coverage.json"),
-    ),
-)
 
 _JOB_BY_COMMAND = {
     "uv run ruff check .": "test",
@@ -193,7 +180,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--keep",
         action="store_true",
-        help="retain the fresh clone and throwaway caches after the run",
+        help="retain local run files (Windows: archive/bundle only; remote files always removed)",
     )
     result.add_argument(
         "--check-browser-os-dependencies",
@@ -631,6 +618,7 @@ def powershell_ssh_command(host: str, script: str) -> list[str]:
         raise ValueError("--windows-host must be a non-option SSH destination")
     return [
         "ssh",
+        *SSH_OPTIONS,
         host,
         "powershell",
         "-NoProfile",
@@ -786,25 +774,41 @@ def windows_preflight(host: str, python: str, *, timeout: float) -> bool:
 
 
 def _validate_remote_path(value: str) -> str:
-    if not _REMOTE_PATH.fullmatch(value):
+    if not _REMOTE_PATH.fullmatch(value) or any(p in {".", ".."} for p in value.split("\\")):
         raise RuntimeError(f"remote returned an unsafe run path: {value!r}")
     return value
 
 
 def _windows_remove_owned_run_function() -> str:
     return (
-        "function Remove-OwnedRun([string]$target) {\n"
+        "function Get-RunOwner([string]$target) {\n"
         "  $owner=Join-Path $target 'phase-owner'\n"
         "  if (Test-Path -LiteralPath $owner -PathType Leaf) {\n"
-        "    $parts=((Get-Content -LiteralPath $owner -Raw).Trim()).Split('|')\n"
+        "    try { $parts=((Get-Content -LiteralPath $owner -Raw).Trim()).Split('|') }\n"
+        "    catch { if (-not (Test-Path -LiteralPath $target)) { return }; throw }\n"
         "    if ($parts.Count -ne 2) { throw 'invalid phase-owner record' }\n"
         "    try { $processId=[int]$parts[0]; $started=[long]$parts[1] } "
         "catch { throw 'invalid phase-owner record' }\n"
         "    $process=Get-Process -Id $processId -ErrorAction SilentlyContinue\n"
         "    if ($process -and $process.StartTime.ToFileTimeUtc() -eq $started) {\n"
-        "      & taskkill.exe /PID $processId /T /F 2>$null | Out-Null\n"
+        "      return $process\n"
         "    }\n"
-        "    Remove-Item -LiteralPath $owner -Force -ErrorAction SilentlyContinue\n"
+        "  }\n"
+        "}\n"
+        "function Assert-StaleRun([string]$target, [int]$staleAfter) {\n"
+        "  if (Get-RunOwner $target) { throw ('refusing live sibling: ' + $target) }\n"
+        "  if (-not (Test-Path -LiteralPath (Join-Path $target 'phase-owner'))) {\n"
+        "    $item=Get-Item -LiteralPath $target -ErrorAction SilentlyContinue\n"
+        "    if ($item -and ([DateTime]::UtcNow - $item.LastWriteTimeUtc).TotalSeconds "
+        "-le $staleAfter) { throw ('refusing recent unowned sibling: ' + $target) }\n"
+        "  }\n"
+        "}\n"
+        "function Remove-OwnedRun([string]$target, [switch]$KillLive) {\n"
+        "  $process=Get-RunOwner $target\n"
+        "  if ($process) {\n"
+        "    if (-not $KillLive) { throw ('refusing live sibling: ' + $target) }\n"
+        "    $processId=$process.Id\n"
+        "    & taskkill.exe /PID $processId /T /F 2>$null | Out-Null\n"
         "  }\n"
         "  if (Test-Path -LiteralPath $target) {\n"
         "    for ($attempt=0; $attempt -lt 20; $attempt++) {\n"
@@ -812,6 +816,7 @@ def _windows_remove_owned_run_function() -> str:
         "        Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop\n"
         "        break\n"
         "      } catch {\n"
+        "        if (-not (Test-Path -LiteralPath $target)) { return }\n"
         "        if ($attempt -eq 19) { throw }\n"
         "        Start-Sleep -Milliseconds 250\n"
         "      }\n"
@@ -821,20 +826,35 @@ def _windows_remove_owned_run_function() -> str:
     )
 
 
-def windows_initialize(host: str, token: str, *, timeout: float) -> WindowsWorkspace:
+def _windows_initialize_script(token: str, stale_after: int = 6000) -> str:
     if not re.fullmatch(r"[0-9a-f]{24}", token):
         raise ValueError("Windows run token is not 24 lowercase hex characters")
-    script = (
+    return (
         _powershell_prelude()
         + "\n"
         + "$runs=Join-Path $HOME '.ci-local\\runs'\n"
         + f"$owned=Join-Path $runs {_powershell_literal(WINDOWS_RUN_PREFIX)}\n"
         + _windows_remove_owned_run_function()
         + "New-Item -ItemType Directory -Force -Path $owned | Out-Null\n"
-        + "Get-ChildItem -LiteralPath $owned -Force | ForEach-Object {\n"
+        # An OS file lock serializes inspection + creation across SSH sessions.
+        # The empty lock file lives beside (not inside) the run root. A crash
+        # releases its handle; it is never an authority to kill another run.
+        + "$lockPath=$owned + '.startup-lock'\n"
+        + "try { $lock=[IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None') }\n"
+        + "catch { throw 'refusing concurrent startup: remote startup lock is held' }\n"
+        + "try {\n"
+        + "$siblings=@(Get-ChildItem -LiteralPath $owned -Force)\n"
+        + "$siblings | ForEach-Object {\n"
         + "  if (-not $_.PSIsContainer) {\n"
         + "    throw ('unknown file in owned run root: ' + $_.FullName)\n"
         + "  }\n"
+        + "  if ($_.Name -notmatch '^[0-9a-f]{24}$' -or "
+        + "($_.Attributes -band [IO.FileAttributes]::ReparsePoint)) { "
+        + "throw 'refusing unknown or linked run directory' }\n"
+        + f"  Assert-StaleRun $_.FullName {stale_after}\n"
+        + "}\n"
+        + "$siblings | ForEach-Object {\n"
+        + f"  Assert-StaleRun $_.FullName {stale_after}\n"
         + "  Remove-OwnedRun $_.FullName\n"
         + "}\n"
         + f"$run=Join-Path $owned {_powershell_literal(token)}\n"
@@ -842,13 +862,19 @@ def windows_initialize(host: str, token: str, *, timeout: float) -> WindowsWorks
         + "$archive=Join-Path $run 'source.zip'\n"
         + "$bundle=Join-Path $run 'source.bundle'\n"
         + "New-Item -ItemType Directory -Path $run | Out-Null\n"
+        + _windows_owner_record("$run")
         + "Write-Output ('RUN=' + $run)\n"
         + "Write-Output ('CHECKOUT=' + $checkout)\n"
         + "Write-Output ('ARCHIVE=' + $archive)\n"
         + "Write-Output ('BUNDLE=' + $bundle)\n"
+        + "Remove-Item -LiteralPath $owner -Force\n"
+        + "} finally { $lock.Dispose() }\n"
     )
+
+
+def windows_initialize(host: str, token: str, *, timeout: float) -> WindowsWorkspace:
     values = _parse_key_values(
-        _run_remote_capture(host, script, timeout=timeout),
+        _run_remote_capture(host, _windows_initialize_script(token), timeout=timeout),
         {"RUN", "CHECKOUT", "ARCHIVE", "BUNDLE"},
     )
     return WindowsWorkspace(
@@ -888,16 +914,38 @@ def windows_cleanup(
         + "if (-not $target.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {\n"
         + "  throw 'refusing to remove a path outside the owned run root'\n"
         + "}\n"
+        + "if ((Split-Path -Parent $target) -ne $owned -or "
+        + "(Split-Path -Leaf $target) -notmatch '^[0-9a-f]{24}$') { "
+        + "throw 'refusing a non-token run directory' }\n"
         + _windows_remove_owned_run_function()
-        + "Remove-OwnedRun $target\n"
+        + "Remove-OwnedRun $target -KillLive\n"
     )
     _run_remote_capture(host, script, timeout=timeout)
 
 
-def _windows_setup_script(workspace: WindowsWorkspace, commit: str) -> str:
+def _windows_owner_record(run_expression: str) -> str:
+    # Record the wrapper, not uv: it remains live while streams drain and setup
+    # runs. Remove the record BEFORE the wrapper exits normally. Between remote
+    # calls, the recent-unowned rule protects the entire cumulative job budget.
+    return (
+        f"$owner=Join-Path {run_expression} 'phase-owner'\n"
+        "$wrapper=Get-Process -Id $PID\n"
+        "Set-Content -LiteralPath $owner -Encoding Ascii -Value "
+        "($PID.ToString() + '|' + $wrapper.StartTime.ToFileTimeUtc().ToString())\n"
+    )
+
+
+def _windows_setup_script(workspace: WindowsWorkspace, commit: str, remaining: float = 5400) -> str:
     return (
         _powershell_prelude()
         + "\n"
+        + _windows_owner_record(_powershell_literal(workspace.run))
+        + f"$deadline=[DateTime]::UtcNow.AddMilliseconds({max(1, int(remaining * 1000))})\n"
+        + _windows_watchdog_type()
+        + "$watchdog=[CiLocalDeadline]::new((Get-Process -Id $PID), "
+        + "[Math]::Max(1, [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds))\n"
+        + "try {\n"
+        + _windows_temporary_environment(workspace)
         + f"$archive={_powershell_literal(workspace.archive)}\n"
         + f"$bundle={_powershell_literal(workspace.bundle)}\n"
         + f"$checkout={_powershell_literal(workspace.checkout)}\n"
@@ -928,6 +976,10 @@ def _windows_setup_script(workspace: WindowsWorkspace, commit: str) -> str:
         + "& $git -C $checkout checkout --quiet --force --detach $commit\n"
         + "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n"
         + "Remove-Item -LiteralPath $bundle -Force\n"
+        + "} finally {\n"
+        + "  $watchdog.Dispose()\n"
+        + "  Remove-Item -LiteralPath $owner -Force -ErrorAction SilentlyContinue\n"
+        + "}\n"
     )
 
 
@@ -935,6 +987,7 @@ def _windows_phase_script(
     workspace: WindowsWorkspace,
     python: str,
     arguments: Sequence[str],
+    remaining: float = 5400,
 ) -> str:
     # Start-Process -PassThru yielded a null ExitCode on PowerShell 5.1. Own the
     # .NET Process so WaitForExit/ExitCode cannot turn a failing phase green.
@@ -942,6 +995,8 @@ def _windows_phase_script(
     return (
         _powershell_prelude()
         + "\n"
+        + _windows_owner_record(_powershell_literal(workspace.run))
+        + f"$deadline=[DateTime]::UtcNow.AddMilliseconds({max(1, int(remaining * 1000))})\n"
         + f"$uv={_powershell_literal(WINDOWS_UV)}\n"
         + f"$expectedUv={_powershell_literal(WINDOWS_UV_SHA256)}\n"
         + "$actualUv=(Get-FileHash -Algorithm SHA256 $uv).Hash\n"
@@ -958,7 +1013,9 @@ def _windows_phase_script(
         + f"$env:UV_PYTHON={_powershell_literal(python)}\n"
         + "$env:UV_PYTHON_DOWNLOADS='never'\n"
         + "$env:CI='true'\n"
-        + f"$env:UV_CACHE_DIR={_powershell_literal(workspace.run + r'\\uv-cache')}\n"
+        + f"$env:UV_CACHE_DIR={_powershell_literal(workspace.run + r'\uv-cache')}\n"
+        + _windows_temporary_environment(workspace)
+        + "$env:PYTHONIOENCODING='utf-8'\n"
         + f"Set-Location -LiteralPath {_powershell_literal(workspace.checkout)}\n"
         + "$process=[System.Diagnostics.Process]::new()\n"
         + "$process.StartInfo.FileName=$uv\n"
@@ -968,11 +1025,12 @@ def _windows_phase_script(
         + "$process.StartInfo.CreateNoWindow=$true\n"
         + "$process.StartInfo.RedirectStandardOutput=$true\n"
         + "$process.StartInfo.RedirectStandardError=$true\n"
-        + f"$owner={_powershell_literal(workspace.run + r'\phase-owner')}\n"
+        + "$process.StartInfo.StandardOutputEncoding=[Text.UTF8Encoding]::new($false)\n"
+        + "$process.StartInfo.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)\n"
+        + _windows_watchdog_type()
         + "if (-not $process.Start()) { throw 'could not start Windows phase' }\n"
-        + "$started=$process.StartTime.ToFileTimeUtc()\n"
-        + "Set-Content -LiteralPath $owner -Value "
-        + "($process.Id.ToString() + '|' + $started.ToString()) -Encoding Ascii\n"
+        + "$watchdog=[CiLocalDeadline]::new($process, "
+        + "[Math]::Max(1, [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds))\n"
         + "$code=1\n"
         + "try {\n"
         + "  $stdout=$process.StandardOutput.ReadLineAsync()\n"
@@ -996,8 +1054,14 @@ def _windows_phase_script(
         + "  }\n"
         + "  $process.WaitForExit()\n"
         + "  $code=$process.ExitCode\n"
+        + "  if ($watchdog.TimedOut) { $code=124 }\n"
         + "  if ($null -eq $code) { throw 'Windows phase exit code is unavailable' }\n"
         + "} finally {\n"
+        + "  $watchdog.Dispose()\n"
+        + "  if (-not $process.HasExited) {\n"
+        + "    & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null\n"
+        + "    $process.WaitForExit()\n"
+        + "  }\n"
         + "  if ($process.HasExited) {\n"
         + "    Remove-Item -LiteralPath $owner -Force -ErrorAction SilentlyContinue\n"
         + "  }\n"
@@ -1007,6 +1071,49 @@ def _windows_phase_script(
     )
 
 
+def _windows_temporary_environment(workspace: WindowsWorkspace) -> str:
+    return (
+        f"$env:TEMP={_powershell_literal(workspace.run + r'\tmp')}\n"
+        "$env:TMP=$env:TEMP\n"
+        "New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null\n"
+    )
+
+
+def _windows_watchdog_type() -> str:
+    # A native timer keeps working while PowerShell drains quiet child pipes,
+    # including when the Linux controller dies but its SSH connection survives.
+    return """Add-Type -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.Threading;
+public sealed class CiLocalDeadline : IDisposable {
+    readonly Process child;
+    readonly Timer timer;
+    public volatile bool TimedOut;
+    public CiLocalDeadline(Process child, int milliseconds) {
+        this.child = child;
+        timer = new Timer(Expire, null, milliseconds, Timeout.Infinite);
+    }
+    void Expire(object state) {
+        try {
+            if (child.HasExited) return;
+            TimedOut = true;
+            var info = new ProcessStartInfo("taskkill.exe", "/PID " + child.Id + " /T /F");
+            info.UseShellExecute = false;
+            info.CreateNoWindow = true;
+            info.RedirectStandardOutput = true;
+            info.RedirectStandardError = true;
+            using (var killer = Process.Start(info)) { killer.WaitForExit(); }
+        } catch (InvalidOperationException) { }
+    }
+    public void Dispose() { using (var done = new ManualResetEvent(false)) {
+        if (timer.Dispose(done)) done.WaitOne();
+    } }
+}
+'@
+"""
+
+
 def _remaining_seconds(started: float, limit: int) -> float:
     remaining = limit - (time.monotonic() - started)
     if remaining <= 0:
@@ -1014,16 +1121,57 @@ def _remaining_seconds(started: float, limit: int) -> float:
     return remaining
 
 
-def _windows_job_timeout(source: Path, commit: str) -> int:
+def _windows_workflow_contract(
+    source: Path, commit: str
+) -> tuple[int, tuple[str, ...], tuple[tuple[str, tuple[str, ...]], ...]]:
     yaml_text = _run_git(["show", f"{commit}:.github/workflows/ci.yml"], cwd=source)
     document = yaml.safe_load(yaml_text)
     try:
-        minutes = document["jobs"][WINDOWS_JOB]["timeout-minutes"]
+        job = document["jobs"][WINDOWS_JOB]
+        minutes = job["timeout-minutes"]
+        versions = job["strategy"]["matrix"]["python-version"]
+        steps = job["steps"]
     except (KeyError, TypeError) as error:
-        raise ValueError(f"ci.yml has no {WINDOWS_JOB} timeout-minutes") from error
+        raise ValueError(f"ci.yml has no supported {WINDOWS_JOB} contract") from error
     if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
         raise ValueError(f"ci.yml {WINDOWS_JOB} timeout-minutes is not a positive integer")
-    return minutes * 60
+    if (
+        not isinstance(versions, list)
+        or not versions
+        or any(v not in WINDOWS_PYTHONS for v in versions)
+    ):
+        raise ValueError("ci.yml Windows Python matrix has an unqualified interpreter")
+    if set(job) - {"runs-on", "timeout-minutes", "strategy", "permissions", "steps"}:
+        raise ValueError("unsupported Windows job conditions/environment")
+    if set(job["strategy"]) != {"matrix"} or set(job["strategy"]["matrix"]) != {"python-version"}:
+        raise ValueError("unsupported Windows matrix strategy")
+    phases: list[tuple[str, tuple[str, ...]]] = []
+    for step in steps:
+        if "uses" in step:
+            if set(step) - {"uses", "name", "with"}:
+                raise ValueError("unsupported Windows action conditions/environment")
+            if step["uses"].startswith("actions/checkout@") and step.get("with") == {
+                "fetch-depth": 0
+            }:
+                continue
+            if step["uses"].startswith("astral-sh/setup-uv@") and step.get("with") == {
+                "version": "0.12.0",
+                "python-version": "${{ matrix.python-version }}",
+                "enable-cache": True,
+            }:
+                continue
+            raise ValueError("unsupported Windows setup action")
+        command = step.get("run", "")
+        if (
+            set(step) - {"name", "run"}
+            or not isinstance(command, str)
+            or not re.fullmatch(r"uv [A-Za-z0-9_./=: -]+\s*", command)
+        ):
+            raise ValueError("unsupported Windows phase shell/conditions/environment")
+        phases.append((step.get("name", command), tuple(shlex.split(command)[1:])))
+    if not phases:
+        raise ValueError("ci.yml Windows job has no phases")
+    return minutes * 60, tuple(versions), tuple(phases)
 
 
 def run_windows_job(
@@ -1035,12 +1183,17 @@ def run_windows_job(
     local_root: Path,
 ) -> bool:
     python = WINDOWS_PYTHONS[version]
-    timeout_seconds = _windows_job_timeout(source, commit)
+    timeout_seconds, versions, phases = _windows_workflow_contract(source, commit)
+    if version not in versions:
+        raise ValueError(f"Python {version} is not in the tested commit's Windows matrix")
+    if timeout_seconds + WINDOWS_STALE_MARGIN > 6000:
+        raise ValueError("Windows job budget exceeds the qualified startup stale threshold")
     started = time.monotonic()
     workspace: WindowsWorkspace | None = None
     token: str | None = None
     unwinding = False
     try:
+        sweep_legacy_windows_refs(source)
         windows_preflight(host, python, timeout=_remaining_seconds(started, timeout_seconds))
         token = secrets.token_hex(12)
         workspace = windows_initialize(
@@ -1049,34 +1202,30 @@ def run_windows_job(
         archive = local_root / "source.zip"
         bundle = local_root / "source.bundle"
         _run_git(["archive", "--format=zip", f"--output={archive}", commit], cwd=source)
-        bundle_ref = f"refs/ci-local/{token}"
-        _run_git(["update-ref", bundle_ref, commit], cwd=source)
-        try:
-            _run_git(["bundle", "create", str(bundle), "--all"], cwd=source)
-        finally:
-            _run_git(["update-ref", "-d", bundle_ref], cwd=source)
+        create_windows_bundle(source, commit, bundle, token)
         remote_run = workspace.run.replace("\\", "/") + "/"
         print("\n=== Transfer git archive and metadata bundle ===", flush=True)
         if (
             _run_streamed(
-                ["scp", str(archive), str(bundle), f"{host}:{remote_run}"],
+                ["scp", *SSH_OPTIONS, str(archive), str(bundle), f"{host}:{remote_run}"],
                 timeout=_remaining_seconds(started, timeout_seconds),
             )
             != 0
         ):
             return False
         print("\n=== Expand git archive ===", flush=True)
+        remaining = _remaining_seconds(started, timeout_seconds)
         if (
             _run_streamed(
-                powershell_ssh_command(host, _windows_setup_script(workspace, commit)),
-                timeout=_remaining_seconds(started, timeout_seconds),
+                powershell_ssh_command(host, _windows_setup_script(workspace, commit, remaining)),
+                timeout=remaining,
             )
             != 0
         ):
             return False
 
-        total = len(_WINDOWS_PHASES)
-        for index, (name, arguments) in enumerate(_WINDOWS_PHASES, start=1):
+        total = len(phases)
+        for index, (name, arguments) in enumerate(phases, start=1):
             remaining = _remaining_seconds(started, timeout_seconds)
             print(
                 f"\n=== Windows step {index}/{total}: {name} "
@@ -1087,7 +1236,7 @@ def run_windows_job(
             returncode = _run_streamed(
                 powershell_ssh_command(
                     host,
-                    _windows_phase_script(workspace, python, arguments),
+                    _windows_phase_script(workspace, python, arguments, remaining),
                 ),
                 timeout=remaining,
             )
@@ -1116,6 +1265,49 @@ def run_windows_job(
                     print(f"ci-local: remote cleanup failed: {error}", file=sys.stderr)
                     if not unwinding:
                         raise
+
+
+def create_windows_bundle(source: Path, commit: str, bundle: Path, token: str) -> None:
+    # CI fetch-depth:0 sees origin's branches and tags, not local backup/probe
+    # refs. Keep the synthetic commit ref in a private repository: SIGKILL can
+    # no longer leak refs/ci-local/* into the user's source repository.
+    metadata = bundle.parent / "metadata.git"
+    _run_git(["init", "--bare", str(metadata)], cwd=source)
+    _run_git(
+        [
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            str(source),
+            commit,
+            "+refs/remotes/origin/*:refs/heads/*",
+            "+refs/tags/*:refs/tags/*",
+        ],
+        cwd=metadata,
+    )
+    _run_git(["update-ref", f"refs/ci-local/{token}", commit], cwd=metadata)
+    _run_git(["bundle", "create", str(bundle), "--all"], cwd=metadata)
+
+
+def sweep_legacy_windows_refs(source: Path) -> None:
+    """Recover only old loose token refs left by the pre-private-bundle runner.
+
+    Recent/packed/unrecognised refs have no sufficient age evidence and stay put.
+    Compare-and-delete also refuses a concurrent update. New runs never create
+    refs in this namespace in the source repository.
+    """
+    for line in _run_git(
+        ["for-each-ref", "--format=%(refname) %(objectname)", "refs/ci-local/"], cwd=source
+    ).splitlines():
+        ref, sha = line.split()
+        if not re.fullmatch(r"refs/ci-local/[0-9a-f]{24}", ref):
+            continue
+        path = Path(_run_git(["rev-parse", "--git-path", ref], cwd=source))
+        if not path.is_absolute():
+            path = source / path
+        if not path.is_symlink() and path.is_file() and time.time() - path.stat().st_mtime > 6000:
+            _run_git(["update-ref", "-d", ref, sha], cwd=source)
+            print(f"Removed stale legacy local ref: {ref}", flush=True)
 
 
 def _die(message: str) -> NoReturn:

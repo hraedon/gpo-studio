@@ -1780,7 +1780,8 @@ not claim to be.
   but no uv or Git on mvmcitest01. D-7's 2026-10-21 owner decisions allowed
   pinned uv and user-scoped portable MinGit there. The leg copies a `git
   archive` and a full-history metadata bundle over SSH as `cw-admin`, verifies
-  both executable digests before use, and runs the test job's commands with an
+  uv.exe and the MinGit cmd/git.exe launcher digests before use, and derives
+  commands and the Python matrix from the tested commit's test-windows job with an
   explicit installed Python. MinGit's `cmd` directory is added to each remote
   process's `PATH` only. The checkout's long-path setting is repository-local;
   the host's configuration is unchanged. The box needs access to PyPI.
@@ -1985,6 +1986,14 @@ in 106"); each decision is recorded below.
   SHA-256 (`da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be`);
   the runner pins `git.exe` to
   `54BDA91C773C6BBA2B970424423CFCB80552D92DC6967D766F98931FE1251A54`.
+  This runtime pin covers `cmd\git.exe` only, not the MinGit implementation,
+  DLLs or configuration; the installation remains trusted user-scoped state,
+  and hash-to-launch replacement by privileged accounts is not prevented.
+  Round-1 correction (2026-10-22): shared-box startup must refuse live siblings
+  (PID plus process start time), never kill them. An OS startup lock serializes
+  inspection/creation; only dead-owner runs or unowned runs older than the
+  maximum job budget plus ten minutes may be swept. Setup records ownership
+  before extraction, and setup/phase watchdogs use the remaining job budget.
 - **D-8. When R1 switches the workflows.** *Recommend: after 1.1.0 final*, with
   Python 3.15 landing on the new shape rather than as one more grammar
   extension. Decided by the owner, 2026-10-13: after 1.1.0 final.

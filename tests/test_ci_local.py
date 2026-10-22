@@ -111,6 +111,7 @@ def test_windows_ssh_command_is_an_encoded_noninteractive_powershell_command(
 
     assert command[:-2] == [
         "ssh",
+        *ci_local.SSH_OPTIONS,
         "builder@synthetic",
         "powershell",
         "-NoProfile",
@@ -149,10 +150,7 @@ def test_windows_preflight_refuses_an_untrusted_git_before_creating_a_run(
 
     def remote(_host: str, script: str, *, timeout: float) -> str:
         scripts.append(script)
-        return (
-            f"UV_SHA256={ci_local.WINDOWS_UV_SHA256}\n"
-            f"GIT_SHA256={digest}\nPYTHON={python}\n"
-        )
+        return f"UV_SHA256={ci_local.WINDOWS_UV_SHA256}\nGIT_SHA256={digest}\nPYTHON={python}\n"
 
     monkeypatch.setattr(ci_local, "_run_remote_capture", remote)
     with pytest.raises(RuntimeError, match="refusing Windows Git: SHA-256 mismatch"):
@@ -219,6 +217,7 @@ def test_windows_setup_restores_git_metadata_and_cleanup_owns_the_phase_tree(
     assert "config --local core.longpaths true" in setup
     assert "fetch --quiet --force $bundle" in setup
     assert "checkout --quiet --force --detach $commit" in setup
+    assert setup.index("Set-Content -LiteralPath $owner") < setup.index("Expand-Archive")
     cleanup = captured[0]
     assert "StartTime.ToFileTimeUtc() -eq $started" in cleanup
     assert "taskkill.exe /PID $processId /T /F" in cleanup
@@ -231,6 +230,197 @@ def test_clixml_errors_are_decoded(ci_local: ModuleType) -> None:
         '<S S="Error">first_x000D__x000A_second</S></Objs>'
     )
     assert ci_local.decode_powershell_output(encoded) == "first\r\nsecond"
+
+
+@pytest.mark.parametrize(
+    ("record", "age", "refused"),
+    [
+        ("live", 0, "live sibling"),
+        ("live", 7000, "live sibling"),
+        ("missing", 0, "recent unowned sibling"),
+        ("missing", 5999, "recent unowned sibling"),
+        ("missing", 7000, None),
+        ("dead", 0, None),
+        ("reused", 0, None),
+        ("invalid", 7000, "invalid phase-owner"),
+    ],
+)
+def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
+    ci_local: ModuleType, tmp_path: Path, record: str, age: int, refused: str | None
+) -> None:
+    """Execute the production PowerShell, not a Python facsimile or substring check.
+
+    PowerShell is available on this controller and the Linux CI image. No SSH,
+    product checks, Windows-only tools or network access are used.
+    """
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell is required for native ownership behaviour tests")
+    root = tmp_path / ".ci-local" / "runs" / ci_local.WINDOWS_RUN_PREFIX
+    sibling = root / ("a" * 24)
+    sibling.mkdir(parents=True)
+    sentinel = sibling / "do-not-touch"
+    sentinel.write_text("original", encoding="ascii")
+    target = ci_local._powershell_literal(str(sibling))
+    fixture = f"$sibling={target}\n"
+    if record != "missing":
+        value = {
+            "live": "$PID.ToString() + '|' + (Get-Process -Id $PID).StartTime.ToFileTimeUtc()",
+            "dead": "'2147483647|1'",
+            "reused": "$PID.ToString() + '|1'",
+            "invalid": "'broken'",
+        }[record]
+        fixture += f"Set-Content (Join-Path $sibling 'phase-owner') -Value ({value})\n"
+    fixture += (
+        f"(Get-Item $sibling).LastWriteTimeUtc=[DateTime]::UtcNow.AddSeconds(-{age})\n"
+        "function taskkill.exe { throw 'TEST: startup attempted to kill a sibling' }\n"
+    )
+    script = ci_local._windows_initialize_script("b" * 24).replace(
+        "$HOME", ci_local._powershell_literal(str(tmp_path))
+    )
+    completed = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", fixture + script],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if refused:
+        assert completed.returncode != 0
+        assert refused in completed.stderr
+        assert sentinel.read_text(encoding="ascii") == "original"
+        assert not (root / ("b" * 24)).exists()
+    else:
+        assert completed.returncode == 0, completed.stderr
+        assert not sibling.exists()
+        assert (root / ("b" * 24)).is_dir()
+
+
+def test_windows_remove_tolerates_a_directory_disappearing_mid_delete(
+    ci_local: ModuleType, tmp_path: Path
+) -> None:
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell is required for native ownership behaviour tests")
+    target = tmp_path / "vanishes"
+    target.mkdir()
+    # Inject the race at the filesystem operation, execute the real catch/retry.
+    script = ci_local._powershell_prelude() + "\n" + ci_local._windows_remove_owned_run_function()
+    script += """
+function Remove-Item {
+    param($LiteralPath, [switch]$Recurse, [switch]$Force, $ErrorAction)
+    [IO.Directory]::Delete($LiteralPath, $true)
+    throw 'directory disappeared during traversal'
+}
+"""
+    script += f"Remove-OwnedRun {ci_local._powershell_literal(str(target))}\n"
+    completed = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert not target.exists()
+
+
+def test_windows_startup_lock_refuses_a_racing_initializer(
+    ci_local: ModuleType, tmp_path: Path
+) -> None:
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell is required for native ownership behaviour tests")
+    root = tmp_path / ".ci-local" / "runs" / ci_local.WINDOWS_RUN_PREFIX
+    root.mkdir(parents=True)
+    fixture = (
+        f"$held=[IO.File]::Open({ci_local._powershell_literal(str(root) + '.startup-lock')}, "
+        "'OpenOrCreate', 'ReadWrite', 'None')\n"
+    )
+    script = ci_local._windows_initialize_script("b" * 24).replace(
+        "$HOME", ci_local._powershell_literal(str(tmp_path))
+    )
+    completed = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", fixture + script],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert completed.returncode != 0
+    assert "refusing concurrent startup" in completed.stderr
+    assert not list(root.iterdir())
+
+
+def test_windows_commands_and_matrix_come_from_the_tested_workflow(ci_local: ModuleType) -> None:
+    import yaml
+
+    job = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]["test-windows"]
+    timeout, versions, phases = ci_local._windows_workflow_contract(ROOT, "HEAD")
+    assert timeout == job["timeout-minutes"] * 60
+    assert set(versions) == set(job["strategy"]["matrix"]["python-version"])
+    assert set(versions) == set(ci_local.WINDOWS_PYTHONS)
+    assert phases == tuple(
+        (step["name"], tuple(shlex.split(step["run"])[1:]))
+        for step in job["steps"]
+        if "run" in step
+    )
+    # Historical workflow deliberately differs: don't silently run HEAD commands.
+    _timeout, _versions, old_phases = ci_local._windows_workflow_contract(ROOT, "2f21ceb4")
+    assert "-I" not in old_phases[-1][1]
+    assert "-I" in phases[-1][1]
+
+
+@pytest.mark.parametrize("mutation", ["matrix", "condition", "shell", "action"])
+def test_windows_workflow_refuses_unsupported_contract_changes(
+    ci_local: ModuleType, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    import yaml
+
+    document = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    job = document["jobs"]["test-windows"]
+    if mutation == "matrix":
+        job["strategy"]["matrix"]["python-version"].append("3.99")
+    elif mutation == "condition":
+        job["steps"][-1]["if"] = "false"
+    elif mutation == "shell":
+        job["steps"][-1]["run"] += " && echo unexpected"
+    else:
+        job["steps"].append({"uses": "synthetic/action@v1"})
+    monkeypatch.setattr(ci_local, "_run_git", lambda *_args, **_kwargs: yaml.safe_dump(document))
+    with pytest.raises(ValueError):
+        ci_local._windows_workflow_contract(ROOT, "a" * 40)
+
+
+def test_windows_bundle_excludes_private_refs_and_never_writes_source_refs(
+    ci_local: ModuleType, tmp_path: Path
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _git(source, "init", "-q")
+    _git(source, "config", "user.name", "Synthetic")
+    _git(source, "config", "user.email", "synthetic@example.test")
+    (source / "tracked").write_text("original", encoding="ascii")
+    _git(source, "add", ".")
+    _git(source, "commit", "-qm", "synthetic")
+    commit = _git(source, "rev-parse", "HEAD")
+    _git(source, "update-ref", "refs/remotes/origin/main", commit)
+    _git(source, "tag", "synthetic-tag")
+    _git(source, "update-ref", "refs/backup/private", commit)
+    old_ref = "refs/ci-local/" + "a" * 24
+    recent_ref = "refs/ci-local/" + "b" * 24
+    for ref in (old_ref, recent_ref):
+        _git(source, "update-ref", ref, commit)
+    ref_file = source / _git(source, "rev-parse", "--git-path", old_ref)
+    os.utime(ref_file, (time.time() - 7000, time.time() - 7000))
+    ci_local.sweep_legacy_windows_refs(source)
+    assert old_ref not in _git(source, "show-ref")
+    assert recent_ref in _git(source, "show-ref")
+    before = _git(source, "show-ref")
+    ci_local.create_windows_bundle(source, commit, tmp_path / "source.bundle", "a" * 24)
+    refs = _git(source, "bundle", "list-heads", str(tmp_path / "source.bundle"))
+    assert "refs/heads/main" in refs
+    assert "refs/tags/synthetic-tag" in refs
+    assert "refs/backup/" not in refs
+    assert recent_ref not in refs
+    assert before == _git(source, "show-ref")
 
 
 def test_windows_job_uses_one_decreasing_timeout_budget(
@@ -246,7 +436,8 @@ def test_windows_job_uses_one_decreasing_timeout_budget(
     timeouts: list[float] = []
     cleaned: list[str] = []
     monkeypatch.setattr(ci_local.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(ci_local, "_windows_job_timeout", lambda _source, _commit: 90)
+    contract = ci_local._windows_workflow_contract(ROOT, "HEAD")
+    monkeypatch.setattr(ci_local, "_windows_workflow_contract", lambda *_: (90, *contract[1:]))
     monkeypatch.setattr(
         ci_local,
         "windows_preflight",
@@ -295,7 +486,8 @@ def test_windows_job_attempts_remote_cleanup_on_failure_and_interruption(
         bundle=r"C:\Users\synthetic\.ci-local\runs\gpo-studio-ci-local\abc\source.bundle",
     )
     cleaned: list[str] = []
-    monkeypatch.setattr(ci_local, "_windows_job_timeout", lambda _source, _commit: 90)
+    contract = ci_local._windows_workflow_contract(ROOT, "HEAD")
+    monkeypatch.setattr(ci_local, "_windows_workflow_contract", lambda *_: (90, *contract[1:]))
     monkeypatch.setattr(ci_local, "windows_preflight", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(ci_local, "windows_initialize", lambda *_args, **_kwargs: workspace)
     monkeypatch.setattr(ci_local, "_run_git", lambda *_args, **_kwargs: "")
@@ -315,6 +507,7 @@ def test_windows_job_attempts_remote_cleanup_on_failure_and_interruption(
             local_root=tmp_path,
         )
     else:
+
         def interrupt(*_args: object, **_kwargs: object) -> int:
             raise ci_local._SignalInterruption(signal.SIGTERM)
 
@@ -337,7 +530,8 @@ def test_windows_job_cleans_by_token_if_initialization_never_returns_a_workspace
 ) -> None:
     tokens: list[str] = []
     cleaned: list[tuple[object, str | None]] = []
-    monkeypatch.setattr(ci_local, "_windows_job_timeout", lambda *_args: 90)
+    contract = ci_local._windows_workflow_contract(ROOT, "HEAD")
+    monkeypatch.setattr(ci_local, "_windows_workflow_contract", lambda *_: (90, *contract[1:]))
     monkeypatch.setattr(ci_local, "windows_preflight", lambda *_args, **_kwargs: True)
 
     def initialize(_host: str, token: str, *, timeout: float) -> object:
@@ -353,11 +547,15 @@ def test_windows_job_cleans_by_token_if_initialization_never_returns_a_workspace
 
     monkeypatch.setattr(ci_local, "windows_initialize", initialize)
     monkeypatch.setattr(ci_local, "windows_cleanup", cleanup)
+    monkeypatch.setattr(ci_local, "_run_git", lambda *_args, **_kwargs: "")
     exception = ci_local._SignalInterruption if interrupted else RuntimeError
     with pytest.raises(exception):
         ci_local.run_windows_job(
-            source=tmp_path, commit="a" * 40, host="builder@synthetic",
-            version="3.14", local_root=tmp_path,
+            source=tmp_path,
+            commit="a" * 40,
+            host="builder@synthetic",
+            version="3.14",
+            local_root=tmp_path,
         )
 
     assert len(tokens) == 1
@@ -543,9 +741,7 @@ def test_steps_run_with_no_new_privileges(ci_local: ModuleType, tmp_path: Path) 
     if shutil.which("setpriv") is None:
         pytest.skip("util-linux setpriv is unavailable")
     output = tmp_path / "status"
-    command = (
-        f"awk '/^NoNewPrivs:/ {{print $2}}' /proc/self/status > {shlex.quote(str(output))}"
-    )
+    command = f"awk '/^NoNewPrivs:/ {{print $2}}' /proc/self/status > {shlex.quote(str(output))}"
 
     passed, _duration = ci_local.run_step(
         ci_local.Step("no-new-privileges probe", command, "test", 10),
@@ -861,10 +1057,18 @@ def test_opt_in_windows_phase_preserves_exit_codes_and_quoted_arguments(
         )
         for code in (0, 7):
             arguments = (
-                "run", "--no-project", "--python", python, "python", "-c",
+                "run",
+                "--no-project",
+                "--python",
+                python,
+                "python",
+                "-c",
                 "import os, sys; "
                 "assert os.path.basename(os.getcwd()) == 'checkout'; "
                 "assert sys.argv[1] == 'café value'; "
+                "assert os.environ['TEMP'] == os.environ['TMP']; "
+                "assert os.environ['TEMP'].endswith('tmp'); "
+                "print('café 日本語'); "
                 "print('PROBE_STDOUT'); print('PROBE_STDERR', file=sys.stderr); "
                 f"raise SystemExit({code})",
                 "café value",
@@ -878,8 +1082,116 @@ def test_opt_in_windows_phase_preserves_exit_codes_and_quoted_arguments(
             assert completed.returncode == code, completed.stderr
             assert "PROBE_STDOUT" in completed.stdout
             assert "PROBE_STDERR" in completed.stderr
+            assert "café 日本語" in completed.stdout
+        with pytest.raises(RuntimeError, match="recent unowned sibling"):
+            ci_local.windows_initialize(host, secrets.token_hex(12), timeout=30)
+        # Remote deadline, not the controller's 30s timeout, must kill the child.
+        completed = ci_local._run_captured(
+            ci_local.powershell_ssh_command(
+                host,
+                ci_local._windows_phase_script(
+                    workspace,
+                    python,
+                    (
+                        "run",
+                        "--no-project",
+                        "--python",
+                        python,
+                        "python",
+                        "-c",
+                        "import time; print('WATCHDOG_READY', flush=True); time.sleep(60)",
+                    ),
+                    remaining=4,
+                ),
+            ),
+            timeout=30,
+        )
+        assert completed.returncode == 124, completed.stderr
+        assert "WATCHDOG_READY" in completed.stdout
     finally:
         ci_local.windows_cleanup(host, workspace)
+
+
+@pytest.mark.skipif(
+    os.environ.get("GPO_STUDIO_WINDOWS_INTEGRATION") != "1",
+    reason="set GPO_STUDIO_WINDOWS_INTEGRATION=1 for the opt-in checkout probe",
+)
+def test_opt_in_windows_setup_bytes_and_live_sibling_refusal(
+    ci_local: ModuleType, tmp_path: Path
+) -> None:
+    host = "cw-admin@mvmcitest01"
+    token = secrets.token_hex(12)
+    commit = _git(ROOT, "rev-parse", "HEAD")
+    workspace = ci_local.windows_initialize(host, token, timeout=30)
+    process = None
+    try:
+        archive = tmp_path / "source.zip"
+        bundle = tmp_path / "source.bundle"
+        _git(ROOT, "archive", "--format=zip", f"--output={archive}", commit)
+        ci_local.create_windows_bundle(ROOT, commit, bundle, token)
+        assert (
+            ci_local._run_streamed(
+                [
+                    "scp",
+                    *ci_local.SSH_OPTIONS,
+                    str(archive),
+                    str(bundle),
+                    f"{host}:{workspace.run.replace(chr(92), '/')}/",
+                ],
+                timeout=120,
+            )
+            == 0
+        )
+        setup = ci_local._windows_setup_script(workspace, commit, 180)
+        # Pause inside the actual setup wrapper, after its owner record exists
+        # but before archive expansion. A second initializer must not touch it.
+        setup = setup.replace(
+            "Expand-Archive -LiteralPath",
+            "Start-Sleep -Seconds 8\nExpand-Archive -LiteralPath",
+        )
+        process = subprocess.Popen(
+            ci_local.powershell_ssh_command(host, setup),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        owner_probe = (
+            ci_local._powershell_prelude()
+            + "\n"
+            + (
+                f"$owner={ci_local._powershell_literal(workspace.run + r'\phase-owner')}\n"
+                "for($i=0;$i -lt 80;$i++){\n"
+                "if(Test-Path $owner){Write-Output 'SETUP_OWNER_READY'; break}; "
+                "Start-Sleep -Milliseconds 100}\n"
+            )
+        )
+        assert "SETUP_OWNER_READY" in ci_local._run_remote_capture(host, owner_probe, timeout=20)
+        with pytest.raises(RuntimeError, match="live sibling"):
+            ci_local.windows_initialize(host, secrets.token_hex(12), timeout=30)
+        stdout, stderr = process.communicate(timeout=180)
+        assert process.returncode == 0, stdout + stderr
+        inspect = (
+            ci_local._powershell_prelude()
+            + "\n"
+            + (
+                f"$checkout={ci_local._powershell_literal(workspace.checkout)}\n"
+                "$bytes=[IO.File]::ReadAllBytes((Join-Path $checkout 'CONTRIBUTING.md'))\n"
+                "$text=[Text.Encoding]::UTF8.GetString($bytes)\n"
+                "Write-Output ('BYTE_CRLF=' + [regex]::Matches($text, \"`r`n\").Count)\n"
+                "Write-Output ('BYTE_LONE_LF=' + [regex]::Matches($text, \"(?<!`r)`n\").Count)\n"
+                f"& {ci_local._powershell_literal(ci_local.WINDOWS_GIT)} "
+                "-C $checkout config --show-origin --get core.autocrlf\n"
+            )
+        )
+        observed = ci_local._run_remote_capture(host, inspect, timeout=30)
+        print(observed)
+        assert "BYTE_LONE_LF=0" in observed
+        assert "BYTE_CRLF=0\n" not in observed
+        assert "etc/gitconfig" in observed and "true" in observed
+    finally:
+        ci_local.windows_cleanup(host, workspace)
+        if process is not None:
+            process.communicate(timeout=30)
 
 
 def test_normal_exit_kills_background_process_group(ci_local: ModuleType, tmp_path: Path) -> None:
