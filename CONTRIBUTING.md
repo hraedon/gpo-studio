@@ -64,8 +64,10 @@ approved executable is
 `C:\Users\cw-admin\.ci-local\git\2.56.0.2\cmd\git.exe` from
 MinGit 2.56.0.2. A missing or mismatched pinned tool is refused. Node and npm
 are absent but irrelevant: `test-windows` does not run frontend checks. The
-remote run directory is always removed; a stale directory owned by this runner
-is cleaned before the next run. The checkout's `core.longpaths=true` setting is
+runner attempts remote cleanup on every exit, including interrupted
+initialization; cleanup failures are reported and fail an otherwise successful
+run. Startup cleans owned stale directories or refuses an unknown or
+unremovable entry. The checkout's `core.longpaths=true` setting is
 repository-local; the runner does not alter the host's Git configuration.
 Pre-R1 mode still does not reproduce inline workflow shell.
 

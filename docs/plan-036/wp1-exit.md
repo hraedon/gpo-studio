@@ -194,7 +194,8 @@ phase-ownership record, rather than inferring recovery from an empty root.
 ### Initial positive Windows run (superseded for acceptance)
 
 Runner: `c483f71e821b5a9a1fcce7e9337937bf79789996`. Source: local `main` and
-`origin/main` at `2a37970c6471ddea079b5a22bb1606ed9ea75546`, pinned throughout.
+`origin/main` as resolved at the start,
+`2a37970c6471ddea079b5a22bb1606ed9ea75546`; the selected commit stayed pinned.
 Host: mvmcitest01; interpreter: CPython 3.14.5.
 
 ```bash
@@ -228,3 +229,149 @@ Real-host probes verified exact exit codes 0 and 7, working directory, both
 output streams, and Unicode/quoted arguments; the opt-in integration test now
 pins these controls. The full main pass and historical cases are repeated
 below with the correction.
+
+The recovery probe was repeated with the final `afacb87` wrapper: abandoned
+directory `d398b1229e2d012f24fe43dc`, phase ownership
+`3704|134371139117470432`, replacement directory
+`b86f363f3c382135c3800179`. The next `windows_initialize` removed the old
+directory, and remote checks confirmed both the directory and the recorded
+PID/creation-time pair were absent. The replacement was cleaned afterward.
+
+### Historical Windows-only reproductions
+
+Both scratch branches start at the same pinned `main` (`2a37970c`), contain
+only the historical regression being reintroduced, and were local only. No
+workflow, dependency or bound source changes. The qualifying historical runner was
+`afacb879ce7ce6d429c6015d362d47aa4bc3b2a3`.
+After the qualifying runs, both clean scratch worktrees and branches were
+deleted locally; neither was ever pushed. Their commit IDs and logs are
+retained here for reconstruction.
+
+#### `SIGHUP` evaluated during collection (`68d2495`)
+
+Scratch branch `scratch/wp1-windows-sighup`, commit
+`d1a3813076d490dcdce6e9cef810df78644d6fa9`, reverses the named-signal
+parametrization in `tests/test_lane_supervisor.py` to evaluate
+`signal.SIGHUP` at import time. Linux control: all 16 supervisor tests passed
+in 21.44s.
+
+```bash
+uv run --extra dev python scripts/ci-local.py \
+  --windows --windows-python 3.13 --commit scratch/wp1-windows-sighup
+```
+
+On CPython 3.13.14, Install, Ruff and mypy passed. Pytest stopped during
+collection with `AttributeError: module 'signal' has no attribute 'SIGHUP'`
+in `tests/test_lane_supervisor.py`, matching the historical failure. The
+runner reported `[FAIL] Pytest`, skipped coverage, and exited 1; both run
+directories were removed. Wall time including cleanup was **182.58s
+(3m02.58s)**, 3.4% of the 90-minute budget; pytest itself took 55.4s. This is
+the qualifying reproduction (`repro-sighup-final.log`), distinct from the
+earlier false-green diagnostic.
+
+#### Native path separators in firewall provenance (`754aec8`)
+
+Scratch branch `scratch/wp1-windows-paths`, commit
+`1f6f5b0c8c235ea30edf71cc9a1a6ba7ded597ed`, replaces the sanitizer's three
+`.as_posix()` calls with the historical `str(Path)` spelling. The sanitizer
+has zero lane bindings in the generated cost table. Linux control: both
+working-directory variants of the reproduction test and the synthetic-identity
+sanitization test passed (3 tests, 0.29s).
+
+```bash
+uv run --extra dev python scripts/ci-local.py \
+  --windows --windows-python 3.14 --commit scratch/wp1-windows-paths
+```
+
+On CPython 3.14.5, Install, Ruff and mypy passed. The full pytest phase then
+reported exactly two failures, both variants of
+`test_sanitizer_reproduces_fixture_without_raw_inbox`: provenance contained
+`scripts\plan-033\capture-firewall-native.ps1`, where the contract requires
+`scripts/plan-033/capture-firewall-native.ps1`. The other **12,849 tests passed,
+425 skipped, 55 subtests passed**. Pytest took 2,725.8s; the runner reported
+`[FAIL] Pytest`, skipped coverage and exited 1. Wall time including cleanup was
+**2,850.32s (47m30.32s)**, 52.8% of the 90-minute budget. Local and remote run
+directories were removed (`repro-paths-final.log`).
+
+### Qualified main passes with the corrected wrapper
+
+Runner: `afacb879ce7ce6d429c6015d362d47aa4bc3b2a3`. Source: the same immutable
+`main` snapshot, `2a37970c6471ddea079b5a22bb1606ed9ea75546`. The shared
+`origin/main` ref advanced during this work; these results qualify that pinned
+mainline commit, not commits added afterward.
+
+```bash
+uv run --extra dev python scripts/ci-local.py \
+  --windows --windows-python 3.14 \
+  --commit 2a37970c6471ddea079b5a22bb1606ed9ea75546
+```
+
+Outcome: exit 0; all five phases passed in **2,758.2s (45m58.2s)**, **51.1% of
+the 5,400-second budget**, leaving 2,641.8s (44m01.8s). Wall time including
+cleanup was 2,765.35s. Install took 15.6s, Ruff 4.0s, mypy 10.5s, pytest
+2,640.1s and coverage-floor validation 1.8s. Pytest reported **12,851 passed,
+425 skipped, 55 subtests passed** in 2,634.87s. Every per-module floor passed;
+total coverage was 91.84% against 84%. Both run directories were removed.
+This is the qualifying positive run (`main-314-final.log`), replacing the
+earlier `c483f71` acceptance claim.
+
+The same pinned source was then checked with `--windows-python 3.13` (CPython
+3.13.14). Outcome: exit 0; all five phases passed in **4,644.9s
+(77m24.9s)**, **86.0% of the 5,400-second budget**, leaving 755.1s
+(12m35.1s). Wall time including cleanup was 4,652.13s. Install took 14.6s,
+Ruff 3.9s, mypy 10.5s, pytest 4,536.3s and coverage-floor validation 2.0s.
+Pytest reported **12,851 passed, 425 skipped, 55 subtests passed** in
+4,523.13s. All per-module floors passed; total coverage was 91.83% against
+84%. Both run directories were removed (`main-313-final.log`).
+
+| Qualifying run | Python | Result | Elapsed | 90-minute budget |
+|---|---|---|---:|---:|
+| Pinned main `2a37970c` | 3.14 | All five phases passed | 2,758.2s job time | 51.1%; 44m01.8s left |
+| Pinned main `2a37970c` | 3.13 | All five phases passed | 4,644.9s job time | 86.0%; 12m35.1s left |
+| Historical `SIGHUP` | 3.13 | Expected collection failure, exit 1 | 182.58s wall including cleanup | 3.4% |
+| Historical provenance separators | 3.14 | Expected two assertions, exit 1 | 2,850.32s wall including cleanup | 52.8% |
+
+### Local verification before initialization-handoff hardening
+
+Ruff passed; strict `mypy src` passed for 71 source files. The focused
+runner/register/status/binding-cost checks passed (136 tests, 2 opt-in skips),
+and the two real SSH integration tests passed separately. The full suite on
+stable `afacb87` passed: **13,170 tests, 145 skipped, 67 subtests**, one
+dependency deprecation warning, **993.47s (16m33.47s)**. The earlier local runs
+and diagnostic Windows runs are retained separately; they are not substituted
+for these final results.
+
+Run logs are retained under
+`/home/itadmin/wt/drive-20261020/tmp/wp1w/`; the qualifying logs are
+`main-314-final.log`, `main-313-final.log`, `repro-sighup-final.log`,
+`repro-paths-final.log` and `full-suite-delivery.log`.
+
+### Initialization-handoff cleanup hardening
+
+A final review found a narrow interruption window: initialization could create
+its remote directory but lose the response before the controller obtained a
+`WindowsWorkspace`. `2bb7c65` adds cleanup by the already-generated, validated
+24-hex run token for that case. Both an interrupted and a failed initialization
+are covered by fast tests; malformed cleanup tokens are refused before SSH.
+
+A real partially initialized directory, token `788509aba77ddeafbb6ec6a4`, was
+removed using the token-only path, with `Test-Path` confirming its absence.
+This probe did not run startup cleanup or disturb the concurrent matrix run.
+All normal phase scripts (both Python versions) and known-workspace cleanup
+were compared with `afacb87` and were byte-identical. The full Windows runs
+therefore retain the normal-path evidence above; this added interruption path
+has its separate real-host probe.
+
+Delivery verification on `2bb7c65`: Ruff and strict `mypy src` (71 source
+files) passed; the focused runner/register/status/binding-cost checks passed
+**143 tests, 2 opt-in skips**. The full suite passed **13,177 tests,
+145 skipped, 67 subtests**, one dependency deprecation warning, in **938.53s
+(15m38.53s)** (`full-suite-delivery.log`).
+
+Final record checks repeated Ruff, strict mypy and the 143-test focused set
+successfully; both opt-in SSH tests also passed on `2bb7c65` (45 other tests
+deselected). A fresh SSH session found zero entries under the owned run root
+and no Git on the inherited default `PATH`; the portable Git prefix did not
+persist. Node/npm were still unavailable on that default path and were not
+needed by `test-windows`. The four qualifying controller run directories were
+also confirmed absent, with no leftover `refs/ci-local/` or scratch branches.

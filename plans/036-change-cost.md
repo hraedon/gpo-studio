@@ -1,13 +1,14 @@
 # Plan 036: Reducing what a change costs
 
-Status: **implemented in part**: WP-1's Linux leg and WP-7 are complete after 1.1.0 and
-surfaced through `scripts/ci-local.py`, `CONTRIBUTING.md`, and `AGENTS.md`;
-WP-1's Linux exit is recorded in
+Status: **implemented in part**: WP-1's Linux and Windows legs and WP-7 are
+complete after 1.1.0 and surfaced through `scripts/ci-local.py`,
+`CONTRIBUTING.md`, and `AGENTS.md`;
+WP-1's Linux and Windows exits are recorded in
 [`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md). Its Windows leg is
-implemented following D-7's 2026-10-21 uv and portable MinGit decisions. Its
-Windows exit remains open while the corrected exit-status wrapper repeats the
-main pass and both historical failure probes. The remaining work packages are active. The owner accepted every
-recommendation on 2026-10-13 ("Your recommendations are fine: no qualms about
+Windows-verified as local CI tooling following D-7's 2026-10-21 uv and portable
+MinGit decisions: pinned-main 3.13/3.14 passes and two historical Windows-only
+reproductions are recorded there. The remaining work packages are active. The
+owner accepted every recommendation on 2026-10-13 ("Your recommendations are fine: no qualms about
 the plan detailed in 106"; see [Owner decisions](#owner-decisions)). It was
 written for a two-lineage design review. Rounds 1 to 6
 (Sol and DeepSeek; approve-with-changes in rounds 1 to 4, one blocker from Sol
@@ -1775,12 +1776,14 @@ not claim to be.
   manifest, which the grammar tests already validate, rather than parsing
   workflow YAML itself, so it adds no new unchecked parser.
 - **The Windows leg** (`--windows`) is the only way it can catch the Windows
-  failures, which were most of them. mvmcitest01 has Python 3.13 and pwsh 7
-  but no uv and no git (checked 2026-10-13). The leg copies a `git archive` of
-  the commit over SSH as `cw-admin`, runs a pinned, hash-checked uv standalone
-  binary placed there once, and runs the test job's commands. It needs the box
-  to reach PyPI and an owner decision to install uv on a box other projects use
-  for AD validation (D-7). Without it, Windows stays CI-only.
+  failures, which were most of them. The initial 2026-10-13 check found Python
+  but no uv or Git on mvmcitest01. D-7's 2026-10-21 owner decisions allowed
+  pinned uv and user-scoped portable MinGit there. The leg copies a `git
+  archive` and a full-history metadata bundle over SSH as `cw-admin`, verifies
+  both executable digests before use, and runs the test job's commands with an
+  explicit installed Python. MinGit's `cmd` directory is added to each remote
+  process's `PATH` only. The checkout's long-path setting is repository-local;
+  the host's configuration is unchanged. The box needs access to PyPI.
 
 **Risk-tiered review.** Review rounds were the largest visible human cost in
 the grammar's history (17 rounds for one PR). Tiers are by what a change can
@@ -2171,16 +2174,18 @@ D-9 selects (five on the current data). Specified, with its ordering, in
 After 1.1.0 final. A new script; no workflow change. (It may be drafted
 outside the repository before then.)
 
-- **Status (2026-10-21): complete and surfaced on Linux; Windows leg implemented,
-  exit evidence in progress.**
+- **Status (2026-10-21): complete and surfaced; Windows-verified as local CI tooling.**
   `scripts/ci-local.py` is operator-reachable, and
   [`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md) records its
   cold-cache main pass and both historical cold-cache reproductions. The
   Windows leg uses a `git archive` plus metadata bundle, pinned uv and portable
-  MinGit, and the job's cumulative timeout. Its initial 3.14 main run produced
-  green tests and coverage, but the historical negative control exposed a null
-  PowerShell process exit code. The corrected wrapper is repeating the main
-  pass and both required historical reproductions before the exit is claimed.
+  MinGit, and the job's cumulative timeout. The corrected wrapper passed all
+  five phases on pinned `main` (`2a37970c`): Python 3.14 in 2,758.2s and 3.13
+  in 4,644.9s of each job's 5,400s budget. Local-only scratch branches
+  reproduced historical
+  `SIGHUP` collection (3.13) and provenance path-separator (3.14) failures;
+  the runner failed each and cleaned up. The evidence also records real
+  process-exit controls and stale-directory recovery.
 
 - **Exit:** the Linux checks pass on `main` from a cold cache and reproduce the
   two historical cold-cache failures when they are re-introduced on a scratch

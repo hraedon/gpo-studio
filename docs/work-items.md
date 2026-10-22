@@ -3895,12 +3895,14 @@ which is WI-084's (WP-0 and R4b).
 **Status:** open. An accepted programme: the owner accepted Plan 036 and all of
 its recommendations on 2026-10-13. WP-1's Linux local-CI runner and exit
 evidence and WP-7's risk-tiered review policy are complete as of 2026-10-20;
-the owner allowed uv and portable MinGit on mvmcitest01 on 2026-10-21 and the
-Windows leg is implemented. A real 3.14 main run produced green tests and
-coverage, but its historical negative control exposed a null PowerShell exit
-code. The corrected wrapper is repeating the main pass and both historical
-reproductions. WP-1's Windows exit and the other Plan 036 work packages remain
-open; WI-084 stays open.
+the owner allowed uv and portable MinGit on mvmcitest01 on 2026-10-21. WP-1's
+Windows exit is now complete: the corrected runner passed pinned `main` on
+3.14 in 2,758.2s and 3.13 in 4,644.9s of each job's 90-minute budget, and caught
+both historical Windows-only
+failures on local scratch branches (`SIGHUP` on 3.13; provenance path separators
+on 3.14). Real exit-status and stale-directory recovery probes passed; see
+[the exit evidence](plan-036/wp1-exit.md). The other Plan 036 work packages
+remain open; WI-084 stays open.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
