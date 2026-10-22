@@ -1069,6 +1069,8 @@ def test_opt_in_windows_phase_preserves_exit_codes_and_quoted_arguments(
                 "assert os.environ['TEMP'] == os.environ['TMP']; "
                 "assert os.environ['TEMP'].endswith('tmp'); "
                 "assert len(os.environ['TEMP']) <= 60; "
+                "assert os.environ['GIT_CONFIG_KEY_0'] == 'core.longpaths'; "
+                "assert os.environ['GIT_CONFIG_VALUE_0'] == 'true'; "
                 "print('café 日本語'); "
                 "print('PROBE_STDOUT'); print('PROBE_STDERR', file=sys.stderr); "
                 f"raise SystemExit({code})",
@@ -1189,6 +1191,19 @@ def test_opt_in_windows_setup_bytes_and_live_sibling_refusal(
         assert "BYTE_LONE_LF=0" in observed
         assert "BYTE_CRLF=0\n" not in observed
         assert "etc/gitconfig" in observed and "true" in observed
+        install = ci_local._run_captured(
+            ci_local.powershell_ssh_command(
+                host,
+                ci_local._windows_phase_script(
+                    workspace,
+                    ci_local.WINDOWS_PYTHONS["3.14"],
+                    ("sync", "--locked", "--extra", "dev"),
+                    remaining=120,
+                ),
+            ),
+            timeout=150,
+        )
+        assert install.returncode == 0, install.stderr
         release_probe = ci_local._run_captured(
             ci_local.powershell_ssh_command(
                 host,
@@ -1200,16 +1215,24 @@ def test_opt_in_windows_setup_bytes_and_live_sibling_refusal(
                         "--locked",
                         "pytest",
                         "-q",
+                        "--showlocals",
+                        "--tb=short",
                         "tests/test_release_artifacts_from_freeze.py",
+                        "tests/test_release_freeze_gate.py::"
+                        "test_a_registry_not_in_canonical_form_is_refused",
+                        "tests/test_release_freeze_gate.py::"
+                        "test_approving_in_the_banking_commit_is_refused",
+                        "tests/test_release_freeze_gate.py::"
+                        "test_a_re_freeze_whose_banking_commit_approves_early_is_refused",
                     ),
-                    remaining=300,
+                    remaining=600,
                 ),
             ),
-            timeout=330,
+            timeout=630,
         )
         print(release_probe.stdout)
         assert release_probe.returncode == 0, release_probe.stderr
-        assert "3 passed" in release_probe.stdout
+        assert "10 passed" in release_probe.stdout
     finally:
         ci_local.windows_cleanup(host, workspace)
         if process is not None:

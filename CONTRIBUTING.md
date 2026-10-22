@@ -80,8 +80,10 @@ token may terminate its wrapper and descendants. TEMP/TMP and caches are run-loc
 TEMP uses that directory's existing DOS short-name alias (at most 60 characters)
 so the MAX_PATH-sensitive release-artifact tests still fit; missing/too-long
 aliases are refused. The tool creates no drive mapping or short-name configuration.
-The checkout's `core.longpaths=true` setting is
-repository-local; the runner does not alter the host's Git configuration.
+The checkout's `core.longpaths=true` setting is repository-local. Test children
+also receive that setting through process-only Git configuration, covering
+temporary repositories after pytest expands DOS aliases. The runner does not
+alter the host's Git configuration.
 The installed MinGit system configuration has `core.autocrlf=true`: the forced
 checkout rewrites ordinary text to CRLF (verified from post-setup bytes), while
 `.gitattributes` protects LF/byte-exact evidence. Archive transport does not make

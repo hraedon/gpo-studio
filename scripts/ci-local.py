@@ -1010,6 +1010,12 @@ def _windows_phase_script(
         + "throw ('refusing Git SHA-256 ' + $actualGit) }\n"
         + "$gitDir=Split-Path -Parent $git\n"
         + "$env:PATH=$gitDir + [IO.Path]::PathSeparator + $env:PATH\n"
+        # Git's SHA:path disambiguation also stats paths in temporary test
+        # repositories. Pytest resolves DOS aliases back to physical names,
+        # so the checkout-local setting alone cannot cover those children.
+        + "$env:GIT_CONFIG_COUNT='1'\n"
+        + "$env:GIT_CONFIG_KEY_0='core.longpaths'\n"
+        + "$env:GIT_CONFIG_VALUE_0='true'\n"
         + f"$env:UV_PYTHON={_powershell_literal(python)}\n"
         + "$env:UV_PYTHON_DOWNLOADS='never'\n"
         + "$env:CI='true'\n"

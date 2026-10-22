@@ -1784,6 +1784,9 @@ not claim to be.
   commands and the Python matrix from the tested commit's test-windows job with an
   explicit installed Python. MinGit's `cmd` directory is added to each remote
   process's `PATH` only. The checkout's long-path setting is repository-local;
+  test children also get it through process-only Git configuration so temporary
+  repositories work after pytest expands short aliases. TEMP/TMP use an existing
+  short alias inside the run, with no drive mapping or filesystem configuration.
   the host's configuration is unchanged. The box needs access to PyPI.
 
 **Risk-tiered review.** Review rounds were the largest visible human cost in

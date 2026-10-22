@@ -444,3 +444,41 @@ Before the final full run, focused runner/register checks passed **65 tests,
 3 opt-in skips**; Ruff and strict mypy src (71 files) passed. The three opt-in
 tests were run serially (two process/preflight tests: 19.34s; checkout/setup
 probe: 109.97s). Final full-run results are appended below.
+
+### Run-local TEMP qualification
+
+The first review-fix full 3.14 attempt on `11a9c906` correctly failed:
+**7 failed, 12,853 passed, 425 skipped, 1 xfailed, 3 setup errors,
+55 subtests**, pytest 2,525.20s, reported phase 2,545.2s; **2,712.93s wall
+(45m12.93s, 50.2% of the 90-minute budget)** including cleanup, exit 1.
+Coverage-floor evaluation did not run. `r1-main-314.log` retains the trace.
+The three artifact-build setup errors explicitly rejected MAX_PATH under the
+new, longer run-local TEMP. Seven release-gate cases failed at `git show`:
+targeted diagnostics confirmed `fatal: failed to stat ... Filename too long`.
+These were runner-environment failures, not successful exit evidence.
+
+`fcc1d02` selects the existing DOS alias of the same owned TEMP directory;
+the observed alias was **53 characters**, versus 76 for its physical path.
+There is no drive mapping, external temp directory, or change to short-name
+creation policy. Missing/over-60-character aliases refuse. Pytest resolves
+its own directories back to physical names, so test children additionally
+receive `core.longpaths=true` via process-only `GIT_CONFIG_COUNT/KEY/VALUE`.
+The checkout-local setting is retained; no host Git configuration changes.
+
+The first targeted probe (`r1-integration-final.log`) exposed the Git errors
+and also an error in the probe itself: without the CI dev install, it found
+the box's global pytest, whose Python lacked hatchling. This did not affect
+the full runner, which already had the Install phase. The probe now performs
+`uv sync --locked --extra dev` before running the three artifact tests and
+seven failing release-gate cases. With the process-only long-path setting,
+**all ten passed in 85.44s**. All three opt-ins then passed serially in
+**218.07s** (`r1-integration-short-paths.log`), repeating the live-setup refusal,
+exit 0/7, watchdog exit 124 and Unicode checks. On the probe's `fcc1d02`
+checkout, CONTRIBUTING bytes were **168 CRLFs, zero lone LFs**; the system
+autocrlf setting was still true.
+
+Local full-suite results before this last process-environment adjustment:
+13,205 passed, 146 skipped, 1 xfailed, 67 subtests; 984.03s on the initial
+review fix and 923.74s on the short-TEMP fix. Both exited 0. The final source
+gets another full local suite and full Windows 3.14 pass below; phase argv
+remain identical to the reviewed workflow.
