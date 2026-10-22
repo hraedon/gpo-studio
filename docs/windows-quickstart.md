@@ -77,6 +77,7 @@ with an error if it finds no wheel, more than one wheel, a missing
 damaged file.
 
 ```powershell
+try {  # one statement, so a check that throws stops the rest of the paste
 $Wheels = @(Get-ChildItem -File .\gpo_studio-*.whl)
 if ($Wheels.Count -ne 1) {
     throw "Expected exactly one gpo_studio wheel in this folder; found $($Wheels.Count)."
@@ -103,6 +104,7 @@ foreach ($File in @($Wheel, $Requirements) | Where-Object { $_ }) {
     }
     Write-Host "Checksum verified for $($File.Name)"
 }
+} catch { throw }
 ```
 
 Do not continue unless it printed `Checksum verified` for the wheel and, when
@@ -118,6 +120,7 @@ release workflow for the tag you downloaded (replace `v<version>` with the
 release's tag, for example `v1.0.0`):
 
 ```powershell
+try {  # one statement, so a check that throws stops the rest of the paste
 $Tag = "v<version>"
 foreach ($File in @($Wheel, $Requirements, (Get-Item .\SHA256SUMS)) | Where-Object { $_ }) {
     gh attestation verify $File.FullName --repo hraedon/gpo-studio `
@@ -125,6 +128,7 @@ foreach ($File in @($Wheel, $Requirements, (Get-Item .\SHA256SUMS)) | Where-Obje
         --source-ref "refs/tags/$Tag"
     if ($LASTEXITCODE -ne 0) { throw "Attestation verification failed for $($File.Name)." }
 }
+} catch { throw }
 ```
 
 Do not continue if any verification fails. A release whose `SHA256SUMS` does
@@ -135,15 +139,21 @@ not list `requirements-lock.txt` has no attestation for it, and the loop skips i
 In the same PowerShell window, run:
 
 ```powershell
+try {  # one statement, so a check that throws stops the rest of the paste
+if (-not $Wheel) {
+    throw "`$Wheel is not set. Run the checksum block from step 2 in this same PowerShell window first, in the folder holding the release wheel. The green Code button's ZIP has no wheel."
+}
 $Root = Join-Path $env:LOCALAPPDATA "GPO Studio"
 $Venv = Join-Path $Root "venv"
 $Data = Join-Path $Root "data"
 $Backups = Join-Path $Root "backups"
 New-Item -ItemType Directory -Force $Root, $Data, $Backups | Out-Null
 py -3.13 -m venv $Venv
+if ($LASTEXITCODE -ne 0) { throw "Creating the virtual environment failed." }
 $Python = Join-Path $Venv "Scripts\python.exe"
 $App = Join-Path $Venv "Scripts\gpo-studio.exe"
 & $Python -m pip install --upgrade pip
+if ($LASTEXITCODE -ne 0) { throw "Upgrading pip failed." }
 if ($Requirements) {
     & $Python -m pip install --only-binary :all: --require-hashes -r $Requirements.FullName
     if ($LASTEXITCODE -ne 0) { throw "Installing the locked dependencies failed." }
@@ -153,14 +163,23 @@ if ($Requirements) {
     if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
 } else {
     & $Python -m pip install $Wheel.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
 }
 & $App --help
+} catch { throw }
 ```
 
 With `requirements-lock.txt`, pip installs exactly the dependency versions the
 release was tested with and refuses any file whose hash differs; the wheel then
 goes in without fetching anything else. Only a release without the file
 resolves dependencies from the package index at install time.
+
+The block is a single `try` statement, so even when pasted, a check that
+throws stops the rest of it. It refuses to start unless step 2 has set
+`$Wheel` in the same window, and a command that exits with an error (pip
+prints an `ERROR:` line) stops it with the check's own message. In PowerShell ISE, pip's warnings (for
+example `Cache entry deserialization failed`) appear in red as
+`NativeCommandError`; they are not failures and do not stop the block.
 
 The last command should print GPO Studio's help text. The application and
 its workspace are now under `%LOCALAPPDATA%\GPO Studio`. The commands do not
@@ -253,6 +272,10 @@ in [workspace backup and recovery](workspace-recovery.md).
 5. Run this block in the same PowerShell window:
 
 ```powershell
+try {  # one statement, so a check that throws stops the rest of the paste
+if (-not $Wheel) {
+    throw "`$Wheel is not set. Run the checksum block from step 2 in this same PowerShell window first, in the folder holding the release wheel. The green Code button's ZIP has no wheel."
+}
 $Root = Join-Path $env:LOCALAPPDATA "GPO Studio"
 $Python = Join-Path $Root "venv\Scripts\python.exe"
 $App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
@@ -265,8 +288,10 @@ if ($Requirements) {
     if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
 } else {
     & $Python -m pip install --upgrade $Wheel.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
 }
 & $App --help
+} catch { throw }
 ```
 
 6. Start GPO Studio and confirm the health endpoint and existing policies.
@@ -301,6 +326,10 @@ changes are not deleted.
    run:
 
 ```powershell
+try {  # one statement, so a check that throws stops the rest of the paste
+if (-not $Wheel) {
+    throw "`$Wheel is not set. Run the checksum block from step 2 in this same PowerShell window first, in the folder holding the release wheel. The green Code button's ZIP has no wheel."
+}
 $Root = Join-Path $env:LOCALAPPDATA "GPO Studio"
 $Python = Join-Path $Root "venv\Scripts\python.exe"
 $App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
@@ -315,9 +344,13 @@ if ($Requirements) {
     if ($LASTEXITCODE -ne 0) { throw "The locked dependencies do not satisfy the wheel." }
 } else {
     & $Python -m pip install $Wheel.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Installing the wheel failed." }
 }
 & $App workspace restore $Backup $Database --replace
+if ($LASTEXITCODE -ne 0) { throw "Restoring the backup failed." }
 & $App workspace check --database $Database --full
+if ($LASTEXITCODE -ne 0) { throw "The restored workspace failed its check." }
+} catch { throw }
 ```
 
 `workspace restore` refuses a backup whose SHA-256 no longer matches its
