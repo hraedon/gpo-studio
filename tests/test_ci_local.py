@@ -1068,6 +1068,7 @@ def test_opt_in_windows_phase_preserves_exit_codes_and_quoted_arguments(
                 "assert sys.argv[1] == 'café value'; "
                 "assert os.environ['TEMP'] == os.environ['TMP']; "
                 "assert os.environ['TEMP'].endswith('tmp'); "
+                "assert len(os.environ['TEMP']) <= 60; "
                 "print('café 日本語'); "
                 "print('PROBE_STDOUT'); print('PROBE_STDERR', file=sys.stderr); "
                 f"raise SystemExit({code})",
@@ -1188,6 +1189,27 @@ def test_opt_in_windows_setup_bytes_and_live_sibling_refusal(
         assert "BYTE_LONE_LF=0" in observed
         assert "BYTE_CRLF=0\n" not in observed
         assert "etc/gitconfig" in observed and "true" in observed
+        release_probe = ci_local._run_captured(
+            ci_local.powershell_ssh_command(
+                host,
+                ci_local._windows_phase_script(
+                    workspace,
+                    ci_local.WINDOWS_PYTHONS["3.14"],
+                    (
+                        "run",
+                        "--locked",
+                        "pytest",
+                        "-q",
+                        "tests/test_release_artifacts_from_freeze.py",
+                    ),
+                    remaining=300,
+                ),
+            ),
+            timeout=330,
+        )
+        print(release_probe.stdout)
+        assert release_probe.returncode == 0, release_probe.stderr
+        assert "3 passed" in release_probe.stdout
     finally:
         ci_local.windows_cleanup(host, workspace)
         if process is not None:

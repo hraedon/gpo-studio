@@ -77,6 +77,9 @@ an unowned run older than the 90-minute maximum job budget plus 10 minutes.
 Recent unowned, malformed, linked, unknown or unremovable entries are refused.
 Setup records ownership before archive extraction; only cleanup of the current
 token may terminate its wrapper and descendants. TEMP/TMP and caches are run-local.
+TEMP uses that directory's existing DOS short-name alias (at most 60 characters)
+so the MAX_PATH-sensitive release-artifact tests still fit; missing/too-long
+aliases are refused. The tool creates no drive mapping or short-name configuration.
 The checkout's `core.longpaths=true` setting is
 repository-local; the runner does not alter the host's Git configuration.
 The installed MinGit system configuration has `core.autocrlf=true`: the forced

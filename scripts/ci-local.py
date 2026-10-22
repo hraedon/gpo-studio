@@ -180,7 +180,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--keep",
         action="store_true",
-        help="retain local run files (Windows: archive/bundle only; remote files always removed)",
+        help="retain local run files (Windows remote files are always removed)",
     )
     result.add_argument(
         "--check-browser-os-dependencies",
@@ -1076,6 +1076,25 @@ def _windows_temporary_environment(workspace: WindowsWorkspace) -> str:
         f"$env:TEMP={_powershell_literal(workspace.run + r'\tmp')}\n"
         "$env:TMP=$env:TEMP\n"
         "New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null\n"
+        # The release-artifact tests intentionally require a short system temp
+        # prefix. Use the directory's EXISTING DOS alias, not a shared external
+        # directory, drive mapping, or persistent filesystem configuration.
+        "Add-Type -TypeDefinition @'\n"
+        "using System.Text;\n"
+        "using System.Runtime.InteropServices;\n"
+        "public static class CiLocalShortPath {\n"
+        ' [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]\n'
+        " public static extern uint GetShortPathName(string path, "
+        "StringBuilder output, uint size);\n"
+        "}\n"
+        "'@\n"
+        "$short=[Text.StringBuilder]::new(4096)\n"
+        "$length=[CiLocalShortPath]::GetShortPathName($env:TEMP, $short, 4096)\n"
+        "if ($length -eq 0 -or $length -ge 4096 -or $length -gt 60) {\n"
+        "  throw 'run-local TEMP needs an existing short path (at most 60 characters)'\n"
+        "}\n"
+        "$env:TEMP=$short.ToString()\n"
+        "$env:TMP=$env:TEMP\n"
     )
 
 
