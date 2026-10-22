@@ -1,0 +1,6 @@
+first 4 bytes: FF FE 0D 00
+CR count: 4  LF count: 4  size: 138 bytes
+
+[Logon]
+0CmdLine=zz-studio-logon.cmd
+0Parameters=/c logon-beta
