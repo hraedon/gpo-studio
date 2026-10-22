@@ -3895,11 +3895,11 @@ which is WI-084's (WP-0 and R4b).
 **Status:** open. An accepted programme: the owner accepted Plan 036 and all of
 its recommendations on 2026-10-13. WP-1's Linux local-CI runner and exit
 evidence and WP-7's risk-tiered review policy are complete as of 2026-10-20;
-the owner allowed uv on mvmcitest01 on 2026-10-21 and the Windows leg is now
-implemented. Its real 3.14 run passed Install, Ruff and mypy, then refused
-pytest because the shared host has no `git.exe` and repository tests invoke it.
-The leg does not install the missing tool, so WP-1's Windows exit (a main pass
-and two historical reproductions) and the other Plan 036 work packages remain
+the owner allowed uv and portable MinGit on mvmcitest01 on 2026-10-21 and the
+Windows leg is implemented. A real 3.14 main run produced green tests and
+coverage, but its historical negative control exposed a null PowerShell exit
+code. The corrected wrapper is repeating the main pass and both historical
+reproductions. WP-1's Windows exit and the other Plan 036 work packages remain
 open; WI-084 stays open.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's

@@ -65,8 +65,9 @@ approved executable is
 MinGit 2.56.0.2. A missing or mismatched pinned tool is refused. Node and npm
 are absent but irrelevant: `test-windows` does not run frontend checks. The
 remote run directory is always removed; a stale directory owned by this runner
-is cleaned before the next run. Pre-R1 mode still does not reproduce inline
-workflow shell.
+is cleaned before the next run. The checkout's `core.longpaths=true` setting is
+repository-local; the runner does not alter the host's Git configuration.
+Pre-R1 mode still does not reproduce inline workflow shell.
 
 The runner requests no elevation and installs browser binaries without
 Playwright's `--with-deps`. When util-linux `setpriv` is available, every step

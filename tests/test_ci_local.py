@@ -6,6 +6,7 @@ import contextlib
 import importlib.util
 import json
 import os
+import secrets
 import shlex
 import shutil
 import signal
@@ -108,7 +109,7 @@ def test_windows_ssh_command_is_an_encoded_noninteractive_powershell_command(
 
     command = ci_local.powershell_ssh_command("builder@synthetic", script)
 
-    assert command[:-1] == [
+    assert command[:-2] == [
         "ssh",
         "builder@synthetic",
         "powershell",
@@ -118,7 +119,8 @@ def test_windows_ssh_command_is_an_encoded_noninteractive_powershell_command(
     ]
     import base64
 
-    assert base64.b64decode(command[-1]).decode("utf-16-le") == script
+    assert base64.b64decode(command[-2]).decode("utf-16-le") == script
+    assert command[-1] == "; exit $LASTEXITCODE"
 
 
 def test_powershell_literal_doubles_quotes_without_shell_interpolation(
@@ -136,6 +138,30 @@ def test_windows_tool_digest_mismatch_is_refused(ci_local: ModuleType) -> None:
     ci_local.verify_windows_git_digest(ci_local.WINDOWS_GIT_SHA256.lower())
     with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
         ci_local.verify_windows_git_digest("0" * 64)
+
+
+@pytest.mark.parametrize("digest", ["0" * 64, ""])
+def test_windows_preflight_refuses_an_untrusted_git_before_creating_a_run(
+    ci_local: ModuleType, monkeypatch: pytest.MonkeyPatch, digest: str
+) -> None:
+    scripts: list[str] = []
+    python = ci_local.WINDOWS_PYTHONS["3.14"]
+
+    def remote(_host: str, script: str, *, timeout: float) -> str:
+        scripts.append(script)
+        return (
+            f"UV_SHA256={ci_local.WINDOWS_UV_SHA256}\n"
+            f"GIT_SHA256={digest}\nPYTHON={python}\n"
+        )
+
+    monkeypatch.setattr(ci_local, "_run_remote_capture", remote)
+    with pytest.raises(RuntimeError, match="refusing Windows Git: SHA-256 mismatch"):
+        ci_local.windows_preflight("builder@synthetic", python, timeout=30)
+
+    assert len(scripts) == 1
+    assert ci_local.WINDOWS_GIT in scripts[0]
+    assert "Get-Command git" not in scripts[0]
+    assert "New-Item" not in scripts[0]
 
 
 def test_windows_phase_hashes_tools_and_prepends_only_the_pinned_git_directory(
@@ -158,7 +184,11 @@ def test_windows_phase_hashes_tools_and_prepends_only_the_pinned_git_directory(
     assert ci_local.WINDOWS_GIT_SHA256 in script
     assert "$actualGit=(Get-FileHash -Algorithm SHA256 $git).Hash" in script
     assert "$env:PATH=$gitDir + [IO.Path]::PathSeparator + $env:PATH" in script
-    assert "Start-Process -FilePath $uv" in script
+    assert "$process=[System.Diagnostics.Process]::new()" in script
+    assert "$process.StartInfo.UseShellExecute=$false" in script
+    assert "$process.StartInfo.Arguments='run --locked pytest -q'" in script
+    assert "if ($null -eq $code) { throw" in script
+    assert "if ($process.HasExited)" in script
     assert "phase-owner" in script
     assert "[Environment]::SetEnvironmentVariable" not in script
 
@@ -762,6 +792,44 @@ def test_opt_in_windows_ssh_preflight(ci_local: ModuleType) -> None:
         ),
         bool,
     )
+
+
+@pytest.mark.skipif(
+    os.environ.get("GPO_STUDIO_WINDOWS_INTEGRATION") != "1",
+    reason="set GPO_STUDIO_WINDOWS_INTEGRATION=1 for the opt-in SSH process probe",
+)
+def test_opt_in_windows_phase_preserves_exit_codes_and_quoted_arguments(
+    ci_local: ModuleType,
+) -> None:
+    """A collection failure must fail the phase, including on PowerShell 5.1."""
+    host = "cw-admin@mvmcitest01"
+    python = ci_local.WINDOWS_PYTHONS["3.13"]
+    ci_local.windows_preflight(host, python, timeout=30)
+    workspace = ci_local.windows_initialize(host, secrets.token_hex(12), timeout=60)
+    try:
+        ci_local._run_remote_capture(
+            host,
+            ci_local._powershell_prelude()
+            + "\nNew-Item -ItemType Directory -Path "
+            + ci_local._powershell_literal(workspace.checkout)
+            + " | Out-Null\n",
+            timeout=30,
+        )
+        for code in (0, 7):
+            arguments = (
+                "run", "--no-project", "--python", python, "python", "-c",
+                f"import sys; assert sys.argv[1] == 'café value'; raise SystemExit({code})",
+                "café value",
+            )
+            completed = ci_local._run_captured(
+                ci_local.powershell_ssh_command(
+                    host, ci_local._windows_phase_script(workspace, python, arguments)
+                ),
+                timeout=30,
+            )
+            assert completed.returncode == code, completed.stderr
+    finally:
+        ci_local.windows_cleanup(host, workspace)
 
 
 def test_normal_exit_kills_background_process_group(ci_local: ModuleType, tmp_path: Path) -> None:

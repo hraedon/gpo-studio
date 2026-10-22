@@ -637,6 +637,8 @@ def powershell_ssh_command(host: str, script: str) -> list[str]:
         "-NonInteractive",
         "-EncodedCommand",
         encode_powershell(script),
+        # The SSH default shell is also PowerShell: preserve the child's code.
+        "; exit $LASTEXITCODE",
     ]
 
 
@@ -916,7 +918,9 @@ def _windows_phase_script(
     python: str,
     arguments: Sequence[str],
 ) -> str:
-    invocation = "@(" + ",".join(_powershell_literal(argument) for argument in arguments) + ")"
+    # Start-Process -PassThru yielded a null ExitCode on PowerShell 5.1. Own the
+    # .NET Process so WaitForExit/ExitCode cannot turn a failing phase green.
+    invocation = _powershell_literal(subprocess.list2cmdline(arguments))
     return (
         _powershell_prelude()
         + "\n"
@@ -938,16 +942,26 @@ def _windows_phase_script(
         + "$env:CI='true'\n"
         + f"$env:UV_CACHE_DIR={_powershell_literal(workspace.run + r'\\uv-cache')}\n"
         + f"Set-Location -LiteralPath {_powershell_literal(workspace.checkout)}\n"
-        + f"$arguments={invocation}\n"
+        + "$process=[System.Diagnostics.Process]::new()\n"
+        + "$process.StartInfo.FileName=$uv\n"
+        + f"$process.StartInfo.Arguments={invocation}\n"
+        + "$process.StartInfo.UseShellExecute=$false\n"
+        + "$process.StartInfo.CreateNoWindow=$true\n"
         + f"$owner={_powershell_literal(workspace.run + r'\phase-owner')}\n"
-        + "$process=Start-Process -FilePath $uv -ArgumentList $arguments "
-        + "-NoNewWindow -PassThru\n"
+        + "if (-not $process.Start()) { throw 'could not start Windows phase' }\n"
         + "$started=$process.StartTime.ToFileTimeUtc()\n"
         + "Set-Content -LiteralPath $owner -Value "
         + "($process.Id.ToString() + '|' + $started.ToString()) -Encoding Ascii\n"
         + "$code=1\n"
-        + "try { $process.WaitForExit(); $code=$process.ExitCode } finally {\n"
-        + "  Remove-Item -LiteralPath $owner -Force -ErrorAction SilentlyContinue\n"
+        + "try {\n"
+        + "  $process.WaitForExit()\n"
+        + "  $code=$process.ExitCode\n"
+        + "  if ($null -eq $code) { throw 'Windows phase exit code is unavailable' }\n"
+        + "} finally {\n"
+        + "  if ($process.HasExited) {\n"
+        + "    Remove-Item -LiteralPath $owner -Force -ErrorAction SilentlyContinue\n"
+        + "  }\n"
+        + "  $process.Dispose()\n"
         + "}\n"
         + "exit $code\n"
     )

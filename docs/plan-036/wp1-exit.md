@@ -120,7 +120,7 @@ ruff, and mypy passed; pytest then stopped during collection with three
 the step as failed against the `test` job's 55-minute timeout and removed the
 run directory.
 
-## Windows disposition
+## Initial Windows disposition (before portable MinGit)
 
 The owner decided on 2026-10-21 that uv may be installed on mvmcitest01, and the
 coordinator installed the CI-pinned uv 0.12.0. The Windows leg is implemented:
@@ -141,6 +141,87 @@ not install it, so the leg did so; Node and npm were also absent, but
 `test-windows` does not use them. Local and remote run directories were absent
 afterward.
 
-No Windows main pass and no historical Windows-only reproduction is claimed.
-Both WP-1 Windows exit conditions remain open until the host owner provides
-Git. Pre-R1 mode also still does not reproduce inline workflow shell.
+At that point no Windows main pass or historical Windows-only reproduction
+was claimed. Both WP-1 Windows exit conditions remained open until the host
+owner provided Git. Pre-R1 mode still does not reproduce inline workflow shell.
+
+## Portable MinGit continuation (2026-10-21)
+
+The owner approved user-scoped portable MinGit on mvmcitest01 on 2026-10-21.
+The coordinator installed `MinGit-2.56.0.2-64-bit.zip` under
+`C:\Users\cw-admin\.ci-local\git\2.56.0.2` after matching its SHA-256,
+`da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be`,
+against Git for Windows' published digest. The runner pins `cmd\git.exe` to
+`54BDA91C773C6BBA2B970424423CFCB80552D92DC6967D766F98931FE1251A54`.
+Preflight checks both uv and Git; every phase checks them again before use.
+Only each remote process receives the MinGit `cmd` directory on `PATH`.
+The real-host refusal path was also checked by generating a phase script with
+an all-zero expected Git digest while leaving the installed executable intact:
+PowerShell exited 1 with `refusing Git SHA-256` and the installed digest,
+before setting `PATH`, entering the checkout or launching the phase.
+
+Real-host diagnostics also exposed two archive-only assumptions. Repository
+tests require Git metadata and full history, so the archive now travels with a
+Git bundle; the disposable checkout restores the selected commit and tags.
+MinGit also needs `core.longpaths=true` for the deep evidence paths; that
+setting is confined to the disposable repository. Phase ownership records
+contain the uv process ID and creation time, allowing cleanup to terminate its
+tree before removing locked executables. These changes are in `760c7c3`,
+`b47dfd0` and `c483f71`; no bound source, dependency or workflow changed.
+
+### Coordinator-crash recovery
+
+The coordinator host process crashed at about 11:58 MST during the `c483f71`
+3.14 run; the owner reported that the remote run was killed. That attempt is
+not a pass. On resumption the runner-owned remote root
+`C:\Users\cw-admin\.ci-local\runs\gpo-studio-ci-local` was already empty:
+there was no surviving crash directory to delete. Calling the tool's
+`windows_initialize` created `4c2081b1f1e42aa5c38ee444`; `windows_cleanup`
+then removed it successfully. A controlled stale-directory probe is recorded
+below separately from this empty-root observation.
+
+The controlled probe deliberately abandoned run
+`4bd5d7c066ba6b2d09e93865` while its owned uv/Python sleep phase was active
+(`phase-owner`: `3648|134371129420738279`), by stopping its local SSH process
+without calling `windows_cleanup`. The next call to `windows_initialize`
+removed that stale directory through `Remove-OwnedRun` and created
+`deaa66cbb239e6a10f6d2ce3`. A remote `Test-Path` check returned `False` for the
+abandoned run; the replacement run was then removed by `windows_cleanup`.
+The recorded phase PID/creation-time pair was also confirmed no longer alive.
+This exercises recovery after a lost controller connection, including a
+phase-ownership record, rather than inferring recovery from an empty root.
+
+### Initial positive Windows run (superseded for acceptance)
+
+Runner: `c483f71e821b5a9a1fcce7e9337937bf79789996`. Source: local `main` and
+`origin/main` at `2a37970c6471ddea079b5a22bb1606ed9ea75546`, pinned throughout.
+Host: mvmcitest01; interpreter: CPython 3.14.5.
+
+```bash
+export TMPDIR=/home/itadmin/wt/drive-20261020/tmp/wp1w
+uv run --extra dev python scripts/ci-local.py \
+  --windows --windows-python 3.14 \
+  --commit 2a37970c6471ddea079b5a22bb1606ed9ea75546
+```
+
+Outcome: exit 0; all five phases passed in **2,874.9 seconds (47m54.9s)**,
+**53.2% of the 5,400-second (90-minute) cumulative budget**, with 2,525.1
+seconds remaining. Install took 13.1s, Ruff 3.8s, mypy 10.3s, pytest 2,769.8s,
+and coverage-floor validation 1.7s; setup/transport also consumed the same
+budget. Pytest reported **12,851 passed, 425 skipped, 55 subtests passed** in
+2,763.78s. Every per-module coverage floor passed; total coverage was 91.84%
+(floor 84%). Local and remote run directories were removed on exit.
+
+The first historical `SIGHUP` negative control then exposed an exit-status
+defect: pytest reported its collection error, but PowerShell 5.1's
+`Start-Process -PassThru` object returned a null `ExitCode`, which became exit
+0. The missing coverage report was also wrongly labelled a pass. That attempt
+(`repro-sighup.log`, 176.97s including cleanup) is **not** a successful
+reproduction, and the positive run above is superseded for acceptance.
+
+The corrected wrapper owns a `System.Diagnostics.Process`, waits for it,
+rejects a null exit code, and retains the phase-owner record if the process
+has not exited. The outer SSH PowerShell also explicitly returns
+`$LASTEXITCODE`. Real-host probes verified exact exit codes 0 and 7 and quoted
+arguments; the opt-in integration test now pins this negative control. The
+full main pass and historical cases are repeated below with the correction.

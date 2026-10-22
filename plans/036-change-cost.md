@@ -4,9 +4,9 @@ Status: **implemented in part**: WP-1's Linux leg and WP-7 are complete after 1.
 surfaced through `scripts/ci-local.py`, `CONTRIBUTING.md`, and `AGENTS.md`;
 WP-1's Linux exit is recorded in
 [`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md). Its Windows leg is
-implemented following D-7's 2026-10-21 uv decision, but its exit remains open:
-mvmcitest01 lacks the `git.exe` that pytest requires, and the leg refuses that
-step rather than installing another system tool. The remaining work packages are active. The owner accepted every
+implemented following D-7's 2026-10-21 uv and portable MinGit decisions. Its
+Windows exit remains open while the corrected exit-status wrapper repeats the
+main pass and both historical failure probes. The remaining work packages are active. The owner accepted every
 recommendation on 2026-10-13 ("Your recommendations are fine: no qualms about
 the plan detailed in 106"; see [Owner decisions](#owner-decisions)). It was
 written for a two-lineage design review. Rounds 1 to 6
@@ -1978,6 +1978,10 @@ in 106"); each decision is recorded below.
   coordinator installed MinGit 2.56.0.2 under cw-admin's `.ci-local` directory.
   The Windows leg must hash-check `git.exe` on every run and prepend its `cmd`
   directory to `PATH` for the remote process only, with no persistent change.
+  The coordinator verified the portable ZIP against Git for Windows' published
+  SHA-256 (`da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be`);
+  the runner pins `git.exe` to
+  `54BDA91C773C6BBA2B970424423CFCB80552D92DC6967D766F98931FE1251A54`.
 - **D-8. When R1 switches the workflows.** *Recommend: after 1.1.0 final*, with
   Python 3.15 landing on the new shape rather than as one more grammar
   extension. Decided by the owner, 2026-10-13: after 1.1.0 final.
@@ -2168,15 +2172,15 @@ After 1.1.0 final. A new script; no workflow change. (It may be drafted
 outside the repository before then.)
 
 - **Status (2026-10-21): complete and surfaced on Linux; Windows leg implemented,
-  exit blocked on a host prerequisite.**
+  exit evidence in progress.**
   `scripts/ci-local.py` is operator-reachable, and
   [`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md) records its
   cold-cache main pass and both historical cold-cache reproductions. The
-  Windows leg copies a `git archive` over SSH and ran Install, Ruff and mypy on
-  mvmcitest01 under the job's cumulative timeout. It refuses pytest because the
-  host lacks `git.exe`, which repository tests invoke; under D-7's no-install
-  boundary it therefore has neither a main pass nor the two required historical
-  reproductions yet.
+  Windows leg uses a `git archive` plus metadata bundle, pinned uv and portable
+  MinGit, and the job's cumulative timeout. Its initial 3.14 main run produced
+  green tests and coverage, but the historical negative control exposed a null
+  PowerShell process exit code. The corrected wrapper is repeating the main
+  pass and both required historical reproductions before the exit is claimed.
 
 - **Exit:** the Linux checks pass on `main` from a cold cache and reproduce the
   two historical cold-cache failures when they are re-introduced on a scratch
