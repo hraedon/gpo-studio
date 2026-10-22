@@ -77,7 +77,7 @@ with an error if it finds no wheel, more than one wheel, a missing
 damaged file.
 
 ```powershell
-try {  # one statement: a failure stops the whole pasted block
+try {  # one statement, so a check that throws stops the rest of the paste
 $Wheels = @(Get-ChildItem -File .\gpo_studio-*.whl)
 if ($Wheels.Count -ne 1) {
     throw "Expected exactly one gpo_studio wheel in this folder; found $($Wheels.Count)."
@@ -120,7 +120,7 @@ release workflow for the tag you downloaded (replace `v<version>` with the
 release's tag, for example `v1.0.0`):
 
 ```powershell
-try {  # one statement: a failure stops the whole pasted block
+try {  # one statement, so a check that throws stops the rest of the paste
 $Tag = "v<version>"
 foreach ($File in @($Wheel, $Requirements, (Get-Item .\SHA256SUMS)) | Where-Object { $_ }) {
     gh attestation verify $File.FullName --repo hraedon/gpo-studio `
@@ -139,7 +139,7 @@ not list `requirements-lock.txt` has no attestation for it, and the loop skips i
 In the same PowerShell window, run:
 
 ```powershell
-try {  # one statement: a failure stops the whole pasted block
+try {  # one statement, so a check that throws stops the rest of the paste
 if (-not $Wheel) {
     throw "`$Wheel is not set. Run the checksum block from step 2 in this same PowerShell window first, in the folder holding the release wheel. The green Code button's ZIP has no wheel."
 }
@@ -174,10 +174,10 @@ release was tested with and refuses any file whose hash differs; the wheel then
 goes in without fetching anything else. Only a release without the file
 resolves dependencies from the package index at install time.
 
-The block is a single `try` statement, so even when pasted it stops at the
-first failure and runs nothing after it. It refuses to start unless step 2 has
-set `$Wheel` in the same window, and a failed step stops it with its own
-message after pip's `ERROR:` line. In PowerShell ISE, pip's warnings (for
+The block is a single `try` statement, so even when pasted, a check that
+throws stops the rest of it. It refuses to start unless step 2 has set
+`$Wheel` in the same window, and a command that exits with an error (pip
+prints an `ERROR:` line) stops it with the check's own message. In PowerShell ISE, pip's warnings (for
 example `Cache entry deserialization failed`) appear in red as
 `NativeCommandError`; they are not failures and do not stop the block.
 
@@ -272,7 +272,7 @@ in [workspace backup and recovery](workspace-recovery.md).
 5. Run this block in the same PowerShell window:
 
 ```powershell
-try {  # one statement: a failure stops the whole pasted block
+try {  # one statement, so a check that throws stops the rest of the paste
 if (-not $Wheel) {
     throw "`$Wheel is not set. Run the checksum block from step 2 in this same PowerShell window first, in the folder holding the release wheel. The green Code button's ZIP has no wheel."
 }
@@ -326,7 +326,7 @@ changes are not deleted.
    run:
 
 ```powershell
-try {  # one statement: a failure stops the whole pasted block
+try {  # one statement, so a check that throws stops the rest of the paste
 if (-not $Wheel) {
     throw "`$Wheel is not set. Run the checksum block from step 2 in this same PowerShell window first, in the folder holding the release wheel. The green Code button's ZIP has no wheel."
 }
