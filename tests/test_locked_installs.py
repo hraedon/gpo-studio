@@ -2127,6 +2127,28 @@ def test_every_locked_quickstart_install_ends_with_pip_check() -> None:
     assert count == 3
 
 
+def test_every_quickstart_block_that_throws_is_one_statement() -> None:
+    """A pasted block runs statement by statement, so a top-level throw stops only itself.
+
+    Inside one ``try`` a failure stops the rest of the paste (PR #116 review: the
+    ``$Wheel`` guard threw and the install carried on).
+    """
+    wrapped = 0
+    for block in _powershell_blocks():
+        if not any(re.search(r'\bthrow\s+"', line) for line in block):
+            continue
+        assert block[0].startswith("try {"), block[0]
+        assert block[-1] == "} catch { throw }", block[-1]
+        depth = 0
+        for line in block[:-1]:
+            code = re.sub(r"\"[^\"]*\"|'[^']*'|#.*", "", line)
+            depth += code.count("{") - code.count("}")
+            assert depth > 0, f"a statement outside the try: {line!r}"
+        wrapped += 1
+    # checksum, attestation, install, upgrade and rollback
+    assert wrapped == 5
+
+
 # --- the lexer against bash itself ------------------------------------------------
 
 _VARIABLE_NAME = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
