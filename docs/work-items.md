@@ -4045,6 +4045,17 @@ and post-setup CRLF byte observations are recorded in the exit evidence below;
 the prior two historical reproductions remain valid. No product capability or
 estate qualification is claimed by these tooling checks.
 
+**Round-1 delivery validation:** final implementation `48b5e6e` passed the
+complete Windows 3.14 job in **2,697.9s of 5,400s** (44m57.9s; 50.0%),
+2,745.87s including cleanup/controller overhead, with 12,863 passed and
+91.84% coverage. Run-owned short TEMP aliases and process-only Git long-path
+configuration fixed the ten environment-induced release-test failures;
+all ten and the three opt-ins passed serially. The final local suite passed
+13,205 tests (146 skipped, 1 xfailed, 67 subtests) in 894.84s. Cleanup and a
+fresh SSH environment check confirmed no run-directory, PATH or Git-config
+leak. Earlier main/matrix and historical-reproduction evidence is retained;
+WI-084 remains open for the other work packages.
+
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
 restarts from branch `wp0/live-closure` at `432c751` (pushed), with these

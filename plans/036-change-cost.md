@@ -7,7 +7,9 @@ WP-1's Linux and Windows exits are recorded in
 [`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md). Its Windows leg is
 Windows-verified as local CI tooling following D-7's 2026-10-21 uv and portable
 MinGit decisions: pinned-main 3.13/3.14 passes and two historical Windows-only
-reproductions are recorded there. The remaining work packages are active. The
+reproductions are recorded there. The round-1 shared-run safety and workflow
+contract fixes passed all Windows 3.14 phases on `48b5e6e` on 2026-10-22.
+The remaining work packages are active. The
 owner accepted every recommendation on 2026-10-13 ("Your recommendations are fine: no qualms about
 the plan detailed in 106"; see [Owner decisions](#owner-decisions)). It was
 written for a two-lineage design review. Rounds 1 to 6
@@ -2186,7 +2188,7 @@ D-9 selects (five on the current data). Specified, with its ordering, in
 After 1.1.0 final. A new script; no workflow change. (It may be drafted
 outside the repository before then.)
 
-- **Status (2026-10-21): complete and surfaced; Windows-verified as local CI tooling.**
+- **Status (2026-10-22): complete and surfaced; Windows-verified as local CI tooling.**
   `scripts/ci-local.py` is operator-reachable, and
   [`docs/plan-036/wp1-exit.md`](../docs/plan-036/wp1-exit.md) records its
   cold-cache main pass and both historical cold-cache reproductions. The
@@ -2198,6 +2200,13 @@ outside the repository before then.)
   `SIGHUP` collection (3.13) and provenance path-separator (3.14) failures;
   the runner failed each and cleaned up. The evidence also records real
   process-exit controls and stale-directory recovery.
+  Round-1 review corrections on the coordinator's merged-main source plus
+  fixes (`48b5e6e`) passed all five Windows 3.14 phases in **2,697.9s**
+  (50.0% of 5,400s; 2,745.87s including cleanup/controller overhead), with
+  12,863 tests passed and 91.84% coverage. Live-sibling refusal and the ten
+  MAX_PATH regression cases passed separate real-host probes. Phase argv did
+  not change, so the requested final rerun was 3.14 only; the earlier 3.13
+  pass and both historical reproductions remain recorded, not re-counted.
 
 - **Exit:** the Linux checks pass on `main` from a cold cache and reproduce the
   two historical cold-cache failures when they are re-introduced on a scratch

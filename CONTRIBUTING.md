@@ -60,8 +60,9 @@ directory to `PATH` for each remote command only, sets
 commands and Python matrix from the **tested commit's** `test-windows` job;
 unsupported shell, action or environment changes are refused. It applies that job's
 cumulative timeout, with a remote watchdog and SSH connection/keepalive limits.
-It makes no persistent `PATH` change and installs
-nothing. The owner approved the user-scoped portable MinGit on 2026-10-21; the
+It makes no persistent `PATH` change and installs no system software (Python
+dependencies go into the run's virtual environment). The owner approved the
+user-scoped portable MinGit on 2026-10-21; the
 approved executable is
 `C:\Users\cw-admin\.ci-local\git\2.56.0.2\cmd\git.exe` from
 MinGit 2.56.0.2. The digest covers the launcher only, **not** MinGit's implementation,

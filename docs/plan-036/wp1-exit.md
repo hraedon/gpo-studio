@@ -482,3 +482,40 @@ Local full-suite results before this last process-environment adjustment:
 review fix and 923.74s on the short-TEMP fix. Both exited 0. The final source
 gets another full local suite and full Windows 3.14 pass below; phase argv
 remain identical to the reviewed workflow.
+
+### Final round-1 delivery verification
+
+Final implementation **`48b5e6eedbeb942bb97c5521921d845eb3c0e581`** (the
+coordinator's merged-main source plus these fixes) passed the complete
+`--windows --windows-python 3.14` job on mvmcitest01 with installed CPython
+3.14.5. All five commands were derived from that immutable commit's workflow;
+their argv match the reviewed job. No workflow, dependency or bound-file edit
+was made. The requested final rerun was 3.14 only; the earlier 3.13 pass and
+two historical Windows-only reproductions above remain valid and retained.
+
+- Install **14.5s**, Ruff **5.1s**, mypy **11.2s**, pytest **2,579.3s**, coverage
+  floors **3.1s**: all PASS, CLI exit **0**.
+- Pytest: **12,863 passed, 425 skipped, 1 xfailed, 55 subtests**, two warnings,
+  **2,572.55s** internal duration. All eleven per-module floors passed; total
+  branch coverage **91.84%** against the 84% floor.
+- Cumulative job: **2,697.9s (44m57.9s)** of **5,400s**, **49.96%** used and
+  **2,702.1s (45m2.1s)** remaining. Wall including controller/cleanup overhead:
+  **2,745.87s (45m45.87s)**, also within 90 minutes. Logs:
+  `r1-main-314-final.log` and `.time` in the existing external log directory.
+- Final local suite on the same implementation: **13,205 passed, 146 skipped,
+  1 xfailed, 67 subtests**, one dependency deprecation warning, **894.84s
+  (14m54.84s)**, exit 0 (`r1-full-suite-delivery.log`; wall 897.08s).
+  Ruff, strict `mypy src` (71 source files), formatting of the changed Python
+  files, and focused runner/register checks (**65 passed, 3 opt-in skips**)
+  passed. The three real opt-ins and ten targeted Windows regressions passed
+  separately as recorded above.
+
+Fresh SSH after cleanup found **zero entries** inside the owned run root and
+no final token `8480d48635a105a43310a220`. The OS startup-lock file intentionally
+lives beside that root; the closed handle is not a live-run lease. Git was
+still absent from the default PATH, `GIT_CONFIG_COUNT` was absent, the default
+Git long-path setting was unset, and TEMP was the original user AppData Temp.
+Node/npm were still unavailable and unused. Both review-fix controller run
+directories and the previously crash-left archive/bundle directory were absent;
+no source `refs/ci-local/` remained. No other project's processes or directories
+were cleaned. Final follow-up edits are records/documentation only.
