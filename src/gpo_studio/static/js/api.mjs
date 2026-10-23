@@ -8,11 +8,12 @@ export function setStatus(message){const el=uiElement("#app-status");if(!el)retu
 export function showPersistentError(message){persistentErrorVersion++;const el=uiElement("#error-summary");if(!el)return;(uiElement("#error-message")||el).textContent=`Error: ${message}`;el.hidden=false;el.focus()}
 export function clearPersistentError(){persistentErrorVersion++;const el=uiElement("#error-summary");if(!el)return;(uiElement("#error-message")||el).textContent="";el.hidden=true}
 export async function api(path,options={}){
-  const {headers={},...requestOptions}=options;
+  // Owned background reads report transport errors only through their current UI.
+  const {headers={},reportNetworkError=true,...requestOptions}=options;
   const errorVersion=persistentErrorVersion,method=(requestOptions.method||"GET").toUpperCase();
   let response;
   try{response=await fetch(path,{...requestOptions,headers:{"Content-Type":"application/json",...headers}})}
-  catch(error){const wrapped=new ApiError("The local GPO Studio server is unavailable. Your unsaved values are still in this form.");wrapped.cause=error;showPersistentError(wrapped.message);throw wrapped}
+  catch(error){const wrapped=new ApiError("The local GPO Studio server is unavailable. Your unsaved values are still in this form.");wrapped.cause=error;if(reportNetworkError)showPersistentError(wrapped.message);throw wrapped}
   const type=response.headers.get("content-type")||"";
   const payload=type.includes("json")?await response.json():await response.text();
   if(!response.ok)throw new ApiError(payload?.error?.message||payload?.detail||`Request failed (${response.status})`,{status:response.status,payload});
