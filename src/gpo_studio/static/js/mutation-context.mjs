@@ -10,6 +10,7 @@ export function captureMutation(form = null) {
   return {
     guid: target?.guid ?? null,
     revision: target?.revision ?? null,
+    viewGuid: target?.guid ?? null,
     name: target?.name || "workspace",
     form,
     dialog,
@@ -17,33 +18,69 @@ export function captureMutation(form = null) {
   };
 }
 
-export function beginMutation(form) {
+export function resetEditor(form) {
+  const pending = pendingForms.get(form);
+  if (pending) endMutation(pending);
+  const dialog = form.closest("dialog");
+  if (dialog) dialog.editorSession = Symbol("editor reset");
+}
+
+export function beginMutation(form, { target = null, workspace = false } = {}) {
   if (pendingForms.has(form)) return null;
   const context = captureMutation(form);
-  if (context.guid !== (state.current?.guid ?? null)) {
+  context.workspace = workspace;
+  if (!workspace && context.viewGuid !== (state.current?.guid ?? null)) {
     showFormErrors(form, {
       message:
         "The selected policy changed. Close and reopen this editor before saving.",
     });
     return null;
   }
-  context.buttons = [
-    ...form.querySelectorAll('button:not([type="button"]):not([type="reset"])'),
-  ].map((button) => ({ button, disabled: button.disabled }));
+  if (target) {
+    context.guid = target.guid;
+    context.revision = target.revision;
+    context.name = target.name;
+  }
+  context.fieldNames = [
+    ...new Set(
+      [...form.querySelectorAll("input,textarea,select")]
+        .filter((control) => !control.disabled)
+        .map(
+          (control) =>
+            control.name ||
+            control.dataset.elemId ||
+            control.dataset.field ||
+            control.id,
+        )
+        .filter(Boolean),
+    ),
+  ];
+  context.controls = [
+    ...form.querySelectorAll(
+      'input:not([type="hidden"]),textarea,select,button',
+    ),
+  ]
+    .filter((control) => !control.matches('button[value="cancel"]'))
+    .map((control) => ({ control, disabled: control.disabled }));
   context.busy = form.getAttribute("aria-busy");
   pendingForms.set(form, context);
-  context.buttons.forEach(({ button }) => {
-    button.disabled = true;
+  context.controls.forEach(({ control }) => {
+    control.disabled = true;
   });
   form.setAttribute("aria-busy", "true");
   return context;
 }
 
-export function isSameEditor(context) {
+export function isCurrentEditor(context) {
   return Boolean(
-    context.dialog?.open &&
-    context.dialog.editorSession === context.session &&
-    (state.current?.guid ?? null) === context.guid,
+    context.dialog?.open && context.dialog.editorSession === context.session,
+  );
+}
+
+export function isSameEditor(context) {
+  return (
+    isCurrentEditor(context) &&
+    (state.current?.guid ?? null) === context.viewGuid
   );
 }
 
@@ -53,7 +90,7 @@ export function updateMutationList(data, renderList) {
 }
 
 export function completeMutation(context, data, { apply, renderList }) {
-  const closeEditor = isSameEditor(context);
+  const closeEditor = isCurrentEditor(context);
   const current = state.current;
   const canApply =
     current?.guid === context.guid &&
@@ -66,7 +103,11 @@ export function completeMutation(context, data, { apply, renderList }) {
 }
 
 export async function mutationFailed(context, error, onFormError) {
-  if (isSameEditor(context) && onFormError)
+  if (
+    isCurrentEditor(context) &&
+    (context.workspace || isSameEditor(context)) &&
+    onFormError
+  )
     await onFormError(context.form, error, context);
   else showPersistentError(`${context.name}: ${error.message}`);
 }
@@ -75,8 +116,8 @@ export function endMutation(context) {
   const form = context.form;
   if (!form || pendingForms.get(form) !== context) return;
   pendingForms.delete(form);
-  context.buttons.forEach(({ button, disabled }) => {
-    button.disabled = disabled;
+  context.controls.forEach(({ control, disabled }) => {
+    control.disabled = disabled;
   });
   if (context.busy === null) form.removeAttribute("aria-busy");
   else form.setAttribute("aria-busy", context.busy);

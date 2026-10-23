@@ -1,10 +1,10 @@
-import {state,$,$$,escapeHtml} from './state.mjs';
-import {api,toast,showPersistentError} from './api.mjs';
-import {clearFormErrors,showFormErrors} from './errors.mjs';
-import {loadList,renderList} from './render.mjs';
-import {updateMutationList} from './mutation-context.mjs';
+import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
+import {api,toast} from './api.mjs';
+import {clearFormErrors,handleFormFailure} from './errors.mjs';
+import {loadList,renderList,renderAll} from './render.mjs';
+import {resetEditor,beginMutation,isCurrentEditor,isSameEditor,mutationFailed,endMutation,updateMutationList} from './mutation-context.mjs';
 
-let admxLoaded=null,admxTimer=null,admxCatsLoaded=false,admxRequest=0,configurePending=false,configureGeneration=0,catalogueEpoch=0;
+let admxLoaded=null,admxTimer=null,admxCatsLoaded=false,admxRequest=0,catalogueEpoch=0;
 export function resetAdmxCatalogue(){catalogueEpoch++;admxLoaded=null;admxCatsLoaded=false;admxRequest++;clearTimeout(admxTimer);$("#admx-detail").hidden=true}
 export async function checkAdmx(){
   const epoch=catalogueEpoch;
@@ -68,8 +68,7 @@ function syncConfigureState(){
   $$("[data-elem-id]",options).forEach(el=>{el.disabled=!enabled});
 }
 function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml){
-  configureGeneration++;
-  const form=$("#configure-form");form.reset();clearFormErrors(form);
+  const form=$("#configure-form");resetEditor(form);form.reset();clearFormErrors(form);
   $("#configure-title").textContent=`Configure: ${policyName}`;
   const gpoSelect=$("#configure-target-gpo");
   const targets=state.gpos.filter(g=>g.status!=="archived");
@@ -77,7 +76,7 @@ function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml){
   if(targets.some(g=>g.guid===state.current?.guid))gpoSelect.value=state.current.guid;
   else gpoSelect.value="";
   $("#configure-target-note").textContent=targets.length?"Choose the draft to change. Archived policies are read-only.":"Create a draft or fork an archived policy before applying settings.";
-  form.querySelector('button[value="default"]').disabled=!targets.length||configurePending;
+  form.querySelector('button[value="default"]').disabled=!targets.length;
   const sideHtml=policyClass==="Both"?`<label class="config-field">Configuration side<select id="configure-side"><option value="computer">Computer</option><option value="user">User</option></select></label>`:"";
   const stateHtml=`<label class="config-field">Policy state<select id="configure-state"><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="not_configured">Not configured</option></select></label>`;
   const optionsHtml=fieldsHtml?`<div id="configure-options">${fieldsHtml}</div>`:"";
@@ -89,7 +88,7 @@ function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml){
   $("#configure-dialog").showModal();
 }
 export function initAdmx(){
-$("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;if(configurePending)return;clearFormErrors(f);const policyId=f.dataset.policyId;const policyClass=f.dataset.policyClass;
+$("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;clearFormErrors(f);const policyId=f.dataset.policyId;const policyClass=f.dataset.policyClass;
   const targetGuid=$("#configure-target-gpo").value;if(!targetGuid){toast("Select a target GPO");return}
   const targetGpo=state.gpos.find(g=>g.guid===targetGuid);if(!targetGpo){toast("Target GPO not found");return}
   let side=policyClass==="Machine"?"computer":policyClass==="User"?"user":$("#configure-side").value;
@@ -106,13 +105,12 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
     else if(kind==="multitext"||kind==="list"){values[id]=el.value.split(/\r?\n/).filter(Boolean)}
   });
   if(!ok)return;
-  const generation=configureGeneration,currentGuid=state.current?.guid;
-  configurePending=true;const submit=f.querySelector('button[value="default"]');submit.disabled=true;
-  try{const data=await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,state:policyState,actor:"local-operator",reason:f.reason.value,expected_revision:targetGpo.revision})});
+  const context=beginMutation(f,{target:targetGpo});if(!context)return;
+  try{const data=await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,state:policyState,actor:"local-operator",reason:f.reason.value,expected_revision:context.revision})});
     updateMutationList(data,renderList);
-    if(generation===configureGeneration&&$("#configure-dialog").open&&state.current?.guid===currentGuid){$("#configure-dialog").close();await loadList(targetGuid)}
+    const selectTarget=isSameEditor(context);if(isCurrentEditor(context))context.dialog.close();if(selectTarget)await loadList(targetGuid)
     toast(policyState==="not_configured"?"Policy set to Not configured":"Policy settings applied to GPO")}
-  catch(error){if(generation===configureGeneration&&$("#configure-dialog").open&&state.current?.guid===currentGuid)showFormErrors(f,error);else showPersistentError(`${targetGpo.name}: ${error.message}`)}finally{configurePending=false;submit.disabled=!state.gpos.some(g=>g.status!=="archived")}
+  catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{fieldNames:context.fieldNames,targetGuid:context.guid,preserveEditorTarget:true,isActive:()=>isSameEditor(context),onCurrent:(latest,{discardForm})=>{updateMutationList(latest,renderList);if(discardForm){applyPayload(latest);renderAll();renderList()}}}))}finally{endMutation(context)}
 };
 $("#admx-search").oninput=e=>{clearTimeout(admxTimer);admxTimer=setTimeout(()=>loadAdmxResults(e.target.value),250)};
 }

@@ -3176,18 +3176,23 @@ def list_template_sources(request: Request) -> dict[str, Any]:
 def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dict[str, Any]:
     from .template_store import TemplateError, ingest_source
 
-    directory = Path(body.path).resolve()
-    template_root = os.getenv("GPO_STUDIO_TEMPLATE_ROOT", "")
-    if template_root:
-        root = Path(template_root).resolve()
-        if not directory.is_relative_to(root):
-            raise StudioError(
-                f"Path escapes template root: {directory}"
-            )
     try:
+        directory = Path(body.path).resolve()
+        template_root = os.getenv("GPO_STUDIO_TEMPLATE_ROOT", "")
+        if template_root:
+            root = Path(template_root).resolve()
+            if not directory.is_relative_to(root):
+                raise StudioError(
+                    f"Path escapes template root: {directory}"
+                )
         result = ingest_source(body.name, body.kind, directory)
     except TemplateError as exc:
         raise StudioError(str(exc)) from exc
+    except OSError as exc:
+        raise StudioError(
+            f"Cannot read ADMX folder {body.path!r}. Check that the folder is available "
+            "and GPO Studio has permission to read it."
+        ) from exc
     sources: list[Any] = getattr(request.app.state, "template_sources", [])
     sources = [s for s in sources if s.source.name != body.name]
     sources.append(result)

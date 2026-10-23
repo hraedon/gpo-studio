@@ -24,10 +24,21 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 - Keep dialog headers and actions outside the scrolling form body, so keyboard
   focus stays visible on narrow screens; label configuration checkboxes and retain
   field help through validation errors.
-- Preserve exact multi-string registry values through JSON array editors, including
-  spaces, semicolons and empty members; reject malformed input before saving.
+- Keep exact multi-string registry values in the workspace using JSON array editors,
+  including spaces, semicolons and empty members; reject malformed input before
+  saving and explain Registry.pol's existing single-empty-string limitation.
 - Bind History restore actions and pending edits to their original GPO/revision and
   editor session, so late responses preserve a newer selection or reopened form.
+- Freeze pending editor controls while keeping Close/Cancel usable; reopened
+  editors can start independent requests without older completions unlocking them.
+- Keep workspace creation/import usable during background navigation, close only
+  the completed editor, and prevent old list responses from hiding newer drafts.
+- Show duplicate-name conflicts inline instead of opening revision recovery.
+- Refresh all loaded ADMX sources after reloads, including background completion
+  after reopening the folder dialog, while preserving the next chosen path.
+- Keep archived policies read-only in the settings browser, including bulk actions.
+- Report unreadable ADMX folders with actionable JSON errors while retaining the
+  previous catalogue; reject empty or whitespace-only `--admx-dir` values.
 - Scope the authenticated IIS shared-service profile and its acceptance gates
   in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
 

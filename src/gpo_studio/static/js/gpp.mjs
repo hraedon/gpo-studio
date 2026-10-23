@@ -2,7 +2,7 @@ import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
 import {api,toast,audit,showPersistentError} from './api.mjs';
 import {clearFormErrors,showFormErrors,handleFormFailure} from './errors.mjs';
 import {renderAll,renderList} from './render.mjs';
-import {captureMutation,beginMutation,isSameEditor,completeMutation,mutationFailed,endMutation} from './mutation-context.mjs';
+import {captureMutation,resetEditor,beginMutation,isSameEditor,completeMutation,mutationFailed,endMutation} from './mutation-context.mjs';
 
 // The authored predicate types: the same set as ilt.AUTHORABLE_PREDICATE_TYPES
 // (tests/test_gpp_clone_restore.py holds them equal). An OS predicate is
@@ -236,7 +236,7 @@ function showRetained(formId,item){
 }
 
 export function openGppGroup(scope,group=null){
-  const f=$("#gpp-group-form");f.reset();clearFormErrors(f);
+  const f=$("#gpp-group-form");resetEditor(f);f.reset();clearFormErrors(f);
   state.editingGppGroup=group;
   f.scope.value=scope;
   $("#gpp-group-dialog-title").textContent=group?"Edit group":"Add group";
@@ -288,7 +288,7 @@ async function submitGppGroup(event){
   if(broadMembershipChange&&!confirm(`Save broad membership change for group "${group.name}"?\n\nAction: ${group.action}. Remove all users: ${group.remove_all_users?'yes':'no'}. Remove all groups: ${group.remove_all_groups?'yes':'no'}. Review the required change reason before continuing.`))return;
   const path=state.editingGppGroup?`/api/gpos/${state.current.guid}/preferences/groups/${state.editingGppGroup.id}`:`/api/gpos/${state.current.guid}/preferences/groups`;
   const context=beginMutation(f);if(!context)return;clearFormErrors(f);
-  try{const data=await api(path,{method:state.editingGppGroup?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),expected_revision:context.revision,group})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP group saved")}catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{onCurrent:applyCurrent,isActive:()=>isSameEditor(context)}))}finally{endMutation(context)}
+  try{const data=await api(path,{method:state.editingGppGroup?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),expected_revision:context.revision,group})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP group saved")}catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{onCurrent:applyCurrent,fieldNames:context.fieldNames,isActive:()=>isSameEditor(context)}))}finally{endMutation(context)}
 }
 
 export async function deleteGppGroup(scope,id){
@@ -351,7 +351,7 @@ export async function restoreGppItem(scope,kind,id){
 }
 
 export function openGppRegistry(scope,registry=null){
-  const f=$("#gpp-registry-form");f.reset();clearFormErrors(f);
+  const f=$("#gpp-registry-form");resetEditor(f);f.reset();clearFormErrors(f);
   state.editingGppRegistry=registry;
   f.scope.value=scope;
   $("#gpp-registry-dialog-title").textContent=registry?"Edit registry":"Add registry";
@@ -380,7 +380,7 @@ function addValueRow(value=null){
   row.className="gpp-row";
   row.innerHTML=`<input data-field="name" placeholder="Value name (empty = key-only)" maxlength="255"><select data-field="type"><option value="">(key-only)</option>${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select><input data-field="value" aria-label="Registry value data" placeholder="Value"><select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><label title="Configure the key's default value"><input type="checkbox" data-field="default"> Default</label><button type="button" class="quiet">×</button>`;
   const valueHelp=document.createElement("small");
-  valueHelp.id="gpp-registry-value-help";valueHelp.dataset.valueHelp="";valueHelp.textContent='REG_MULTI_SZ uses a JSON array of strings, e.g. ["first", "second"]. Spaces, empty strings and semicolons are preserved. Use [] for an empty list.';
+  valueHelp.id="gpp-registry-value-help";valueHelp.dataset.valueHelp="";valueHelp.textContent='REG_MULTI_SZ uses a JSON array of strings, e.g. ["first", "second"]. Spaces, empty strings and semicolons are kept in the workspace. Use [] for an empty list.';
   row.appendChild(valueHelp);
   const typeSel=row.querySelector('[data-field=type]');
   const valueInput=row.querySelector('[data-field=value]');
@@ -435,7 +435,7 @@ async function submitGppRegistry(event){
   const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,value,ilt_filter:commonIlt};
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
   const context=beginMutation(f);if(!context)return;clearFormErrors(f);
-  try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),expected_revision:context.revision,registry})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP registry saved")}catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{onCurrent:applyCurrent,isActive:()=>isSameEditor(context)}))}finally{endMutation(context)}
+  try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),expected_revision:context.revision,registry})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP registry saved")}catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{onCurrent:applyCurrent,fieldNames:context.fieldNames,isActive:()=>isSameEditor(context)}))}finally{endMutation(context)}
 }
 
 export async function deleteGppRegistry(scope,id){

@@ -79,9 +79,9 @@ function changeCount(diff){
   return ["settings","links","security_filters","gpp_groups","gpp_registry","metadata","cse_metadata","conflicts","link_conflicts","security_filter_conflicts","gpp_conflicts","metadata_conflicts","cse_metadata_conflicts","fdeploy","fdeploy_conflicts"].reduce((count,key)=>count+(Array.isArray(diff[key])?diff[key].length:0),0)+(diff.wmi_filter?1:0)+(diff.wmi_filter_conflict?1:0)
 }
 
-export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true}={}){
-  if(error.status!==409)return false;
-  const currentGuid=form.dataset.gpoGuid||location.pathname.split("/").filter(Boolean).at(-1);
+export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,fieldNames=null,targetGuid=null,preserveEditorTarget=false}={}){
+  if(error.status!==409||!Number.isInteger(error.expectedRevision)||!Number.isInteger(error.currentRevision))return false;
+  const currentGuid=targetGuid||form.dataset.gpoGuid||location.pathname.split("/").filter(Boolean).at(-1);
   const guid=currentGuid&&currentGuid!=="undefined"?currentGuid:null;
   let latest=null,diff=null;
   try{
@@ -103,8 +103,8 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true}
   appendDetail(details,"Your form revision",error.expectedRevision??"unknown");
   appendDetail(details,"Current workspace revision",latest.gpo.revision);
   appendDetail(details,"Changes saved since you opened the form",changeCount(diff));
-  const unsaved=[...new FormData(form).entries()].filter(([name])=>!name.toLowerCase().includes("actor"));
-  appendDetail(details,"Unsaved fields retained",unsaved.map(([name])=>name).join(", ")||"form action");
+  const unsaved=(fieldNames||[...new FormData(form).keys()]).filter(name=>!name.toLowerCase().includes("actor"));
+  appendDetail(details,"Unsaved fields retained",unsaved.join(", ")||"form action");
 
   const reload=document.querySelector("#conflict-reload");
   const reapply=document.querySelector("#conflict-reapply");
@@ -119,7 +119,7 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true}
     if(!isActive()){dialog.close();return}
     onCurrent?.(latest,{discardForm:false});
     const editor=form.closest("dialog");
-    if(editor)editor.editorTarget={guid:latest.gpo.guid,revision:latest.gpo.revision,name:latest.gpo.name};
+    if(editor&&!preserveEditorTarget)editor.editorTarget={guid:latest.gpo.guid,revision:latest.gpo.revision,name:latest.gpo.name};
     dialog.close();
     setStatus(`Your kept values are shown against revision ${latest.gpo.revision}. Submit again to reapply them.`);
     form.querySelector("button[value='default'],button[type='submit']")?.focus()

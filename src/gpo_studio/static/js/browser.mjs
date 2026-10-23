@@ -56,6 +56,7 @@ export async function loadBrowser() {
   const guid = state.current.guid;
   const epoch = catalogueEpoch;
   selectBrowserGpo(guid);
+  updateBulkBar();
   if (admxLoaded === null) {
     try {
       const h = await api("/api/health");
@@ -269,21 +270,26 @@ function syncSelectAllCheckbox(items) {
 }
 
 function updateBulkBar() {
+  const readOnly = state.current?.status === "archived";
+  $("#browser-readonly").hidden = !readOnly;
+  if (readOnly) selectedPolicies.clear();
+  $("#browser-bulk-reason").disabled = bulkApplying || readOnly;
   const count = selectedPolicies.size;
   const bar = $("#browser-bulk-bar");
   bar.hidden = count === 0;
   $("#browser-bulk-count").textContent = `${count} selected`;
   $$("[data-bulk-state]").forEach((button) => {
-    button.disabled = bulkApplying;
+    button.disabled = bulkApplying || readOnly;
   });
   $$(".browser-bulk-checkbox, #browser-bulk-select-all").forEach((checkbox) => {
-    checkbox.disabled = bulkApplying;
+    checkbox.disabled = bulkApplying || readOnly;
   });
 }
 
 async function applyBulkState(targetState) {
   if (
     bulkApplying ||
+    state.current?.status === "archived" ||
     !selectedPolicies.size ||
     state.current?.guid !== browserGpoGuid
   )

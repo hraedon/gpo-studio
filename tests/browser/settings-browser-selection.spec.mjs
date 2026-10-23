@@ -312,3 +312,45 @@ test("bulk change refreshes the current revision before ADMX configuration", asy
     .gpo;
   expect(updated.revision).toBe(current.revision + 1);
 });
+
+test("archived policy settings stay readable without bulk mutation controls", async ({
+  page,
+  request,
+}) => {
+  const policy = await seedPolicy(request, "archived");
+  await openBrowser(page, policy);
+  await selection(page, "computer").check();
+  const before = (await (await request.get(`/api/gpos/${policy.guid}`)).json())
+    .gpo;
+  const archived = await request.patch(`/api/gpos/${policy.guid}`, {
+    data: {
+      name: before.name,
+      description: before.description,
+      status: "archived",
+      actor: "browser-test",
+      reason: "Archive synthetic baseline",
+      expected_revision: before.revision,
+    },
+  });
+  expect(archived.status()).toBe(200);
+  await page.locator(".gpo-item", { hasText: policy.name }).click();
+  await expect(page.locator("#browser-readonly")).toBeVisible();
+  await expect(page.locator("#browser-readonly")).toContainText("Fork");
+  await expect(selection(page, "computer")).toBeDisabled();
+  await expect(selection(page, "user")).toBeDisabled();
+  await expect(page.locator("#browser-bulk-select-all")).toBeDisabled();
+  await expect(page.locator("#browser-bulk-bar")).toBeHidden();
+  let writes = 0;
+  page.on("request", (req) => {
+    if (req.method() === "POST" && req.url().includes("/bulk-policy-state"))
+      writes++;
+  });
+  await page
+    .locator('[data-bulk-state="not_configured"]')
+    .dispatchEvent("click");
+  const after = (await (await request.get(`/api/gpos/${policy.guid}`)).json())
+    .gpo;
+  expect(writes).toBe(0);
+  expect(after.revision).toBe(before.revision + 1);
+  expect(after.settings).toEqual(before.settings);
+});

@@ -5,6 +5,7 @@ import { checkAdmx, resetAdmxCatalogue } from "./admx.mjs";
 import { loadBrowser, resetBrowserCatalogue } from "./browser.mjs";
 
 let dialogGeneration = 0,
+  sourcesRequest = 0,
   loadingFolder = false;
 
 function renderSources(items) {
@@ -24,6 +25,25 @@ function renderSources(items) {
   }
 }
 
+async function refreshSources(generation, { setPath = false } = {}) {
+  const request = ++sourcesRequest;
+  let data;
+  try {
+    data = await api("/api/templates");
+  } catch (error) {
+    if (generation !== dialogGeneration || request !== sourcesRequest)
+      return null;
+    throw error;
+  }
+  if (generation !== dialogGeneration || request !== sourcesRequest)
+    return null;
+  renderSources(data.items);
+  if (setPath)
+    $("#templates-form").elements.path.value =
+      data.items.find((source) => source.name === "default")?.path || "";
+  return data.items;
+}
+
 async function openTemplates() {
   const generation = ++dialogGeneration;
   const form = $("#templates-form");
@@ -33,14 +53,11 @@ async function openTemplates() {
   $("#templates-status").textContent = "Checking loaded templates…";
   $("#templates-dialog").showModal();
   try {
-    const data = await api("/api/templates");
-    if (generation !== dialogGeneration) return;
-    renderSources(data.items);
-    const source = data.items.find((item) => item.name === "default");
-    form.elements.path.value = source?.path || "";
-    $("#templates-status").textContent = data.items.length
-      ? "Currently loaded sources:"
-      : "No template sources are loaded.";
+    const items = await refreshSources(generation, { setPath: true });
+    if (items)
+      $("#templates-status").textContent = items.length
+        ? "Currently loaded sources:"
+        : "No template sources are loaded.";
   } catch (error) {
     if (generation === dialogGeneration) showFormErrors(form, error);
   } finally {
@@ -48,6 +65,24 @@ async function openTemplates() {
       form.elements.path.disabled = false;
       $("#templates-load").disabled = loadingFolder;
     }
+  }
+}
+
+function describeLoad(result) {
+  const status = $("#templates-status");
+  status.textContent = `Loaded ${result.policy_count} policies from ${result.file_count} files in ${result.path}.`;
+  if (!result.policy_count)
+    status.append(
+      " No usable policies were found. Check that this is the ADMX folder and that matching ADML files are present.",
+    );
+  if (result.errors.length) {
+    const list = document.createElement("ul");
+    for (const issue of result.errors) {
+      const item = document.createElement("li");
+      item.textContent = `${issue.path}: ${issue.message}`;
+      list.appendChild(item);
+    }
+    status.appendChild(list);
   }
 }
 
@@ -65,9 +100,11 @@ export function initTemplates() {
     loadingFolder = true;
     clearFormErrors(form);
     button.disabled = true;
+    form.elements.path.disabled = true;
     $("#templates-status").textContent = "Loading templates…";
+    let result;
     try {
-      const result = await api("/api/templates/ingest", {
+      result = await api("/api/templates/ingest", {
         method: "POST",
         body: JSON.stringify({
           name: "default",
@@ -75,42 +112,50 @@ export function initTemplates() {
           path: form.elements.path.value.trim(),
         }),
       });
+    } catch (error) {
       if (generation === dialogGeneration) {
-        form.elements.path.value = result.path;
-        renderSources([
-          {
-            ...result,
-            error_count: result.errors.length,
-          },
-        ]);
-        const status = $("#templates-status");
-        status.textContent = `Loaded ${result.policy_count} policies from ${result.file_count} files.`;
-        if (!result.policy_count)
-          status.append(
-            " No usable policies were found. Check that this is the ADMX folder and that matching ADML files are present.",
-          );
-        if (result.errors.length) {
-          const list = document.createElement("ul");
-          for (const issue of result.errors) {
-            const item = document.createElement("li");
-            item.textContent = `${issue.path}: ${issue.message}`;
-            list.appendChild(item);
+        $("#templates-status").textContent =
+          "The folder could not be loaded. Previously loaded templates are still available.";
+        showFormErrors(form, error);
+      } else
+        $("#templates-status").textContent =
+          `An earlier folder load failed: ${error.message}`;
+    }
+    try {
+      if (result) {
+        // Activation succeeded. Refresh the complete source list even after the
+        // dialog was reopened, while retaining the new editor's chosen path.
+        const currentGeneration = dialogGeneration;
+        if (generation === currentGeneration)
+          form.elements.path.value = result.path;
+        describeLoad(result);
+        resetAdmxCatalogue();
+        resetBrowserCatalogue();
+        try {
+          await refreshSources(currentGeneration);
+        } catch (error) {
+          if (currentGeneration === dialogGeneration) {
+            $("#templates-sources").textContent =
+              "The source list is unavailable. Reopen this dialog to retry.";
+            $("#templates-status").append(
+              ` Source list refresh failed: ${error.message}`,
+            );
           }
-          status.appendChild(list);
+        }
+        try {
+          if (!$("#panel-admx").hidden) await checkAdmx();
+          if (!$("#panel-browser").hidden) await loadBrowser();
+        } catch (error) {
+          if (currentGeneration === dialogGeneration)
+            $("#templates-status").append(
+              ` Templates are loaded, but the browser could not refresh: ${error.message}`,
+            );
         }
       }
-      resetAdmxCatalogue();
-      resetBrowserCatalogue();
-      if (!$("#panel-admx").hidden) await checkAdmx();
-      if (!$("#panel-browser").hidden) await loadBrowser();
-    } catch (error) {
-      if (generation !== dialogGeneration) return;
-      $("#templates-status").textContent =
-        "The folder could not be loaded. Previously loaded templates are still available.";
-      showFormErrors(form, error);
     } finally {
       loadingFolder = false;
-      button.disabled = $("#templates-form").elements.path.disabled;
+      if (generation === dialogGeneration) form.elements.path.disabled = false;
+      button.disabled = form.elements.path.disabled;
     }
   };
 }

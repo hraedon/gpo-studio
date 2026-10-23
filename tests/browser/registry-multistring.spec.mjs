@@ -109,3 +109,19 @@ test("deleting a multi-string value does not require valid editor JSON", async (
   const saved = await (await request.get(`/api/gpos/${seeded.guid}`)).json();
   expect(saved.gpo.settings[0].action).toBe("delete");
 });
+
+test("single-empty multi-string guidance states the Registry.pol distinction", async ({
+  page,
+  request,
+}) => {
+  const seeded = await seed(request);
+  const dialog = await edit(page, seeded);
+  await dialog.locator('[name="value"]').fill('[""]');
+  await expect(dialog.locator("#value-help")).toContainText(
+    '[""] exports to Registry.pol as []',
+  );
+  await dialog.getByRole("button", { name: "Save setting" }).click();
+  await expect(dialog).toBeHidden();
+  const saved = await (await request.get(`/api/gpos/${seeded.guid}`)).json();
+  expect(saved.gpo.settings[0].value).toEqual([""]);
+});

@@ -82,3 +82,43 @@ def test_admx_flag_is_documented_in_help(
     assert "--admx-dir" in help_text
     assert "GPO_STUDIO_ADMX_DIR" in help_text
     run.assert_not_called()
+
+
+@pytest.mark.parametrize("command", [[], ["run"]])
+@pytest.mark.parametrize("directory", ["", " ", " \t\n "])
+def test_empty_admx_flag_is_rejected_before_startup(
+    command: list[str],
+    directory: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("GPO_STUDIO_DB", "unchanged.db")
+    monkeypatch.setenv("GPO_STUDIO_ADMX_DIR", "environment-templates")
+    monkeypatch.setattr(sys, "argv", ["gpo-studio", *command, "--admx-dir", directory])
+
+    with patch("gpo_studio.__main__.uvicorn.run") as run, pytest.raises(SystemExit) as exit:
+        main()
+
+    assert exit.value.code == 2
+    message = capsys.readouterr().err
+    assert "--admx-dir" in message
+    assert "must not be empty or whitespace-only" in message
+    assert os.environ["GPO_STUDIO_ADMX_DIR"] == "environment-templates"
+    assert os.environ["GPO_STUDIO_DB"] == "unchanged.db"
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize("command", [[], ["run"]])
+def test_admx_flag_preserves_significant_path_whitespace(
+    command: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = " synthetic template folder "
+    monkeypatch.setenv("GPO_STUDIO_DB", "unchanged.db")
+    monkeypatch.setenv("GPO_STUDIO_ADMX_DIR", "environment-templates")
+    monkeypatch.setattr(sys, "argv", ["gpo-studio", *command, "--admx-dir", directory])
+
+    with patch("gpo_studio.__main__.uvicorn.run") as run:
+        main()
+
+    assert os.environ["GPO_STUDIO_ADMX_DIR"] == directory
+    run.assert_called_once()

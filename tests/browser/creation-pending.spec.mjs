@@ -10,6 +10,7 @@ function deferred() {
 
 async function openCreation(page, name) {
   await page.goto("/");
+  await expect(page.locator("#app-status")).toBeHidden();
   await page.locator("#new-gpo").click();
   const dialog = page.locator("#gpo-dialog");
   await dialog.getByLabel("Name", { exact: true }).fill(name);

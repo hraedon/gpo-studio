@@ -1,15 +1,19 @@
-import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
+import {state,$,$$,escapeHtml,applyPayload,updateGpoSummary} from './state.mjs';
 import {api} from './api.mjs';
 import {openSetting,deleteSetting,openComment,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
 import {renderGpp} from './gpp.mjs';
 import {loadBrowser} from './browser.mjs';
 import {loadDiffSelectors} from './diff.mjs';
 
-let selectionRequest=0,historyRequest=0;
+let selectionRequest=0,historyRequest=0,listRequest=0;
 
 export async function loadList(selectGuid){
-  const selection=selectionRequest;
-  const data=await api("/api/gpos");state.gpos=data.items;renderList();
+  const selection=selectionRequest,request=++listRequest;
+  const data=await api("/api/gpos");
+  if(request!==listRequest)return;
+  state.gpos=data.items;
+  if(state.current)updateGpoSummary(state.current);
+  renderList();
   if(selection!==selectionRequest)return;
   const guid=selectGuid||state.current?.guid||state.gpos[0]?.guid;
   if(guid)await selectGpo(guid);else showEmpty();
