@@ -9,6 +9,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Keep obsolete ADMX lookup and catalogue-read failures out of newer views,
+  warnings and configuration drafts while retaining active failure messages.
+
 - Report request failures through the current view or editor, preserving newer
   warnings and separating completed imports from later list-refresh failures.
 - Bind reviewed downloads to the policy revision and review hash, retaining inline
