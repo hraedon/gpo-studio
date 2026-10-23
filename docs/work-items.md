@@ -4118,8 +4118,10 @@ before a write can choose or erase the wrong registry record. Existing heads and
 immutable history remain readable. Uniquely owned ADMX rows can be reconfigured;
 otherwise the [recovery guide](workspace-recovery.md#legacy-registry-editor-ids-and-ambiguous-admx-ownership)
 describes recovering chosen raw registry records into a fresh draft with newly
-generated UUIDs. Copy and Fork do not repair duplicated identities. A strict
-complete-head guard can prevent partial repairs which leave another bad family.
+generated UUIDs. Copy retains editor IDs and Fork prefixes them; neither resolves
+a duplicate pair. Older builds can read the raw records, but structured list-element
+rows may appear unresolved in their settings browser. A strict complete-head guard
+can prevent partial repairs which leave another bad family.
 
 **Closes when:** an explicit command or UI previews every selected row and owner,
 requires the operator's repair choices, preserves every chosen registry record

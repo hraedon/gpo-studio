@@ -263,6 +263,8 @@ def _derive_state(
     policy: PolicyDefinition,
     side: Side,
     settings: tuple[RegistrySetting, ...],
+    *,
+    structured_ids: bool,
 ) -> PolicyState:
     hive = _hive_for(side)
     state_settings = [
@@ -274,7 +276,7 @@ def _derive_state(
     ]
     synthetic_state_settings = [
         s for s in settings if _setting_suffix(s.id) == "state"
-        and (parse_structured_setting_id(s.id) is not None or not structured_policy_ids(policy))
+        and (parse_structured_setting_id(s.id) is not None or not structured_ids)
     ]
     state_settings = list(
         {s.identity(): s for s in state_settings + synthetic_state_settings}.values()
@@ -307,13 +309,15 @@ def _setting_belongs_to_element(
     element: PolicyElement,
     policy: PolicyDefinition,
     side: Side,
+    *,
+    structured_ids: bool,
 ) -> bool:
     structured = parse_structured_setting_id(setting.id)
     if structured is not None:
         return (structured.policy_id == policy.qualified_id and structured.side == side
                 and structured.kind in ("element", "element-list", "disabled-element")
                 and structured.component == element.id)
-    if not structured_policy_ids(policy):
+    if not structured_ids:
         parsed = _parse_setting_id(setting.id)
         if parsed is not None:
             suffix = parsed[2]
@@ -352,11 +356,16 @@ def _decode_element_values(
     policy: PolicyDefinition,
     side: Side,
     settings: tuple[RegistrySetting, ...],
+    *,
+    structured_ids: bool,
 ) -> dict[str, bool | int | str | list[str]]:
     result: dict[str, bool | int | str | list[str]] = {}
     for element in policy.elements:
         element_settings = [
-            s for s in settings if _setting_belongs_to_element(s, element, policy, side)
+            s for s in settings
+            if _setting_belongs_to_element(
+                s, element, policy, side, structured_ids=structured_ids
+            )
         ]
         if not element_settings:
             continue
@@ -480,8 +489,13 @@ def build_settings_browser(
     for (qualified_id, side), group_settings in sorted(groups.items()):
         policy = policy_map[qualified_id]
         raw = tuple(group_settings)
-        state = _derive_state(policy, side, raw)
-        element_values = _decode_element_values(policy, side, raw)
+        # Family selection scans the source schema. Keep it outside the
+        # element×setting loop (and avoid hashing the whole policy as a cache key).
+        structured_ids = structured_policy_ids(policy)
+        state = _derive_state(policy, side, raw, structured_ids=structured_ids)
+        element_values = _decode_element_values(
+            policy, side, raw, structured_ids=structured_ids
+        )
         supported_on_display = _resolve_supported_on(catalogue, policy)
         cat_names, cat_ids = _category_path(catalogue, policy)
 

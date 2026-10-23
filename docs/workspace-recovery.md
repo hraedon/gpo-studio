@@ -558,8 +558,9 @@ These encode the exact policy, side, write kind, component and list ordinal. The
 choice uses the complete source schema and remains stable across values and
 Enabled/Disabled/Not configured. It changes editor metadata, not Registry.pol's
 registry addresses or value encoding. There is no workspace schema migration.
-Older builds can read these records, but must not reconfigure their ADMX policies:
-the old prefix-based writer cannot safely interpret the new IDs.
+Older builds can open and read the raw records; structured list-element rows may
+appear unresolved in their settings browser. They must not reconfigure these ADMX
+policies: the old prefix-based writer cannot safely interpret the new IDs.
 
 If the loaded catalogue and registry addresses uniquely identify an affected
 legacy row's owner, explicitly reconfiguring that policy replaces only its
@@ -589,9 +590,10 @@ For recovery without guessing or changing the original:
    preferences and other GPO content need their own review. The new GPO has a
    new GUID, so its whole-policy digest need not equal the original's.
 
-Copy and Fork preserve source identities and therefore do **not** repair a
-malformed source with duplicate IDs. Restoring a clean historical revision is
-another recovery path; restoring a duplicated revision is refused without
+Copy retains editor IDs and Fork prefixes them; both preserve a duplicate pair
+and therefore do **not** repair a malformed source with duplicate IDs. Restoring
+a clean historical revision is another recovery path; restoring a duplicated
+revision is refused without
 rewriting that historical snapshot. A dedicated reviewed repair workflow remains
 open as [WI-087](work-items.md#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities).
 These are local editor/storage guarantees; they do not qualify native Windows

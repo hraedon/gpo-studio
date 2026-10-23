@@ -9,6 +9,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Compute the ADMX identity family once per configured policy/side group so large
+  policies avoid repeated schema scans in the settings browser.
+
 - Keep fixed policy-list values separate from editable lists when their generated
   setting names would overlap, including empty editable lists.
 - Reject duplicate resolved policy/side operations in bulk authoring. Preserve
