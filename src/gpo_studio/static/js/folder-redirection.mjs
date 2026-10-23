@@ -174,19 +174,18 @@ export function initFolderRedirection() {
     const isCurrent=read.isCurrent;
     const current = form.elements.current_file.files[0];
     const earlier = form.elements.earlier_file.files[0];
+    let pending;
     try {
       // Check both sizes before either file is read or sent to the server.
       validateFile(current);
       if (earlier) validateFile(earlier);
-      submit.disabled = true;
-      results.setAttribute("aria-busy", "true");
-      status.textContent = "Reading files…";
+      pending=read.beginPending({controls:[submit],busy:[results],loading:[{element:status,message:"Reading files…",recovery:"Run the file review again to review the current selection."}]});
       const [currentBytes, earlierBytes] = await Promise.all([
         readNativeFile(current),
         earlier ? readNativeFile(earlier) : Promise.resolve(null),
       ]);
       if (!isCurrent()) return;
-      status.textContent = "Reviewing files…";
+      pending.message(status,"Reviewing files…");
       const [currentBody, earlierBody] = await Promise.all([
         parseFile(currentBytes, current, "Current file"),
         earlier
@@ -220,10 +219,7 @@ export function initFolderRedirection() {
     } catch (error) {
       read.reportError(error);
     } finally {
-      if (isCurrent()) {
-        submit.disabled = false;
-        results.setAttribute("aria-busy", "false");
-      }
+      pending?.finish();
     }
   };
 }

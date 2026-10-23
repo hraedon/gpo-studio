@@ -97,6 +97,7 @@ export function renderTemplate(body) {
 const reads = createReadScope({ element: () => $("#security-template-dialog") });
 
 export function initSecurityTemplate() {
+  $("#security-template-dialog").addEventListener("close",()=>reads.invalidate());
   $("#open-security-template").onclick = openSecurityTemplate;
   $("#security-template-form").onsubmit = submitSecurityTemplate;
   $("#security-template-form").addEventListener("input", () => reads.invalidate());
@@ -150,7 +151,7 @@ async function submitSecurityTemplate(event) {
     mode === "policy-families"
       ? { scope: form.scope.value, ...families }
       : families;
-  results.innerHTML = '<div class="table-empty">Rendering…</div>';
+  const pending=read.beginPending({busy:[results],loading:[{element:results,message:"Rendering…",recovery:"Render again to review the current input.",className:"table-empty"}]});
   try {
     const body = await /* request: security.render */ api(MODES[mode].path, {
       method: "POST",
@@ -160,5 +161,5 @@ async function submitSecurityTemplate(event) {
     results.innerHTML = renderTemplate(body);
   } catch (error) {
     read.reportError(error);
-  }
+  } finally {pending.finish()}
 }

@@ -1,6 +1,6 @@
-import { createReadScope, invalidateReadViews } from "./read-context.mjs";
+import { createReadScope, invalidateReadViews, readDialogOpened, readDialogClosed } from "./read-context.mjs";
 import {state,$,$$,getGpoGeneration} from './state.mjs';
-import {api,toast,clearPersistentError,captureErrorReporter} from './api.mjs';
+import {api,toast,clearPersistentError,captureErrorReporter,actionApi} from './api.mjs';
 import {clearFormErrors,showFormErrors} from './errors.mjs';
 import {loadList,renderList,renderSettings,loadHistory} from './render.mjs';
 import {openGpo,openSetting,openLink,openFilter,openWmi,openWmiCatalogue,openEstate,openFork,openCopySettings,syncSettingForm,initForms} from './forms.mjs';
@@ -19,6 +19,8 @@ import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,u
 import {captureDialogFocus,restoreDialogFocus} from './dialog-focus.mjs';
 
 const tabs=$$(".tab[role='tab']");
+let focusIntent=0;
+document.addEventListener("focusin",()=>{focusIntent++});
 const tabReads=createReadScope();
 const importReads=createReadScope({element:()=>$("#gpmc-import-dialog")});
 
@@ -103,8 +105,10 @@ function initialiseDialog(dialog){
     dialog.returnFocus=active instanceof HTMLElement?active:null;
     const focus=openingFocus=captureDialogFocus(dialog);
     nativeShowModal();
+    readDialogOpened(dialog);
+    const nativeFocus=document.activeElement,initialFocusIntent=focusIntent;
     requestAnimationFrame(()=>{
-      if(!dialog.open||dialog.editorSession!==focus.session||state.editorGeneration!==focus.editorGeneration)return;
+      if(!dialog.open||dialog.editorSession!==focus.session||state.editorGeneration!==focus.editorGeneration||focusIntent!==initialFocusIntent||document.activeElement!==nativeFocus)return;
       const preferred=dialog.querySelector("[autofocus],[data-initial-focus],[aria-invalid='true']");
       const firstField=focusableElements(dialog).find(element=>element.matches("input,select,textarea"));
       const target=(preferred instanceof HTMLElement&&preferred.getClientRects().length?preferred:null)||firstField||focusableElements(dialog)[0]||dialog;
@@ -129,6 +133,7 @@ function initialiseDialog(dialog){
     const focus=closingFocus.shift()||openingFocus;
     if(openingFocus===focus){openingFocus=null;dialog.returnFocus=null}
     requestAnimationFrame(()=>restoreDialogFocus(dialog,focus));
+    readDialogClosed();
   });
 }
 
@@ -278,22 +283,23 @@ $("#export-review-download").onclick=async()=>{
 };
 
 $("#import-gpmc").onclick=async()=>{
+  importReads.invalidate();
   const form=$("#gpmc-import-form");
   resetEditor(form);form.reset();clearFormErrors(form);
   form.dataset.inboxConfigured="false";
-  $("#gpmc-import-preview").textContent="Checking the import inbox…";
   $("#gpmc-import-submit").disabled=true;
   $("#gpmc-import-submit").textContent="Import backup";
   $("#gpmc-import-dialog").showModal();
   const context=captureMutation(form);
   const read=importReads.start({isCurrent:()=>isCurrentEditor(context),report:error=>showFormErrors(form,error)});
+  const pending=read.beginPending({busy:[$("#gpmc-import-preview")],loading:[{element:$("#gpmc-import-preview"),message:"Checking the import inbox…",recovery:"Close and reopen Import GPMC backup to check the current inbox before importing."}]});
   try{
     const info=(await /* request: import.capabilities */ api("/api/imports/capabilities")).gpmc_backup;
     if(!read.isCurrent())return;
     form.dataset.inboxConfigured=String(Boolean(info.inbox_configured));
     $("#gpmc-import-preview").textContent=info.inbox_configured?"Import inbox found. The path you enter is read relative to it.":"No import inbox is configured. Set GPO_STUDIO_INBOX_DIR to import backups from here.";
     $("#gpmc-import-submit").disabled=!info.inbox_configured;
-  }catch(error){read.reportError(error)}
+  }catch(error){read.reportError(error)}finally{pending.finish()}
 };
 $("#gpmc-import-form").onsubmit=async event=>{
   event.preventDefault();
@@ -303,7 +309,7 @@ $("#gpmc-import-form").onsubmit=async event=>{
   context.name="GPMC backup import";
   clearFormErrors(form);
   try{
-    const data=await /* request: import.backup */ api("/api/backups/import",{method:"POST",body:JSON.stringify({path:form.relative_path.value,actor:form.actor.value,reason:form.reason.value})});
+    const data=await /* request: import.backup */ actionApi("/api/backups/import",{method:"POST",body:JSON.stringify({path:form.relative_path.value,actor:form.actor.value,reason:form.reason.value})});
     const selectImported=isSameEditor(context);
     updateMutationList(data,renderList);
     if(isCurrentEditor(context))context.dialog.close();
@@ -328,7 +334,5 @@ initTemplates();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
 const initialRead=tabReads.capture();
-loadList().catch(error=>initialRead.reportError(error)).finally(()=>{
-  // Loading is a status lease, independent of editor/error ownership.
-  if($("#app-status").textContent==="Loading policies…")setAppStatus("");
-});
+const initialPending=initialRead.beginPending({loading:[{element:$("#app-status"),message:"Loading policies…"}],onFinish:()=>{if(!$("#app-status").textContent)$("#app-status").hidden=true}});
+loadList().catch(error=>initialRead.reportError(error)).finally(()=>initialPending.finish());

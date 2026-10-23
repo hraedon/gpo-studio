@@ -10,6 +10,7 @@ export function discoverRequests(text, file) {
     calls = [],
     aliases = [],
     apiNames = new Set(),
+    actionNames = new Set(),
     namespaces = new Set(),
     fetchNames = new Set(["fetch"]);
   const rule = {
@@ -17,10 +18,17 @@ export function discoverRequests(text, file) {
     create(context) {
       const source = context.sourceCode;
       return {
+        FunctionDeclaration(node) {
+          if (file !== "api.mjs") return;
+          if (node.id?.name === "api") apiNames.add("api");
+          if (node.id?.name === "actionApi") actionNames.add("actionApi");
+        },
         ImportDeclaration(node) {
-          if (!node.source.value.endsWith("api.mjs")) return;
+          if (!/(^|\/)api\.mjs$/.test(node.source.value)) return;
           for (const spec of node.specifiers) {
             if (spec.imported?.name === "api") apiNames.add(spec.local.name);
+            if (spec.imported?.name === "actionApi")
+              actionNames.add(spec.local.name);
             if (spec.type === "ImportNamespaceSpecifier")
               namespaces.add(spec.local.name);
           }
@@ -52,32 +60,53 @@ export function discoverRequests(text, file) {
         },
         "Program:exit"() {
           function channel(node) {
-            if (node?.type === "Identifier")
-              return apiNames.has(node.name)
-                ? "api"
-                : fetchNames.has(node.name)
-                  ? "fetch"
-                  : null;
+            if (node?.type === "Identifier") {
+              if (apiNames.has(node.name) && actionNames.has(node.name))
+                throw Error(
+                  `Ambiguous API frontdoor alias in ${file}: ${node.name}`,
+                );
+              return actionNames.has(node.name)
+                ? "actionApi"
+                : apiNames.has(node.name)
+                  ? "api"
+                  : fetchNames.has(node.name)
+                    ? "fetch"
+                    : null;
+            }
             if (node?.type !== "MemberExpression") return null;
-            if (
-              !node.computed &&
-              namespaces.has(node.object.name) &&
-              node.property.name === "api"
-            )
-              return "api";
+            const property = node.computed
+              ? node.property.type === "Literal"
+                ? node.property.value
+                : null
+              : node.property.name;
+            if (namespaces.has(node.object.name)) {
+              if (property === null)
+                throw Error(`Unclassified computed API frontdoor in ${file}`);
+              if (property === "api" || property === "actionApi")
+                return property;
+            }
             if (
               ["window", "globalThis", "self"].includes(node.object.name) &&
-              (node.property.name === "fetch" ||
-                node.property.value === "fetch")
+              property === "fetch"
             )
               return "fetch";
             return null;
           }
           for (let pass = 0; pass <= aliases.length; pass++)
             for (const node of aliases) {
+              if (
+                node.init?.type === "Identifier" &&
+                namespaces.has(node.init.name)
+              )
+                namespaces.add(node.id.name);
               const kind = channel(node.init);
               if (kind)
-                (kind === "api" ? apiNames : fetchNames).add(node.id.name);
+                (kind === "actionApi"
+                  ? actionNames
+                  : kind === "api"
+                    ? apiNames
+                    : fetchNames
+                ).add(node.id.name);
             }
           for (const { node, ancestors } of calls) {
             if (
@@ -148,4 +177,36 @@ export function discoverRequests(text, file) {
   );
   if (errors.length) throw Error(JSON.stringify(errors));
   return result;
+}
+
+// Classification is semantic, not inferred from method: a POST preview must
+// never resolve errors and an actual write must use the explicit frontdoor.
+export function validateRequestPolicies(sites, records) {
+  for (const site of sites) {
+    const record = records.find((candidate) => candidate.id === site.id);
+    if (!record) throw Error(`Unregistered request: ${site.id}`);
+    if (record.class === "mutation") {
+      if (site.channel !== "actionApi")
+        throw Error(`Actual write must use actionApi: ${site.id}`);
+    } else if (
+      ["read", "preview", "artifact", "silent-monitor"].includes(record.class)
+    ) {
+      if (!["api", "fetch"].includes(site.channel))
+        throw Error(`Read must remain pure: ${site.id}`);
+    } else if (record.class === "transport") {
+      const expected =
+        site.id === "transport.api"
+          ? ["api", "fetch"]
+          : site.id === "transport.action"
+            ? ["actionApi", "api"]
+            : null;
+      if (
+        !expected ||
+        site.file !== "api.mjs" ||
+        site.owner !== expected[0] ||
+        site.channel !== expected[1]
+      )
+        throw Error(`Invalid internal transport: ${site.id}`);
+    } else throw Error(`Unclassified request effect: ${site.id}`);
+  }
 }

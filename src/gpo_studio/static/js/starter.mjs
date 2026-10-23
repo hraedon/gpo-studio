@@ -6,7 +6,7 @@ import {
   observeGpoDeleted,
   getGpoGeneration,
 } from "./state.mjs";
-import { api, toast, showPersistentError } from "./api.mjs";
+import { api, toast, showPersistentError,actionApi} from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
 import { loadList, renderList, showEmpty } from "./render.mjs";
 import {
@@ -22,7 +22,7 @@ import {
 let listGeneration = 0,
   listRequest = 0;
 const pendingDeletes = new Set();
-const starterReads=createReadScope({element:()=>$("#starter-list-dialog")});
+const starterReads=createReadScope({element:()=>$("#starter-list-dialog"),reactivate:options=>refreshStarterList(listContext(),options)});
 
 function listContext() {
   const dialog = $("#starter-list-dialog");
@@ -45,17 +45,18 @@ export function initStarter() {
 }
 
 export async function openStarterList() {
+  starterReads.invalidate();
   listGeneration++;
   $("#starter-list-dialog").showModal();
   await refreshStarterList(listContext());
 }
 
-async function refreshStarterList(context) {
+async function refreshStarterList(context,options={}) {
   if (!isCurrentList(context)) return;
   const request = ++listRequest;
   const list = $("#starter-list");
-  const read=starterReads.start({isCurrent:()=>request===listRequest&&isCurrentList(context),report:error=>{list.innerHTML=`<div class="table-empty">${escapeHtml(error.message)}</div>`}});
-  list.innerHTML = '<div class="table-empty">Loading…</div>';
+  const read=starterReads.start({...options,isCurrent:()=>request===listRequest&&isCurrentList(context),report:error=>{list.innerHTML=`<div class="table-empty">${escapeHtml(error.message)}</div>`}});
+  const pending=read.beginPending({busy:[list],loading:[{element:list,message:"Loading…",recovery:"Reload the Starter library to review current policies.",retry:()=>refreshStarterList(listContext()),retryLabel:"Reload Starter GPOs",className:"table-empty"}]});
   try {
     const data = await /* request: starter.list */ api("/api/starter-gpos");
     if (!read.isCurrent()) return;
@@ -84,7 +85,7 @@ async function refreshStarterList(context) {
     });
   } catch (error) {
     read.reportError(error);
-  }
+  } finally {pending.finish();read.complete()}
 }
 
 function openCreateStarter() {
@@ -108,7 +109,7 @@ async function submitCreateStarter(event) {
   context.name = form.name.value;
   clearFormErrors(form);
   try {
-    const data = await /* request: starter.create */ api("/api/starter-gpos", {
+    const data = await /* request: starter.create */ actionApi("/api/starter-gpos", {
       method: "POST",
       body: JSON.stringify({
         name: form.name.value,
@@ -159,7 +160,7 @@ async function submitDerive(event) {
   context.name = form.name.value;
   clearFormErrors(form);
   try {
-    const data = await /* request: starter.derive */ api(`/api/starter-gpos/${sourceGuid}/derive`, {
+    const data = await /* request: starter.derive */ actionApi(`/api/starter-gpos/${sourceGuid}/derive`, {
       method: "POST",
       body: JSON.stringify({
         name: form.name.value,
@@ -200,7 +201,7 @@ async function deleteStarter(guid, revision, name) {
     button.disabled = true;
   });
   try {
-    await /* request: starter.delete */ api(`/api/starter-gpos/${guid}`, {
+    await /* request: starter.delete */ actionApi(`/api/starter-gpos/${guid}`, {
       method: "DELETE",
       body: JSON.stringify({
         actor: "local-operator",

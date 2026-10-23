@@ -129,12 +129,18 @@ async function openSelected(page, gpo, count) {
   // side's 101 visible entries, preserving the other side's hidden selections.
   await page.locator('#panel-browser .chip[data-side="computer"]').click();
   await expect(page.locator(".browser-bulk-checkbox")).toHaveCount(count);
+  await expect(
+    page.locator('.browser-bulk-checkbox[data-bulk-side="computer"]'),
+  ).toHaveCount(count);
   await page.locator("#browser-bulk-select-all").check();
   await expect(page.locator("#browser-bulk-count")).toHaveText(
     `${count} selected`,
   );
   await page.locator('#panel-browser .chip[data-side="user"]').click();
   await expect(page.locator(".browser-bulk-checkbox")).toHaveCount(count);
+  await expect(
+    page.locator('.browser-bulk-checkbox[data-bulk-side="user"]'),
+  ).toHaveCount(count);
   await page.locator("#browser-bulk-select-all").check();
   await page
     .locator("#browser-bulk-reason")

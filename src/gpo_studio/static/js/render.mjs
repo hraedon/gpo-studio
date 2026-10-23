@@ -116,14 +116,14 @@ export function renderWmi(){
   if(!w){$("#wmi-display").innerHTML='<div class="table-empty">No WMI filter set.</div>';return}
   $("#wmi-display").innerHTML=`<dl class="details"><dt>Name</dt><dd>${escapeHtml(w.name)}</dd><dt>Language</dt><dd>${escapeHtml(w.language)}</dd><dt>Query</dt><dd class="mono">${escapeHtml(w.query)}</dd>${w.description?`<dt>Description</dt><dd>${escapeHtml(w.description)}</dd>`:""}</dl>`;
 }
-const historyReads=createReadScope({element:()=>$("#panel-history")});
-export async function loadHistory(){
+const historyReads=createReadScope({element:()=>$("#panel-history"),reactivate:options=>loadHistory(options)});
+export async function loadHistory(options={}){
   if(!state.current)return;
   const {guid,revision,name}=state.current;
   const generation=getGpoGeneration(guid);
   const request=++historyRequest;
-  const read=historyReads.start({isCurrent:()=>request===historyRequest&&generation===getGpoGeneration(guid)&&state.current?.guid===guid&&state.current.revision===revision,report:error=>{$("#history-list").textContent=`Could not load revision history: ${error.message}`}});
-  $("#history-list").textContent="Loading revision history…";
+  const read=historyReads.start({...options,isCurrent:()=>request===historyRequest&&generation===getGpoGeneration(guid)&&state.current?.guid===guid&&state.current.revision===revision,report:error=>{$("#history-list").textContent=`Could not load revision history: ${error.message}`}});
+  const pending=read.beginPending({busy:[$("#history-list")],loading:[{element:$("#history-list"),message:"Loading revision history…",recovery:"Reload history to review current revisions.",retry:()=>loadHistory(),retryLabel:"Reload history",className:"table-empty"}]});
   try{
     const data=await /* request: policy.history */ api(`/api/gpos/${guid}/revisions`);
     if(!read.isCurrent())return;
@@ -131,5 +131,5 @@ export async function loadHistory(){
     $$('[data-restore]').forEach(el=>el.onclick=()=>restoreRevision(Number(el.dataset.restore),{guid,revision,name}));
   }catch(error){
     read.reportError(error);
-  }
+  }finally{pending.finish();read.complete()}
 }

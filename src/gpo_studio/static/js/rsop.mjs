@@ -217,6 +217,7 @@ export function renderRsopResult(body) {
 const reads = createReadScope({ element: () => $("#rsop-dialog") });
 
 export function initRsop() {
+  $("#rsop-dialog").addEventListener("close",()=>reads.invalidate());
   $("#open-rsop").onclick = openRsop;
   $("#rsop-form").onsubmit = submitRsop;
   $("#rsop-form").addEventListener("input", () => reads.invalidate());
@@ -252,7 +253,7 @@ async function submitRsop(event) {
     showFormErrors(form, error);
     return;
   }
-  results.innerHTML = '<div class="table-empty">Computing…</div>';
+  const pending=read.beginPending({busy:[results],loading:[{element:results,message:"Computing…",recovery:"Compute again to review the current input.",className:"table-empty"}]});
   try {
     const body = await /* request: rsop.compute */ api("/api/rsop/compute", {
       method: "POST",
@@ -279,5 +280,5 @@ async function submitRsop(event) {
     results.innerHTML = renderRsopResult(body);
   } catch (error) {
     read.reportError(error);
-  }
+  } finally {pending.finish()}
 }

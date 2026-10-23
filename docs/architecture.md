@@ -91,9 +91,10 @@ post-dispatch upsert observations continue to apply.
 
 API delivery registers response-object provenance in a WeakMap using the dispatch
 watermark, with no early summary, selection, editor or error updates. Owned summary
-and payload consumers check that provenance before publishing. Copies of a GPO
-must retain explicit provenance rather than acquiring the current generation by
-accident. Dialog opening views and chosen ADMX targets separately retain their opening
+and payload consumers check that provenance before publishing. For a GUID with a client-observed deletion, copies of a GPO must retain
+explicit provenance rather than acquiring its current generation by accident.
+An untagged object for a never-deleted GUID remains admissible at watermark zero;
+this is a client-observed-deletion contract, not a blanket ban on object copies. Dialog opening views and chosen ADMX targets separately retain their opening
 policy generations: a new Save request cannot retarget an old draft to a recreated
 GUID/revision. Related unsaved fields remain available, and the operator must
 close and reopen the editor to review an existing target. Conflict and bulk paths

@@ -45,8 +45,8 @@ describe("collection deletion ordering", () => {
     expect(observations.applyPayload(fresh)).toBe(true);
     expect(observations.applyPayload(old)).toBe(false);
     expect(observations.state.current.name).toBe("Synthetic recreated");
-    // Copies must explicitly carry provenance; an unregistered old clone is
-    // never implicitly promoted to the current generation.
+    // After a client-observed deletion, an unregistered old copy is never
+    // implicitly promoted. Never-deleted GUIDs retain the epoch-zero contract.
     expect(observations.applyPayload({ gpo: { ...old.gpo } })).toBe(false);
   });
 

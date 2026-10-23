@@ -9,6 +9,13 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Resolve prior warnings only after explicitly classified committed writes; keep
+  semantic POST previews free of transport-level UI side effects.
+- Release pending read controls independently of retired result publication, and
+  resume uncovered read-only views once with their original error authority.
+  Keep newer drafts, warnings, requests and dialog sessions in control.
+- Preserve intentional focus moves during a dialog's initial focus frame.
+
 - Preserve every ADMX source element ID, including `__proto__`, when collecting
   Enabled field values for submission.
 - Keep workspace header actions and long policy titles inside the viewport at desktop

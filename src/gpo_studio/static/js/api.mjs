@@ -9,16 +9,20 @@ export function showPersistentError(message){persistentErrorVersion++;errorRepor
 function clearError(retireReports){persistentErrorVersion++;if(retireReports)errorReportVersion++;const el=uiElement("#error-summary");if(!el)return;(uiElement("#error-message")||el).textContent="";el.hidden=true}
 export function clearPersistentError(){clearError(true)}
 // A read may report only for its owner and the error context it started in.
-export function captureErrorReporter(isCurrent,report=showPersistentError){
+export function captureErrorContext(){
   const version=errorReportVersion;
-  return message=>{
-    if(version!==errorReportVersion||!isCurrent())return false;
-    report(message);return true;
-  };
+  return Object.freeze({reporter(isCurrent,report=showPersistentError){
+    return message=>{
+      if(version!==errorReportVersion||!isCurrent())return false;
+      report(message);return true;
+    };
+  }});
+}
+export function captureErrorReporter(isCurrent,report=showPersistentError){
+  return captureErrorContext().reporter(isCurrent,report);
 }
 export async function api(path,options={}){
   const {headers={},...requestOptions}=options;
-  const errorVersion=persistentErrorVersion,method=(requestOptions.method||"GET").toUpperCase(),hadError=uiElement("#error-summary")?.hidden===false;
   const observationVersion=getGpoSummaryVersion();
   let response;
   try{response=await /* request: transport.api */ fetch(path,{...requestOptions,headers:{"Content-Type":"application/json",...headers}})}
@@ -28,12 +32,17 @@ export async function api(path,options={}){
   const type=response.headers.get("content-type")||"";
   const payload=type.includes("json")?await response.json():await response.text();
   if(!response.ok)throw new ApiError(payload?.error?.message||payload?.detail||`Request failed (${response.status})`,{status:response.status,payload});
-  // Reads can be automatic or finish after an unrelated operation failed. Only
-  // a successful action may clear the error it started with; newer errors stay.
-  // Resolving an earlier warning does not dismiss a still-current read's outcome.
-  if(method!=="GET"&&method!=="HEAD"&&hadError&&errorVersion===persistentErrorVersion)clearError(false);
   stampGpoResponse(payload,observationVersion);
   return payload;
 }
+// Only explicitly classified committed writes resolve the error they started
+// with. Semantic POST reads/previews use pure api(), regardless of HTTP method.
+export async function actionApi(path,options={}){
+  const version=persistentErrorVersion,hadError=uiElement("#error-summary")?.hidden===false;
+  const payload=await /* request: transport.action */ api(path,options);
+  if(hadError&&version===persistentErrorVersion)clearError(false);
+  return payload;
+}
+
 export function toast(message){const el=uiElement("#toast");if(!el)return;el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2600)}
 export function audit(reason){return{actor:"local-operator",reason,expected_revision:state.current.revision}}

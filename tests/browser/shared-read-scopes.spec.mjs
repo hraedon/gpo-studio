@@ -200,7 +200,26 @@ for (const failure of ["http", "network"])
         await expect(page.locator("#wmi-catalogue-list")).toContainText(
           failure === "network" ? unavailable : "Synthetic scoped read failure",
         );
-      else await expect(page.locator("#wmi-catalogue-list")).toHaveText(before);
+      else if (retirement === "reopen")
+        await expect(page.locator("#wmi-catalogue-list")).toHaveText(before);
+      else {
+        // Publication is retired, but the original pending marker must end.
+        // A neutral recovery hint is resource cleanup, not the late error.
+        await expect(page.locator("#wmi-catalogue-list")).toContainText(
+          "Reopen the WMI catalogue",
+        );
+        await expect(page.locator("#wmi-catalogue-list")).not.toContainText(
+          /Loading|Synthetic scoped read failure|server is unavailable/,
+        );
+        await expect(page.locator("#wmi-catalogue-list")).not.toHaveAttribute(
+          "aria-busy",
+          "true",
+        );
+        if (retirement === "warning")
+          await expect(page.locator("#error-message")).toHaveText(
+            `Error: ${warning}`,
+          );
+      }
     });
 
 const previews = [
@@ -278,10 +297,14 @@ for (const preview of previews)
               : "Synthetic scoped read failure",
           );
           await expect(form.locator(".form-error")).toBeFocused();
-        } else if (
-          ["input", "reopen"].includes(retirement) ||
-          (failure !== "success" && retirement === "warning")
-        ) {
+        } else if (failure !== "success" && retirement === "warning") {
+          await expect(page.locator(preview.results)).toContainText("again");
+          await expect(page.locator(preview.results)).not.toContainText(
+            /Rendering…|Computing…/,
+          );
+          await expect(form.locator(".form-error")).toHaveCount(0);
+          await expect(field).toBeFocused();
+        } else if (["input", "reopen"].includes(retirement)) {
           await expect(page.locator(preview.results)).toHaveJSProperty(
             "innerHTML",
             before,

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   api,
+  actionApi,
   audit,
   showPersistentError,
   clearPersistentError,
@@ -45,7 +46,7 @@ describe("api", () => {
     const { summary, message } = banner();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(success()));
     showPersistentError("Earlier operation failed");
-    await api("/api/example", { method: "POST" });
+    await actionApi("/api/example", { method: "POST" });
     expect(summary.hidden).toBe(true);
     expect(message.textContent).toBe("");
   });
@@ -62,7 +63,7 @@ describe("api", () => {
         ),
     );
     showPersistentError("Earlier error");
-    const pending = api("/api/example", { method: "POST" });
+    const pending = actionApi("/api/example", { method: "POST" });
     showPersistentError("A newer operation needs attention");
     release(success());
     await pending;
@@ -147,7 +148,7 @@ describe("api", () => {
     const { summary, message } = banner();
     const report = captureErrorReporter(() => true);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(success()));
-    await api("/api/example", { method: "POST" });
+    await actionApi("/api/example", { method: "POST" });
     expect(report("Current policy reread failed")).toBe(true);
     expect(summary.hidden).toBe(false);
     expect(message.textContent).toContain("Current policy reread failed");
@@ -158,7 +159,7 @@ describe("api", () => {
     showPersistentError("Earlier warning");
     const report = captureErrorReporter(() => true);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(success()));
-    await api("/api/example", { method: "POST" });
+    await actionApi("/api/example", { method: "POST" });
     expect(summary.hidden).toBe(true);
     expect(report("Current policy reread failed")).toBe(true);
     expect(message.textContent).toContain("Current policy reread failed");
@@ -222,3 +223,51 @@ test("audit shapes an optimistic-concurrency mutation", () => {
     expected_revision: 17,
   });
 });
+
+test.each(["POST", "PATCH", "DELETE"])(
+  "pure %s successes never clear a pre-existing warning",
+  async (method) => {
+    const summary = { hidden: true, focus: vi.fn() },
+      message = { textContent: "" };
+    vi.stubGlobal("document", {
+      querySelector: (selector) =>
+        ({ "#error-summary": summary, "#error-message": message })[selector],
+    });
+    showPersistentError("Actual failed selection");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("{}", {
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    await api("/semantic-preview", { method });
+    expect(summary.hidden).toBe(false);
+    expect(message.textContent).toContain("Actual failed selection");
+  },
+);
+test.each([204, 200])(
+  "explicit action resolves only its preceding error with primitive response %s",
+  async (status) => {
+    const summary = { hidden: true, focus: vi.fn() },
+      message = { textContent: "" };
+    vi.stubGlobal("document", {
+      querySelector: (selector) =>
+        ({ "#error-summary": summary, "#error-message": message })[selector],
+    });
+    showPersistentError("Prior write failure");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(status === 204 ? null : "done", { status }),
+        ),
+    );
+    expect(await actionApi("/actual-write", { method: "DELETE" })).toBe(
+      status === 204 ? "" : "done",
+    );
+    expect(summary.hidden).toBe(true);
+  },
+);

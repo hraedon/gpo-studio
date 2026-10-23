@@ -157,8 +157,7 @@ async function load() {
     results.innerHTML=renderPlanError(error);
     status.textContent="The plan could not be built.";
   }});
-  results.setAttribute("aria-busy", "true");
-  status.textContent = "Building the plan…";
+  const pending=read.beginPending({busy:[results],loading:[{element:status,message:"Building the plan…",recovery:"Build the plan again to review the current policy."}]});
   try {
     const body = await /* request: publication.plan */ api(
       `/api/gpos/${encodeURIComponent(state.current.guid)}/publication-plan?target=${encodeURIComponent(target)}`,
@@ -171,12 +170,13 @@ async function load() {
   } catch (error) {
     read.reportError(error);
   } finally {
-    if (read.isCurrent()) results.setAttribute("aria-busy", "false");
+    pending.finish();
   }
 }
 
 export function openPublication() {
   if (!state.current) return;
+  reads.invalidate();
   $("#publication-target").value = "both";
   $("#publication-policy").textContent = `Policy: ${state.current.name}`;
   $("#publication-results").replaceChildren();
@@ -192,6 +192,7 @@ export function initPublication() {
     button.onclick = () => dialog.close();
   });
   dialog.addEventListener("close", () => {
+    reads.invalidate();
     generation += 1;
   });
 }

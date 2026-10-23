@@ -19,22 +19,28 @@ function redirectionLabel(c){return `${c.folder_guid||''} for ${c.principal||''}
 function kindClass(kind){return kind==='added'?'diff-added':kind==='removed'?'diff-removed':'diff-modified'}
 
 let revisionDiffRequest=0;
-const revisionReads=createReadScope({element:()=>$("#panel-diff")});
-const estateReads=createReadScope({element:()=>$("#panel-diff")});
-function diffRead(scope,isCurrent,target){return scope.start({isCurrent,report:error=>{target.innerHTML=`<div class="table-empty">Error: ${escapeHtml(error.message)}</div>`}})}
+const revisionReads=createReadScope({element:()=>$("#panel-diff"),reactivate:options=>loadDiffSelectors(options)});
+const estateReads=createReadScope({element:()=>$("#panel-diff"),reactivate:options=>loadDiffSelectors(options)});
+function diffRead(scope,isCurrent,target,options={}){return scope.start({...options,isCurrent,report:error=>{target.innerHTML=`<div class="table-empty">Error: ${escapeHtml(error.message)}</div>`}})}
 
-export async function loadDiffSelectors(){
+export async function loadDiffSelectors(options={}){
   const request=++revisionDiffRequest;
   const guid=state.current?.guid,generation=getGpoGeneration(guid),revision=state.current?.revision;
   estateReads.invalidate();
   $("#run-diff").disabled=false;
-  const read=diffRead(revisionReads,()=>request===revisionDiffRequest&&state.current?.guid===guid&&generation===getGpoGeneration(guid)&&state.current?.revision===revision,$("#revision-diff-results"));
+  const read=diffRead(revisionReads,()=>request===revisionDiffRequest&&state.current?.guid===guid&&generation===getGpoGeneration(guid)&&state.current?.revision===revision,$("#revision-diff-results"),options);
   $("#run-revision-diff").disabled=true;
   $("#revision-diff-from").replaceChildren();$("#revision-diff-to").replaceChildren();
-  $("#revision-diff-results").textContent="Loading revision history…";
+
   const opts=state.gpos.map(g=>`<option value="${escapeHtml(g.guid)}">${escapeHtml(g.name)} (r${g.revision})</option>`).join('');
   ['diff-baseline','diff-draft','diff-observed'].forEach(id=>{const sel=$('#'+id),prev=sel.value;sel.innerHTML=opts;if(prev)sel.value=prev});
   if(!state.current)return;
+  const button=$('#run-revision-diff'),results=$('#revision-diff-results');
+  button.disabled=false;button.textContent="Compare revisions";
+  const pending=read.beginPending({controls:[button],busy:[results],loading:[{element:results,message:"Loading revision history…",recovery:"Reload revisions to choose snapshots for this comparison.",className:"table-empty"}],onFinish:()=>{
+    const count=$('#revision-diff-from').options.length;
+    button.disabled=count===1;button.textContent=count?"Compare revisions":"Reload revisions";
+  }});
   try{
     const history=await /* request: comparison.history */ api(`/api/gpos/${guid}/revisions`);
     if(!read.isCurrent())return;
@@ -45,34 +51,37 @@ export async function loadDiffSelectors(){
     if(history.items.length)to.value=String(history.items[0].revision);
     $('#run-revision-diff').disabled=history.items.length<2;
     $('#revision-diff-results').innerHTML=history.items.length<2?'<div class="table-empty">Create another revision to compare policy history.</div>':'';
-  }catch(error){read.reportError(error)}
+  }catch(error){read.reportError(error)}finally{pending.finish();read.complete()}
 }
 
 export function initDiff(){
   for(const id of ["revision-diff-from","revision-diff-to"])$("#"+id).addEventListener("change",()=>{revisionReads.invalidate();$("#run-revision-diff").disabled=false});
   for(const id of ["diff-baseline","diff-draft","diff-observed"])$("#"+id).addEventListener("change",()=>{estateReads.invalidate();$("#run-diff").disabled=false});
   $('#run-revision-diff').onclick=async()=>{
+    if($('#run-revision-diff').disabled)return;
+    if(!$('#revision-diff-from').options.length||!$('#revision-diff-to').options.length){await loadDiffSelectors();return}
     const request=++revisionDiffRequest,guid=state.current.guid,generation=getGpoGeneration(guid),revision=state.current.revision;
     const button=$('#run-revision-diff'),from=$('#revision-diff-from').value,to=$('#revision-diff-to').value;
-    const read=diffRead(revisionReads,()=>request===revisionDiffRequest&&state.current?.guid===guid&&generation===getGpoGeneration(guid)&&state.current?.revision===revision,$("#revision-diff-results"));
+    const read=diffRead(revisionReads,()=>request===revisionDiffRequest&&state.current?.guid===guid&&generation===getGpoGeneration(guid)&&state.current?.revision===revision,$("#revision-diff-results"),{recoveryBudget:0});
     if(from===to){$('#revision-diff-results').innerHTML='<div class="table-empty">Choose two different revisions.</div>';return}
-    button.disabled=true;$('#revision-diff-results').innerHTML='<div class="table-empty">Comparing revisions…</div>';
+    const pending=read.beginPending({controls:[button],busy:[$('#revision-diff-results')],loading:[{element:$('#revision-diff-results'),message:"Comparing revisions…",recovery:"Run the comparison again to review its current result.",className:"table-empty"}]});
     try{const data=await /* request: comparison.revisions */ api(`/api/gpos/${guid}/revisions/diff?from_revision=${encodeURIComponent(from)}&to_revision=${encodeURIComponent(to)}`);if(!read.isCurrent())return;renderDiff(data,$('#revision-diff-results'))}
     catch(error){read.reportError(error)}
-    finally{if(read.isCurrent())button.disabled=false}
+    finally{pending.finish();read.complete()}
   };
   $('#run-diff').onclick=async()=>{
-    const btn=$('#run-diff');if(btn.disabled)return;btn.disabled=true;
+    const btn=$('#run-diff');if(btn.disabled)return;
     const baseline=$('#diff-baseline').value,draft=$('#diff-draft').value,observed=$('#diff-observed').value;
     const owners=[baseline,draft,observed].map(guid=>[guid,getGpoGeneration(guid)]);
-    const read=diffRead(estateReads,()=>$('#diff-baseline').value===baseline&&$('#diff-draft').value===draft&&$('#diff-observed').value===observed&&owners.every(([guid,generation])=>generation===getGpoGeneration(guid)),$('#diff-results'));
+    const read=diffRead(estateReads,()=>$('#diff-baseline').value===baseline&&$('#diff-draft').value===draft&&$('#diff-observed').value===observed&&owners.every(([guid,generation])=>generation===getGpoGeneration(guid)),$('#diff-results'),{recoveryBudget:0});
+    let pending;
     try{
       if(!baseline||!draft||!observed){toast('Select all three GPOs');return}
       if(baseline===draft||baseline===observed||draft===observed){toast('Select three different GPOs');return}
-      const results=$('#diff-results');results.innerHTML='<div class="table-empty">Computing diff…</div>';
+      const results=$('#diff-results');pending=read.beginPending({controls:[btn],busy:[results],loading:[{element:results,message:"Computing diff…",recovery:"Run the comparison again to review its current result.",className:"table-empty"}]});
       const data=await /* request: comparison.estate */ api('/api/estate/diff',{method:'POST',body:JSON.stringify({baseline_guid:baseline,draft_guid:draft,observed_guid:observed})});if(read.isCurrent())renderDiff(data)
     }catch(e){read.reportError(e)}
-    finally{if(read.isCurrent())btn.disabled=false}
+    finally{pending?.finish();read.complete()}
   };
 }
 

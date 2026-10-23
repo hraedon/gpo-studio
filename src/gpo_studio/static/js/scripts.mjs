@@ -219,9 +219,10 @@ async function preview(form) {
   cancelPendingPreview();
   $("#scripts-download").disabled=Boolean(availability());
   const read=scriptRead(form,"Preview refused.");
+  let pending;
   try {
     const body=buildScriptsRequest(rows);
-    $("#scripts-status").textContent="Building preview…";
+    pending=read.beginPending({loading:[{element:$("#scripts-status"),message:"Building preview…",recovery:"Build the preview again to review the current rows."}]});
     const result=await /* request: scripts.preview */ api(`${rowsPath()}/preview`,{
       method:"POST",body:JSON.stringify(body),
     });
@@ -229,12 +230,11 @@ async function preview(form) {
     $("#scripts-results").innerHTML=renderScriptsPreview(result);
     $("#scripts-status").textContent="Preview ready. Review the limits above the file contents.";
     clearFormErrors(form);
-  } catch(error) { read.reportError(error); }
+  } catch(error) { read.reportError(error); } finally {pending?.finish()}
 }
 
 async function download(read) {
   const body = buildScriptsRequest(rows);
-  $("#scripts-status").textContent = "Preparing download…";
   let response;
   try { response = await /* request: scripts.download */ fetch(rowsPath(), {
     method: "POST",
@@ -329,13 +329,13 @@ export function initScripts() {
     const button = $("#scripts-download");
     if(button.disabled)return;
     const read=scriptRead(form,"Download refused.");
-    button.disabled = true;
+    const pending=read.beginPending({controls:[button],loading:[{element:$("#scripts-status"),message:"Preparing download…",recovery:"Prepare the download again to review the current rows."}],onFinish:()=>{button.disabled=Boolean(availability())}});
     try {
       await download(read);
     } catch (error) {
       read.reportError(error);
     } finally {
-      if(read.isCurrent())button.disabled = Boolean(availability());
+      pending.finish();
     }
   };
 }

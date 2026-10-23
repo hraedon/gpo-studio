@@ -8,7 +8,7 @@ import {
   getGpoGeneration,
   isGpoObservationCurrent,
 } from "./state.mjs";
-import { api, toast, audit, showPersistentError } from "./api.mjs";
+import { api, toast, audit, showPersistentError,actionApi} from "./api.mjs";
 import { createReadScope } from "./read-context.mjs";
 import { renderAll, renderList } from "./render.mjs";
 import {
@@ -23,8 +23,8 @@ import {
 // Module-level caches. The ADMX catalogue and category tree are workspace-
 // level, so they only need to be loaded once per session. The configured
 // settings are GPO-level and re-fetched on every loadBrowser() call.
-const browserReads = createReadScope({ element: () => $("#panel-browser") });
-const configuredReads = createReadScope({ element: () => $("#panel-browser") });
+const browserReads = createReadScope({ element: () => $("#panel-browser"),reactivate:options=>loadBrowser(options) });
+const configuredReads = createReadScope({ element: () => $("#panel-browser"),reactivate:options=>loadBrowser(options) });
 
 let admxLoaded = null,
   categoryTree = null,
@@ -94,16 +94,20 @@ export function resetBrowserCatalogue() {
   updateBulkBar();
 }
 
-export async function loadBrowser() {
+export async function loadBrowser(options={}) {
   if (!state.current) return;
   const guid = state.current.guid, revision = state.current.revision;
   const generation = getGpoGeneration(guid);
   const epoch = catalogueEpoch,
     started = revisionEpoch();
   selectBrowserGpo(guid);
-  const read = browserReads.start({ isCurrent: () => epoch === catalogueEpoch &&
+  const read = browserReads.start({ ...options, isCurrent: () => epoch === catalogueEpoch &&
     state.current?.guid === guid && state.current?.revision === revision && generation === getGpoGeneration(guid) });
   updateBulkBar();
+  const status=$("#browser-load-status");status.hidden=false;
+  if(admxLoaded===null){$("#browser-empty").hidden=true;$("#browser-content").hidden=true}
+  const pending=read.beginPending({busy:[status],loading:[{element:status,message:"Loading settings catalogue…",recovery:"Reload settings to review the current catalogue and policy.",retry:()=>loadBrowser(),retryLabel:"Reload settings",className:"table-empty"}]});
+  try {
   if (admxLoaded === null) {
     try {
       const h = await /* request: settings.health */ api("/api/health");
@@ -124,7 +128,7 @@ export async function loadBrowser() {
     return;
   $("#browser-empty").hidden = admxLoaded;
   $("#browser-content").hidden = !admxLoaded;
-  if (!admxLoaded) return;
+  if (!admxLoaded) {status.replaceChildren();status.hidden=true;return}
   if (!categoryTreeLoaded) {
     if (!(await loadCategoryTree(read))) return;
   }
@@ -137,7 +141,8 @@ export async function loadBrowser() {
   )
     return;
   populateCategorySelect();
-  await loadConfiguredSettings();
+  await loadConfiguredSettings({errorAuthority:read.errorAuthority,recoveryBudget:read.recoveryBudget});
+  } finally {pending.finish();read.complete()}
 }
 
 async function loadCategoryTree(read) {
@@ -175,7 +180,7 @@ function populateCategorySelect() {
   if (previous) sel.value = previous;
 }
 
-async function loadConfiguredSettings() {
+async function loadConfiguredSettings(options={}) {
   if (!state.current) return;
   const guid = state.current.guid;
   const revision = state.current.revision;
@@ -184,6 +189,7 @@ async function loadConfiguredSettings() {
   const request = ++configuredRequest,
     started = revisionEpoch();
   const read = configuredReads.start({
+    ...options,
     isCurrent: () => request === configuredRequest && browserGpoGuid === guid &&
       state.current?.guid === guid && state.current?.revision === revision &&
       generation === getGpoGeneration(guid),
@@ -231,9 +237,10 @@ async function loadConfiguredSettings() {
       gpoRevision: data.gpo_revision,
     };
     renderBrowser(data);
+    $("#browser-load-status").replaceChildren();$("#browser-load-status").hidden=true;
   } catch (e) {
     read.reportError(e);
-  }
+  } finally {read.complete()}
 }
 
 export function formatElementValue(v) {
@@ -455,7 +462,7 @@ async function applyBulkState(targetState) {
           );
         if (!reviewedCatalogueIsCurrent(reviewedRevision))
           throw new Error(catalogueReviewMessage);
-        payload = await /* request: settings.bulk */ api(`/api/gpos/${guid}/bulk-policy-state`, {
+        payload = await /* request: settings.bulk */ actionApi(`/api/gpos/${guid}/bulk-policy-state`, {
           method: "POST",
           body: JSON.stringify({
             ...mutationAudit,

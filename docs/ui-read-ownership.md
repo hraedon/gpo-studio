@@ -9,28 +9,54 @@ Selection intent is observed before its full payload arrives, while the prior
 policy can still be visible. Captures are not created in the
 transport. They do not authorize writes or admit cached data.
 
-`isCurrent()` gates rendering, chaining, focus, byte delivery and pending-control
-finalizers. `reportError(error)` additionally composes the captured error-report
+`isCurrent()` gates rendering, chaining, focus and byte delivery.
+`beginPending()` separately leases disabled flags, busy attributes and exact loading
+nodes. Its finalizer releases only its own resources even after publication retires;
+it cannot unlock a newer operation or replace accepted results, a reset, or another
+dialog opening. An abandoned indicator offers an explicit read-only Retry. `reportError(error)` additionally composes the captured error-report
 version with an optional local sink. Clearing rows or review selections in a
 failure belongs **inside** that sink. A newer warning or explicit Dismiss retires
 error/focus publication only; useful successful data can still be admitted.
 Automatic successful-action resolution retains a current read's error lease.
 
 Catalogue token/epoch and collection/deletion observation admission stay separate.
-Health/category results can enter a valid catalogue cache after their view retires,
-but cannot paint, chain another read or report for that retired view. Collection
+Health and Settings-browser category results can enter a valid catalogue cache
+after their view retires. ADMX category loading and paint require their live view;
+these are not a shared unconditional category-cache rule. Cached results cannot
+paint, chain another read or report for a retired view. Collection
 summaries can still update the sidebar without changing an unrelated editor or
 selection. A dispatched write retains its named mutation outcome even when its
 originating read retires. In particular, GPP restore separates the historical
 lookup from the subsequently dispatched restore write.
 
+## Read-only view reactivation
+
+History, comparison revision choices, the Starter library, Settings and ADMX
+register view loaders with the same scope. If an editor opening retires a pending
+read while its original view/domain still exists, `complete()` queues a single
+read-only reactivation. The common dialog stack resumes it when uncovered (or
+immediately if the old response arrives after close). Query/input, tab, policy,
+revision, catalogue, session and newer-request ownership still retire that work.
+Sibling reads for one view share one latest recovery owner. Semantic previews and
+mutations are never replayed; comparisons instead release Run with a retry hint.
+
+Automatic reactivation carries the original error/editor authority and spends its
+one-attempt reactivation budget (the loader may perform its normal bounded GET
+chain). It cannot mint permission to replace/focus a newer warning,
+including after the dialog closes. Failure leaves an explicit Retry control; that
+new user action can acquire current authority. Cache warming and useful successful
+view recovery are separate from error/focus publication.
+
 ## Semantic caller inventory
 
 [ui-request-ownership.json](ui-request-ownership.json) is the maintained inventory:
-51 calls (one transport, 20 actual writes, 30 reads/previews/artifacts), with
+52 calls (two internal transport boundaries, 20 actual writes, 30 reads/previews/artifacts), with
 semantic IDs adjacent to each call. Read entries describe owner, error sink,
 retirement, cache admission and an actual-page or specialized unit test adapter.
-POST previews are reads; HTTP method is not the classification rule.
+POST previews are reads; HTTP method is not the classification rule. Actual writes
+must use `actionApi`; reads must use pure `api`/`fetch`, independently of matching
+registry channels. Only the two named internal wrappers have a transport exemption.
+The semantic IDs for the twenty existing write sites are pinned independently.
 
 | Reads | Count | Policy |
 | --- | ---: | --- |
@@ -55,7 +81,10 @@ POST previews are reads; HTTP method is not the classification rule.
 The `report.txt` link is intentional browser navigation: no JavaScript error sink.
 Reviewed export links are intercepted by the registered review action. Blob anchors
 are delivery continuations, not separate unowned requests. The API transport stamps
-response provenance only; it does not publish failure UI.
+response provenance only; it never publishes failure UI or resolves warnings, for
+any HTTP method. Only the explicitly registered `actionApi` committed-write adapter
+resolves the preceding warning on success, including primitive/204 responses. It
+preserves a newer warning and does not retire a current read's reporting lease.
 
 ## Completeness and behavioral evidence
 
@@ -63,13 +92,13 @@ response provenance only; it does not publish failure UI.
 compare discovered calls against the registry, including semantic ID, file,
 owning function, channel, method and path expression. Adding an unclassified
 call, changing a registered caller or leaving a removed entry fails. It resolves
-named API import aliases, API namespaces, simple identifier aliases and direct or
+named API/action import aliases, API namespaces and static members, simple identifier aliases and direct or
 global `fetch`; known new network constructors/beacon fail until explicitly
 supported. No line numbers are identities and no dependencies were added.
 
 This syntax check does not prove behavioral ownership and does not follow arbitrary
-wrappers, computed aliases, runtime injection, worker code or arbitrary navigation
-dataflow. New transport patterns require review and extending discovery. The
+wrappers or mutable-binding/dataflow alias changes, runtime injection,
+worker code or arbitrary navigation dataflow. New transport patterns require review and extending discovery. The
 registry is a review aid, not an exemption for an unsafe sink. Actual-page tests
 initiate requests through real UI controls, retain active HTTP/network refusal
 controls, and exercise retired warnings/editors/tabs/dialogs/inputs and successful

@@ -1,6 +1,6 @@
 import { createReadScope } from "./read-context.mjs";
 import { $, $$ } from "./state.mjs";
-import { api } from "./api.mjs";
+import { api,actionApi} from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
 import { checkAdmx } from "./admx.mjs";
 import { loadBrowser } from "./browser.mjs";
@@ -52,12 +52,12 @@ async function openTemplates() {
   reads.invalidate();
   const generation = ++dialogGeneration;
   const form = $("#templates-form");
-  $("#templates-load").disabled = true;
-  form.elements.path.disabled = true;
+  $("#templates-load").disabled = loadingFolder;
+  form.elements.path.disabled = false;
   clearFormErrors(form);
-  $("#templates-status").textContent = "Checking loaded templates…";
   $("#templates-dialog").showModal();
   const read=reads.capture();
+  const pending=read.beginPending({controls:[form.elements.path,$("#templates-load")],loading:[{element:$("#templates-status"),message:"Checking loaded templates…",recovery:"Reopen ADMX folder to reload the current sources."}],onFinish:()=>{$("#templates-load").disabled=loadingFolder}});
   try {
     const items = await refreshSources(generation, { setPath: true });
     if (items && read.isCurrent())
@@ -67,10 +67,7 @@ async function openTemplates() {
   } catch (error) {
     read.reportError(error);
   } finally {
-    if (read.isCurrent()) {
-      form.elements.path.disabled = false;
-      $("#templates-load").disabled = loadingFolder;
-    }
+    pending.finish();
   }
 }
 
@@ -143,7 +140,7 @@ export function initTemplates() {
     $("#templates-status").textContent = "Loading templates…";
     let result;
     try {
-      result = await /* request: templates.activate */ api("/api/templates/ingest", {
+      result = await /* request: templates.activate */ actionApi("/api/templates/ingest", {
         method: "POST",
         body: JSON.stringify({
           name: "default",

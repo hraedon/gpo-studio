@@ -159,6 +159,7 @@
         <div class="panel" id="panel-browser" role="tabpanel" aria-labelledby="tab-browser" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Configured policy browser</p><h2>Settings browser</h2></div></div>
           <p id="browser-readonly" class="app-message status-message" role="status" hidden>Archived policies are read-only. Fork this policy from Overview to edit its settings.</p>
+          <div id="browser-load-status" class="table-empty" role="status" hidden></div>
           <div id="browser-empty" class="table-empty">No ADMX catalogue is loaded. <button type="button" data-open-templates>Choose an ADMX folder</button> to use the settings browser.</div>
           <div id="browser-content" hidden>
             <div class="filter-row" role="group" aria-label="Filter configured settings by configuration side"><button class="chip active" aria-pressed="true" data-side="all">All</button><button class="chip" aria-pressed="false" data-side="computer">Computer</button><button class="chip" aria-pressed="false" data-side="user">User</button></div>
@@ -233,6 +234,7 @@
 
         <div class="panel" id="panel-admx" role="tabpanel" aria-labelledby="tab-admx" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Administrative Templates</p><h2>Policy catalogue</h2></div></div>
+          <div id="admx-load-status" class="table-empty" role="status" hidden></div>
           <div id="admx-empty" class="table-empty">No ADMX catalogue is loaded. <button type="button" data-open-templates>Choose an ADMX folder</button> to browse policies.</div>
           <div id="admx-content" hidden>
             <label for="admx-search">Search ADMX policies</label>

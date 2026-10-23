@@ -1,6 +1,6 @@
 import {createReadScope} from './read-context.mjs';
 import {state,$,$$,escapeHtml,applyPayload,getGpoGeneration} from './state.mjs';
-import {api,toast,audit} from './api.mjs';
+import {api,toast,audit,actionApi} from './api.mjs';
 import {clearFormErrors,showFormErrors,handleFormFailure} from './errors.mjs';
 import {renderAll,renderList} from './render.mjs';
 import {captureMutation,resetEditor,beginMutation,isSameEditor,completeMutation,mutationFailed,endMutation} from './mutation-context.mjs';
@@ -289,7 +289,7 @@ async function submitGppGroup(event){
   if(broadMembershipChange&&!confirm(`Save broad membership change for group "${group.name}"?\n\nAction: ${group.action}. Remove all users: ${group.remove_all_users?'yes':'no'}. Remove all groups: ${group.remove_all_groups?'yes':'no'}. Review the required change reason before continuing.`))return;
   const path=state.editingGppGroup?`/api/gpos/${state.current.guid}/preferences/groups/${state.editingGppGroup.id}`:`/api/gpos/${state.current.guid}/preferences/groups`;
   const context=beginMutation(f);if(!context)return;clearFormErrors(f);
-  try{const data=await /* request: gpp.group.save */ api(path,{method:state.editingGppGroup?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),expected_revision:context.revision,group})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP group saved")}catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{onCurrent:applyCurrent,fieldNames:context.fieldNames,isActive:()=>isSameEditor(context)}))}finally{endMutation(context)}
+  try{const data=await /* request: gpp.group.save */ actionApi(path,{method:state.editingGppGroup?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),expected_revision:context.revision,group})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP group saved")}catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{onCurrent:applyCurrent,fieldNames:context.fieldNames,isActive:()=>isSameEditor(context)}))}finally{endMutation(context)}
 }
 
 export async function deleteGppGroup(scope,id){
@@ -297,7 +297,7 @@ export async function deleteGppGroup(scope,id){
   const collection=(state.current.gpp_collections||[]).find(item=>item.scope===scope);
   const group=(collection?.groups||[]).find(item=>item.id===id);
   if(!confirm(`Remove GPP group "${group?.name||id}" from the ${scope} draft?\n\nIts action, members, and item-level targeting will be removed in one new revision.`))return;
-  try{const data=await /* request: gpp.group.delete */ api(`/api/gpos/${context.guid}/preferences/groups/${id}`,{method:"DELETE",body:JSON.stringify({scope,...audit("Remove GPP group")})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP group removed")}catch(error){await mutationFailed(context,error)}
+  try{const data=await /* request: gpp.group.delete */ actionApi(`/api/gpos/${context.guid}/preferences/groups/${id}`,{method:"DELETE",body:JSON.stringify({scope,...audit("Remove GPP group")})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP group removed")}catch(error){await mutationFailed(context,error)}
 }
 
 export async function moveGppItem(scope,kind,id,offset){
@@ -308,7 +308,7 @@ export async function moveGppItem(scope,kind,id,offset){
   if(!orderedIds)return;
   try{
     const label=kind==="groups"?"groups":"registry items";
-    const data=await /* request: gpp.reorder */ api(`/api/gpos/${context.guid}/preferences/reorder`,{method:"POST",body:JSON.stringify({scope,kind,ordered_ids:orderedIds,...audit(`Reorder GPP ${label}`)})});
+    const data=await /* request: gpp.reorder */ actionApi(`/api/gpos/${context.guid}/preferences/reorder`,{method:"POST",body:JSON.stringify({scope,kind,ordered_ids:orderedIds,...audit(`Reorder GPP ${label}`)})});
     completeMutation(context,data,{apply:applyCurrent,renderList});toast(`GPP ${label} reordered`);
   }catch(error){await mutationFailed(context,error)}
 }
@@ -318,7 +318,7 @@ export async function cloneGppItem(scope,kind,item,existingNames=[]){
   const label=kind==="groups"?"group":"registry item";
   try{
     const request=gppCloneRequest(context.guid,scope,kind,item,existingNames);
-    const data=await /* request: gpp.clone */ api(request.path,{method:"POST",body:JSON.stringify({...request.body,...audit(`Clone GPP ${label}`)})});
+    const data=await /* request: gpp.clone */ actionApi(request.path,{method:"POST",body:JSON.stringify({...request.body,...audit(`Clone GPP ${label}`)})});
     const applied=completeMutation(context,data,{apply:applyCurrent,renderList});toast(`GPP ${label} cloned`);
     if(!applied||document.querySelector("dialog[open]"))return;
     // Open the copy (the last item) for editing.
@@ -350,7 +350,7 @@ export async function restoreGppItem(scope,kind,id){
     const property=kind==="groups"?"group":"registry";
     const request=gppRestoreRequest(context.guid,scope,kind,id,revision);
     dispatched=true;
-    const data=await /* request: gpp.restore.commit */ api(request.path,{method:"POST",body:JSON.stringify({...request.body,...audit(`Restore GPP ${property} from revision ${revision}`)})});
+    const data=await /* request: gpp.restore.commit */ actionApi(request.path,{method:"POST",body:JSON.stringify({...request.body,...audit(`Restore GPP ${property} from revision ${revision}`)})});
     completeMutation(context,data,{apply:applyCurrent,renderList});toast(`${kind==="groups"?"Group":"Registry item"} restored from revision ${revision}`);
   }catch(error){if(dispatched)await mutationFailed(context,error);else read.reportError(error)}
 }
@@ -440,7 +440,7 @@ async function submitGppRegistry(event){
   const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,value,ilt_filter:commonIlt};
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
   const context=beginMutation(f);if(!context)return;clearFormErrors(f);
-  try{const data=await /* request: gpp.registry.save */ api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),expected_revision:context.revision,registry})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP registry saved")}catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{onCurrent:applyCurrent,fieldNames:context.fieldNames,isActive:()=>isSameEditor(context)}))}finally{endMutation(context)}
+  try{const data=await /* request: gpp.registry.save */ actionApi(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),expected_revision:context.revision,registry})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP registry saved")}catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{onCurrent:applyCurrent,fieldNames:context.fieldNames,isActive:()=>isSameEditor(context)}))}finally{endMutation(context)}
 }
 
 export async function deleteGppRegistry(scope,id){
@@ -448,7 +448,7 @@ export async function deleteGppRegistry(scope,id){
   const collection=(state.current.gpp_collections||[]).find(item=>item.scope===scope);
   const registry=(collection?.registry||[]).find(item=>item.id===id);
   if(!confirm(`Remove GPP registry item "${registry?.key||id}" from the ${scope} draft?\n\nIts value and item-level targeting will be removed in one new revision.`))return;
-  try{const data=await /* request: gpp.registry.delete */ api(`/api/gpos/${context.guid}/preferences/registry/${id}`,{method:"DELETE",body:JSON.stringify({scope,...audit("Remove GPP registry")})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP registry removed")}catch(error){await mutationFailed(context,error)}
+  try{const data=await /* request: gpp.registry.delete */ actionApi(`/api/gpos/${context.guid}/preferences/registry/${id}`,{method:"DELETE",body:JSON.stringify({scope,...audit("Remove GPP registry")})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP registry removed")}catch(error){await mutationFailed(context,error)}
 }
 
 function addPredicateRow(listId,previewId,row=null){
