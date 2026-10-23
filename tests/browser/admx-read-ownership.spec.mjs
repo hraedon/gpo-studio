@@ -99,7 +99,8 @@ async function hold(page, kind, failure) {
       expect(response.status()).toBe(200);
       arrived.resolve(payload);
       await release.promise;
-      if (failure === "network") await route.abort("failed");
+      if (failure === "success") await route.fulfill({ response });
+      else if (failure === "network") await route.abort("failed");
       else
         await route.fulfill({
           status: 503,
@@ -536,3 +537,88 @@ test("a newer query retires an old search error without relying on another warni
     pending.release();
   }
 });
+
+for (const kind of ["search", "detail"])
+  for (const outcome of ["http", "network", "success"]) {
+    test(`new input retires ${kind}/${outcome} before debounce dispatch ${kind === "search" && outcome === "http" ? "@smoke" : ""}`, async ({
+      page,
+      request,
+    }) => {
+      await page.clock.install({ time: new Date("2030-01-01T00:00:00Z") });
+      const { alpha } = await start(page, request);
+      const search = page.locator("#admx-search");
+      // This warning predates the old lookup, so error-generation ownership alone
+      // cannot mask a missing request-intent lease.
+      await markWarning(page, search);
+      const pending = await hold(page, kind, outcome);
+      let newQueries = 0,
+        writes = 0;
+      page.on("request", (req) => {
+        const url = new URL(req.url());
+        if (
+          url.pathname === "/api/admx/search" &&
+          url.searchParams.get("q") === "toggle"
+        )
+          newQueries++;
+        if (req.method() === "POST" && url.pathname.endsWith("/configure"))
+          writes++;
+      });
+      try {
+        await trigger(page, kind);
+        await pending.arrived;
+        await page.clock.pauseAt(new Date("2030-01-01T01:00:00Z"));
+        const before = await page.locator(".admx-result").allTextContents();
+        await search.fill("toggle");
+        expect(newQueries).toBe(0);
+        pending.release();
+        await pending.done;
+        // Deliver browser callbacks while keeping the250ms debounce outstanding.
+        await page.clock.runFor(20);
+        const observed = {
+          kind,
+          outcome,
+          newQueries,
+          elapsed: await page.evaluate(
+            () => Date.now() - Date.parse("2030-01-01T01:00:00Z"),
+          ),
+          message: await page.locator("#error-message").textContent(),
+          focused: await page.evaluate(
+            () => globalThis.document.activeElement.id,
+          ),
+          results: await page.locator(".admx-result").allTextContents(),
+          detailHidden: await page
+            .locator("#admx-detail")
+            .evaluate((element) => element.hidden),
+        };
+        console.log("ADMX_INPUT_INTENT", JSON.stringify(observed));
+        expect(observed.elapsed).toBe(20);
+        expect(newQueries).toBe(0);
+        expect(writes).toBe(0);
+        await expect(page.locator("#error-message")).toHaveText(
+          `Error: ${warning}`,
+        );
+        await expect(search).toBeFocused();
+        expect(observed.results).toEqual(before);
+        expect(observed.detailHidden).toBe(true);
+        const response = page.waitForResponse(
+          (result) =>
+            new URL(result.url()).pathname === "/api/admx/search" &&
+            new URL(result.url()).searchParams.get("q") === "toggle",
+        );
+        await page.clock.runFor(250);
+        await response;
+        await expect(page.locator(".admx-result")).toHaveCount(1);
+        await expect(page.locator(".admx-result")).toContainText(
+          "Synthetic probe toggle",
+        );
+        expect(newQueries).toBe(1);
+        expect(writes).toBe(0);
+        expect(
+          (await (await request.get(`/api/gpos/${alpha.guid}`)).json()).gpo
+            .revision,
+        ).toBe(1);
+      } finally {
+        pending.release();
+      }
+    });
+  }

@@ -175,5 +175,6 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
     if(isCurrentEditor(context)&&(f.dataset.catalogueStale||!reviewedCatalogueIsCurrent(reviewedRevision)))markConfigureStale();
   }
 };
-$("#admx-search").oninput=e=>{clearTimeout(admxTimer);admxTimer=setTimeout(()=>loadAdmxResults(e.target.value),250)};
+// New text retires the old request immediately; dispatch remains debounced.
+$("#admx-search").oninput=e=>{admxRequest++;clearTimeout(admxTimer);admxTimer=setTimeout(()=>loadAdmxResults(e.target.value),250)};
 }
