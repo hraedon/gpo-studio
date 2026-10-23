@@ -11,6 +11,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 - Keep workspace header actions and long policy titles inside the viewport at desktop
   and narrow widths, while retaining scrolling tabs and registry tables.
+- Restore keyboard focus to the same row action after an owned save redraws the
+  table. Newer editors, policy changes and intentional focus moves retire an old
+  dialog's scheduled focus return.
 - Retire ADMX lookups when search text changes; keep obsolete lookup and catalogue-read
   failures out of newer views, warnings and drafts while retaining active failure messages.
 - Refresh reopened Starter libraries after committed changes and keep the ordinary

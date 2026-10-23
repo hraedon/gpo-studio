@@ -15,6 +15,7 @@ import {initScripts} from './scripts.mjs';
 import {initPublication} from './publication.mjs';
 import {initTemplates} from './templates.mjs';
 import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,updateMutationList,mutationFailed,endMutation} from './mutation-context.mjs';
+import {captureDialogFocus,restoreDialogFocus} from './dialog-focus.mjs';
 
 const tabs=$$(".tab[role='tab']");
 
@@ -83,6 +84,13 @@ function initialiseDialog(dialog){
   pendingAnnouncement.setAttribute("aria-atomic","true");
   dialog.appendChild(pendingAnnouncement);
   const nativeShowModal=dialog.showModal.bind(dialog);
+  const nativeClose=dialog.close.bind(dialog),closingFocus=[];
+  let openingFocus=null;
+  dialog.close=(...args)=>{
+    const closing=dialog.open?openingFocus:null;
+    nativeClose(...args);
+    if(closing)closingFocus.push(closing);
+  };
   dialog.showModal=()=>{
     if(dialog.open)return;
     pendingAnnouncement.textContent="";
@@ -91,14 +99,17 @@ function initialiseDialog(dialog){
     dialog.editorTarget={guid:state.current?.guid??null,revision:state.current?.revision??null,name:state.current?.name||"workspace",generation:getGpoGeneration(state.current?.guid)};
     const active=document.activeElement;
     dialog.returnFocus=active instanceof HTMLElement?active:null;
+    const focus=openingFocus=captureDialogFocus(dialog);
     nativeShowModal();
     requestAnimationFrame(()=>{
+      if(!dialog.open||dialog.editorSession!==focus.session||state.editorGeneration!==focus.editorGeneration)return;
       const preferred=dialog.querySelector("[autofocus],[data-initial-focus],[aria-invalid='true']");
       const firstField=focusableElements(dialog).find(element=>element.matches("input,select,textarea"));
       const target=(preferred instanceof HTMLElement&&preferred.getClientRects().length?preferred:null)||firstField||focusableElements(dialog)[0]||dialog;
       if(target instanceof HTMLElement)target.focus();
     });
   };
+  dialog.addEventListener("cancel",event=>{event.preventDefault();dialog.close()});
   dialog.addEventListener("click",event=>{
     const cancel=event.target.closest('button[value="cancel"]');
     if(cancel&&cancel.closest("dialog")===dialog){event.preventDefault();dialog.close("cancel")}
@@ -113,12 +124,9 @@ function initialiseDialog(dialog){
     else if(!dialog.contains(document.activeElement)){event.preventDefault();first.focus()}
   });
   dialog.addEventListener("close",()=>{
-    const returnFocus=dialog.returnFocus;
-    dialog.returnFocus=null;
-    requestAnimationFrame(()=>{
-      if(document.querySelector("dialog[open]"))return;
-      if(returnFocus instanceof HTMLElement&&returnFocus.isConnected&&!returnFocus.hasAttribute("disabled"))returnFocus.focus();
-    });
+    const focus=closingFocus.shift()||openingFocus;
+    if(openingFocus===focus){openingFocus=null;dialog.returnFocus=null}
+    requestAnimationFrame(()=>restoreDialogFocus(dialog,focus));
   });
 }
 
