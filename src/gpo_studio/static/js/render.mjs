@@ -1,4 +1,4 @@
-import {state,$,$$,escapeHtml,applyPayload,updateGpoSummary} from './state.mjs';
+import {state,$,$$,escapeHtml,applyPayload,getGpoSummaryVersion,replaceGpoSummaries} from './state.mjs';
 import {api} from './api.mjs';
 import {openSetting,deleteSetting,openComment,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
 import {renderGpp} from './gpp.mjs';
@@ -8,15 +8,15 @@ import {loadDiffSelectors} from './diff.mjs';
 let selectionRequest=0,historyRequest=0,listRequest=0;
 
 export async function loadList(selectGuid){
-  const selection=selectionRequest,request=++listRequest;
+  const selection=selectionRequest,request=++listRequest,editorGeneration=state.editorGeneration,summaryVersion=getGpoSummaryVersion();
   const data=await api("/api/gpos");
   if(request!==listRequest)return;
-  state.gpos=data.items;
-  if(state.current)updateGpoSummary(state.current);
+  replaceGpoSummaries(data.items,summaryVersion);
   renderList();
-  if(selection!==selectionRequest)return;
-  const guid=selectGuid||state.current?.guid||state.gpos[0]?.guid;
-  if(guid)await selectGpo(guid);else showEmpty();
+  if(selection!==selectionRequest||editorGeneration!==state.editorGeneration)return;
+  const available=guid=>state.gpos.some(gpo=>gpo.guid===guid);
+  const guid=[selectGuid,state.current?.guid,state.gpos[0]?.guid].find(available);
+  if(guid)await selectGpo(guid,{editorGeneration});else{state.current=null;showEmpty()}
 }
 export function renderList(){
   const query=$("#search").value.toLowerCase();
@@ -24,10 +24,10 @@ export function renderList(){
   $$(".gpo-item").forEach(el=>el.onclick=()=>selectGpo(el.dataset.guid));
 }
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
-export async function selectGpo(guid){
+export async function selectGpo(guid,{editorGeneration}={}){
   const request=++selectionRequest;
   const data=await api(`/api/gpos/${guid}`);
-  if(request!==selectionRequest)return;
+  if(request!==selectionRequest||(editorGeneration!==undefined&&editorGeneration!==state.editorGeneration))return;
   applyPayload(data);
   $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
   renderAll();renderList();
