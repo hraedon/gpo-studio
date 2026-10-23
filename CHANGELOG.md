@@ -9,6 +9,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Preserve reopened Starter GPO and GPMC import drafts after older saves finish;
+  freeze pending controls and support Enter in the backup import form.
+- Keep automatic list/detail refreshes from changing a newer editor's policy, and
+  retain summaries learned after a list request without pinning deleted entries.
 - Fix Cancel and Close across dialogs with invalid required fields, and make Enter
   submit creation instead of silently dismissing it.
 - Add an ADMX folder dialog with source counts, load diagnostics and refreshed policy

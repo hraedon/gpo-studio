@@ -14,6 +14,7 @@ import {initFolderRedirection} from './folder-redirection.mjs';
 import {initScripts} from './scripts.mjs';
 import {initPublication} from './publication.mjs';
 import {initTemplates} from './templates.mjs';
+import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,updateMutationList,mutationFailed,endMutation} from './mutation-context.mjs';
 
 const tabs=$$(".tab[role='tab']");
 
@@ -76,6 +77,7 @@ function initialiseDialog(dialog){
   const nativeShowModal=dialog.showModal.bind(dialog);
   dialog.showModal=()=>{
     if(dialog.open)return;
+    state.editorGeneration++;
     dialog.editorSession=Symbol("editor session");
     dialog.editorTarget={guid:state.current?.guid??null,revision:state.current?.revision??null,name:state.current?.name||"workspace"};
     const active=document.activeElement;
@@ -209,27 +211,36 @@ $("#export-review-download").onclick=()=>{
 
 $("#import-gpmc").onclick=async()=>{
   const form=$("#gpmc-import-form");
-  form.reset();clearFormErrors(form);
+  resetEditor(form);form.reset();clearFormErrors(form);
+  form.dataset.inboxConfigured="false";
   $("#gpmc-import-preview").textContent="Checking the import inbox…";
   $("#gpmc-import-submit").disabled=true;
+  $("#gpmc-import-submit").textContent="Import backup";
   $("#gpmc-import-dialog").showModal();
+  const context=captureMutation(form);
   try{
     const info=(await api("/api/imports/capabilities")).gpmc_backup;
+    if(!isCurrentEditor(context))return;
+    form.dataset.inboxConfigured=String(Boolean(info.inbox_configured));
     $("#gpmc-import-preview").textContent=info.inbox_configured?"Import inbox found. The path you enter is read relative to it.":"No import inbox is configured. Set GPO_STUDIO_INBOX_DIR to import backups from here.";
     $("#gpmc-import-submit").disabled=!info.inbox_configured;
-    $("#gpmc-import-submit").textContent="Import backup";
-  }catch(error){showFormErrors(form,error)}
+  }catch(error){if(isCurrentEditor(context))showFormErrors(form,error)}
 };
-$("#gpmc-import-submit").onclick=async()=>{
-  const form=$("#gpmc-import-form");clearFormErrors(form);
-  if(!form.reportValidity())return;
-  const button=$("#gpmc-import-submit");button.disabled=true;
+$("#gpmc-import-form").onsubmit=async event=>{
+  event.preventDefault();
+  const form=event.currentTarget;
+  if(form.dataset.inboxConfigured!=="true"||!form.reportValidity())return;
+  const context=beginMutation(form,{workspace:true});if(!context)return;
+  context.name="GPMC backup import";
+  clearFormErrors(form);
   try{
     const data=await api("/api/backups/import",{method:"POST",body:JSON.stringify({path:form.relative_path.value,actor:form.actor.value,reason:form.reason.value})});
-    $("#gpmc-import-dialog").close();
-    await loadList(data.gpo.guid);
-    setAppStatus(`Imported ${data.gpo.name} as an archived, read-only baseline. Fork it before editing.`);
-  }catch(error){showFormErrors(form,error)}finally{button.disabled=false}
+    const selectImported=isSameEditor(context);
+    updateMutationList(data,renderList);
+    if(isCurrentEditor(context))context.dialog.close();
+    if(selectImported)await loadList(data.gpo.guid);
+    toast(`Imported ${data.gpo.name} as an archived, read-only baseline. Fork it before editing.`);
+  }catch(error){await mutationFailed(context,error,showFormErrors)}finally{endMutation(context)}
 };
 for(const name of ["side","action","registry_type"])$("#setting-form")[name].onchange=syncSettingForm;
 
