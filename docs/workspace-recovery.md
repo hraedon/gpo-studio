@@ -627,3 +627,19 @@ be addressed safely by browser URLs. Their browser actions refuse before sending
 a request, leave the records/history readable, and explain fresh-draft recovery
 with a new ID as described above. Copy preserves these IDs, so it does not remove
 this limitation; recovering chosen raw records with new UUIDs does.
+
+Raw registry editor IDs with digit-like list ordinals which cannot be interpreted
+as decimal digits, such as a superscript `²`, remain visible as unresolved records
+rather than failing configured-settings reads. Canonical positive ASCII ordinals,
+very long decimal strings, zero/leading-zero forms and Unicode decimal digits keep
+their existing numeric order without whole-string integer conversion. Source
+names and existing historical component ambiguity are unchanged; the reader does
+not infer a different source from the spelling or size of an ordinal.
+
+The unresolved records, raw head and original history remain available for review;
+reads do not rename, repair or remove them. Independently eligible native exports
+remain available. Explicit fresh-draft recovery can retain chosen registry records
+with fresh UUIDs as described above. The observed failures were reproduced with
+raw ID substitutions admitted by the local workspace store, not demonstrated
+external imports or actual historical writer output. These read/storage guarantees
+provide no new native Windows qualification.

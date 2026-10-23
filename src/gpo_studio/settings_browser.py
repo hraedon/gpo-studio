@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal, assert_never
@@ -603,7 +604,17 @@ def _setting_belongs_to_element(
 def _decode_element_values(
     plan: _PolicyReadPlan,
     rows: tuple[_StoredReadBinding, ...],
-) -> tuple[dict[str, bool | int | str | list[str]], frozenset[int]]:
+) -> tuple[dict[str, bool | int | str | list[str]], frozenset[int], frozenset[int]]:
+    # Keep source/ownership binding unchanged. Only rows whose existing list
+    # binding would make int() fail are excluded from values and shown unresolved.
+    unsupported = frozenset(
+        index
+        for binding in plan.elements if binding.element.kind == "list"
+        for index, row in enumerate(rows)
+        if row.structured is None and row.legacy_suffix is not None
+        and _setting_belongs_to_element(row, binding, plan)
+        and _list_sort_key(row.legacy_suffix, binding.element.id) is None
+    )
     result: dict[str, bool | int | str | list[str]] = {}
     claimed: set[int] = set()
     for binding in plan.elements:
@@ -611,7 +622,8 @@ def _decode_element_values(
         matching = [
             (index, row)
             for index, row in enumerate(rows)
-            if _setting_belongs_to_element(row, binding, plan)
+            if not (element.kind == "list" and index in unsupported)
+            and _setting_belongs_to_element(row, binding, plan)
         ]
         bound_rows = [row for _index, row in matching]
         if element.kind != "unknown":
@@ -648,21 +660,25 @@ def _decode_element_values(
             result[element.id] = _decode_enum(element, element_settings[0])
         elif element.kind == "unknown":
             continue
-    return result, frozenset(claimed)
+    return result, frozenset(claimed), unsupported
 
 
 def _collect_list_items(
     element: PolicyElement, rows: list[_StoredReadBinding]
 ) -> list[RegistrySetting]:
-    synthetic_items: list[tuple[int, RegistrySetting]] = []
+    synthetic_items: list[tuple[tuple[int, str], RegistrySetting]] = []
     fallback_items: list[RegistrySetting] = []
     for row in rows:
         structured = row.structured
         if structured is not None and structured.kind == "element-list":
-            synthetic_items.append((structured.ordinal, row.setting))
+            digits = str(structured.ordinal)
+            synthetic_items.append(((len(digits), digits), row.setting))
             continue
         if row.legacy_suffix is not None:
-            synthetic_items.append((_list_sort_key(row.legacy_suffix, element.id), row.setting))
+            ordinal = _list_sort_key(row.legacy_suffix, element.id)
+            # The decoding prepass retains unorderable rows as unresolved.
+            if ordinal is not None:
+                synthetic_items.append((ordinal, row.setting))
         else:
             fallback_items.append(row.setting)
     if synthetic_items:
@@ -671,13 +687,20 @@ def _collect_list_items(
     return fallback_items
 
 
-def _list_sort_key(suffix: str, element_id: str) -> int:
-    if suffix == element_id:
-        return 0
+def _list_sort_key(suffix: str, element_id: str) -> tuple[int, str] | None:
     remainder = suffix[len(element_id) :]
-    if remainder.startswith("-") and remainder[1:].isdigit():
-        return int(remainder[1:])
-    return 0
+    if suffix == element_id or not (remainder.startswith("-") and remainder[1:].isdigit()):
+        return (1, "0")
+    ordinal = remainder[1:]
+    if not ordinal.isdecimal():
+        return None
+    # Match int()'s successful decimal ordering, including zero/leading zeros
+    # and Unicode Nd digits, without whole-string conversion or a size limit.
+    digits = ordinal if ordinal.isascii() else "".join(
+        str(unicodedata.decimal(character)) for character in ordinal
+    )
+    digits = digits.lstrip("0") or "0"
+    return (len(digits), digits)
 
 
 def _decode_enum(
@@ -743,11 +766,16 @@ def build_settings_browser(
         else:
             observed_state = _derive_state(policy, side, raw, structured_ids=structured_ids)
             state_reason = None
-        element_values, claimed = _decode_element_values(plan, bound_rows)
+        element_values, claimed, unsupported = _decode_element_values(plan, bound_rows)
+        unresolved.extend(
+            UnresolvedSetting(bound_rows[index].setting, "unsupported legacy list ordinal")
+            for index in sorted(unsupported)
+        )
         unresolved.extend(
             UnresolvedSetting(row.setting, "ambiguous legacy policy component")
             for index, row in enumerate(bound_rows)
-            if index not in claimed and row.address not in plan.non_list_addresses
+            if index not in unsupported
+            and index not in claimed and row.address not in plan.non_list_addresses
             and (row.legacy_list_conflict or (
                 row.legacy_suffix is not None and row.legacy_suffix.startswith("disabled-element-")
             ))
