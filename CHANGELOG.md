@@ -9,6 +9,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Keep retired policy-read errors out of newer editors and announce pending saves
+  outside busy forms; distinguish policy changes from catalogue reloads in bulk guidance.
 - Refresh stale conflict comparisons and require renewed reapply consent; load the
   current revision without rewinding newer policy data or replacing reopened editors.
 - Preserve confirmed policy revisions when older reads finish; refresh lists after
