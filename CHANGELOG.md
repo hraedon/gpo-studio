@@ -12,6 +12,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 - Read raw legacy list ordinals without integer-conversion failures and keep
   unorderable digit-like ordinals visible as unresolved records, while preserving
   previously successful decimal spellings, source names and historical list order.
+- Show policy identities when accepted ADMX display names are missing or blank,
+  keeping configured-policy controls and catalogue review visibly labelled.
 
 - Preserve uncertainty from historical state records outside current list-policy
   patterns, regardless of the current writer's identity family; keep ordinary
