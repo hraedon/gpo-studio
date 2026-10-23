@@ -86,22 +86,24 @@ _GPP_EXTENSION_PROFILES: dict[str, tuple[str, str]] = {
     ),
 }
 
-# Scripts CSE pair, measured on the wire (windows-console-driver claim-registry
-# R2 re-run, 2026-09-03): the authoring transaction registered exactly
-# ``[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3}]``
-# in ``gPCMachineExtensionNames``, so both halves below are captured, not
-# recalled. scripts.ini (legacy) and psscripts.ini (PowerShell) are the payload
-# files of this one extension.
+# Scripts CSE pair, measured on the wire. Machine side: windows-console-driver
+# claim-registry R2 re-run, 2026-09-03 — the authoring transaction registered
+# exactly ``[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3}]``
+# in ``gPCMachineExtensionNames``. User side: Plan 035 estate window 19
+# (record w19-r2, re-verified w22-r1, 2026-10-21) — GPME writes a DIFFERENT
+# tool GUID on the user side, ``40B66650`` where the machine side carries
+# ``40B6664F``. scripts.ini (legacy) and psscripts.ini (PowerShell) are the
+# payload files of this one extension.
 _SCRIPTS_CSE_GUID = "{42B5FAAE-6536-11D2-AE5A-0000F87571E3}"
 _SCRIPTS_TOOL_GUID = "{40B6664F-4972-11D1-A7CA-0000F87571E3}"
+_SCRIPTS_USER_TOOL_GUID = "{40B66650-4972-11D1-A7CA-0000F87571E3}"
 
 # Every GUID the native backup export can write into ``MachineExtensionGuids``
 # / ``UserExtensionGuids``: both halves of every pair, plus the zero-GUID
-# prefix of the GPP aggregation group. Backup import keeps every ``{...}``
-# token (``backup._parse_extension_guids``), so tool halves and the zero-GUID
-# reach ``cse_metadata`` verbatim; ``gpmc_interop``'s known-CSE check must
-# therefore accept exactly this set -- a Studio export re-imported by Studio
-# must never flag its own extension lists as unknown.
+# prefix of the GPP aggregation group. Inventory only: the known-CSE check
+# that once consumed this set went with the ``gpmc_interop`` reduction, and
+# ``_unknown_cse_refusal`` now refuses on any preserved ``cse_metadata``
+# instead — but the set stays the answer to "which GUIDs can we emit?".
 EMITTED_EXTENSION_GUIDS = frozenset({
     _REGISTRY_CSE_GUID,
     _REGISTRY_MACHINE_TOOL_GUID,
@@ -109,6 +111,7 @@ EMITTED_EXTENSION_GUIDS = frozenset({
     _FIREWALL_TOOL_GUID,
     _SCRIPTS_CSE_GUID,
     _SCRIPTS_TOOL_GUID,
+    _SCRIPTS_USER_TOOL_GUID,
     _ZERO_GUID,
     *(guid for pair in _GPP_EXTENSION_PROFILES.values() for guid in pair),
 })
@@ -999,13 +1002,15 @@ def _extension_guids(
         )
         groups.append(f"[{_REGISTRY_CSE_GUID}{tool}]")
     if has_scripts:
-        # The pair GPMC itself registered when authoring scripts (claim-registry
-        # R2 re-run): one group, CSE GUID then tool GUID, same bracket shape as
-        # the other profiles. Relative order against the registry/GPP groups was
-        # not captured in any single transaction; this order is deterministic.
-        # Captured on the MACHINE side only: the user side reuses the machine
-        # tool half unmeasured, and a round trip cannot tell (WI-071).
-        groups.append(f"[{_SCRIPTS_CSE_GUID}{_SCRIPTS_TOOL_GUID}]")
+        # The pair GPMC itself registers when authoring scripts: one group,
+        # CSE GUID then tool GUID, same bracket shape as the other profiles.
+        # Both sides are now measured — machine side claim-registry R2 re-run
+        # (2026-09-03), user side Plan 035 window 19 (w19-r2, re-verified
+        # w22-r1): the user side carries its own tool GUID, not the machine
+        # side's. Relative order against the registry/GPP groups was not
+        # captured in any single transaction; this order is deterministic.
+        tool = _SCRIPTS_TOOL_GUID if side == "Machine" else _SCRIPTS_USER_TOOL_GUID
+        groups.append(f"[{_SCRIPTS_CSE_GUID}{tool}]")
     if gpp_profiles:
         pairs = [_GPP_EXTENSION_PROFILES[name] for name in sorted(gpp_profiles)]
         groups.append("[" + _ZERO_GUID + "".join(tool for _, tool in pairs) + "]")

@@ -99,6 +99,7 @@ from .export import (
     _REGISTRY_USER_TOOL_GUID,
     _SCRIPTS_CSE_GUID,
     _SCRIPTS_TOOL_GUID,
+    _SCRIPTS_USER_TOOL_GUID,
     _ZERO_GUID,
     extension_registration,
     native_backup_id,
@@ -5874,8 +5875,9 @@ def diff_fdeploy_documents(body: FdeployDiffRequest) -> dict[str, Any]:
 # outside it. The candidate was a GPO with no other content: two legacy and one
 # PowerShell machine-side STARTUP entry, PowerShell ordered first. So:
 #
-# * user-side scripts are refused -- the user side reuses the machine tool GUID
-#   unmeasured (WI-071 tracks extending the lane);
+# * user-side scripts are refused -- no verdict yet covers a user-side import
+#   (the export writes the measured user-side tool GUID since Plan 035; WI-071
+#   tracks extending the lane);
 # * shutdown (and logon/logoff) triggers are refused;
 # * PowerShell entries are accepted only with "run Windows PowerShell scripts
 #   first": `run_windows_powershell_scripts_last` writes a value no lane has
@@ -6165,9 +6167,11 @@ def _scripts_request_refusals(body: ScriptsExportRequest) -> list[ValidationIssu
                 severity="error",
                 code="scripts_user_side_unmeasured",
                 message=(
-                    "User-side scripts are refused. The Scripts lane measured the "
-                    "computer side only, and the user side would register the "
-                    "machine tool GUID unmeasured (WI-071)."
+                    "User-side scripts are refused. The Scripts lane's verdict "
+                    "banked the computer side only; the export now writes the "
+                    "measured user-side tool GUID (Plan 035, w22-r1), but no "
+                    "verdict yet covers authoring or importing user-side "
+                    "scripts (WI-071 tracks extending the lane)."
                 ),
                 path="user",
             )
@@ -6490,6 +6494,7 @@ _EXTENSION_GUID_FAMILIES: dict[str, str] = {
     _REGISTRY_USER_TOOL_GUID: "Registry",
     _SCRIPTS_CSE_GUID: "Scripts",
     _SCRIPTS_TOOL_GUID: "Scripts",
+    _SCRIPTS_USER_TOOL_GUID: "Scripts",
     **{
         guid.upper(): family
         for family, pair in _GPP_EXTENSION_PROFILES.items()

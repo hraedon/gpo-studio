@@ -38,7 +38,7 @@ than exported with a warning.
 
 | Refused | Code | Why |
 |---|---|---|
-| User-side scripts (logon, logoff) | `scripts_user_side_unmeasured` | The user side would register the machine tool GUID, unmeasured. WI-071 tracks extending the lane |
+| User-side scripts (logon, logoff) | `scripts_user_side_unmeasured` | No verdict covers authoring or importing user-side scripts yet (the export writes the measured user-side tool GUID; WI-071 tracks extending the lane) |
 | Shutdown scripts, and logon/logoff on the computer side | `scripts_trigger_unmeasured` | Only startup was imported |
 | PowerShell run last, or no order set | `scripts_powershell_order_unmeasured` | Only "run PowerShell scripts first" was imported. A legacy-only policy needs no order |
 | A policy that also has registry settings or preferences | `scripts_with_other_content_unmeasured` | No lane imported scripts together with other content, including the order of the Scripts entry in the extension list |

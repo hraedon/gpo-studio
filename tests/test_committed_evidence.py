@@ -344,12 +344,14 @@ def _is_manifest_form(relative: str, finalizer: str) -> bool:
 #: matches the tree is live and must not be parked, and this set is a debt to
 #: be emptied by the batch, not a quieter neighbour of RETIRED_VERDICTS.
 #:
-#: EMPTY since the Plan 034 batch (2026-10-08), and still empty after the release
-#: 1.1.0 batch, which passed every lane. Its last entry was the WI-059
-#: computer group-deny verdict, owed since the WI-062 batch by the estate
-#: repair tracked as WI-069; the Plan 034 batch ran that lane and passed, and
-#: the old verdict is retired above. The set stays, empty, because the next
-#: verdict to need it should land here with a reason rather than invent a new
+#: Was EMPTY between the Plan 034 batch (2026-10-08, which retired the WI-059
+#: computer group-deny verdict, the estate repair debt tracked as WI-069) and
+#: 2026-10-23, spanning the release 1.1.0 batch that passed every lane. The
+#: Plan 035 WP-1 export.py change (the measured user-side Scripts tool GUID)
+#: parked the six refreeze verdicts that bind export.py (endpoint, firewall,
+#: publication, scripts-metadata, wp1b, wp2); the requalification batch that
+#: re-runs them at the shipping commit empties the set again and registers
+#: their successors. A verdict that lands here needs a reason, not a new
 #: mechanism.
 
 #: WP0_MANIFEST (in the JSON registry) is the live WP-0 manifest. WP-0 binds by
