@@ -74,6 +74,37 @@ outside that lock; a failed load or merge preserves the previous snapshot.
 This is a single-process authoring contract. Persistent catalogue configuration
 and coordination between hosted workers remain part of the shared-service work.
 
+## Reviewed artifact downloads
+
+The first-party export review captures the policy GUID, revision and review-model
+SHA-256. The existing `export.zip`, `plan.ps1` and `gpmc-backup` GET routes accept
+paired `expected_revision` and `expected_review_hash` query parameters. A mismatch
+returns JSON `409 export_review_conflict`; an incomplete or malformed pair returns
+422. Callers that omit both parameters retain the legacy latest-state behavior.
+These are read preconditions and do not create workspace revisions.
+
+Each request reads one immutable policy object for the preconditions, validation
+and serialization. A concurrent edit after that read can still produce the
+reviewed artifact, never newer content under the old review. The review-model hash
+also distinguishes replacement policies with changed review content even when
+they reuse a GUID and integer revision. It retains the existing hash definition;
+metadata excluded from that definition does not become part of the review.
+Current validation and artifact capability refusals remain in force.
+
+Successful responses use `Cache-Control: no-store` and expose
+`X-GPO-Studio-Guid`, `X-GPO-Studio-Revision`, `X-GPO-Studio-Review-Hash` and
+`X-GPO-Studio-Artifact-SHA256`. The browser verifies the first three against the
+captured review, then downloads those response bytes through a local Blob URL.
+It also checks the artifact digest when Web Crypto is available; supported HTTP
+origins without Web Crypto still enforce the revision/content-review binding.
+This is freshness and response consistency checking, not independent artifact
+qualification or protection against an untrusted server.
+
+Pending requests and inline failures belong to one opening of the review. Cancel
+and Close remain usable; late success, errors and finalizers cannot download or
+change a reopened review. A stale review must be closed and the policy reloaded
+and reviewed before downloading changed content.
+
 ## Registry policy fidelity
 
 `registry_pol.py` implements PReg version 1:

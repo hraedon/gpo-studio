@@ -11,6 +11,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 - Report request failures through the current view or editor, preserving newer
   warnings and separating completed imports from later list-refresh failures.
+- Bind reviewed downloads to the policy revision and review hash, retaining inline
+  export errors without affecting reopened reviews.
 - Replace the conflict comparison's loading message after an initial read fails,
   while preserving an already reviewed comparison if a later refresh fails.
 - Keep retired policy-read errors out of newer editors and announce pending saves
