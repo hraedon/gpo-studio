@@ -9,6 +9,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Preserve every ADMX source element ID, including `__proto__`, when collecting
+  Enabled field values for submission.
 - Keep workspace header actions and long policy titles inside the viewport at desktop
   and narrow widths, while retaining scrolling tabs and registry tables.
 - Restore keyboard focus to the same row action after an owned save redraws the

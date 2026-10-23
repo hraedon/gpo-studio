@@ -137,7 +137,7 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
   const targetGpo=targetSnapshots?.get(targetGuid);if(!targetGpo){toast("Close and reopen this editor to review the target GPO");return}
   let side=policyClass==="Machine"?"computer":policyClass==="User"?"user":$("#configure-side").value;
   const policyState=$("#configure-state").value;
-  const values={};
+  const values=Object.create(null);
   let ok=true;
   // Only Enabled carries element values; sending them in another state is a
   // 422 by design, so don't collect them.
