@@ -44,7 +44,7 @@ export function observeCatalogueConflict(error, started) {
 async function refreshCatalogue() {
   const started = epoch;
   try {
-    observeCatalogue(await api("/api/health"), started);
+    observeCatalogue(await /* request: catalogue.monitor */ api("/api/health"), started);
   } catch {
     /* A failed refresh cannot authorize a mutation or replace a token. */
   }

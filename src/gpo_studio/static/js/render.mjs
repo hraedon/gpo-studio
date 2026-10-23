@@ -1,3 +1,4 @@
+import {createReadScope,invalidateReadViews} from "./read-context.mjs";
 import {state,$,$$,escapeHtml,applyPayload,getGpoSummaryVersion,replaceGpoSummaries,getKnownGpoRevision,isGpoObservationCurrent,getGpoGeneration} from './state.mjs';
 import {api,captureErrorReporter} from './api.mjs';
 import {openSetting,deleteSetting,openComment,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
@@ -9,9 +10,9 @@ let selectionRequest=0,historyRequest=0,listRequest=0;
 
 export async function loadList(selectGuid,{select=true,reportErrors=true}={}){
   const selection=selectionRequest,request=++listRequest,editorGeneration=state.editorGeneration,summaryVersion=getGpoSummaryVersion();
-  const reportError=captureErrorReporter(()=>reportErrors&&request===listRequest&&editorGeneration===state.editorGeneration);
+  const reportError=captureErrorReporter(()=>reportErrors&&selection===selectionRequest&&request===listRequest&&editorGeneration===state.editorGeneration);
   let data;
-  try{data=await api("/api/gpos")}
+  try{data=await /* request: policy.list */ api("/api/gpos")}
   catch(error){
     // A failed refresh is separate from an already committed mutation. Retired
     // origins can refresh the sidebar without owning another editor's errors.
@@ -33,20 +34,22 @@ export function renderList(){
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
 export async function selectGpo(guid,{editorGeneration}={}){
   if(editorGeneration!==undefined&&editorGeneration!==state.editorGeneration)return;
+  // Navigation intent retires panel reads before the selected payload arrives.
+  invalidateReadViews();
   const request=++selectionRequest,originalEditorGeneration=state.editorGeneration,generation=getGpoGeneration(guid);
   const ownsSelection=()=>request===selectionRequest&&generation===getGpoGeneration(guid)&&(editorGeneration===undefined||editorGeneration===state.editorGeneration);
   const ownsRecovery=()=>ownsSelection()&&originalEditorGeneration===state.editorGeneration;
   let recovering=false;
-  const reportError=captureErrorReporter(()=>ownsSelection()&&(!recovering||ownsRecovery()));
+  const reportError=captureErrorReporter(()=>originalEditorGeneration===state.editorGeneration&&ownsSelection()&&(!recovering||ownsRecovery()));
   try{
-    let data=await api(`/api/gpos/${guid}`);
+    let data=await /* request: policy.detail */ api(`/api/gpos/${guid}`);
     if(!ownsSelection()||!isGpoObservationCurrent(data.gpo))return;
     if(data.gpo.revision<getKnownGpoRevision(guid)){
       if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
       // Repair a stale detail once, without taking a newer editor or selection.
       if(!ownsRecovery())return;
       recovering=true;
-      data=await api(`/api/gpos/${guid}`,{cache:"no-store"});
+      data=await /* request: policy.recovery */ api(`/api/gpos/${guid}`,{cache:"no-store"});
       if(!ownsRecovery()||!isGpoObservationCurrent(data.gpo))return;
       if(data.gpo.revision<getKnownGpoRevision(guid)){
         if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
@@ -113,19 +116,20 @@ export function renderWmi(){
   if(!w){$("#wmi-display").innerHTML='<div class="table-empty">No WMI filter set.</div>';return}
   $("#wmi-display").innerHTML=`<dl class="details"><dt>Name</dt><dd>${escapeHtml(w.name)}</dd><dt>Language</dt><dd>${escapeHtml(w.language)}</dd><dt>Query</dt><dd class="mono">${escapeHtml(w.query)}</dd>${w.description?`<dt>Description</dt><dd>${escapeHtml(w.description)}</dd>`:""}</dl>`;
 }
+const historyReads=createReadScope({element:()=>$("#panel-history")});
 export async function loadHistory(){
   if(!state.current)return;
   const {guid,revision,name}=state.current;
   const generation=getGpoGeneration(guid);
   const request=++historyRequest;
+  const read=historyReads.start({isCurrent:()=>request===historyRequest&&generation===getGpoGeneration(guid)&&state.current?.guid===guid&&state.current.revision===revision,report:error=>{$("#history-list").textContent=`Could not load revision history: ${error.message}`}});
   $("#history-list").textContent="Loading revision history…";
   try{
-    const data=await api(`/api/gpos/${guid}/revisions`);
-    if(request!==historyRequest||generation!==getGpoGeneration(guid)||state.current?.guid!==guid||state.current.revision!==revision)return;
+    const data=await /* request: policy.history */ api(`/api/gpos/${guid}/revisions`);
+    if(!read.isCurrent())return;
     $("#history-list").innerHTML=data.items.map((r,index)=>`<div class="revision-item"><div><p><strong>Revision ${r.revision}</strong> · ${escapeHtml(r.reason)}</p><small>${escapeHtml(r.actor)} · ${new Date(r.created_at).toLocaleString()}</small></div>${index?`<button data-restore="${r.revision}">Restore</button>`:'<span class="pill ok">Current</span>'}</div>`).join("");
     $$('[data-restore]').forEach(el=>el.onclick=()=>restoreRevision(Number(el.dataset.restore),{guid,revision,name}));
   }catch(error){
-    if(request!==historyRequest||generation!==getGpoGeneration(guid)||state.current?.guid!==guid||state.current.revision!==revision)return;
-    $("#history-list").textContent=`Could not load revision history: ${error.message}`;
+    read.reportError(error);
   }
 }

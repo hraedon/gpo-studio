@@ -9,6 +9,7 @@ import {
   isGpoObservationCurrent,
 } from "./state.mjs";
 import { api, toast, audit, showPersistentError } from "./api.mjs";
+import { createReadScope } from "./read-context.mjs";
 import { renderAll, renderList } from "./render.mjs";
 import {
   catalogueEpoch as revisionEpoch,
@@ -22,6 +23,9 @@ import {
 // Module-level caches. The ADMX catalogue and category tree are workspace-
 // level, so they only need to be loaded once per session. The configured
 // settings are GPO-level and re-fetched on every loadBrowser() call.
+const browserReads = createReadScope({ element: () => $("#panel-browser") });
+const configuredReads = createReadScope({ element: () => $("#panel-browser") });
+
 let admxLoaded = null,
   categoryTree = null,
   categoryTreeLoaded = false,
@@ -68,6 +72,8 @@ function selectBrowserGpo(guid) {
 }
 
 export function resetBrowserCatalogue() {
+  browserReads.invalidate();
+  configuredReads.invalidate();
   catalogueEpoch++;
   admxLoaded = null;
   categoryTree = null;
@@ -90,28 +96,26 @@ export function resetBrowserCatalogue() {
 
 export async function loadBrowser() {
   if (!state.current) return;
-  const guid = state.current.guid;
+  const guid = state.current.guid, revision = state.current.revision;
   const generation = getGpoGeneration(guid);
   const epoch = catalogueEpoch,
     started = revisionEpoch();
   selectBrowserGpo(guid);
+  const read = browserReads.start({ isCurrent: () => epoch === catalogueEpoch &&
+    state.current?.guid === guid && state.current?.revision === revision && generation === getGpoGeneration(guid) });
   updateBulkBar();
   if (admxLoaded === null) {
     try {
-      const h = await api("/api/health");
+      const h = await /* request: settings.health */ api("/api/health");
       if (!observeCatalogue(h, started) || epoch !== catalogueEpoch) return;
       admxLoaded = h.admx_loaded === true;
     } catch (error) {
-      if (
-        epoch === catalogueEpoch &&
-        state.current?.guid === guid &&
-        generation === getGpoGeneration(guid)
-      )
-        showPersistentError(error.message);
+      read.reportError(error);
       return;
     }
   }
   if (
+    !read.isCurrent() ||
     epoch !== catalogueEpoch ||
     state.current?.guid !== guid ||
     browserGpoGuid !== guid ||
@@ -122,34 +126,35 @@ export async function loadBrowser() {
   $("#browser-content").hidden = !admxLoaded;
   if (!admxLoaded) return;
   if (!categoryTreeLoaded) {
-    if (!(await loadCategoryTree())) return;
+    if (!(await loadCategoryTree(read))) return;
   }
   if (
+    !read.isCurrent() ||
     epoch !== catalogueEpoch ||
     state.current?.guid !== guid ||
     browserGpoGuid !== guid ||
     generation !== getGpoGeneration(guid)
   )
     return;
+  populateCategorySelect();
   await loadConfiguredSettings();
 }
 
-async function loadCategoryTree() {
+async function loadCategoryTree(read) {
   const epoch = catalogueEpoch,
     started = revisionEpoch();
   try {
-    const data = await api("/api/admx/categories/tree");
+    const data = await /* request: settings.categories */ api("/api/admx/categories/tree");
     const observed = observeCatalogue(data, started);
     if (!observed || epoch !== catalogueEpoch) return false;
     categoryRevision = observed.revision;
     categoryTreeLoaded = true;
     categoryTree = data.items || [];
+    if (!read.isCurrent()) return false;
     populateCategorySelect();
     return true;
   } catch (e) {
-    if (epoch !== catalogueEpoch) return;
-    showPersistentError(e.message);
-    categoryTree = [];
+    if (epoch === catalogueEpoch) read.reportError(e);
     return false;
   }
 }
@@ -178,16 +183,28 @@ async function loadConfiguredSettings() {
   selectBrowserGpo(guid);
   const request = ++configuredRequest,
     started = revisionEpoch();
+  const read = configuredReads.start({
+    isCurrent: () => request === configuredRequest && browserGpoGuid === guid &&
+      state.current?.guid === guid && state.current?.revision === revision &&
+      generation === getGpoGeneration(guid),
+    report: error => {
+      reviewContext = null;
+      selectedPolicies.clear();
+      renderBrowser({ resolved: [], unresolved: [], resolved_count: 0, unresolved_count: 0 });
+      showPersistentError(error.message);
+    },
+  });
   const params = new URLSearchParams();
   if (filters.q) params.set("q", filters.q);
   if (filters.state !== "all") params.set("state", filters.state);
   if (filters.category) params.set("category", filters.category);
   if (filters.side !== "all") params.set("side", filters.side);
   try {
-    const data = await api(`/api/gpos/${guid}/configured-settings?${params}`);
+    const data = await /* request: settings.configured */ api(`/api/gpos/${guid}/configured-settings?${params}`);
     const observed = observeCatalogue(data, started);
     if (
       !observed ||
+      !read.isCurrent() ||
       request !== configuredRequest ||
       browserGpoGuid !== guid ||
       state.current?.guid !== guid ||
@@ -215,21 +232,7 @@ async function loadConfiguredSettings() {
     };
     renderBrowser(data);
   } catch (e) {
-    if (
-      request === configuredRequest &&
-      state.current?.guid === guid &&
-      generation === getGpoGeneration(guid)
-    ) {
-      reviewContext = null;
-      selectedPolicies.clear();
-      renderBrowser({
-        resolved: [],
-        unresolved: [],
-        resolved_count: 0,
-        unresolved_count: 0,
-      });
-      showPersistentError(e.message);
-    }
+    read.reportError(e);
   }
 }
 
@@ -452,7 +455,7 @@ async function applyBulkState(targetState) {
           );
         if (!reviewedCatalogueIsCurrent(reviewedRevision))
           throw new Error(catalogueReviewMessage);
-        payload = await api(`/api/gpos/${guid}/bulk-policy-state`, {
+        payload = await /* request: settings.bulk */ api(`/api/gpos/${guid}/bulk-policy-state`, {
           method: "POST",
           body: JSON.stringify({
             ...mutationAudit,
@@ -544,19 +547,22 @@ export function initBrowser() {
       queueMicrotask(() => loadBrowser());
   });
   $("#browser-search").oninput = (e) => {
+    browserReads.invalidate();
+    configuredReads.invalidate();
+    configuredRequest++;
+    filters.q = e.target.value;
     clearTimeout(browserTimer);
     browserTimer = setTimeout(() => {
-      filters.q = e.target.value;
-      loadConfiguredSettings();
+      loadBrowser();
     }, 250);
   };
   $("#browser-state-filter").onchange = (e) => {
     filters.state = e.target.value;
-    loadConfiguredSettings();
+    loadBrowser();
   };
   $("#browser-category-filter").onchange = (e) => {
     filters.category = e.target.value;
-    loadConfiguredSettings();
+    loadBrowser();
   };
   $$("#panel-browser .filter-row .chip").forEach((chip) => {
     chip.onclick = () => {
@@ -565,7 +571,7 @@ export function initBrowser() {
         c.setAttribute("aria-pressed", String(c === chip));
       });
       filters.side = chip.dataset.side;
-      loadConfiguredSettings();
+      loadBrowser();
     };
   });
   $("#browser-bulk-select-all").onchange = (e) => {

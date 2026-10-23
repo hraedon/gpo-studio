@@ -1,3 +1,4 @@
+import { createReadScope } from "./read-context.mjs";
 import { $, $$ } from "./state.mjs";
 import { api } from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
@@ -14,6 +15,8 @@ import {
 let dialogGeneration = 0,
   sourcesRequest = 0,
   loadingFolder = false;
+
+const reads=createReadScope({element:()=>$("#templates-dialog")});
 
 function renderSources(items) {
   const container = $("#templates-sources");
@@ -32,28 +35,21 @@ function renderSources(items) {
   }
 }
 
-async function refreshSources(generation, { setPath = false } = {}) {
-  const request = ++sourcesRequest,
-    started = catalogueEpoch();
-  let data;
+async function refreshSources(generation, { setPath = false, report = error => showFormErrors($("#templates-form"),error) } = {}) {
+  const request = ++sourcesRequest, started = catalogueEpoch();
+  const read=reads.capture({isCurrent:()=>generation===dialogGeneration&&request===sourcesRequest,report});
   try {
-    data = await api("/api/templates");
-  } catch (error) {
-    if (generation !== dialogGeneration || request !== sourcesRequest)
-      return null;
-    throw error;
-  }
-  if (generation !== dialogGeneration || request !== sourcesRequest)
-    return null;
-  if (!observeCatalogue(data, started)) return null;
-  renderSources(data.items);
-  if (setPath)
-    $("#templates-form").elements.path.value =
-      data.items.find((source) => source.name === "default")?.path || "";
-  return data.items;
+    const data = await /* request: templates.sources */ api("/api/templates");
+    // Catalogue admission is independent of whether this dialog still owns UI.
+    if (!observeCatalogue(data, started) || !read.isCurrent()) return null;
+    renderSources(data.items);
+    if(setPath)$("#templates-form").elements.path.value=data.items.find(source=>source.name==="default")?.path||"";
+    return data.items;
+  } catch(error) { read.reportError(error); return null; }
 }
 
 async function openTemplates() {
+  reads.invalidate();
   const generation = ++dialogGeneration;
   const form = $("#templates-form");
   $("#templates-load").disabled = true;
@@ -61,16 +57,17 @@ async function openTemplates() {
   clearFormErrors(form);
   $("#templates-status").textContent = "Checking loaded templates…";
   $("#templates-dialog").showModal();
+  const read=reads.capture();
   try {
     const items = await refreshSources(generation, { setPath: true });
-    if (items)
+    if (items && read.isCurrent())
       $("#templates-status").textContent = items.length
         ? "Currently loaded sources:"
         : "No template sources are loaded.";
   } catch (error) {
-    if (generation === dialogGeneration) showFormErrors(form, error);
+    read.reportError(error);
   } finally {
-    if (generation === dialogGeneration) {
+    if (read.isCurrent()) {
       form.elements.path.disabled = false;
       $("#templates-load").disabled = loadingFolder;
     }
@@ -96,14 +93,17 @@ function describeLoad(result) {
 }
 
 export function initTemplates() {
+  $("#templates-form").addEventListener("input",()=>reads.invalidate());
+  $("#templates-dialog").addEventListener("close",()=>reads.invalidate());
   onCatalogueChange(() => {
     if (!$("#templates-dialog").open) return;
     const generation = dialogGeneration,
       ownLoad = loadingFolder;
+    const read=reads.capture({isCurrent:()=>generation===dialogGeneration,report:error=>showFormErrors($("#templates-form"),error)});
     refreshSources(generation)
       .then((items) => {
         if (
-          items &&
+          items && read.isCurrent() &&
           !ownLoad &&
           !loadingFolder &&
           generation === dialogGeneration
@@ -111,10 +111,7 @@ export function initTemplates() {
           $("#templates-status").textContent =
             "The template catalogue changed. Review the current sources below.";
       })
-      .catch((error) => {
-        if (generation === dialogGeneration)
-          showFormErrors($("#templates-form"), error);
-      });
+      .catch(error=>read.reportError(error));
   });
   $("#open-templates").onclick = openTemplates;
   $$("[data-open-templates]").forEach((button) => {
@@ -146,7 +143,7 @@ export function initTemplates() {
     $("#templates-status").textContent = "Loading templates…";
     let result;
     try {
-      result = await api("/api/templates/ingest", {
+      result = await /* request: templates.activate */ api("/api/templates/ingest", {
         method: "POST",
         body: JSON.stringify({
           name: "default",
@@ -175,26 +172,17 @@ export function initTemplates() {
           $("#templates-status").textContent =
             "The folder load completed, but the catalogue changed again. Review the current sources below.";
         announceCatalogueChange();
-        try {
-          await refreshSources(currentGeneration);
-        } catch (error) {
-          if (currentGeneration === dialogGeneration) {
-            $("#templates-sources").textContent =
-              "The source list is unavailable. Reopen this dialog to retry.";
-            $("#templates-status").append(
-              ` Source list refresh failed: ${error.message}`,
-            );
-          }
-        }
+        await refreshSources(currentGeneration,{report:error=>{
+          $("#templates-sources").textContent="The source list is unavailable. Reopen this dialog to retry.";
+          $("#templates-status").append(` Source list refresh failed: ${error.message}`);
+        }});
+        const browserRead=reads.capture({isCurrent:()=>currentGeneration===dialogGeneration,report:error=>{
+          $("#templates-status").append(` Templates are loaded, but the browser could not refresh: ${error.message}`);
+        }});
         try {
           if (!$("#panel-admx").hidden) await checkAdmx();
           if (!$("#panel-browser").hidden) await loadBrowser();
-        } catch (error) {
-          if (currentGeneration === dialogGeneration)
-            $("#templates-status").append(
-              ` Templates are loaded, but the browser could not refresh: ${error.message}`,
-            );
-        }
+        } catch (error) { browserRead.reportError(error); }
       }
     } finally {
       loadingFolder = false;

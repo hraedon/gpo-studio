@@ -9,11 +9,11 @@ export function showPersistentError(message){persistentErrorVersion++;errorRepor
 function clearError(retireReports){persistentErrorVersion++;if(retireReports)errorReportVersion++;const el=uiElement("#error-summary");if(!el)return;(uiElement("#error-message")||el).textContent="";el.hidden=true}
 export function clearPersistentError(){clearError(true)}
 // A read may report only for its owner and the error context it started in.
-export function captureErrorReporter(isCurrent){
+export function captureErrorReporter(isCurrent,report=showPersistentError){
   const version=errorReportVersion;
   return message=>{
     if(version!==errorReportVersion||!isCurrent())return false;
-    showPersistentError(message);return true;
+    report(message);return true;
   };
 }
 export async function api(path,options={}){
@@ -21,7 +21,7 @@ export async function api(path,options={}){
   const errorVersion=persistentErrorVersion,method=(requestOptions.method||"GET").toUpperCase(),hadError=uiElement("#error-summary")?.hidden===false;
   const observationVersion=getGpoSummaryVersion();
   let response;
-  try{response=await fetch(path,{...requestOptions,headers:{"Content-Type":"application/json",...headers}})}
+  try{response=await /* request: transport.api */ fetch(path,{...requestOptions,headers:{"Content-Type":"application/json",...headers}})}
   // Like HTTP failures, transport failures reach the caller before any UI report.
   // The caller decides whether its view/editor still owns the outcome.
   catch(error){const wrapped=new ApiError("The local GPO Studio server is unavailable. Your unsaved values are still in this form.");wrapped.cause=error;throw wrapped}

@@ -1,4 +1,5 @@
-import { state, $, escapeHtml } from "./state.mjs";
+import { createReadScope } from "./read-context.mjs";
+import { state, $, escapeHtml, getGpoGeneration } from "./state.mjs";
 import { api } from "./api.mjs";
 import { renderLimitations } from "./rsop.mjs";
 
@@ -143,6 +144,7 @@ export function renderPlanError(error) {
 }
 
 let generation = 0;
+const reads=createReadScope({element:()=>$("#publication-dialog")});
 
 async function load() {
   const results = $("#publication-results");
@@ -150,23 +152,26 @@ async function load() {
   const target = $("#publication-target").value;
   generation += 1;
   const mine = generation;
+  const guid=state.current.guid, revision=state.current.revision, targetGeneration=getGpoGeneration(guid);
+  const read=reads.start({isCurrent:()=>mine===generation&&state.current?.guid===guid&&state.current?.revision===revision&&targetGeneration===getGpoGeneration(guid),report:error=>{
+    results.innerHTML=renderPlanError(error);
+    status.textContent="The plan could not be built.";
+  }});
   results.setAttribute("aria-busy", "true");
   status.textContent = "Building the plan…";
   try {
-    const body = await api(
+    const body = await /* request: publication.plan */ api(
       `/api/gpos/${encodeURIComponent(state.current.guid)}/publication-plan?target=${encodeURIComponent(target)}`,
     );
-    if (mine !== generation) return;
+    if (!read.isCurrent()) return;
     results.innerHTML = renderPublicationPlan(body);
     status.textContent = body.refused
       ? "Plan ready. The planner refuses this publication; see the reasons above the steps."
       : "Plan ready. Review the limits above the steps.";
   } catch (error) {
-    if (mine !== generation) return;
-    results.innerHTML = renderPlanError(error);
-    status.textContent = "The plan could not be built.";
+    read.reportError(error);
   } finally {
-    if (mine === generation) results.setAttribute("aria-busy", "false");
+    if (read.isCurrent()) results.setAttribute("aria-busy", "false");
   }
 }
 

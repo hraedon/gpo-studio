@@ -1,3 +1,4 @@
+import {createReadScope} from './read-context.mjs';
 import {api,setStatus,showPersistentError} from './api.mjs';
 import {getKnownGpoRevision,getGpoGeneration,isGpoObservationCurrent} from './state.mjs';
 
@@ -84,6 +85,7 @@ function changeCount(diff){
 // Old reads/finalizers must not write into a reopened comparison.
 const conflictReviews=new WeakMap();
 
+const conflictReads=createReadScope({element:()=>document.querySelector("#conflict-dialog")});
 export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,fieldNames=null,targetGuid=null,targetGeneration=null,preserveEditorTarget=false}={}){
   if(error.status!==409||!Number.isInteger(error.expectedRevision)||!Number.isInteger(error.currentRevision))return false;
   const currentGuid=targetGuid||form.dataset.gpoGuid||location.pathname.split("/").filter(Boolean).at(-1);
@@ -98,9 +100,10 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
   const owns=()=>conflictReviews.get(dialog)===review&&dialog.open&&dialog.editorSession===review.session&&editor?.editorSession===editorSession;
   const targetCurrent=()=>generation===getGpoGeneration(guid);
   const active=()=>owns()&&targetCurrent()&&isActive();
-  const rejectDeletedTarget=()=>{
+  const rejectDeletedTarget=(reportError=null)=>{
     if(!owns()||targetCurrent())return false;
-    showFormErrors(dialog.querySelector("form"),{message:"This policy was deleted. Your unsaved values are retained. Close this comparison and reopen the editor to review an existing target."});
+    const failure={message:"This policy was deleted. Your unsaved values are retained. Close this comparison and reopen the editor to review an existing target."};
+    if(reportError)reportError(failure);else showFormErrors(dialog.querySelector("form"),failure);
     reload.disabled=true;reapply.disabled=true;return true;
   };
   const floor=()=>Math.max(error.currentRevision,review.latest?.gpo.revision||0,getKnownGpoRevision(guid));
@@ -116,14 +119,14 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
   };
   const readCurrent=async(withDiff)=>{
     for(let attempt=0;attempt<2;attempt++){
-      const latest=await api(`/api/gpos/${encodeURIComponent(guid)}`,{cache:"no-store"});
-      if(rejectDeletedTarget()||!active()||!isGpoObservationCurrent(latest.gpo))return null;
+      const latest=await /* request: conflict.current */ api(`/api/gpos/${encodeURIComponent(guid)}`,{cache:"no-store"});
+      if(!review.read?.isCurrent()||rejectDeletedTarget(review.read.reportError)||!active()||!isGpoObservationCurrent(latest.gpo))return null;
       if(latest.gpo.guid!==guid||!Number.isInteger(latest.gpo.revision))throw new Error("The current policy could not be verified. Your unsaved values are retained.");
       let diff=null;
       if(latest.gpo.revision>=floor()){
         if(withDiff&&error.expectedRevision>0&&latest.gpo.revision>error.expectedRevision){
-          diff=await api(`/api/gpos/${encodeURIComponent(guid)}/revisions/diff?from_revision=${error.expectedRevision}&to_revision=${latest.gpo.revision}`,{cache:"no-store"});
-          if(!active())return null;
+          diff=await /* request: conflict.diff */ api(`/api/gpos/${encodeURIComponent(guid)}/revisions/diff?from_revision=${error.expectedRevision}&to_revision=${latest.gpo.revision}`,{cache:"no-store"});
+          if(!active()||!review.read?.isCurrent())return null;
         }
         // Newer data can arrive during either the full read or the diff read.
         if(latest.gpo.revision>=floor())return{latest,diff};
@@ -132,7 +135,7 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
     throw new Error("The policy changed again while loading its current revision. Your unsaved values are retained. Try Load current revision or Review and reapply again.");
   };
   const usable=result=>{
-    if(rejectDeletedTarget()||!result||!active()||!isGpoObservationCurrent(result.latest.gpo))return false;
+    if(!result||!review.read?.isCurrent()||rejectDeletedTarget(review.read.reportError)||!active()||!isGpoObservationCurrent(result.latest.gpo))return false;
     if(result.latest.gpo.revision<floor())throw new Error("The policy changed again. Your unsaved values are retained. Refresh the comparison before continuing.");
     return true;
   };
@@ -140,13 +143,13 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
     if(rejectDeletedTarget()||!active()||review.pending)return;
     review.pending=true;reload.disabled=true;reapply.disabled=true;
     clearFormErrors(dialog.querySelector("form"));
-    try{await operation()}
-    catch(fetchError){if(active()){
-      // Preserve an existing comparison when a refresh fails.
+    const read=review.read=conflictReads.start({isCurrent:()=>owns()&&(isActive()||!targetCurrent()),report:fetchError=>{
       if(!review.latest)details.textContent="The current revision could not be loaded. Your unsaved values are retained. Choose an action to try again, or keep editing.";
-      showFormErrors(dialog.querySelector("form"),fetchError)
-    }}
-    finally{rejectDeletedTarget();if(active()){review.pending=false;reload.disabled=false;reapply.disabled=false}}
+      showFormErrors(dialog.querySelector("form"),fetchError);
+    }});
+    try{await operation()}
+    catch(fetchError){read.reportError(fetchError)}
+    finally{if(read.isCurrent()){rejectDeletedTarget(read.reportError);if(active()){review.pending=false;reload.disabled=false;reapply.disabled=false}}}
   };
   reload.onclick=()=>run(async()=>{
     // Discard is explicit consent to load the authoritative snapshot now,

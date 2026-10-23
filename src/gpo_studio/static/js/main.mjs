@@ -1,5 +1,6 @@
+import { createReadScope, invalidateReadViews } from "./read-context.mjs";
 import {state,$,$$,getGpoGeneration} from './state.mjs';
-import {api,toast,clearPersistentError,showPersistentError} from './api.mjs';
+import {api,toast,clearPersistentError,captureErrorReporter} from './api.mjs';
 import {clearFormErrors,showFormErrors} from './errors.mjs';
 import {loadList,renderList,renderSettings,loadHistory} from './render.mjs';
 import {openGpo,openSetting,openLink,openFilter,openWmi,openWmiCatalogue,openEstate,openFork,openCopySettings,syncSettingForm,initForms} from './forms.mjs';
@@ -18,10 +19,9 @@ import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,u
 import {captureDialogFocus,restoreDialogFocus} from './dialog-focus.mjs';
 
 const tabs=$$(".tab[role='tab']");
+const tabReads=createReadScope();
+const importReads=createReadScope({element:()=>$("#gpmc-import-dialog")});
 
-function reportPersistentError(message){
-  showPersistentError(message);
-}
 $("#dismiss-error").onclick=()=>{clearPersistentError();$("#main-content").focus()};
 
 function setAppStatus(message){
@@ -31,6 +31,7 @@ function setAppStatus(message){
 }
 
 function activateTab(tab,{moveFocus=false}={}){
+  invalidateReadViews();
   tabs.forEach(item=>{
     const selected=item===tab;
     item.classList.toggle("active",selected);
@@ -40,10 +41,11 @@ function activateTab(tab,{moveFocus=false}={}){
     if(panel){panel.classList.toggle("active",selected);panel.hidden=!selected}
   });
   if(moveFocus){tab.focus();tab.scrollIntoView({block:"nearest",inline:"nearest"})}
-  if(tab.dataset.tab==="history")loadHistory().catch(error=>reportPersistentError(error.message));
+  const read=tabReads.capture({isCurrent:()=>tab.getAttribute("aria-selected")==="true"});
+  if(tab.dataset.tab==="history")loadHistory().catch(error=>read.reportError(error));
   if(tab.dataset.tab==="diff")loadDiffSelectors();
   if(tab.dataset.tab==="admx")checkAdmx();
-  if(tab.dataset.tab==="browser")loadBrowser().catch(error=>reportPersistentError(error.message));
+  if(tab.dataset.tab==="browser")loadBrowser().catch(error=>read.reportError(error));
 }
 
 tabs.forEach((tab,index)=>{
@@ -225,6 +227,11 @@ $("#export-review-download").onclick=async()=>{
   const review=exportReview,dialog=$("#export-review-dialog"),button=$("#export-review-download"),issues=$("#export-review-issues");
   if(!review||review.pending||button.disabled)return;
   const ownsReview=()=>exportReview===review&&dialog.open;
+  const reportError=captureErrorReporter(ownsReview,error=>{
+    issues.textContent=error instanceof TypeError?"The local GPO Studio server is unavailable. Keep this review open and try again.":error.message;
+    issues.className="review-issues error-summary";
+    issues.tabIndex=-1;issues.focus();
+  });
   review.pending=true;
   button.disabled=true;button.textContent="Preparing download…";
   $("#export-review-form").setAttribute("aria-busy","true");
@@ -232,7 +239,7 @@ $("#export-review-download").onclick=async()=>{
   url.searchParams.set("expected_revision",String(review.revision));
   url.searchParams.set("expected_review_hash",review.reviewHash);
   try{
-    const response=await fetch(url,{cache:"no-store"});
+    const response=await /* request: export.review.bytes */ fetch(url,{cache:"no-store"});
     if(!ownsReview())return;
     if(!response.ok){
       const payload=await response.json().catch(()=>null);
@@ -260,10 +267,7 @@ $("#export-review-download").onclick=async()=>{
     setTimeout(()=>URL.revokeObjectURL(blobUrl),60_000);
     dialog.close();
   }catch(error){
-    if(!ownsReview())return;
-    issues.textContent=error instanceof TypeError?"The local GPO Studio server is unavailable. Keep this review open and try again.":error.message;
-    issues.className="review-issues error-summary";
-    issues.tabIndex=-1;issues.focus();
+    reportError(error);
   }finally{
     review.pending=false;
     if(ownsReview()){
@@ -282,13 +286,14 @@ $("#import-gpmc").onclick=async()=>{
   $("#gpmc-import-submit").textContent="Import backup";
   $("#gpmc-import-dialog").showModal();
   const context=captureMutation(form);
+  const read=importReads.start({isCurrent:()=>isCurrentEditor(context),report:error=>showFormErrors(form,error)});
   try{
-    const info=(await api("/api/imports/capabilities")).gpmc_backup;
-    if(!isCurrentEditor(context))return;
+    const info=(await /* request: import.capabilities */ api("/api/imports/capabilities")).gpmc_backup;
+    if(!read.isCurrent())return;
     form.dataset.inboxConfigured=String(Boolean(info.inbox_configured));
     $("#gpmc-import-preview").textContent=info.inbox_configured?"Import inbox found. The path you enter is read relative to it.":"No import inbox is configured. Set GPO_STUDIO_INBOX_DIR to import backups from here.";
     $("#gpmc-import-submit").disabled=!info.inbox_configured;
-  }catch(error){if(isCurrentEditor(context))showFormErrors(form,error)}
+  }catch(error){read.reportError(error)}
 };
 $("#gpmc-import-form").onsubmit=async event=>{
   event.preventDefault();
@@ -298,7 +303,7 @@ $("#gpmc-import-form").onsubmit=async event=>{
   context.name="GPMC backup import";
   clearFormErrors(form);
   try{
-    const data=await api("/api/backups/import",{method:"POST",body:JSON.stringify({path:form.relative_path.value,actor:form.actor.value,reason:form.reason.value})});
+    const data=await /* request: import.backup */ api("/api/backups/import",{method:"POST",body:JSON.stringify({path:form.relative_path.value,actor:form.actor.value,reason:form.reason.value})});
     const selectImported=isSameEditor(context);
     updateMutationList(data,renderList);
     if(isCurrentEditor(context))context.dialog.close();
@@ -322,8 +327,8 @@ initPublication();
 initTemplates();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
-loadList().then(()=>setAppStatus("")).catch(error=>{
-  setAppStatus("");
-  reportPersistentError(error.message);
-  toast(error.message);
+const initialRead=tabReads.capture();
+loadList().catch(error=>initialRead.reportError(error)).finally(()=>{
+  // Loading is a status lease, independent of editor/error ownership.
+  if($("#app-status").textContent==="Loading policies…")setAppStatus("");
 });

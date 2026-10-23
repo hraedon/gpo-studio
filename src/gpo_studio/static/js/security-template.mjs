@@ -1,3 +1,4 @@
+import { createReadScope } from "./read-context.mjs";
 import { $, escapeHtml } from "./state.mjs";
 import { api } from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
@@ -93,9 +94,13 @@ export function renderTemplate(body) {
     .join("");
 }
 
+const reads = createReadScope({ element: () => $("#security-template-dialog") });
+
 export function initSecurityTemplate() {
   $("#open-security-template").onclick = openSecurityTemplate;
   $("#security-template-form").onsubmit = submitSecurityTemplate;
+  $("#security-template-form").addEventListener("input", () => reads.invalidate());
+  $("#security-template-form").addEventListener("change", () => reads.invalidate());
   $("#security-template-mode").onchange = applyMode;
 }
 
@@ -109,6 +114,7 @@ function applyMode(event) {
 }
 
 export function openSecurityTemplate() {
+  reads.invalidate();
   const form = $("#security-template-form");
   clearFormErrors(form);
   $("#security-template-results").innerHTML =
@@ -123,6 +129,10 @@ async function submitSecurityTemplate(event) {
     return;
   }
   const form = event.currentTarget;
+  const read = reads.start({ report: error => {
+    $("#security-template-results").innerHTML = "";
+    showFormErrors(form, error);
+  } });
   clearFormErrors(form);
   const results = $("#security-template-results");
   const mode = form.mode.value;
@@ -142,13 +152,13 @@ async function submitSecurityTemplate(event) {
       : families;
   results.innerHTML = '<div class="table-empty">Rendering…</div>';
   try {
-    const body = await api(MODES[mode].path, {
+    const body = await /* request: security.render */ api(MODES[mode].path, {
       method: "POST",
       body: JSON.stringify(payload),
     });
+    if (!read.isCurrent()) return;
     results.innerHTML = renderTemplate(body);
   } catch (error) {
-    results.innerHTML = "";
-    showFormErrors(form, error);
+    read.reportError(error);
   }
 }

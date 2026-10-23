@@ -1,3 +1,4 @@
+import { createReadScope } from "./read-context.mjs";
 import {
   $,
   $$,
@@ -21,6 +22,7 @@ import {
 let listGeneration = 0,
   listRequest = 0;
 const pendingDeletes = new Set();
+const starterReads=createReadScope({element:()=>$("#starter-list-dialog")});
 
 function listContext() {
   const dialog = $("#starter-list-dialog");
@@ -52,10 +54,11 @@ async function refreshStarterList(context) {
   if (!isCurrentList(context)) return;
   const request = ++listRequest;
   const list = $("#starter-list");
+  const read=starterReads.start({isCurrent:()=>request===listRequest&&isCurrentList(context),report:error=>{list.innerHTML=`<div class="table-empty">${escapeHtml(error.message)}</div>`}});
   list.innerHTML = '<div class="table-empty">Loading…</div>';
   try {
-    const data = await api("/api/starter-gpos");
-    if (request !== listRequest || !isCurrentList(context)) return;
+    const data = await /* request: starter.list */ api("/api/starter-gpos");
+    if (!read.isCurrent()) return;
     if (!data.count) {
       list.innerHTML =
         '<div class="table-empty">No Starter GPOs yet. Create one to derive draft policies from a shared baseline.</div>';
@@ -80,8 +83,7 @@ async function refreshStarterList(context) {
         );
     });
   } catch (error) {
-    if (request === listRequest && isCurrentList(context))
-      list.innerHTML = `<div class="table-empty">${escapeHtml(error.message)}</div>`;
+    read.reportError(error);
   }
 }
 
@@ -106,7 +108,7 @@ async function submitCreateStarter(event) {
   context.name = form.name.value;
   clearFormErrors(form);
   try {
-    const data = await api("/api/starter-gpos", {
+    const data = await /* request: starter.create */ api("/api/starter-gpos", {
       method: "POST",
       body: JSON.stringify({
         name: form.name.value,
@@ -157,7 +159,7 @@ async function submitDerive(event) {
   context.name = form.name.value;
   clearFormErrors(form);
   try {
-    const data = await api(`/api/starter-gpos/${sourceGuid}/derive`, {
+    const data = await /* request: starter.derive */ api(`/api/starter-gpos/${sourceGuid}/derive`, {
       method: "POST",
       body: JSON.stringify({
         name: form.name.value,
@@ -198,7 +200,7 @@ async function deleteStarter(guid, revision, name) {
     button.disabled = true;
   });
   try {
-    await api(`/api/starter-gpos/${guid}`, {
+    await /* request: starter.delete */ api(`/api/starter-gpos/${guid}`, {
       method: "DELETE",
       body: JSON.stringify({
         actor: "local-operator",

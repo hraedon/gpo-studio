@@ -14,6 +14,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 - Restore keyboard focus to the same row action after an owned save redraws the
   table. Newer editors, policy changes and intentional focus moves retire an old
   dialog's scheduled focus return.
+- Share read ownership across views and previews so retired responses cannot replace
+  current warnings, draft values, reviewed selections or pending download controls.
+  Keep useful background cache admission and dispatched mutation outcomes intact.
 - Retire ADMX lookups when search text changes; keep obsolete lookup and catalogue-read
   failures out of newer views, warnings and drafts while retaining active failure messages.
 - Refresh reopened Starter libraries after committed changes and keep the ordinary
