@@ -64,6 +64,13 @@ export function beginMutation(form, { target = null, workspace = false } = {}) {
     .map((control) => ({ control, disabled: control.disabled }));
   context.busy = form.getAttribute("aria-busy");
   pendingForms.set(form, context);
+  const pendingMessage = document.createElement("p");
+  pendingMessage.className = "form-pending form-hint";
+  pendingMessage.setAttribute("role", "note");
+  pendingMessage.textContent =
+    "Saving changes… Closing this dialog keeps the save running.";
+  (form.querySelector(":scope > .dialog-body") || form).prepend(pendingMessage);
+  context.pendingMessage = pendingMessage;
   context.controls.forEach(({ control }) => {
     control.disabled = true;
   });
@@ -116,6 +123,7 @@ export function endMutation(context) {
   const form = context.form;
   if (!form || pendingForms.get(form) !== context) return;
   pendingForms.delete(form);
+  context.pendingMessage?.remove();
   context.controls.forEach(({ control, disabled }) => {
     control.disabled = disabled;
   });

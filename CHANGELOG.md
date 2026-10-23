@@ -47,6 +47,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 - Keep each ADMX target bound to the revision displayed when its editor opened;
   late sidebar updates cannot silently advance it. Explicit conflict review
   updates that target's revision, and archived targets require another draft.
+- Show a visible saving message in pending editors and explain that closing the
+  dialog keeps the save running.
 - Scope the authenticated IIS shared-service profile and its acceptance gates
   in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
 
