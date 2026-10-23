@@ -9,6 +9,21 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Fix Cancel and Close across dialogs with invalid required fields, and make Enter
+  submit creation instead of silently dismissing it.
+- Add an ADMX folder dialog with source counts, load diagnostics and refreshed policy
+  browsers; add `--admx-dir` for repeatable startup without environment variables.
+- Keep ADMX configuration on the selected editable GPO, show persistent save errors,
+  and prevent duplicate pending configuration requests.
+- Discard obsolete estate-file selections and late policy navigation/diff responses;
+  refresh revision comparisons when switching policies.
+- Prevent duplicate pending draft creation and keep retry values intact.
+- Keep bulk policy selections scoped to the current GPO and configuration side,
+  including selections hidden by filters.
+- Use a compact two-column tool layout on narrow screens.
+- Scope the authenticated IIS shared-service profile and its acceptance gates
+  in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

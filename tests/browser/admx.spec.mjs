@@ -168,3 +168,37 @@ test("a policy with no elements is still configurable", async ({
   const settings = (await response.json()).gpo.settings;
   expect(settings.map((s) => s.value_name)).toEqual(["ToggleState"]);
 });
+
+test("configuration defaults to the selected editable GPO", async ({
+  page,
+  request,
+}, testInfo) => {
+  const archived = await seedPolicy(request, testInfo);
+  const archivedResponse = await request.patch(
+    `/api/gpos/${archived.payload.gpo.guid}`,
+    {
+      data: {
+        expected_revision: 1,
+        status: "archived",
+        name: archived.name,
+        actor: "browser-test",
+        reason: "Synthetic archived target",
+      },
+    },
+  );
+  expect(archivedResponse.status()).toBe(200);
+  const selected = await seedPolicy(request, testInfo);
+  await openPolicy(page, selected, "Synthetic toggle without options");
+  const dialog = await openConfigureDialog(page);
+  await expect(dialog.locator("#configure-target-gpo")).toHaveValue(
+    selected.payload.gpo.guid,
+  );
+  await expect(
+    dialog.locator(
+      `#configure-target-gpo option[value="${archived.payload.gpo.guid}"]`,
+    ),
+  ).toHaveCount(0);
+  await dialog.locator('[name="reason"]').fill("");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+});

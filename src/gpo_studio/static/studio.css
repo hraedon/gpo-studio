@@ -74,3 +74,13 @@ dialog{max-height:calc(100dvh - 30px);overflow:hidden}dialog form{max-height:cal
    in the sideways-scrolling list, so one long name widened the whole page past a 390 px viewport.
    With min-width:0 the list scrolls inside the rail and each name ellipsizes (full name in `title`). */
 .rail,.rail nav{min-width:0}
+
+.form-hint{font-size:13px;color:var(--muted);line-height:1.5}
+.form-hint code{overflow-wrap:anywhere}
+.template-source{display:grid;gap:4px;padding:12px;border:1px solid var(--line);border-radius:8px}
+.template-source code,#templates-status li{overflow-wrap:anywhere}
+.template-source small{color:var(--muted)}
+.rail>button.full{margin-bottom:8px}
+@media(max-width:850px){.rail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.rail>.brand,.rail>.search,.rail>nav,.rail>footer{grid-column:1/-1}.rail>button.full{margin:0;white-space:normal}.rail>.brand{margin-bottom:4px}}
+
+@media(max-width:600px){.rail>button.full{padding:8px 10px;font-size:13px}}

@@ -3,7 +3,9 @@ import {api,toast,audit,showPersistentError} from './api.mjs';
 import {clearFormErrors,handleFormFailure,showFormErrors} from './errors.mjs';
 import {loadList,renderAll,renderList,loadHistory} from './render.mjs';
 
+let gpoSubmitting=false,gpoDialogGeneration=0;
 export function openGpo(edit=false){
+  gpoDialogGeneration++;
   const form=$("#gpo-form");form.reset();clearFormErrors(form);form.dataset.edit=edit?"true":"false";$("#metadata-options").hidden=!edit;
   $("#gpo-dialog-title").textContent=edit?"Edit policy details":"New GPO";$("#gpo-submit").textContent=edit?"Save changes":"Create policy";
   if(edit){const g=state.current;form.name.value=g.name;form.description.value=g.description;form.computer_enabled.checked=g.computer_enabled;form.user_enabled.checked=g.user_enabled;form.status.value=g.status;form.domain.value=g.domain||"studio.local";form.reason.value="Update policy metadata"}else form.reason.value="Create draft";
@@ -49,11 +51,11 @@ export async function openWmiCatalogue(){
     });
   }catch(error){list.innerHTML=`<div class="table-empty">${escapeHtml(error.message)}</div>`}
 }
-let estateParsedJson=null,estateMode='upload';
+let estateParsedJson=null,estateMode='upload',estateFileSelection=0;
 function setEstateMode(mode){estateMode=mode;$$('.estate-toggle .chip').forEach(c=>c.classList.toggle('active',c.dataset.mode===mode));$('#estate-upload-section').hidden=mode!=='upload';$('#estate-paste-section').hidden=mode!=='paste'}
 export function openEstate(){
   const form=$("#estate-form");form.reset();clearFormErrors(form);
-  estateParsedJson=null;setEstateMode('upload');$('#estate-file-info').hidden=true;
+  estateParsedJson=null;estateFileSelection++;setEstateMode('upload');$('#estate-file-info').hidden=true;
   $("#estate-dialog").showModal();
 }
 export function openFork(){
@@ -74,18 +76,52 @@ export function openComment(setting){
 function applyCurrent(data){applyPayload(data);renderAll();renderList()}
 async function mutationFailure(form,error){await handleFormFailure(form,error,{onCurrent:applyCurrent})}
 export function initForms(){
-$("#gpo-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;try{let data;if(f.dataset.edit==="true"){data=await api(`/api/gpos/${state.current.guid}`,{method:"PATCH",body:JSON.stringify({...audit(f.reason.value),name:f.name.value,description:f.description.value,computer_enabled:f.computer_enabled.checked,user_enabled:f.user_enabled.checked,status:f.status.value,domain:f.domain.value})})}else{data=await api("/api/gpos",{method:"POST",body:JSON.stringify({name:f.name.value,description:f.description.value,actor:"local-operator",reason:f.reason.value})})}$("#gpo-dialog").close();await loadList(data.gpo.guid);toast(f.dataset.edit==="true"?"Policy details saved":"Draft policy created")}catch(error){await mutationFailure(f,error)}};
+$("#gpo-form").onsubmit=async event=>{
+  event.preventDefault();
+  if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
+  if(gpoSubmitting)return;
+  const f=event.currentTarget,button=$("#gpo-submit"),wasDisabled=button.disabled;
+  const editing=f.dataset.edit==="true",generation=gpoDialogGeneration;
+  gpoSubmitting=true;button.disabled=true;clearFormErrors(f);
+  try{
+    let data;
+    if(editing){
+      data=await api(`/api/gpos/${state.current.guid}`,{method:"PATCH",body:JSON.stringify({...audit(f.reason.value),name:f.name.value,description:f.description.value,computer_enabled:f.computer_enabled.checked,user_enabled:f.user_enabled.checked,status:f.status.value,domain:f.domain.value})});
+    }else{
+      data=await api("/api/gpos",{method:"POST",body:JSON.stringify({name:f.name.value,description:f.description.value,actor:"local-operator",reason:f.reason.value})});
+    }
+    if(generation===gpoDialogGeneration)$("#gpo-dialog").close();
+    await loadList(data.gpo.guid);toast(editing?"Policy details saved":"Draft policy created");
+  }catch(error){
+    if(generation===gpoDialogGeneration&&$("#gpo-dialog").open)await mutationFailure(f,error);
+    else showPersistentError(error.message);
+  }finally{gpoSubmitting=false;button.disabled=wasDisabled}
+};
 $("#setting-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget,type=f.registry_type.value;let value=f.value.value;if(type==="REG_DWORD"||type==="REG_QWORD")value=value.trim();else if(type==="REG_MULTI_SZ")value=value.split(/\r?\n/).filter(Boolean);const setting={side:f.side.value,hive:f.side.value==="computer"?"HKLM":"HKCU",key:f.key.value.replace(/^\\+|\\+$/g,""),value_name:f.value_name.value,registry_type:type,value,action:f.action.value,comment:f.comment.value};const path=state.editingSetting?`/api/gpos/${state.current.guid}/settings/${state.editingSetting.id}`:`/api/gpos/${state.current.guid}/settings`;try{const data=await api(path,{method:state.editingSetting?"PUT":"POST",body:JSON.stringify({...audit(f.reason.value),setting})});$("#setting-dialog").close();applyCurrent(data);toast("Registry policy saved")}catch(error){await mutationFailure(f,error)}};
 $("#link-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget,link={target:f.target.value,order:Number(f.order.value),enabled:f.enabled.checked,enforced:f.enforced.checked};const path=state.editingLink?`/api/gpos/${state.current.guid}/links/${state.editingLink.id}`:`/api/gpos/${state.current.guid}/links`;try{const data=await api(path,{method:state.editingLink?"PUT":"POST",body:JSON.stringify({...audit(f.reason.value),link})});$("#link-dialog").close();applyCurrent(data);toast("Link intent saved")}catch(error){await mutationFailure(f,error)}};
 $("#filter-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget,filter={principal:f.principal.value,permission:f.permission.value,target_type:f.target_type.value,inheritable:f.inheritable.checked};const path=state.editingFilter?`/api/gpos/${state.current.guid}/security-filters/${state.editingFilter.id}`:`/api/gpos/${state.current.guid}/security-filters`;try{const data=await api(path,{method:state.editingFilter?"PUT":"POST",body:JSON.stringify({...audit(f.reason.value),filter})});$("#filter-dialog").close();applyCurrent(data);toast("Security filter saved")}catch(error){await mutationFailure(f,error)}};
 $("#wmi-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget,wmi_filter={name:f.name.value,description:f.description.value,language:f.language.value,query:f.query.value};try{const data=await api(`/api/gpos/${state.current.guid}/wmi-filter`,{method:"PUT",body:JSON.stringify({...audit(f.reason.value),wmi_filter})});$("#wmi-dialog").close();applyCurrent(data);toast("WMI filter saved")}catch(error){await mutationFailure(f,error)}};
   $("#estate-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;try{let body;if(estateMode==='upload'){if(!estateParsedJson){showFormErrors(f,{issues:[{message:"Choose a valid JSON file first"}]});return}body=estateParsedJson}else{body=JSON.parse(f.json.value)}const data=await api("/api/estate/import",{method:"POST",body:JSON.stringify(body)});$("#estate-dialog").close();await loadList();toast(`Imported ${data.imported} GPO(s), skipped ${data.skipped}`)}catch(error){if(error instanceof SyntaxError){showFormErrors(f,{issues:[{message:"Invalid JSON: "+error.message}]})}else{showFormErrors(f,error)}}};
   $('#estate-file').onchange=async()=>{
+    const selection=++estateFileSelection;
+    estateParsedJson=null;
+    const form=$('#estate-form'),info=$('#estate-file-info');
+    clearFormErrors(form);info.hidden=true;info.textContent="";
     const file=$('#estate-file').files[0];if(!file)return;
     const MAX_ESTATE_BYTES=5*1024*1024;
-    if(file.size>MAX_ESTATE_BYTES){showFormErrors($('#estate-form'),{issues:[{message:`File too large (${(file.size/1024/1024).toFixed(1)}MB). Maximum is 5MB.`}]});return}
-    const info=$('#estate-file-info');const sizeKb=(file.size/1024).toFixed(0);
-    try{const text=await file.text();estateParsedJson=JSON.parse(text);info.hidden=false;info.innerHTML=`<strong>${escapeHtml(file.name)}</strong> (${sizeKb} KB)${file.size>1048576?' <span class="diff-modified">⚠ File exceeds 1 MB</span>':''}`}catch(e){estateParsedJson=null;info.hidden=false;info.innerHTML=`<strong>${escapeHtml(file.name)}</strong> (${sizeKb} KB) <span class="diff-removed">✗ Invalid JSON: ${escapeHtml(e.message)}</span>`}
+    if(file.size>MAX_ESTATE_BYTES){showFormErrors(form,{issues:[{message:`File too large (${(file.size/1024/1024).toFixed(1)}MB). Maximum is 5MB.`}]});return}
+    const sizeKb=(file.size/1024).toFixed(0);
+    info.hidden=false;info.textContent=`Reading ${file.name}…`;
+    try{
+      const text=await file.text();
+      if(selection!==estateFileSelection)return;
+      estateParsedJson=JSON.parse(text);
+      info.innerHTML=`<strong>${escapeHtml(file.name)}</strong> (${sizeKb} KB)${file.size>1048576?' <span class="diff-modified">⚠ File exceeds 1 MB</span>':''}`;
+    }catch(e){
+      if(selection!==estateFileSelection)return;
+      estateParsedJson=null;
+      info.hidden=false;info.innerHTML=`<strong>${escapeHtml(file.name)}</strong> (${sizeKb} KB) <span class="diff-removed">✗ Unable to read valid JSON: ${escapeHtml(e.message)}</span>`;
+    }
   };
   $$('.estate-toggle .chip').forEach(c=>c.onclick=()=>setEstateMode(c.dataset.mode));
   $("#fork-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;try{const data=await api(`/api/gpos/${state.current.guid}/fork`,{method:"POST",body:JSON.stringify({name:f.name.value,actor:"local-operator",reason:f.reason.value})});$("#fork-dialog").close();await loadList(data.gpo.guid);toast("Forked to draft")}catch(error){showFormErrors(f,error)}};

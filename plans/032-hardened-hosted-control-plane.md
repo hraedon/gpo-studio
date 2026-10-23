@@ -25,6 +25,11 @@ Sequence position: execute before Plan 030 controlled publication
 Review gate: **ARCHITECTURE, SECURITY, AND OPERATIONS REVIEW REQUIRED before
 implementation and again before production support**
 
+The 2026-10-22 [IIS/shared-service assessment](../docs/iis-shared-service-assessment.md)
+scopes the implementation and its identity/operations spike under
+[WI-086](../docs/work-items.md#wi-086--qualify-an-authenticated-iis-hosted-shared-authoring-profile).
+It does not change the unsurfaced status or qualify a deployment.
+
 ## Purpose
 
 The 1.0 product is intentionally a single signed-in operator's loopback

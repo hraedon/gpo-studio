@@ -17,12 +17,20 @@ function formatRedirection(r){if(!r)return '—';return [`${r.full_path||'(no Fu
 function redirectionLabel(c){return `${c.folder_guid||''} for ${c.principal||''}`}
 function kindClass(kind){return kind==='added'?'diff-added':kind==='removed'?'diff-removed':'diff-modified'}
 
+let revisionDiffRequest=0;
+
 export async function loadDiffSelectors(){
+  const request=++revisionDiffRequest;
+  const guid=state.current?.guid;
+  $("#run-revision-diff").disabled=true;
+  $("#revision-diff-from").replaceChildren();$("#revision-diff-to").replaceChildren();
+  $("#revision-diff-results").textContent="Loading revision history…";
   const opts=state.gpos.map(g=>`<option value="${escapeHtml(g.guid)}">${escapeHtml(g.name)} (r${g.revision})</option>`).join('');
   ['diff-baseline','diff-draft','diff-observed'].forEach(id=>{const sel=$('#'+id),prev=sel.value;sel.innerHTML=opts;if(prev)sel.value=prev});
   if(!state.current)return;
   try{
-    const history=await api(`/api/gpos/${state.current.guid}/revisions`);
+    const history=await api(`/api/gpos/${guid}/revisions`);
+    if(request!==revisionDiffRequest||state.current?.guid!==guid)return;
     const revisionOptions=history.items.map(item=>`<option value="${item.revision}">Revision ${item.revision} — ${escapeHtml(item.reason)}</option>`).join('');
     const from=$('#revision-diff-from'),to=$('#revision-diff-to');
     from.innerHTML=revisionOptions;to.innerHTML=revisionOptions;
@@ -30,17 +38,18 @@ export async function loadDiffSelectors(){
     if(history.items.length)to.value=String(history.items[0].revision);
     $('#run-revision-diff').disabled=history.items.length<2;
     $('#revision-diff-results').innerHTML=history.items.length<2?'<div class="table-empty">Create another revision to compare policy history.</div>':'';
-  }catch(error){$('#revision-diff-results').innerHTML=`<div class="table-empty">Error: ${escapeHtml(error.message)}</div>`}
+  }catch(error){if(request!==revisionDiffRequest||state.current?.guid!==guid)return;$('#revision-diff-results').innerHTML=`<div class="table-empty">Error: ${escapeHtml(error.message)}</div>`}
 }
 
 export function initDiff(){
   $('#run-revision-diff').onclick=async()=>{
+    const request=++revisionDiffRequest,guid=state.current.guid;
     const button=$('#run-revision-diff'),from=$('#revision-diff-from').value,to=$('#revision-diff-to').value;
     if(from===to){$('#revision-diff-results').innerHTML='<div class="table-empty">Choose two different revisions.</div>';return}
     button.disabled=true;$('#revision-diff-results').innerHTML='<div class="table-empty">Comparing revisions…</div>';
-    try{const data=await api(`/api/gpos/${state.current.guid}/revisions/diff?from_revision=${encodeURIComponent(from)}&to_revision=${encodeURIComponent(to)}`);renderDiff(data,$('#revision-diff-results'))}
-    catch(error){$('#revision-diff-results').innerHTML=`<div class="table-empty">Error: ${escapeHtml(error.message)}</div>`}
-    finally{button.disabled=false}
+    try{const data=await api(`/api/gpos/${guid}/revisions/diff?from_revision=${encodeURIComponent(from)}&to_revision=${encodeURIComponent(to)}`);if(request!==revisionDiffRequest||state.current?.guid!==guid)return;renderDiff(data,$('#revision-diff-results'))}
+    catch(error){if(request!==revisionDiffRequest||state.current?.guid!==guid)return;$('#revision-diff-results').innerHTML=`<div class="table-empty">Error: ${escapeHtml(error.message)}</div>`}
+    finally{if(request===revisionDiffRequest&&state.current?.guid===guid)button.disabled=false}
   };
   $('#run-diff').onclick=async()=>{
     const btn=$('#run-diff');btn.disabled=true;

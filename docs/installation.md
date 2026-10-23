@@ -87,8 +87,9 @@ python -m venv .venv
 
 ## Configuration
 
-GPO Studio is configured only through CLI options and environment variables.
-There is no configuration file.
+Startup configuration uses CLI options and environment variables. There is no
+configuration file. The **ADMX folder** sidebar action can also load templates
+for the current server session.
 
 ### CLI reference
 
@@ -102,6 +103,7 @@ and `restore`), plus global options.
 | `--host` | `127.0.0.1` | Bind address. Non-loopback requires `GPO_STUDIO_UNSAFE_BIND`. |
 | `--port` | `8765` | Bind port. |
 | `--database` | `gpo-studio.db` | Workspace database path. |
+| `--admx-dir` | environment or `./admx` | ADMX/ADML folder; also accepted after `run`. Explicit CLI value overrides the environment. |
 
 With no command, `gpo-studio` starts the web server using the global options,
 the same as `run`.
@@ -203,6 +205,24 @@ normal use. Never copy them separately from the main `.db` file. Manual copy
 and checkpoint steps are in [`workspace-recovery.md`](workspace-recovery.md).
 
 ### ADMX directory
+
+Choose **ADMX folder** in the sidebar (also available from both policy-browser
+empty states), enter a folder path, and select **Load folder**. Paths refer to
+the computer running Studio. Loading reads the templates and replaces the default
+source for this server session; it does not copy files or save a startup setting.
+The dialog shows counts and per-file issues. A missing/unreadable directory keeps
+the previous source; a valid empty or wholly malformed folder can replace it with
+an empty catalogue, reported explicitly in the dialog.
+
+For repeatable startup, put the folder option in your launch command or shortcut:
+
+```powershell
+gpo-studio run --admx-dir "C:\PolicyDefinitions"
+```
+
+This option and the folder UI are unreleased additions after 1.1.0. Existing
+1.1.0 wheels still use the environment variable below.
+
 
 `GPO_STUDIO_ADMX_DIR` (default `./admx`) should hold ADMX files and their
 matching ADML language files. GPO Studio reads them at startup. If the

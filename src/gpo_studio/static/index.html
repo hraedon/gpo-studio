@@ -90,6 +90,7 @@
       <button class="full" id="open-security-template">Security template</button>
       <button class="full" id="open-folder-redirection">Folder Redirection</button>
       <button class="full" id="open-scripts">Scripts</button>
+      <button class="full" id="open-templates">ADMX folder</button>
       <label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Filter policies</span><input id="search" type="search" placeholder="Filter policies"></label>
       <nav id="gpo-list" aria-label="Group Policy objects"></nav>
       <footer><span><span class="dot"></span> Offline authoring mode</span><button id="theme-toggle" type="button" aria-label="Colour theme: automatic">Auto</button></footer>
@@ -157,7 +158,7 @@
 
         <div class="panel" id="panel-browser" role="tabpanel" aria-labelledby="tab-browser" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Configured policy browser</p><h2>Settings browser</h2></div></div>
-          <div id="browser-empty" class="table-empty">No ADMX catalogue is configured. Set GPO_STUDIO_ADMX_DIR to use the settings browser.</div>
+          <div id="browser-empty" class="table-empty">No ADMX catalogue is loaded. <button type="button" data-open-templates>Choose an ADMX folder</button> to use the settings browser.</div>
           <div id="browser-content" hidden>
             <div class="filter-row" role="group" aria-label="Filter configured settings by configuration side"><button class="chip active" aria-pressed="true" data-side="all">All</button><button class="chip" aria-pressed="false" data-side="computer">Computer</button><button class="chip" aria-pressed="false" data-side="user">User</button></div>
             <div class="browser-filter-row">
@@ -231,8 +232,9 @@
 
         <div class="panel" id="panel-admx" role="tabpanel" aria-labelledby="tab-admx" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Administrative Templates</p><h2>Policy catalogue</h2></div></div>
-          <div id="admx-empty" class="table-empty">No ADMX directory is configured. Set GPO_STUDIO_ADMX_DIR to browse policies.</div>
+          <div id="admx-empty" class="table-empty">No ADMX catalogue is loaded. <button type="button" data-open-templates>Choose an ADMX folder</button> to browse policies.</div>
           <div id="admx-content" hidden>
+            <label for="admx-search">Search ADMX policies</label>
             <input id="admx-search" type="search" placeholder="Search policies by name, key, or description" class="admx-search-input">
             <div id="admx-detail" hidden></div>
             <div id="admx-results"></div>
@@ -246,10 +248,23 @@
     </main>
   </div>
 
+  <dialog id="templates-dialog" aria-labelledby="templates-title" aria-describedby="templates-description">
+    <form method="dialog" id="templates-form">
+      <div class="dialog-head"><div><p class="eyebrow">Administrative Templates</p><h2 id="templates-title">ADMX folder</h2></div><button type="button" class="icon" value="cancel" aria-label="Close">×</button></div>
+      <p id="templates-description">Load templates from a folder on the computer running GPO Studio. Include the matching ADML language files. The folder is read only; its files stay in place.</p>
+      <label>Folder path<input name="path" required maxlength="4096" autocomplete="off" spellcheck="false" placeholder="C:\PolicyDefinitions"></label>
+      <p class="form-hint">This replaces the default catalogue for this server session. To load a folder each time you start Studio, use <code>gpo-studio run --admx-dir "C:\PolicyDefinitions"</code>.</p>
+      <div id="templates-status" class="review-summary" role="status" aria-live="polite"></div>
+      <div id="templates-sources"></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Close</button><button class="primary" id="templates-load" value="default">Load folder</button></div>
+    </form>
+  </dialog>
+
   <dialog id="gpo-dialog" aria-labelledby="gpo-dialog-title">
     <form method="dialog" id="gpo-form">
-      <div class="dialog-head"><div><p class="eyebrow">Draft policy</p><h2 id="gpo-dialog-title">New GPO</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
-      <label>Name<input name="name" required maxlength="255" placeholder="Workstation security baseline"></label>
+      <div class="dialog-head"><div><p class="eyebrow">Draft policy</p><h2 id="gpo-dialog-title">New GPO</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
+      <p class="form-hint">Name and change reason are required. Description is optional.</p>
+      <label>Name<input name="name" required maxlength="255" placeholder="Workstation security baseline" autocomplete="off"></label>
       <label>Description<textarea name="description" rows="3" maxlength="2000" placeholder="Purpose, owner, and rollout notes"></textarea></label>
       <div id="metadata-options" hidden>
         <div class="switch-row"><span><strong>Computer configuration</strong><small>Apply machine-side policy</small></span><input name="computer_enabled" type="checkbox" checked></div>
@@ -258,78 +273,79 @@
         <label>Domain<input name="domain" maxlength="255" placeholder="studio.local"></label>
       </div>
       <label>Change reason<input name="reason" required value="Create draft"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" id="gpo-submit" value="default">Create policy</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" id="gpo-submit" value="default">Create policy</button></div>
     </form>
   </dialog>
 
   <dialog id="setting-dialog" aria-labelledby="setting-dialog-title">
     <form method="dialog" id="setting-form">
-      <div class="dialog-head"><div><p class="eyebrow">Administrative Templates / Registry</p><h2 id="setting-dialog-title">Add policy setting</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Administrative Templates / Registry</p><h2 id="setting-dialog-title">Add policy setting</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <div class="grid two compact"><label>Configuration<select name="side"><option value="computer">Computer</option><option value="user">User</option></select></label><label>Action<select name="action"><option value="set">Set value</option><option value="delete">Delete value</option></select></label></div>
       <label>Registry key<div class="path-input"><span id="hive-prefix">HKLM\</span><input name="key" required placeholder="Software\Policies\Example"></div></label>
       <div class="grid two compact"><label>Value name<input name="value_name" placeholder="PolicyValue"></label><label>Type<select name="registry_type"><option>REG_SZ</option><option>REG_EXPAND_SZ</option><option>REG_DWORD</option><option>REG_QWORD</option><option>REG_MULTI_SZ</option><option>REG_BINARY</option></select></label></div>
       <label>Value<textarea name="value" rows="3" placeholder="Value (one line per item for REG_MULTI_SZ)"></textarea><small id="value-help">Enter text.</small></label>
       <label>Comment<input name="comment" maxlength="1000" placeholder="Why this setting exists"></label>
       <label>Change reason<input name="reason" required value="Update registry policy"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save setting</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Save setting</button></div>
     </form>
   </dialog>
 
   <dialog id="link-dialog" aria-labelledby="link-dialog-title">
     <form method="dialog" id="link-form">
-      <div class="dialog-head"><div><p class="eyebrow">Scope of management</p><h2 id="link-dialog-title">Add link</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Scope of management</p><h2 id="link-dialog-title">Add link</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Domain or OU distinguished name<input name="target" required placeholder="OU=Workstations,DC=example,DC=test"></label>
       <div class="grid two compact"><label>Link order<input name="order" type="number" min="1" max="999" value="1"></label><div class="toggle-stack"><label><input name="enabled" type="checkbox" checked> Link enabled</label><label><input name="enforced" type="checkbox"> Enforced</label></div></div>
       <label>Change reason<input name="reason" required value="Update link intent"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save link</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Save link</button></div>
     </form>
   </dialog>
 
   <dialog id="configure-dialog" aria-labelledby="configure-title">
     <form method="dialog" id="configure-form">
-      <div class="dialog-head"><div><p class="eyebrow">ADMX policy configuration</p><h2 id="configure-title">Configure policy</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">ADMX policy configuration</p><h2 id="configure-title">Configure policy</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Target GPO<select name="target_gpo" id="configure-target-gpo" required></select></label>
+      <p id="configure-target-note" class="form-hint"></p>
       <div id="configure-fields"></div>
       <label>Change reason<input name="reason" required value="Configure ADMX policy"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Apply policy</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Apply policy</button></div>
     </form>
   </dialog>
 
   <dialog id="filter-dialog" aria-labelledby="filter-dialog-title">
     <form method="dialog" id="filter-form">
-      <div class="dialog-head"><div><p class="eyebrow">Security filtering</p><h2 id="filter-dialog-title">Add security filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Security filtering</p><h2 id="filter-dialog-title">Add security filter</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Principal (SID or account)<input name="principal" required maxlength="255" placeholder="S-1-5-32-544 or DOMAIN\Admins"></label>
       <label>Permission<select name="permission"><option value="apply">Apply policy</option><option value="read">Read only</option></select></label>
       <label>Target type<select name="target_type"><option value="group">Group</option><option value="user">User</option><option value="computer">Computer</option></select></label>
       <div class="switch-row"><span><strong>Inheritable</strong><small>Apply to child containers</small></span><input name="inheritable" type="checkbox" checked></div>
       <label>Change reason<input name="reason" required value="Add security filter"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save filter</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Save filter</button></div>
     </form>
   </dialog>
 
   <dialog id="wmi-dialog" aria-labelledby="wmi-dialog-title">
     <form method="dialog" id="wmi-form">
-      <div class="dialog-head"><div><p class="eyebrow">WMI filtering</p><h2 id="wmi-dialog-title">WMI filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">WMI filtering</p><h2 id="wmi-dialog-title">WMI filter</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Name<input name="name" required maxlength="255" placeholder="Workstation WMI filter"></label>
       <label>Description<input name="description" maxlength="2000" placeholder="Filter purpose"></label>
       <label>Language<input name="language" maxlength="50" value="WQL"></label>
       <label>Query<textarea name="query" rows="4" maxlength="4000" placeholder="SELECT * FROM Win32_OperatingSystem WHERE ProductType = 1"></textarea></label>
       <label>Change reason<input name="reason" required value="Update WMI filter"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save filter</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Save filter</button></div>
     </form>
   </dialog>
 
   <dialog id="wmi-catalogue-dialog" aria-labelledby="wmi-catalogue-dialog-title">
     <form method="dialog" id="wmi-catalogue-form">
-      <div class="dialog-head"><div><p class="eyebrow">WMI filter catalogue</p><h2 id="wmi-catalogue-dialog-title">Select a filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">WMI filter catalogue</p><h2 id="wmi-catalogue-dialog-title">Select a filter</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <div id="wmi-catalogue-list" class="wmi-catalogue-list"></div>
-      <div class="dialog-actions"><button value="cancel">Close</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Close</button></div>
     </form>
   </dialog>
 
   <dialog id="estate-dialog" aria-labelledby="estate-dialog-title">
     <form method="dialog" id="estate-form">
-      <div class="dialog-head"><div><p class="eyebrow">Estate import</p><h2 id="estate-dialog-title">Import gpo-lens estate</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Estate import</p><h2 id="estate-dialog-title">Import gpo-lens estate</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <div class="estate-toggle" role="group" aria-label="Estate import source">
         <button type="button" class="chip active" aria-pressed="true" data-mode="upload">Upload file</button>
         <button type="button" class="chip" aria-pressed="false" data-mode="paste">Paste JSON</button>
@@ -344,22 +360,22 @@
       <div id="estate-paste-section" hidden>
         <textarea name="json" rows="12" placeholder='{"kind": "gpo-lens-estate", ...}'></textarea>
       </div>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Import</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Import</button></div>
     </form>
   </dialog>
 
   <dialog id="fork-dialog" aria-labelledby="fork-dialog-title">
     <form method="dialog" id="fork-form">
-      <div class="dialog-head"><div><p class="eyebrow">Fork baseline</p><h2 id="fork-dialog-title">Fork to draft</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Fork baseline</p><h2 id="fork-dialog-title">Fork to draft</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>New GPO name<input name="name" required maxlength="255" placeholder="Forked policy"></label>
       <label>Change reason<input name="reason" required value="Fork from baseline"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Fork</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Fork</button></div>
     </form>
   </dialog>
 
   <dialog id="gpp-group-dialog" aria-labelledby="gpp-group-dialog-title">
     <form method="dialog" id="gpp-group-form">
-      <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-group-dialog-title">Add group</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-group-dialog-title">Add group</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="scope">
       <label>Group name<input name="name" required maxlength="255" placeholder="Administrators"></label>
       <div class="grid two compact"><label>SID<input name="sid" maxlength="255" placeholder="S-1-5-32-544"></label><label>Action<select name="action"><option value="add">Add</option><option value="replace">Replace</option><option value="remove">Remove</option><option value="update" selected>Update</option></select></label></div>
@@ -372,13 +388,13 @@
       <div id="gpp-ilt-list" class="gpp-rows"></div>
       <div id="gpp-ilt-preview" class="ilt-preview"></div>
       <label>Change reason<input name="reason" required value="Update GPP groups"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save group</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Save group</button></div>
     </form>
   </dialog>
 
   <dialog id="gpp-registry-dialog" aria-labelledby="gpp-registry-dialog-title">
     <form method="dialog" id="gpp-registry-form">
-      <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-registry-dialog-title">Add registry</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-registry-dialog-title">Add registry</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="scope">
       <div class="grid two compact"><label>Hive<select name="hive"><option value="HKEY_LOCAL_MACHINE">HKEY_LOCAL_MACHINE</option><option value="HKEY_CLASSES_ROOT">HKEY_CLASSES_ROOT</option><option value="HKEY_CURRENT_USER">HKEY_CURRENT_USER</option><option value="HKEY_CURRENT_CONFIG">HKEY_CURRENT_CONFIG</option><option value="HKEY_USERS">HKEY_USERS</option></select></label><label>Action<select name="action"><option value="update">Update</option><option value="add">Add</option><option value="replace">Replace</option><option value="remove">Remove</option></select></label></div>
       <label>Registry key<input name="key" required maxlength="1000" placeholder="SOFTWARE\MyApp\Settings"></label>
@@ -389,52 +405,52 @@
       <div id="gpp-ilt-registry-list" class="gpp-rows"></div>
       <div id="gpp-ilt-registry-preview" class="ilt-preview"></div>
       <label>Change reason<input name="reason" required value="Update GPP registry"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save registry</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Save registry</button></div>
     </form>
   </dialog>
 
   <dialog id="conflict-dialog" aria-labelledby="conflict-dialog-title" aria-describedby="conflict-dialog-description">
     <form method="dialog" id="conflict-form">
-      <div class="dialog-head"><div><p class="eyebrow">Revision conflict</p><h2 id="conflict-dialog-title">Review changes before reapplying</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Revision conflict</p><h2 id="conflict-dialog-title">Review changes before reapplying</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <p id="conflict-dialog-description">This policy changed after you opened the form. Your unsaved values are kept. Compare them with the current revision, then choose what to do.</p>
       <div id="conflict-details" class="conflict-details" tabindex="0" aria-label="Revision conflict comparison"></div>
-      <div class="dialog-actions"><button value="cancel" id="conflict-cancel" data-initial-focus>Keep editing</button><button type="button" id="conflict-reload">Load current revision</button><button class="primary" type="button" id="conflict-reapply">Review and reapply</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel" id="conflict-cancel" data-initial-focus>Keep editing</button><button type="button" id="conflict-reload">Load current revision</button><button class="primary" type="button" id="conflict-reapply">Review and reapply</button></div>
     </form>
   </dialog>
 
   <dialog id="export-review-dialog" aria-labelledby="export-review-title" aria-describedby="export-review-description">
     <form method="dialog" id="export-review-form">
-      <div class="dialog-head"><div><p class="eyebrow">Publication boundary</p><h2 id="export-review-title">Review export readiness</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Publication boundary</p><h2 id="export-review-title">Review export readiness</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <p id="export-review-description">Before you download, check the policy, its validation result, its digests and whether this export is available.</p>
       <div id="export-review-summary" class="review-summary" tabindex="0" aria-label="Export review summary"></div>
       <div id="export-review-issues" class="review-issues" aria-live="polite"></div>
-      <div class="dialog-actions"><button value="cancel" id="export-review-cancel" data-initial-focus>Cancel</button><button class="primary" type="button" id="export-review-download">Download export</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel" id="export-review-cancel" data-initial-focus>Cancel</button><button class="primary" type="button" id="export-review-download">Download export</button></div>
     </form>
   </dialog>
 
   <dialog id="gpmc-import-dialog" aria-labelledby="gpmc-import-title" aria-describedby="gpmc-import-description">
     <form method="dialog" id="gpmc-import-form">
-      <div class="dialog-head"><div><p class="eyebrow">Safe inbox import</p><h2 id="gpmc-import-title">Import GPMC backup</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Safe inbox import</p><h2 id="gpmc-import-title">Import GPMC backup</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <p id="gpmc-import-description">Enter the backup folder's path relative to the import inbox. Absolute paths and <code>..</code> are not allowed.</p>
       <label>Inbox-relative backup path<input name="relative_path" required maxlength="1000" autocomplete="off" spellcheck="false" placeholder="incoming/backup-folder"></label>
       <label>Actor<input name="actor" required maxlength="120" autocomplete="off" value="local-operator"></label>
       <label>Import reason<input name="reason" required maxlength="500" value="Import GPMC backup"></label>
       <div id="gpmc-import-preview" class="review-summary" aria-live="polite"></div>
-      <div class="dialog-actions"><button value="cancel" id="gpmc-import-cancel">Cancel</button><button class="primary" type="button" id="gpmc-import-submit">Review import</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel" id="gpmc-import-cancel">Cancel</button><button class="primary" type="button" id="gpmc-import-submit">Review import</button></div>
     </form>
   </dialog>
 
   <dialog id="starter-list-dialog" aria-labelledby="starter-list-dialog-title">
     <form method="dialog" id="starter-list-form">
-      <div class="dialog-head"><div><p class="eyebrow">Starter GPO catalogue</p><h2 id="starter-list-dialog-title">Starter GPOs</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Starter GPO catalogue</p><h2 id="starter-list-dialog-title">Starter GPOs</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <div id="starter-list" class="starter-list"></div>
-      <div class="dialog-actions"><button value="cancel">Close</button><button type="button" class="primary" id="create-starter-gpo">＋ Create Starter GPO</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Close</button><button type="button" class="primary" id="create-starter-gpo">＋ Create Starter GPO</button></div>
     </form>
   </dialog>
 
   <dialog id="rsop-dialog" class="wide" aria-labelledby="rsop-dialog-title">
     <form method="dialog" id="rsop-form">
-      <div class="dialog-head"><div><p class="eyebrow">Resultant Set of Policy</p><h2 id="rsop-dialog-title">Predict effective policy</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Resultant Set of Policy</p><h2 id="rsop-dialog-title">Predict effective policy</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <p class="rsop-note">This predicts what Windows would apply; it does not read anything from a real computer. The prediction matched a real Windows client on twelve test topologies covering LSDOU order, link order, inheritance, enforcement, security filtering (including Deny on Read), user scope and loopback. Slow-link detection and safe mode are not modelled. WMI queries are never run here.</p>
       <div class="grid two compact">
         <label>Computer name<input name="computer_name" maxlength="255" placeholder="LABCL01"></label>
@@ -448,14 +464,14 @@
       </div>
       <label>Query id<input name="query_id" maxlength="255" value="ui-query"></label>
       <label>Topology<textarea name="topology" rows="10" class="mono" placeholder='{"nodes": [], "gpos": []}'>{"nodes": [], "gpos": []}</textarea><small>JSON with the scope-of-management (SOM) tree, the GPOs, and the result of any WMI filter you have already evaluated. You enter it here because the workspace holds draft GPOs, not your OU tree.</small></label>
-      <div class="dialog-actions"><button value="cancel">Close</button><button class="primary" value="default">Compute</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Close</button><button class="primary" value="default">Compute</button></div>
       <div id="rsop-results" class="rsop-results"></div>
     </form>
   </dialog>
 
   <dialog id="security-template-dialog" class="wide" aria-labelledby="security-template-dialog-title">
     <form method="dialog" id="security-template-form">
-      <div class="dialog-head"><div><p class="eyebrow">Security settings</p><h2 id="security-template-dialog-title">Render a security template</h2></div><button class="icon" value="cancel" aria-label="Close">&times;</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Security settings</p><h2 id="security-template-dialog-title">Render a security template</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">&times;</button></div>
       <p class="rsop-note">This builds a <code>GptTmpl.inf</code>; it cannot read one. Both families were tested by having Windows <code>secedit</code> validate, import and export the template. <code>secedit /configure</code> was never run, so nothing here shows that Windows applies these settings. Each result lists its limits above it.</p>
       <div class="grid two compact">
         <label>Families<select name="mode" id="security-template-mode"><option value="policy-families">Policy families &mdash; account, audit, user rights, security options</option><option value="object-security">Object security &mdash; registry keys, files, services</option></select></label>
@@ -464,7 +480,7 @@
       <label>Families<textarea name="families" rows="12" class="mono" placeholder='{
   "audit": {"logon_events": "success"}
 }'>{}</textarea><small>JSON for the selected families. Restricted groups can't be rendered: that output has never been checked against Windows (WI-064).</small></label>
-      <div class="dialog-actions"><button value="cancel">Close</button><button class="primary" value="default">Render</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Close</button><button class="primary" value="default">Render</button></div>
       <div id="security-template-results" class="rsop-results"></div>
     </form>
   </dialog>
@@ -522,42 +538,42 @@
 
   <dialog id="starter-gpo-dialog" aria-labelledby="starter-gpo-dialog-title">
     <form method="dialog" id="starter-gpo-form">
-      <div class="dialog-head"><div><p class="eyebrow">Starter GPO</p><h2 id="starter-gpo-dialog-title">Create starter GPO</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Starter GPO</p><h2 id="starter-gpo-dialog-title">Create starter GPO</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Name<input name="name" required maxlength="255" placeholder="Security baseline template"></label>
       <label>Description<textarea name="description" rows="3" maxlength="2000" placeholder="Purpose and rollout notes"></textarea></label>
       <label>Template version<input name="template_version" maxlength="255" placeholder="v1.0"></label>
       <label>Change reason<input name="reason" required value="Create starter GPO"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Create starter</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Create starter</button></div>
     </form>
   </dialog>
 
   <dialog id="derive-dialog" aria-labelledby="derive-dialog-title">
     <form method="dialog" id="derive-form">
-      <div class="dialog-head"><div><p class="eyebrow">Derive from starter</p><h2 id="derive-dialog-title">Derive GPO</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Derive from starter</p><h2 id="derive-dialog-title">Derive GPO</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="source_guid">
       <label>New GPO name<input name="name" required maxlength="255" placeholder="Derived policy"></label>
       <label>Change reason<input name="reason" required value="Derive from starter GPO"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Derive GPO</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Derive GPO</button></div>
     </form>
   </dialog>
 
   <dialog id="copy-settings-dialog" aria-labelledby="copy-settings-dialog-title">
     <form method="dialog" id="copy-settings-form">
-      <div class="dialog-head"><div><p class="eyebrow">Copy settings</p><h2 id="copy-settings-dialog-title">Copy from another GPO</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Copy settings</p><h2 id="copy-settings-dialog-title">Copy from another GPO</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Source GPO<select name="source_guid" required></select></label>
       <label>Side filter<select name="side"><option value="">All settings</option><option value="computer">Computer only</option><option value="user">User only</option></select></label>
       <label>Change reason<input name="reason" required value="Copy settings from another GPO"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Copy settings</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Copy settings</button></div>
     </form>
   </dialog>
 
   <dialog id="comment-dialog" aria-labelledby="comment-dialog-title">
     <form method="dialog" id="comment-form">
-      <div class="dialog-head"><div><p class="eyebrow">Registry policy comment</p><h2 id="comment-dialog-title">Update comment</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Registry policy comment</p><h2 id="comment-dialog-title">Update comment</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="setting_id">
       <label>Comment<textarea name="comment" rows="4" maxlength="1000" placeholder="Why this setting exists"></textarea></label>
       <label>Change reason<input name="reason" required value="Update setting comment"></label>
-      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save comment</button></div>
+      <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Save comment</button></div>
     </form>
   </dialog>
 

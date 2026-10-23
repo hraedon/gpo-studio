@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**5 open.**
+**6 open.**
 
+- [WI-086](#wi-086--qualify-an-authenticated-iis-hosted-shared-authoring-profile) - prove the shared-service identity boundary, collaborative storage and repeatable IIS deployment under Plan 032.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
@@ -4084,3 +4085,23 @@ changed as part of WP-1.
 reached the final-check/pre-launch pause before SIGTERM is sent, and repeated
 full-suite runs no longer reproduce the race while still proving that the lane
 command never launches.
+
+## WI-086 — qualify an authenticated IIS-hosted shared-authoring profile
+
+**Opened:** 2026-10-22 (shared-service scope request).
+**Status:** open. Scoped in the [IIS assessment](iis-shared-service-assessment.md);
+no hosted implementation or Windows/IIS qualification is claimed. Plan 032's
+existing 1.x scope ruling stays in place pending a version/support decision.
+
+The current application trusts caller-claimed actors, has no request authorization,
+and owns an exclusive single-process SQLite workspace. IIS proxying alone does
+not supply trusted application identity or collaborative persistence. Start with
+a Windows identity/lifecycle spike comparing a dedicated Windows Service behind
+IIS with HttpPlatformHandler, then qualify one-workspace shared authoring.
+
+**Closes when:** a topology ADR and verified identity handoff, exhaustive route
+authorization, PostgreSQL revision/conformance probes, persistent administrator
+ADMX configuration, reproducible install/upgrade/recovery evidence, and independent
+review are banked; capability/support records name the exact qualified matrix.
+The web process retains no AD/SYSVOL write rights. Live publication is outside
+this item's closing condition.

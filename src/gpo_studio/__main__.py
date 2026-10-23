@@ -114,12 +114,15 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: run mode)")
     parser.add_argument("--port", type=int, default=8765, help="Bind port (default: run mode)")
     parser.add_argument("--database", default=None, help="Workspace database path")
+    admx_help = "ADMX folder to load at startup (overrides GPO_STUDIO_ADMX_DIR)"
+    parser.add_argument("--admx-dir", default=None, help=admx_help)
     subparsers = parser.add_subparsers(dest="command")
 
     run_parser = subparsers.add_parser("run", help="Start the web workbench")
     run_parser.add_argument("--host", default="127.0.0.1")
     run_parser.add_argument("--port", type=int, default=8765)
     run_parser.add_argument("--database", default="gpo-studio.db")
+    run_parser.add_argument("--admx-dir", default=argparse.SUPPRESS, help=admx_help)
 
     ws_parser = subparsers.add_parser("workspace", help="Workspace management commands")
     ws_sub = ws_parser.add_subparsers(dest="workspace_command", required=True)
@@ -180,6 +183,8 @@ def main() -> None:
         sys.exit(1)
 
     os.environ["GPO_STUDIO_DB"] = db
+    if args.admx_dir is not None:
+        os.environ["GPO_STUDIO_ADMX_DIR"] = args.admx_dir
     uvicorn.run("gpo_studio.api:app", host=host, port=port)
 
 

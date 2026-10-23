@@ -13,6 +13,7 @@ import {initSecurityTemplate} from './security-template.mjs';
 import {initFolderRedirection} from './folder-redirection.mjs';
 import {initScripts} from './scripts.mjs';
 import {initPublication} from './publication.mjs';
+import {initTemplates} from './templates.mjs';
 
 const tabs=$$(".tab[role='tab']");
 
@@ -78,6 +79,10 @@ function initialiseDialog(dialog){
       if(target instanceof HTMLElement)target.focus();
     });
   };
+  dialog.addEventListener("click",event=>{
+    const cancel=event.target.closest('button[value="cancel"]');
+    if(cancel&&cancel.closest("dialog")===dialog){event.preventDefault();dialog.close("cancel")}
+  });
   dialog.addEventListener("keydown",event=>{
     if(event.key!=="Tab")return;
     const focusable=focusableElements(dialog);
@@ -230,6 +235,7 @@ initSecurityTemplate();
 initFolderRedirection();
 initScripts();
 initPublication();
+initTemplates();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
 loadList().then(()=>setAppStatus("")).catch(error=>{

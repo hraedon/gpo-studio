@@ -3,6 +3,9 @@ import {api} from './api.mjs';
 import {openSetting,deleteSetting,openComment,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
 import {renderGpp} from './gpp.mjs';
 import {loadBrowser} from './browser.mjs';
+import {loadDiffSelectors} from './diff.mjs';
+
+let selectionRequest=0;
 
 export async function loadList(selectGuid){
   const data=await api("/api/gpos");state.gpos=data.items;renderList();
@@ -16,7 +19,10 @@ export function renderList(){
 }
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
 export async function selectGpo(guid){
-  const data=await api(`/api/gpos/${guid}`);applyPayload(data);
+  const request=++selectionRequest;
+  const data=await api(`/api/gpos/${guid}`);
+  if(request!==selectionRequest)return;
+  applyPayload(data);
   $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
   renderAll();renderList();
 }
@@ -39,6 +45,7 @@ export function renderAll(){
   $$('[data-export-kind]').forEach(link=>{const capability=state.artifactCapabilities[link.dataset.exportKind]||{};const blocked=capability.enabled===false;link.setAttribute("aria-disabled",String(blocked));link.classList.toggle("disabled",blocked);link.title=blocked?(capability.reason||"Validation errors block this artifact. Open export review for details."):"Review this artifact before downloading."});
   if($("#panel-history").classList.contains("active"))loadHistory();
   if($("#panel-browser").classList.contains("active"))loadBrowser();
+  if($("#panel-diff").classList.contains("active"))loadDiffSelectors();
 }
 export function renderValidation(){
   const errors=state.validation.filter(i=>i.severity==="error"),warnings=state.validation.filter(i=>i.severity==="warning");
