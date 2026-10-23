@@ -133,7 +133,11 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
     review.pending=true;reload.disabled=true;reapply.disabled=true;
     clearFormErrors(dialog.querySelector("form"));
     try{await operation()}
-    catch(fetchError){if(active())showFormErrors(dialog.querySelector("form"),fetchError)}
+    catch(fetchError){if(active()){
+      // Preserve an existing comparison when a refresh fails.
+      if(!review.latest)details.textContent="The current revision could not be loaded. Your unsaved values are retained. Choose an action to try again, or keep editing.";
+      showFormErrors(dialog.querySelector("form"),fetchError)
+    }}
     finally{if(active()){review.pending=false;reload.disabled=false;reapply.disabled=false}}
   };
   reload.onclick=()=>run(async()=>{
