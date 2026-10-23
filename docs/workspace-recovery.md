@@ -540,3 +540,123 @@ authenticated audit identity.**
 - A multi-user deployment must take `actor` from trusted authentication
   middleware, not request JSON. That is on the roadmap and does not exist
   today.
+
+## Legacy registry editor IDs and ambiguous ADMX ownership
+
+Older builds could store several registry records under one editor ID, or infer
+ADMX policy ownership from overlapping text prefixes. Current writes reject
+`duplicate_setting_id`, `ambiguous_setting_id` and `ambiguous_setting_owner`
+instead of choosing a row or deleting another policy's settings. Existing heads
+and immutable revisions remain readable. Setting edit, comment and delete refuse
+an ID with multiple matching records, even when deleting all matches would leave
+an apparently valid result.
+
+Ordinary unambiguous ADMX editor IDs retain their spelling. Policies whose source
+identities use reserved element suffixes, collide with list indexes, contain side
+separators, or contain URL routing characters use deterministic `admx2:` IDs.
+These encode the exact policy, side, write kind, component and list ordinal. The
+choice uses the complete source schema and remains stable across values and
+Enabled/Disabled/Not configured. It changes editor metadata, not Registry.pol's
+registry addresses or value encoding. There is no workspace schema migration.
+
+Legacy admission checks the fully assembled IDs on both sides and the complete
+writer languages, including every canonical positive list ordinal. Existing
+structured source families retain their spelling. Empty source policy names
+accepted by the parser remain coherent through both identity families; historical
+empty-owner frames also participate in ambiguity checks before editable-side
+filtering. These rules do not rewrite stored records during a read.
+
+The settings browser prepares source bindings and address exclusions once per
+policy/side. It distinguishes actual stored legacy/structured frames from today's
+writer-family choice. State and fixed-list records do not become editable dynamic
+list items; interpreting a legacy spelling as a disabled-element write requires
+the scalar's actual address. Uncertain component roles remain visible as unresolved raw records rather
+than invented form values. Component-role resolution, observed policy-level state (WI-088), and reviewed
+identity repair (WI-087) remain separate concerns; these bindings do not rewrite
+history or infer mutation intent.
+Older builds can open and read the raw records; structured list-element rows may
+appear unresolved in their settings browser. They must not reconfigure these ADMX
+policies: the old prefix-based writer cannot safely interpret the new IDs.
+
+Explicit reconfiguration can replace reviewed rows only when a structured ID
+names their exact owner, or a legacy ID has one unambiguous owner/side parse.
+If a legacy frame has multiple parses, all remain uncertain even when every
+candidate is loaded and only one currently matches its registry address or side.
+Catalogues and editable rows can change; their current mapping cannot prove the
+historical producer. Such rows remain unresolved in the settings browser and
+require explicit recovery rather than automatic ADMX reconfiguration. A strict
+complete-head identity check may also prevent a partial repair which would leave
+a different duplicated family in the same head.
+
+For recovery without guessing or changing the original:
+
+1. Create and verify a workspace backup using the commands above. Preserve the
+   original GPO and its history. Inspect its complete raw settings and relevant
+   historical revisions through `GET /api/gpos/{guid}` and
+   `GET /api/gpos/{guid}/revisions/{revision}`.
+2. Review every registry record, including records sharing an ID. If earlier
+   edits already overwrote a value, consult history; identity repair cannot
+   reconstruct lost intent. Resolve conflicting writes to the same registry
+   address explicitly.
+3. Create a fresh draft. For each registry record you choose to retain, call
+   `POST /api/gpos/{new_guid}/settings` with its complete `setting` fields
+   (`side`, `hive`, `key`, `value_name`, `registry_type`, `value`, `action`,
+   `comment`), plus actor, reason and the target's current `expected_revision`.
+   Omit the old editor ID: this endpoint gives each row a fresh UUID. Carry
+   each successful response's revision into the next request. DWORD/QWORD data
+   use canonical decimal strings, as the documented API requires.
+4. Compare all retained registry addresses, types, values and actions before
+   exporting. This procedure recovers the chosen registry portion; links,
+   preferences and other GPO content need their own review. The new GPO has a
+   new GUID, so its whole-policy digest need not equal the original's.
+
+Fork-prefixed ADMX IDs and imported raw IDs do not name an ADMX owner for
+reconfiguration, even when their current native addresses match a template.
+Enabling or disabling that policy can retain the copied rows and add writes at
+the same addresses, producing `duplicate_setting` validation issues and blocked
+native exports. Not configured can leave the copied rows in place. Review the
+raw records explicitly; neither an address match nor a settings-browser state
+observation authorizes automatic ownership repair. WI-087 tracks this recovery
+limitation as well as ambiguous and duplicate editor identities.
+
+Copy retains editor IDs and Fork prefixes them; both preserve a duplicate pair
+and therefore do **not** repair a malformed source with duplicate IDs. Restoring
+a clean historical revision is another recovery path; restoring a duplicated
+revision is refused without
+rewriting that historical snapshot. A dedicated reviewed repair workflow remains
+open as [WI-087](work-items.md#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities).
+
+Policy-state observations compare complete native scalar-marker/list patterns.
+An old state row at a moved address is not evidence of either current state;
+unclaimed possible state records remain unresolved, and the policy can be
+Indeterminate while its raw records and independently eligible exports remain
+available. Child-only inference retains its heuristic except when unclaimed
+historical level records expose uncertainty. Reads never repair these records.
+
+These are local editor/storage guarantees; they do not qualify native Windows
+policy behavior.
+
+The browser addresses legacy registry editor IDs containing URL delimiters,
+percent escapes or slashes as exact IDs for Edit, Comment and Delete. An explicit
+empty ID is also retained when editing; only adding a setting without an ID
+creates a UUID. Arbitrary imported IDs consisting solely of `.` or `..` cannot
+be addressed safely by browser URLs. Their browser actions refuse before sending
+a request, leave the records/history readable, and explain fresh-draft recovery
+with a new ID as described above. Copy preserves these IDs, so it does not remove
+this limitation; recovering chosen raw records with new UUIDs does.
+
+Raw registry editor IDs with digit-like list ordinals which cannot be interpreted
+as decimal digits, such as a superscript `²`, remain visible as unresolved records
+rather than failing configured-settings reads. Canonical positive ASCII ordinals,
+very long decimal strings, zero/leading-zero forms and Unicode decimal digits keep
+their existing numeric order without whole-string integer conversion. Source
+names and existing historical component ambiguity are unchanged; the reader does
+not infer a different source from the spelling or size of an ordinal.
+
+The unresolved records, raw head and original history remain available for review;
+reads do not rename, repair or remove them. Independently eligible native exports
+remain available. Explicit fresh-draft recovery can retain chosen registry records
+with fresh UUIDs as described above. The observed failures were reproduced with
+raw ID substitutions admitted by the local workspace store, not demonstrated
+external imports or actual historical writer output. These read/storage guarantees
+provide no new native Windows qualification.

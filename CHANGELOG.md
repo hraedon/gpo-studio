@@ -9,9 +9,92 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Observe complete native scalar-marker patterns as well as policy lists; expose
+  uncertainty and unresolved historical state records at moved addresses while
+  preserving child values, raw history and independent export eligibility.
+- Document that fork-prefixed/imported ADMX rows are not automatically selected
+  by reconfiguration and require explicitly reviewed recovery.
+
+- Read raw legacy list ordinals without integer-conversion failures and keep
+  unorderable digit-like ordinals visible as unresolved records, while preserving
+  previously successful decimal spellings, source names and historical list order.
+- Show policy identities when accepted ADMX display names are missing or blank,
+  keeping configured-policy controls and catalogue review visibly labelled.
+
+- Preserve uncertainty from historical state records outside current list-policy
+  patterns, regardless of the current writer's identity family; keep ordinary
+  legacy child ordinals separate from policy-state evidence.
+
+- Observe complete Enabled and Disabled list-policy patterns in the settings browser;
+  show Indeterminate for identical, incomplete or unobservable patterns without changing
+  legal authoring states, exports or stored policy records.
+- Admit legacy ADMX IDs only after checking complete writer languages and fully
+  assembled owner frames, including side boundaries and arbitrary list ordinals;
+  retain canonical empty policy owners accepted by the parser and writer.
+- Plan configured-setting element bindings once per policy/side, keeping historical
+  state/fixed-list writes out of editable lists and requiring address evidence for
+  legacy disabled-element records. Preserve uncertain records visibly and keep
+  list-heavy historical reads from repeatedly scanning the source schema.
+- Address legacy registry setting IDs exactly in edit, comment and delete actions,
+  including URL delimiters, percent escapes and slashes.
+
+- Keep multiply parseable legacy ADMX identities unresolved and refuse automatic
+  reconfiguration even when current catalogue addresses or edited sides appear unique;
+  preserve raw records/history and document explicitly reviewed recovery.
+
+- Compute the ADMX identity family once per configured policy/side group so large
+  policies avoid repeated schema scans in the settings browser.
+
+- Keep fixed policy-list values separate from editable lists when their generated
+  setting names would overlap, including empty editable lists.
+- Reject duplicate resolved policy/side operations in bulk authoring. Preserve
+  distinct ADMX writes with source-stable structured IDs where legacy names
+  collide, and replace exactly reviewed policy rows rather than overlapping
+  textual prefixes. Fully qualified URI policy IDs work through the existing
+  detail/configure routes.
+- Refuse duplicate registry editor identities before commits and ambiguous
+  ID-targeted edits, comments or deletions. Keep legacy heads/history readable;
+  document explicit recovery without silently dropping another registry record.
+
+- Resolve prior warnings only after explicitly classified committed writes; keep
+  semantic POST previews free of transport-level UI side effects.
+- Release pending read controls independently of retired result publication, and
+  resume uncovered read-only views once with their original error authority.
+  Keep newer drafts, warnings, requests and dialog sessions in control.
+- Preserve intentional focus moves during a dialog's initial focus frame.
+
+- Preserve every ADMX source element ID, including `__proto__`, when collecting
+  Enabled field values for submission.
+- Keep workspace header actions and long policy titles inside the viewport at desktop
+  and narrow widths, while retaining scrolling tabs and registry tables.
+- Restore keyboard focus to the same row action after an owned save redraws the
+  table. Newer editors, policy changes and intentional focus moves retire an old
+  dialog's scheduled focus return.
+- Share read ownership across views and previews so retired responses cannot replace
+  current warnings, draft values, reviewed selections or pending download controls.
+  Keep useful background cache admission and dispatched mutation outcomes intact.
+- Retire ADMX lookups when search text changes; keep obsolete lookup and catalogue-read
+  failures out of newer views, warnings and drafts while retaining active failure messages.
+- Refresh reopened Starter libraries after committed changes and keep the ordinary
+  policy sidebar consistent with server membership without changing unrelated editors.
+- Retire deleted policy views and older responses; preserve unsaved editor values
+  and require a renewed review before saving to a recreated policy identity.
+- Report request failures through the current view or editor, preserving newer
+  warnings and separating completed imports from later list-refresh failures.
+- Bind reviewed downloads to the policy revision and review hash, retaining inline
+  export errors without affecting reopened reviews.
+- Replace the conflict comparison's loading message after an initial read fails,
+  while preserving an already reviewed comparison if a later refresh fails.
+- Keep retired policy-read errors out of newer editors and announce pending saves
+  outside busy forms; distinguish policy changes from catalogue reloads in bulk guidance.
 - Refresh stale conflict comparisons and require renewed reapply consent; load the
   current revision without rewinding newer policy data or replacing reopened editors.
-
+- Preserve confirmed policy revisions when older reads finish; refresh lists after
+  cancelled estate imports without selecting beneath a newer editor.
+- Preserve reopened Starter GPO and GPMC import drafts after older saves finish;
+  freeze pending controls and support Enter in the backup import form.
+- Keep automatic list/detail refreshes from changing a newer editor's policy, and
+  retain summaries learned after a list request without pinning deleted entries.
 - Fix Cancel and Close across dialogs with invalid required fields, and make Enter
   submit creation instead of silently dismissing it.
 - Add an ADMX folder dialog with source counts, load diagnostics and refreshed policy

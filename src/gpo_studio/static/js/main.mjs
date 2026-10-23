@@ -1,5 +1,6 @@
-import {state,$,$$} from './state.mjs';
-import {api,toast,clearPersistentError,showPersistentError} from './api.mjs';
+import { createReadScope, invalidateReadViews, readDialogOpened, readDialogClosed } from "./read-context.mjs";
+import {state,$,$$,getGpoGeneration} from './state.mjs';
+import {api,toast,clearPersistentError,captureErrorReporter,actionApi} from './api.mjs';
 import {clearFormErrors,showFormErrors} from './errors.mjs';
 import {loadList,renderList,renderSettings,loadHistory} from './render.mjs';
 import {openGpo,openSetting,openLink,openFilter,openWmi,openWmiCatalogue,openEstate,openFork,openCopySettings,syncSettingForm,initForms} from './forms.mjs';
@@ -14,12 +15,15 @@ import {initFolderRedirection} from './folder-redirection.mjs';
 import {initScripts} from './scripts.mjs';
 import {initPublication} from './publication.mjs';
 import {initTemplates} from './templates.mjs';
+import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,updateMutationList,mutationFailed,endMutation} from './mutation-context.mjs';
+import {captureDialogFocus,restoreDialogFocus} from './dialog-focus.mjs';
 
 const tabs=$$(".tab[role='tab']");
+let focusIntent=0;
+document.addEventListener("focusin",()=>{focusIntent++});
+const tabReads=createReadScope();
+const importReads=createReadScope({element:()=>$("#gpmc-import-dialog")});
 
-function reportPersistentError(message){
-  showPersistentError(message);
-}
 $("#dismiss-error").onclick=()=>{clearPersistentError();$("#main-content").focus()};
 
 function setAppStatus(message){
@@ -29,6 +33,7 @@ function setAppStatus(message){
 }
 
 function activateTab(tab,{moveFocus=false}={}){
+  invalidateReadViews();
   tabs.forEach(item=>{
     const selected=item===tab;
     item.classList.toggle("active",selected);
@@ -38,10 +43,11 @@ function activateTab(tab,{moveFocus=false}={}){
     if(panel){panel.classList.toggle("active",selected);panel.hidden=!selected}
   });
   if(moveFocus){tab.focus();tab.scrollIntoView({block:"nearest",inline:"nearest"})}
-  if(tab.dataset.tab==="history")loadHistory().catch(error=>reportPersistentError(error.message));
+  const read=tabReads.capture({isCurrent:()=>tab.getAttribute("aria-selected")==="true"});
+  if(tab.dataset.tab==="history")loadHistory().catch(error=>read.reportError(error));
   if(tab.dataset.tab==="diff")loadDiffSelectors();
   if(tab.dataset.tab==="admx")checkAdmx();
-  if(tab.dataset.tab==="browser")loadBrowser().catch(error=>reportPersistentError(error.message));
+  if(tab.dataset.tab==="browser")loadBrowser().catch(error=>read.reportError(error));
 }
 
 tabs.forEach((tab,index)=>{
@@ -73,21 +79,43 @@ function initialiseDialog(dialog){
     body.append(...[...form.childNodes].filter(node=>node!==head&&node!==actions));
     head.after(body);form.append(actions);
   }
+  // Keep the live region outside the busy form and present before any save.
+  const pendingAnnouncement=document.createElement("div");
+  pendingAnnouncement.className="sr-only";
+  pendingAnnouncement.dataset.pendingAnnouncement="";
+  pendingAnnouncement.setAttribute("role","status");
+  pendingAnnouncement.setAttribute("aria-live","polite");
+  pendingAnnouncement.setAttribute("aria-atomic","true");
+  dialog.appendChild(pendingAnnouncement);
   const nativeShowModal=dialog.showModal.bind(dialog);
+  const nativeClose=dialog.close.bind(dialog),closingFocus=[];
+  let openingFocus=null;
+  dialog.close=(...args)=>{
+    const closing=dialog.open?openingFocus:null;
+    nativeClose(...args);
+    if(closing)closingFocus.push(closing);
+  };
   dialog.showModal=()=>{
     if(dialog.open)return;
+    pendingAnnouncement.textContent="";
+    state.editorGeneration++;
     dialog.editorSession=Symbol("editor session");
-    dialog.editorTarget={guid:state.current?.guid??null,revision:state.current?.revision??null,name:state.current?.name||"workspace"};
+    dialog.editorTarget={guid:state.current?.guid??null,revision:state.current?.revision??null,name:state.current?.name||"workspace",generation:getGpoGeneration(state.current?.guid)};
     const active=document.activeElement;
     dialog.returnFocus=active instanceof HTMLElement?active:null;
+    const focus=openingFocus=captureDialogFocus(dialog);
     nativeShowModal();
+    readDialogOpened(dialog);
+    const nativeFocus=document.activeElement,initialFocusIntent=focusIntent;
     requestAnimationFrame(()=>{
+      if(!dialog.open||dialog.editorSession!==focus.session||state.editorGeneration!==focus.editorGeneration||focusIntent!==initialFocusIntent||document.activeElement!==nativeFocus)return;
       const preferred=dialog.querySelector("[autofocus],[data-initial-focus],[aria-invalid='true']");
       const firstField=focusableElements(dialog).find(element=>element.matches("input,select,textarea"));
       const target=(preferred instanceof HTMLElement&&preferred.getClientRects().length?preferred:null)||firstField||focusableElements(dialog)[0]||dialog;
       if(target instanceof HTMLElement)target.focus();
     });
   };
+  dialog.addEventListener("cancel",event=>{event.preventDefault();dialog.close()});
   dialog.addEventListener("click",event=>{
     const cancel=event.target.closest('button[value="cancel"]');
     if(cancel&&cancel.closest("dialog")===dialog){event.preventDefault();dialog.close("cancel")}
@@ -102,12 +130,10 @@ function initialiseDialog(dialog){
     else if(!dialog.contains(document.activeElement)){event.preventDefault();first.focus()}
   });
   dialog.addEventListener("close",()=>{
-    const returnFocus=dialog.returnFocus;
-    dialog.returnFocus=null;
-    requestAnimationFrame(()=>{
-      if(document.querySelector("dialog[open]"))return;
-      if(returnFocus instanceof HTMLElement&&returnFocus.isConnected&&!returnFocus.hasAttribute("disabled"))returnFocus.focus();
-    });
+    const focus=closingFocus.shift()||openingFocus;
+    if(openingFocus===focus){openingFocus=null;dialog.returnFocus=null}
+    requestAnimationFrame(()=>restoreDialogFocus(dialog,focus));
+    readDialogClosed();
   });
 }
 
@@ -171,7 +197,7 @@ $("#fork-gpo").onclick=()=>openFork();
 $("#copy-settings").onclick=()=>openCopySettings();
 $("#search").oninput=renderList;
 
-let pendingExportUrl="";
+let exportReview=null;
 function addReviewRow(container,label,value){
   const row=document.createElement("p"),strong=document.createElement("strong");
   strong.textContent=`${label}: `;
@@ -183,7 +209,7 @@ $$('[data-export-kind]').forEach(link=>link.addEventListener("click",event=>{
   clearPersistentError();
   const capability=state.artifactCapabilities[link.dataset.exportKind]||{};
   const errors=state.validation.filter(issue=>issue.severity==="error");
-  const blocked=capability.enabled===false||errors.length>0;
+  const blocked=capability.enabled===false||errors.length>0||!state.reviewHash;
   const summary=$("#export-review-summary");
   summary.replaceChildren();
   addReviewRow(summary,"Policy",`${state.current.name} (${state.current.guid})`);
@@ -193,43 +219,103 @@ $$('[data-export-kind]').forEach(link=>link.addEventListener("click",event=>{
   addReviewRow(summary,"Review model SHA-256",state.reviewHash||"unavailable");
   addReviewRow(summary,"Preserved extension files",state.artifactCapabilities.preserved_content?.file_count||0);
   const issues=$("#export-review-issues");
-  issues.textContent=blocked?(capability.reason||`${errors.length} validation error(s) block this download. Fix the Preflight findings first.`):"No validation error blocks this download. Check the policy and digests before you continue.";
+  issues.textContent=blocked?(capability.reason||(!state.reviewHash?"The review hash is unavailable. Reload the policy before reviewing an export.":`${errors.length} validation error(s) block this download. Fix the Preflight findings first.`)):"No validation error blocks this download. Check the policy and digests before you continue.";
   issues.className=`review-issues ${blocked?"error-summary":"status-message"}`;
-  pendingExportUrl=link.href;
+  $("#export-review-form").removeAttribute("aria-busy");
+  exportReview={guid:state.current.guid,revision:state.current.revision,reviewHash:state.reviewHash,url:link.href,filename:link.dataset.exportKind==="powershell_plan"?`${state.current.guid}-plan.ps1`:"gpo-export.zip",pending:false};
   $("#export-review-download").disabled=blocked;
   $("#export-review-download").textContent=blocked?"Download blocked":"Download export";
   $("#export-review-dialog").showModal();
 }));
-$("#export-review-download").onclick=()=>{
-  if(!pendingExportUrl)return;
-  const anchor=document.createElement("a");
-  anchor.href=pendingExportUrl;anchor.download="";document.body.appendChild(anchor);anchor.click();anchor.remove();
-  $("#export-review-dialog").close();
+$("#export-review-dialog").addEventListener("close",()=>{if(!$("#export-review-dialog").open)exportReview=null});
+$("#export-review-download").onclick=async()=>{
+  const review=exportReview,dialog=$("#export-review-dialog"),button=$("#export-review-download"),issues=$("#export-review-issues");
+  if(!review||review.pending||button.disabled)return;
+  const ownsReview=()=>exportReview===review&&dialog.open;
+  const reportError=captureErrorReporter(ownsReview,error=>{
+    issues.textContent=error instanceof TypeError?"The local GPO Studio server is unavailable. Keep this review open and try again.":error.message;
+    issues.className="review-issues error-summary";
+    issues.tabIndex=-1;issues.focus();
+  });
+  review.pending=true;
+  button.disabled=true;button.textContent="Preparing download…";
+  $("#export-review-form").setAttribute("aria-busy","true");
+  const url=new URL(review.url);
+  url.searchParams.set("expected_revision",String(review.revision));
+  url.searchParams.set("expected_review_hash",review.reviewHash);
+  try{
+    const response=await /* request: export.review.bytes */ fetch(url,{cache:"no-store"});
+    if(!ownsReview())return;
+    if(!response.ok){
+      const payload=await response.json().catch(()=>null);
+      const details=payload?.error?.issues?.map(issue=>issue.message).filter(Boolean).join(" ");
+      throw new Error(details||payload?.error?.message||`Download failed (${response.status}). Review the policy and try again.`);
+    }
+    if(response.headers.get("X-GPO-Studio-Guid")!==review.guid||
+       response.headers.get("X-GPO-Studio-Revision")!==String(review.revision)||
+       response.headers.get("X-GPO-Studio-Review-Hash")!==review.reviewHash){
+      throw new Error("The download did not match this export review. Close this review, reload the policy and review it again.");
+    }
+    const bytes=await response.arrayBuffer();
+    // Web Crypto is unavailable on supported ordinary HTTP origins. The
+    // revision/hash response binding remains mandatory on every origin.
+    if(globalThis.crypto?.subtle){
+      const digest=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),byte=>byte.toString(16).padStart(2,"0")).join("");
+      if(digest!==response.headers.get("X-GPO-Studio-Artifact-SHA256"))throw new Error("The download bytes could not be verified. Try the download again.");
+    }
+    if(!ownsReview())return;
+    const blobUrl=URL.createObjectURL(new Blob([bytes],{type:response.headers.get("content-type")||"application/octet-stream"}));
+    const anchor=document.createElement("a");
+    anchor.href=blobUrl;
+    anchor.download=response.headers.get("content-disposition")?.match(/filename="([^"\r\n]+)"/)?.[1]||review.filename;
+    document.body.appendChild(anchor);anchor.click();anchor.remove();
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),60_000);
+    dialog.close();
+  }catch(error){
+    reportError(error);
+  }finally{
+    review.pending=false;
+    if(ownsReview()){
+      $("#export-review-form").removeAttribute("aria-busy");
+      button.disabled=false;button.textContent="Download export";
+    }
+  }
 };
 
 $("#import-gpmc").onclick=async()=>{
+  importReads.invalidate();
   const form=$("#gpmc-import-form");
-  form.reset();clearFormErrors(form);
-  $("#gpmc-import-preview").textContent="Checking the import inbox…";
+  resetEditor(form);form.reset();clearFormErrors(form);
+  form.dataset.inboxConfigured="false";
   $("#gpmc-import-submit").disabled=true;
+  $("#gpmc-import-submit").textContent="Import backup";
   $("#gpmc-import-dialog").showModal();
+  const context=captureMutation(form);
+  const read=importReads.start({isCurrent:()=>isCurrentEditor(context),report:error=>showFormErrors(form,error)});
+  const pending=read.beginPending({busy:[$("#gpmc-import-preview")],loading:[{element:$("#gpmc-import-preview"),message:"Checking the import inbox…",recovery:"Close and reopen Import GPMC backup to check the current inbox before importing."}]});
   try{
-    const info=(await api("/api/imports/capabilities")).gpmc_backup;
+    const info=(await /* request: import.capabilities */ api("/api/imports/capabilities")).gpmc_backup;
+    if(!read.isCurrent())return;
+    form.dataset.inboxConfigured=String(Boolean(info.inbox_configured));
     $("#gpmc-import-preview").textContent=info.inbox_configured?"Import inbox found. The path you enter is read relative to it.":"No import inbox is configured. Set GPO_STUDIO_INBOX_DIR to import backups from here.";
     $("#gpmc-import-submit").disabled=!info.inbox_configured;
-    $("#gpmc-import-submit").textContent="Import backup";
-  }catch(error){showFormErrors(form,error)}
+  }catch(error){read.reportError(error)}finally{pending.finish()}
 };
-$("#gpmc-import-submit").onclick=async()=>{
-  const form=$("#gpmc-import-form");clearFormErrors(form);
-  if(!form.reportValidity())return;
-  const button=$("#gpmc-import-submit");button.disabled=true;
+$("#gpmc-import-form").onsubmit=async event=>{
+  event.preventDefault();
+  const form=event.currentTarget;
+  if(form.dataset.inboxConfigured!=="true"||!form.reportValidity())return;
+  const context=beginMutation(form,{workspace:true});if(!context)return;
+  context.name="GPMC backup import";
+  clearFormErrors(form);
   try{
-    const data=await api("/api/backups/import",{method:"POST",body:JSON.stringify({path:form.relative_path.value,actor:form.actor.value,reason:form.reason.value})});
-    $("#gpmc-import-dialog").close();
-    await loadList(data.gpo.guid);
-    setAppStatus(`Imported ${data.gpo.name} as an archived, read-only baseline. Fork it before editing.`);
-  }catch(error){showFormErrors(form,error)}finally{button.disabled=false}
+    const data=await /* request: import.backup */ actionApi("/api/backups/import",{method:"POST",body:JSON.stringify({path:form.relative_path.value,actor:form.actor.value,reason:form.reason.value})});
+    const selectImported=isSameEditor(context);
+    updateMutationList(data,renderList);
+    if(isCurrentEditor(context))context.dialog.close();
+    if(selectImported)await loadList(data.gpo.guid);
+    toast(`Imported ${data.gpo.name} as an archived, read-only baseline. Fork it before editing.`);
+  }catch(error){await mutationFailed(context,error,showFormErrors)}finally{endMutation(context)}
 };
 for(const name of ["side","action","registry_type"])$("#setting-form")[name].onchange=syncSettingForm;
 
@@ -247,8 +333,6 @@ initPublication();
 initTemplates();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
-loadList().then(()=>setAppStatus("")).catch(error=>{
-  setAppStatus("");
-  reportPersistentError(error.message);
-  toast(error.message);
-});
+const initialRead=tabReads.capture();
+const initialPending=initialRead.beginPending({loading:[{element:$("#app-status"),message:"Loading policies…"}],onFinish:()=>{if(!$("#app-status").textContent)$("#app-status").hidden=true}});
+loadList().catch(error=>initialRead.reportError(error)).finally(()=>initialPending.finish());

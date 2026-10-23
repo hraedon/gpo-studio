@@ -398,6 +398,61 @@ async function openStaleMetadata(page, request, label) {
   return { gpo, opening, editor, conflict: page.locator("#conflict-dialog") };
 }
 
+for (const failure of ["http", "network"]) {
+  test(`initial comparison read failure ${failure} stops loading and allows an explicit retry`, async ({
+    page,
+    request,
+  }) => {
+    const { gpo, editor, conflict } = await openStaleMetadata(
+      page,
+      request,
+      `initial ${failure}`,
+    );
+    let reads = 0;
+    await page.route(`**/api/gpos/${gpo.guid}`, async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      reads++;
+      if (reads === 1) {
+        if (failure === "network") return route.abort("failed");
+        return route.fulfill({
+          status: 503,
+          json: { error: { message: "Synthetic initial comparison failure" } },
+        });
+      }
+      return route.continue();
+    });
+    await editor
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(conflict.locator(".form-error")).toBeVisible();
+    await expect(conflict.locator("#conflict-details")).toHaveText(
+      "The current revision could not be loaded. Your unsaved values are retained. Choose an action to try again, or keep editing.",
+    );
+    await expect(conflict.locator("#conflict-reapply")).toBeEnabled();
+    expect(reads).toBe(1);
+    await expect(editor.getByLabel("Name", { exact: true })).toHaveValue(
+      `Synthetic retained initial ${failure}`,
+    );
+    await conflict.locator("#conflict-reapply").click();
+    await expect(conflict.locator("#conflict-details")).toContainText(
+      "Current workspace revision: 2",
+    );
+    await expect(conflict.locator(".form-error")).toHaveCount(0);
+    await expect(page.locator("#revision")).toHaveText("Revision 1");
+    expect(reads).toBe(2);
+    await conflict
+      .getByRole("button", { name: "Keep editing", exact: true })
+      .click();
+    await expect(conflict).toBeHidden();
+    await expect(editor.getByLabel("Name", { exact: true })).toHaveValue(
+      `Synthetic retained initial ${failure}`,
+    );
+    expect(
+      (await (await request.get(`/api/gpos/${gpo.guid}`)).json()).gpo.revision,
+    ).toBe(2);
+  });
+}
+
 test("failed fresh discard keeps the draft and comparison available for retry", async ({
   page,
   request,
@@ -432,6 +487,9 @@ test("failed fresh discard keeps the draft and comparison available for retry", 
     "Synthetic current-read failure",
   );
   await expect(conflict.locator(".form-error")).toBeFocused();
+  await expect(conflict.locator("#conflict-details")).toContainText(
+    "Current workspace revision: 2",
+  );
   await expect(editor.getByLabel("Name", { exact: true })).toHaveValue(
     "Synthetic retained discard retry",
   );
@@ -471,6 +529,9 @@ test("repeated obsolete reads stop after one retry and preserve the draft until 
     "The policy changed again while loading",
   );
   expect(reads).toBe(2);
+  await expect(conflict.locator("#conflict-details")).toContainText(
+    "The current revision could not be loaded.",
+  );
   await expect(conflict.locator("#conflict-details")).not.toContainText(
     "Current workspace revision: 1",
   );

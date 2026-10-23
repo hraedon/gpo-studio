@@ -1,8 +1,14 @@
-import { state, updateGpoSummary } from "./state.mjs";
+import {
+  state,
+  updateGpoSummary,
+  getGpoGeneration,
+  isGpoObservationCurrent,
+} from "./state.mjs";
 import { showPersistentError } from "./api.mjs";
 import { showFormErrors } from "./errors.mjs";
 
 const pendingForms = new WeakMap();
+const pendingAnnouncements = new WeakMap();
 
 export function captureMutation(form = null) {
   const dialog = form?.closest("dialog") || null;
@@ -11,6 +17,8 @@ export function captureMutation(form = null) {
     guid: target?.guid ?? null,
     revision: target?.revision ?? null,
     viewGuid: target?.guid ?? null,
+    generation: target?.generation ?? getGpoGeneration(target?.guid),
+    viewGeneration: target?.generation ?? getGpoGeneration(target?.guid),
     name: target?.name || "workspace",
     form,
     dialog,
@@ -29,6 +37,13 @@ export function beginMutation(form, { target = null, workspace = false } = {}) {
   if (pendingForms.has(form)) return null;
   const context = captureMutation(form);
   context.workspace = workspace;
+  if (!workspace && context.generation !== getGpoGeneration(context.guid)) {
+    showFormErrors(form, {
+      message:
+        "This policy was deleted. Your unsaved values are retained. Close and reopen the editor to review an existing target before saving.",
+    });
+    return null;
+  }
   if (!workspace && context.viewGuid !== (state.current?.guid ?? null)) {
     showFormErrors(form, {
       message:
@@ -37,6 +52,14 @@ export function beginMutation(form, { target = null, workspace = false } = {}) {
     return null;
   }
   if (target) {
+    if (target.generation !== getGpoGeneration(target.guid)) {
+      showFormErrors(form, {
+        message:
+          "The target policy was deleted. Your unsaved values are retained. Close and reopen this editor to review its target.",
+      });
+      return null;
+    }
+    context.generation = target.generation;
     context.guid = target.guid;
     context.revision = target.revision;
     context.name = target.name;
@@ -75,6 +98,14 @@ export function beginMutation(form, { target = null, workspace = false } = {}) {
     control.disabled = true;
   });
   form.setAttribute("aria-busy", "true");
+  const announcement = context.dialog?.querySelector(
+    ":scope > [data-pending-announcement]",
+  );
+  if (announcement) {
+    context.announcement = announcement;
+    pendingAnnouncements.set(announcement, context);
+    announcement.textContent = pendingMessage.textContent;
+  }
   return context;
 }
 
@@ -87,16 +118,24 @@ export function isCurrentEditor(context) {
 export function isSameEditor(context) {
   return (
     isCurrentEditor(context) &&
-    (state.current?.guid ?? null) === context.viewGuid
+    (state.current?.guid ?? null) === context.viewGuid &&
+    context.viewGeneration === getGpoGeneration(context.viewGuid) &&
+    context.generation === getGpoGeneration(context.guid)
   );
 }
 
 export function updateMutationList(data, renderList) {
-  updateGpoSummary(data.gpo);
+  if (!updateGpoSummary(data.gpo)) return false;
   renderList();
+  return true;
 }
 
 export function completeMutation(context, data, { apply, renderList }) {
+  if (
+    context.generation !== getGpoGeneration(context.guid) ||
+    !isGpoObservationCurrent(data.gpo)
+  )
+    return false;
   const closeEditor = isCurrentEditor(context);
   const current = state.current;
   const canApply =
@@ -124,6 +163,13 @@ export function endMutation(context) {
   if (!form || pendingForms.get(form) !== context) return;
   pendingForms.delete(form);
   context.pendingMessage?.remove();
+  if (
+    context.announcement &&
+    pendingAnnouncements.get(context.announcement) === context
+  ) {
+    pendingAnnouncements.delete(context.announcement);
+    context.announcement.textContent = "";
+  }
   context.controls.forEach(({ control, disabled }) => {
     control.disabled = disabled;
   });

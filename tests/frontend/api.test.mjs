@@ -2,8 +2,11 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   api,
+  actionApi,
   audit,
   showPersistentError,
+  clearPersistentError,
+  captureErrorReporter,
 } from "../../src/gpo_studio/static/js/api.mjs";
 import { state } from "../../src/gpo_studio/static/js/state.mjs";
 
@@ -43,7 +46,7 @@ describe("api", () => {
     const { summary, message } = banner();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(success()));
     showPersistentError("Earlier operation failed");
-    await api("/api/example", { method: "POST" });
+    await actionApi("/api/example", { method: "POST" });
     expect(summary.hidden).toBe(true);
     expect(message.textContent).toBe("");
   });
@@ -60,7 +63,7 @@ describe("api", () => {
         ),
     );
     showPersistentError("Earlier error");
-    const pending = api("/api/example", { method: "POST" });
+    const pending = actionApi("/api/example", { method: "POST" });
     showPersistentError("A newer operation needs attention");
     release(success());
     await pending;
@@ -80,7 +83,6 @@ describe("api", () => {
     vi.stubGlobal("fetch", fetchMock);
     const pending = api("/api/example", {
       cache: "no-store",
-      reportNetworkError: false,
     });
     showPersistentError("A newer operation needs attention");
     const focusCalls = summary.focus.mock.calls.length;
@@ -90,20 +92,77 @@ describe("api", () => {
     expect(summary.hidden).toBe(false);
     expect(message.textContent).toContain("newer operation");
     expect(summary.focus).toHaveBeenCalledTimes(focusCalls);
-    expect(fetchMock.mock.calls[0][1]).not.toHaveProperty("reportNetworkError");
   });
 
-  test("ordinary transport failures still report the unavailable server", async () => {
+  test.each(["GET", "POST"])(
+    "%s transport failures reach the caller without publishing UI errors",
+    async (method) => {
+      const { summary, message } = banner();
+      const cause = new Error("Synthetic connection failure");
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(cause));
+      await expect(api("/api/example", { method })).rejects.toMatchObject({
+        message: expect.stringContaining("server is unavailable"),
+        cause,
+        status: 0,
+      });
+      expect(summary.hidden).toBe(true);
+      expect(message.textContent).toBe("");
+      expect(summary.focus).not.toHaveBeenCalled();
+    },
+  );
+
+  test("a current read reporter publishes once while a retired owner remains quiet", () => {
     const { summary, message } = banner();
-    const cause = new Error("Synthetic connection failure");
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(cause));
-    await expect(api("/api/example")).rejects.toMatchObject({
-      message: expect.stringContaining("server is unavailable"),
-      cause,
-    });
+    const retired = captureErrorReporter(() => false);
+    const current = captureErrorReporter(() => true);
+    expect(retired("Retired failure")).toBe(false);
+    expect(summary.hidden).toBe(true);
+    expect(current("Current refresh failed")).toBe(true);
+    expect(message.textContent).toContain("Current refresh failed");
+    expect(current("Duplicate outcome")).toBe(false);
+    expect(message.textContent).not.toContain("Duplicate");
+    expect(summary.focus).toHaveBeenCalledTimes(1);
+  });
+
+  test("an older read reporter cannot overwrite a newer actionable error", () => {
+    const { summary, message } = banner();
+    const report = captureErrorReporter(() => true);
+    showPersistentError("A newer operation needs attention");
+    const calls = summary.focus.mock.calls.length;
+    expect(report("Old refresh failed")).toBe(false);
+    expect(message.textContent).toContain("newer operation");
+    expect(summary.focus).toHaveBeenCalledTimes(calls);
+  });
+
+  test("dismissing an error retires a pending read's reporter", () => {
+    const { summary, message } = banner();
+    showPersistentError("Earlier warning");
+    const report = captureErrorReporter(() => true);
+    clearPersistentError();
+    expect(report("Late refresh failure")).toBe(false);
+    expect(summary.hidden).toBe(true);
+    expect(message.textContent).toBe("");
+  });
+
+  test("a successful action with no error to clear retains a current read's reporter", async () => {
+    const { summary, message } = banner();
+    const report = captureErrorReporter(() => true);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(success()));
+    await actionApi("/api/example", { method: "POST" });
+    expect(report("Current policy reread failed")).toBe(true);
     expect(summary.hidden).toBe(false);
-    expect(message.textContent).toContain("server is unavailable");
-    expect(summary.focus).toHaveBeenCalled();
+    expect(message.textContent).toContain("Current policy reread failed");
+  });
+
+  test("resolving an earlier warning does not dismiss a current read's outcome", async () => {
+    const { summary, message } = banner();
+    showPersistentError("Earlier warning");
+    const report = captureErrorReporter(() => true);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(success()));
+    await actionApi("/api/example", { method: "POST" });
+    expect(summary.hidden).toBe(true);
+    expect(report("Current policy reread failed")).toBe(true);
+    expect(message.textContent).toContain("Current policy reread failed");
   });
 
   test("shapes JSON requests and preserves caller headers", async () => {
@@ -164,3 +223,51 @@ test("audit shapes an optimistic-concurrency mutation", () => {
     expected_revision: 17,
   });
 });
+
+test.each(["POST", "PATCH", "DELETE"])(
+  "pure %s successes never clear a pre-existing warning",
+  async (method) => {
+    const summary = { hidden: true, focus: vi.fn() },
+      message = { textContent: "" };
+    vi.stubGlobal("document", {
+      querySelector: (selector) =>
+        ({ "#error-summary": summary, "#error-message": message })[selector],
+    });
+    showPersistentError("Actual failed selection");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("{}", {
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    await api("/semantic-preview", { method });
+    expect(summary.hidden).toBe(false);
+    expect(message.textContent).toContain("Actual failed selection");
+  },
+);
+test.each([204, 200])(
+  "explicit action resolves only its preceding error with primitive response %s",
+  async (status) => {
+    const summary = { hidden: true, focus: vi.fn() },
+      message = { textContent: "" };
+    vi.stubGlobal("document", {
+      querySelector: (selector) =>
+        ({ "#error-summary": summary, "#error-message": message })[selector],
+    });
+    showPersistentError("Prior write failure");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(status === 204 ? null : "done", { status }),
+        ),
+    );
+    expect(await actionApi("/actual-write", { method: "DELETE" })).toBe(
+      status === 204 ? "" : "done",
+    );
+    expect(summary.hidden).toBe(true);
+  },
+);

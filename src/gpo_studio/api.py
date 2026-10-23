@@ -199,7 +199,7 @@ from .object_security import (
 from .policy_config import (
     PolicyConfiguration,
     PolicyState,
-    policy_setting_prefix,
+    policy_setting_positions,
     resolve_policy,
 )
 from .policy_families import (
@@ -246,6 +246,8 @@ from .security_template import (
     template_issues,
 )
 from .settings_browser import (
+    ObservedPolicyState,
+    ObservedStateReason,
     build_category_tree,
     build_settings_browser,
     search_configured_settings,
@@ -1265,7 +1267,8 @@ class ConfiguredSettingResponse(BaseModel):
     category_path: list[str]
     category_ids: list[str]
     side: str
-    state: str
+    state: ObservedPolicyState
+    state_reason: ObservedStateReason | None = None
     element_values: dict[str, bool | int | str | list[str]]
     supported_on: str
     namespace: str
@@ -2630,8 +2633,8 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/health"): _JSON,
     ("POST", "/api/workspace/integrity"): _JSON,
     ("GET", "/api/admx/search"): _JSON,
-    ("GET", "/api/admx/policies/{policy_id}"): _JSON,
-    ("POST", "/api/admx/policies/{policy_id}/configure"): _GPO_PAYLOAD,
+    ("GET", "/api/admx/policies/{policy_id:path}"): _JSON,
+    ("POST", "/api/admx/policies/{policy_id:path}/configure"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/bulk-policy-state"): _GPO_PAYLOAD,
     ("GET", "/api/admx/categories"): _JSON,
     ("GET", "/api/admx/categories/tree"): _JSON,
@@ -2651,9 +2654,9 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/gpos/{guid}"): _GPO_PAYLOAD,
     ("PATCH", "/api/gpos/{guid}"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/settings"): _GPO_PAYLOAD,
-    ("PUT", "/api/gpos/{guid}/settings/{setting_id}"): _GPO_PAYLOAD,
-    ("PATCH", "/api/gpos/{guid}/settings/{setting_id}/comment"): _GPO_PAYLOAD,
-    ("DELETE", "/api/gpos/{guid}/settings/{setting_id}"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/settings/{setting_id:path}"): _GPO_PAYLOAD,
+    ("PATCH", "/api/gpos/{guid}/settings/{setting_id:path}/comment"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/settings/{setting_id:path}"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/copy-settings"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/import-adm"): _IMPORT,
     ("POST", "/api/gpos/{guid}/links"): _GPO_PAYLOAD,
@@ -2737,6 +2740,33 @@ async def catalogue_conflict(request: Request, error: _CatalogueConflict) -> JSO
         }),
         status_code=409,
     )
+
+
+class _ExportReviewConflict(StudioError):
+    def __init__(
+        self, gpo: GPO, expected_revision: int, expected_hash: str, current_hash: str,
+    ) -> None:
+        super().__init__(
+            "The policy changed after this export review. Close this review, "
+            "reload the policy and review it again."
+        )
+        self.gpo = gpo
+        self.expected_revision = expected_revision
+        self.expected_hash = expected_hash
+        self.current_hash = current_hash
+
+
+@app.exception_handler(_ExportReviewConflict)
+async def export_review_conflict(request: Request, error: _ExportReviewConflict) -> JSONResponse:
+    return JSONResponse(_error_body(request, {
+        "message": str(error),
+        "code": "export_review_conflict",
+        "guid": error.gpo.guid,
+        "expected_revision": error.expected_revision,
+        "current_revision": error.gpo.revision,
+        "expected_review_hash": error.expected_hash,
+        "current_review_hash": error.current_hash,
+    }), status_code=409)
 
 
 @app.exception_handler(StudioError)
@@ -3015,7 +3045,7 @@ def admx_search(request: Request, q: str = "") -> dict[str, Any]:
     return {"catalogue_revision": snapshot.revision, "items": items, "count": len(items)}
 
 
-@app.get("/api/admx/policies/{policy_id}")
+@app.get("/api/admx/policies/{policy_id:path}")
 def admx_policy_detail(request: Request, policy_id: str) -> dict[str, Any]:
     snapshot = _catalogue_snapshot(request.app)
     policy = _resolve_policy(request, policy_id, catalogue=snapshot.catalogue)
@@ -3025,7 +3055,7 @@ def admx_policy_detail(request: Request, policy_id: str) -> dict[str, Any]:
     return payload
 
 
-@app.post("/api/admx/policies/{policy_id}/configure")
+@app.post("/api/admx/policies/{policy_id:path}/configure")
 def configure_policy(
     request: Request, policy_id: str, body: ConfigurePolicyRequest
 ) -> dict[str, Any]:
@@ -3040,14 +3070,19 @@ def configure_policy(
             issues.extend(validate_setting(s))
         if any(i.severity == "error" for i in issues):
             raise ValidationError(issues)
-        # Replace by prefix rather than upsert: re-configuring a policy must drop the
-        # settings its PREVIOUS state wrote. Enabled -> Disabled would otherwise
-        # leave the Enabled element values behind alongside the Disabled value, and
-        # Not Configured (no settings at all) would be a silent no-op.
-        gpo = _store(request).replace_settings_with_prefix(
+        current = _store(request).get_gpo(body.gpo_guid)
+        if current.revision != body.expected_revision:
+            raise ConflictError(
+                "The GPO changed before its policy settings could be selected.",
+                expected_revision=body.expected_revision, current_revision=current.revision,
+            )
+        positions = policy_setting_positions(
+            current.settings, snapshot.catalogue, {(policy.qualified_id, body.side)}
+        )
+        gpo = _store(request).replace_selected_settings(
             body.gpo_guid,
             body.expected_revision,
-            policy_setting_prefix(policy, body.side),
+            positions,
             settings,
             identity=_identity(body.actor),
             reason=body.reason,
@@ -3108,11 +3143,23 @@ def bulk_policy_state(
                         path="policy_sides",
                     )
                 ])
-        replacements: list[tuple[str, list[RegistrySetting]]] = []
+        replacements: list[RegistrySetting] = []
         per_policy_side = body.policy_sides or {}
+        owners: set[tuple[str, Literal["computer", "user"]]] = set()
+        resolved: list[tuple[PolicyDefinition, Literal["computer", "user"]]] = []
         for policy_id in body.policy_ids:
             policy = _resolve_policy(request, policy_id, catalogue=snapshot.catalogue)
             side = _policy_side(policy, per_policy_side.get(policy_id, body.side))
+            owner = (policy.qualified_id, side)
+            if owner in owners:
+                raise ValidationError([ValidationIssue(
+                    "error", "duplicate_policy_id",
+                    "A policy and configuration side may occur only once in a bulk request, "
+                    "including bare and qualified aliases.", "policy_ids",
+                )])
+            owners.add(owner)
+            resolved.append((policy, side))
+        for policy, side in resolved:
             config = PolicyConfiguration(side=side, values={}, state=body.target_state)
             settings = resolve_policy(policy, config)
             issues: list[ValidationIssue] = []
@@ -3120,11 +3167,18 @@ def bulk_policy_state(
                 issues.extend(validate_setting(s))
             if any(i.severity == "error" for i in issues):
                 raise ValidationError(issues)
-            prefix = policy_setting_prefix(policy, side)
-            replacements.append((prefix, settings))
-        gpo = _store(request).bulk_replace_settings_by_prefix(
+            replacements.extend(settings)
+        current = _store(request).get_gpo(guid)
+        if current.revision != body.expected_revision:
+            raise ConflictError(
+                "The GPO changed before its policy settings could be selected.",
+                expected_revision=body.expected_revision, current_revision=current.revision,
+            )
+        positions = policy_setting_positions(current.settings, snapshot.catalogue, owners)
+        gpo = _store(request).replace_selected_settings(
             guid,
             body.expected_revision,
+            positions,
             replacements,
             identity=_identity(body.actor),
             reason=body.reason,
@@ -3175,7 +3229,7 @@ def configured_settings(
     request: Request,
     guid: str,
     q: str | None = Query(default=None, max_length=200),
-    state: Literal["enabled", "disabled"] | None = None,
+    state: ObservedPolicyState | None = None,
     category: str | None = Query(default=None, max_length=255),
     side: Literal["computer", "user"] | None = None,
     limit: int = Query(default=200, ge=1, le=1000),
@@ -3186,13 +3240,22 @@ def configured_settings(
     - resolved: policies matched against the loaded ADMX catalogue.
       Each item includes policy_id, display_name, explain_text,
       category_path, category_ids, side, state, element_values,
-      supported_on, namespace, raw_setting_count, ambiguous, and
-      ambiguous_with.
+      supported_on, namespace, raw_setting_count, ambiguous,
+      ambiguous_with, and state_reason.
     - unresolved: registry settings that could not be matched to a policy.
       Each item includes id, side, hive, key, value_name, registry_type,
       value, action, and reason.
     - resolved_count: total resolved policies before the limit slice.
     - unresolved_count: total unresolved settings before the limit slice.
+
+    ``state`` is an observation, not persisted authoring intent. Declared scalar
+    marker/list patterns matching both or neither state are ``indeterminate`` with a
+    ``state_reason``. Empty patterns provide no positive state evidence; policies
+    without attributed records do not acquire fabricated configured rows.
+    Stale possible level records expose uncertainty and unclaimed records remain
+    unresolved; decoded children remain available. Child-only inference retains
+    its heuristic unless unclaimed historical level evidence is present.
+    Indeterminate is not accepted by configure or bulk mutation requests.
 
     ``ambiguous`` is true when the policy matches multiple ADMX policies;
     ``ambiguous_with`` lists the qualified IDs of those other policies.
@@ -3215,6 +3278,7 @@ def configured_settings(
             "category_ids": cs.category_ids,
             "side": cs.side,
             "state": cs.state,
+            "state_reason": cs.state_reason,
             "element_values": cs.element_values,
             "supported_on": cs.supported_on,
             "namespace": cs.namespace,
@@ -3509,7 +3573,7 @@ def add_setting(request: Request, guid: str, body: SettingMutation) -> dict[str,
     return _gpo_payload(gpo, request)
 
 
-@app.put("/api/gpos/{guid}/settings/{setting_id}")
+@app.put("/api/gpos/{guid}/settings/{setting_id:path}")
 def edit_setting(
     request: Request, guid: str, setting_id: str, body: SettingMutation
 ) -> dict[str, Any]:
@@ -3524,7 +3588,7 @@ def edit_setting(
     return _gpo_payload(gpo, request)
 
 
-@app.patch("/api/gpos/{guid}/settings/{setting_id}/comment")
+@app.patch("/api/gpos/{guid}/settings/{setting_id:path}/comment")
 def update_setting_comment(
     request: Request, guid: str, setting_id: str, body: CommentMutation
 ) -> dict[str, Any]:
@@ -3539,7 +3603,7 @@ def update_setting_comment(
     return _gpo_payload(gpo, request)
 
 
-@app.delete("/api/gpos/{guid}/settings/{setting_id}")
+@app.delete("/api/gpos/{guid}/settings/{setting_id:path}")
 def delete_setting(
     request: Request, guid: str, setting_id: str, body: DeleteMutation
 ) -> dict[str, Any]:
@@ -4217,26 +4281,74 @@ def restore(request: Request, guid: str, revision: int, body: RestoreMutation) -
     return _gpo_payload(gpo, request)
 
 
-@app.get("/api/gpos/{guid}/export.zip")
-@egress("zip-studio")
-def bundle(request: Request, guid: str) -> Response:
+def _reviewed_export(
+    request: Request, guid: str, expected_revision: int | None, expected_review_hash: str | None,
+) -> tuple[GPO, str]:
+    # Fetch once: the guard, validation and serializer all use this immutable
+    # object, even if another request commits a newer workspace revision.
     gpo = _store(request).get_gpo(guid)
+    if (expected_revision is None) != (expected_review_hash is None):
+        raise StudioError("Supply expected_revision and expected_review_hash together.")
+    review_hash = _digest(review_model_sha256, gpo)
+    if review_hash is None:
+        # Legacy unwritable text may prevent hashing. Keep its actionable
+        # validation issues instead of masking the field with a digest refusal.
+        errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
+        if errors:
+            raise ValidationError(errors)
+        raise StudioError(
+            "This policy cannot be hashed for export review. "
+            "Resolve its validation findings first."
+        )
+    if expected_revision is not None and expected_review_hash is not None and (
+        gpo.revision != expected_revision or review_hash != expected_review_hash
+    ):
+        raise _ExportReviewConflict(gpo, expected_revision, expected_review_hash, review_hash)
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
     if errors:
         raise ValidationError(errors)
+    return gpo, review_hash
+
+
+def _reviewed_export_headers(gpo: GPO, review_hash: str, content: bytes | str) -> dict[str, str]:
+    data = content.encode("utf-8") if isinstance(content, str) else content
+    return {
+        "Cache-Control": "no-store",
+        "X-GPO-Studio-Guid": gpo.guid,
+        "X-GPO-Studio-Revision": str(gpo.revision),
+        "X-GPO-Studio-Review-Hash": review_hash,
+        "X-GPO-Studio-Artifact-SHA256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+@app.get("/api/gpos/{guid}/export.zip")
+@egress("zip-studio")
+def bundle(
+    request: Request,
+    guid: str,
+    expected_revision: int | None = Query(default=None, ge=1),
+    expected_review_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
+) -> Response:
+    gpo, review_hash = _reviewed_export(request, guid, expected_revision, expected_review_hash)
     fname = f"{_safe_filename(gpo.guid)}-publication.zip"
-    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
-    return Response(checked_studio_bundle(gpo), media_type="application/zip", headers=headers)
+    content = checked_studio_bundle(gpo)
+    headers = _reviewed_export_headers(gpo, review_hash, content)
+    headers["Content-Disposition"] = f'attachment; filename="{fname}"'
+    return Response(content, media_type="application/zip", headers=headers)
 
 
 @app.get("/api/gpos/{guid}/plan.ps1")
 @egress("powershell-plan")
-def plan(request: Request, guid: str) -> Response:
-    gpo = _store(request).get_gpo(guid)
-    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
-    if errors:
-        raise ValidationError(errors)
-    return Response(checked_plan(gpo), media_type="text/plain; charset=utf-8")
+def plan(
+    request: Request,
+    guid: str,
+    expected_revision: int | None = Query(default=None, ge=1),
+    expected_review_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
+) -> Response:
+    gpo, review_hash = _reviewed_export(request, guid, expected_revision, expected_review_hash)
+    content = checked_plan(gpo)
+    headers = _reviewed_export_headers(gpo, review_hash, content)
+    return Response(content, media_type="text/plain; charset=utf-8", headers=headers)
 
 
 @app.get("/api/gpos/{guid}/report.txt")
@@ -4440,21 +4552,25 @@ def _unknown_cse_refusal(gpo: GPO) -> ValidationIssue | None:
 
 @app.get("/api/gpos/{guid}/gpmc-backup")
 @egress("zip-gpmc")
-def gpmc_backup(request: Request, guid: str) -> Response:
-    gpo = _store(request).get_gpo(guid)
-    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
-    if errors:
-        raise ValidationError(errors)
+def gpmc_backup(
+    request: Request,
+    guid: str,
+    expected_revision: int | None = Query(default=None, ge=1),
+    expected_review_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
+) -> Response:
+    gpo, review_hash = _reviewed_export(request, guid, expected_revision, expected_review_hash)
     unknown_cse = _unknown_cse_refusal(gpo)
     if unknown_cse is not None:
         raise ValidationError([unknown_cse])
     backup_id = native_backup_id(gpo)
     fname = f"{_safe_filename(backup_id.strip('{}'))}-gpmc-backup.zip"
-    headers = {
+    content = checked_gpmc_backup(gpo)
+    headers = _reviewed_export_headers(gpo, review_hash, content)
+    headers.update({
         "Content-Disposition": f'attachment; filename="{fname}"',
         "X-GPO-Backup-Id": backup_id,
-    }
-    return Response(checked_gpmc_backup(gpo), media_type="application/zip", headers=headers)
+    })
+    return Response(content, media_type="application/zip", headers=headers)
 
 
 @app.post("/api/estate/import")
