@@ -86,6 +86,16 @@ def schemas() -> tuple[PolicyDefinition, ...]:
             elements=(text("listitem-1"),),
         ),
         policy(
+            "StateListListElement",
+            enabled_list=PolicyValueList(
+                (PolicyListItem("FixedValue", PolicyValue("string", "fixed", "REG_SZ")),)
+            ),
+            elements=(PolicyElement(
+                kind="list", id="listitem", registry_key=KEY + "\\DynamicItems",
+                attributes=(("valuePrefix", "Item"),),
+            ),),
+        ),
+        policy(
             "DisabledElement",
             value_name="State",
             enabled_value=state,
@@ -244,6 +254,7 @@ def test_distinct_bulk_owners_and_distinct_sides_remain_valid(
             {"Items": ["one", "two"], "Items-1": "text-data"},
         ),
         ("StateListElement", {"listitem-1": "text-data"}, {"listitem-1": "text-data"}),
+        ("StateListListElement", {"listitem": ["one", "two"]}, {"listitem": ["one", "two"]}),
         (
             "DisabledElement",
             {"Option": "one", "disabled-element-Option": "two"},
@@ -674,3 +685,63 @@ def test_ordinary_scalar_prefix_names_keep_ids_and_decode_exact_elements(
     }
     decoded = client.get(f"/api/gpos/{gpo['guid']}/configured-settings").json()
     assert decoded["resolved"][0]["element_values"] == {"Option": "first", "Option-extra": "second"}
+
+
+@pytest.mark.parametrize("items", [[], ["one"], ["one", "two", "three"]])
+def test_fixed_policy_list_is_not_reconstructed_as_editable_list_content(
+    harness: Any, items: list[str],
+) -> None:
+    client, _store = harness
+    gpo = draft(client)
+    response = configured(client, gpo, "StateListListElement", values={"listitem": items})
+    assert response.status_code == 200, response.text
+    saved = response.json()["gpo"]
+    assert len(saved["settings"]) == len(items) + 1
+    assert len({item["id"] for item in saved["settings"]}) == len(items) + 1
+    decoded = client.get(f"/api/gpos/{gpo['guid']}/configured-settings").json()
+    assert decoded["resolved"][0]["element_values"].get("listitem", []) == items
+    assert all(parse_structured_setting_id(item["id"]) is not None for item in saved["settings"])
+
+
+def test_policy_list_selector_preserves_ordinary_listitem_spelling_and_native_bytes() -> None:
+    original = next(p for p in schemas() if p.id == "StateListListElement")
+    for field in ("enabled_list", "disabled_list"):
+        candidate = replace(original, **{
+            "enabled_list": None, "disabled_list": None, field: original.enabled_list,
+        })
+        assert structured_policy_ids(candidate)
+        for count in (0, 1, 12):
+            settings = resolve_policy(candidate, PolicyConfiguration(
+                "computer", {"listitem": [str(i) for i in range(count)]},
+            ))
+            assert all(parse_structured_setting_id(item.id) is not None for item in settings)
+            gpo = GPO(str(uuid4()), "Synthetic list byte control", settings=tuple(settings))
+            renamed = replace(gpo, settings=tuple(
+                replace(item, id=f"editor-only-{index}") for index, item in enumerate(settings)
+            ))
+            assert _gpmc_preg_bytes(list(gpo.settings)) == _gpmc_preg_bytes(list(renamed.settings))
+    ordinary = replace(original, enabled_list=None, disabled_list=None)
+    assert not structured_policy_ids(ordinary)
+    (setting,) = resolve_policy(ordinary, PolicyConfiguration("computer", {"listitem": ["one"]}))
+    assert setting.id == "admx-Synthetic.Identities:StateListListElement-computer-listitem-1"
+
+
+def test_legacy_fixed_list_remains_readable_without_becoming_editable_list_content(
+    harness: Any,
+) -> None:
+    client, store = harness
+    definition = next(p for p in schemas() if p.id == "StateListListElement")
+    legacy = RegistrySetting(
+        id="admx-Synthetic.Identities:StateListListElement-computer-listitem-1",
+        side="computer", hive="HKLM", key=definition.key,
+        value_name="FixedValue", registry_type="REG_SZ", value="fixed",
+    )
+    gpo = store.create_gpo("Synthetic legacy fixed list", settings=(legacy,),
+                           identity="test", reason="Seed legacy identity")
+    before = storage(store)
+    detail = client.get(f"/api/gpos/{gpo.guid}")
+    assert detail.status_code == 200
+    assert detail.json()["gpo"]["settings"][0]["id"] == legacy.id
+    configured_rows = client.get(f"/api/gpos/{gpo.guid}/configured-settings").json()
+    assert configured_rows["resolved"][0]["element_values"].get("listitem", []) == []
+    assert storage(store) == before

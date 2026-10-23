@@ -65,6 +65,10 @@ def structured_policy_ids(policy: PolicyDefinition) -> bool:
             _SIDE_MARKER.search(element.id)
             or route_unsafe.intersection(element.id)
             or element.id == "state"
+            or (
+                element.kind == "list" and element.id == "listitem"
+                and (policy.enabled_list is not None or policy.disabled_list is not None)
+            )
             or re.fullmatch(r"listitem-[1-9][0-9]*", element.id)
             or element.id.startswith("disabled-element-")
         ):

@@ -9,6 +9,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Keep fixed policy-list values separate from editable lists when their generated
+  setting names would overlap, including empty editable lists.
 - Reject duplicate resolved policy/side operations in bulk authoring. Preserve
   distinct ADMX writes with source-stable structured IDs where legacy names
   collide, and replace exactly reviewed policy rows rather than overlapping
