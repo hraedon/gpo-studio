@@ -1,5 +1,5 @@
-import {state,$,$$,escapeHtml,applyPayload,getGpoSummaryVersion,replaceGpoSummaries} from './state.mjs';
-import {api} from './api.mjs';
+import {state,$,$$,escapeHtml,applyPayload,getGpoSummaryVersion,replaceGpoSummaries,getKnownGpoRevision} from './state.mjs';
+import {api,showPersistentError} from './api.mjs';
 import {openSetting,deleteSetting,openComment,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
 import {renderGpp} from './gpp.mjs';
 import {loadBrowser} from './browser.mjs';
@@ -7,13 +7,13 @@ import {loadDiffSelectors} from './diff.mjs';
 
 let selectionRequest=0,historyRequest=0,listRequest=0;
 
-export async function loadList(selectGuid){
+export async function loadList(selectGuid,{select=true}={}){
   const selection=selectionRequest,request=++listRequest,editorGeneration=state.editorGeneration,summaryVersion=getGpoSummaryVersion();
   const data=await api("/api/gpos");
   if(request!==listRequest)return;
   replaceGpoSummaries(data.items,summaryVersion);
   renderList();
-  if(selection!==selectionRequest||editorGeneration!==state.editorGeneration)return;
+  if(!select||selection!==selectionRequest||editorGeneration!==state.editorGeneration)return;
   const available=guid=>state.gpos.some(gpo=>gpo.guid===guid);
   const guid=[selectGuid,state.current?.guid,state.gpos[0]?.guid].find(available);
   if(guid)await selectGpo(guid,{editorGeneration});else{state.current=null;showEmpty()}
@@ -25,12 +25,32 @@ export function renderList(){
 }
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
 export async function selectGpo(guid,{editorGeneration}={}){
-  const request=++selectionRequest;
-  const data=await api(`/api/gpos/${guid}`);
-  if(request!==selectionRequest||(editorGeneration!==undefined&&editorGeneration!==state.editorGeneration))return;
-  applyPayload(data);
-  $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
-  renderAll();renderList();
+  if(editorGeneration!==undefined&&editorGeneration!==state.editorGeneration)return;
+  const request=++selectionRequest,originalEditorGeneration=state.editorGeneration;
+  const ownsSelection=()=>request===selectionRequest&&(editorGeneration===undefined||editorGeneration===state.editorGeneration);
+  const ownsRecovery=()=>ownsSelection()&&originalEditorGeneration===state.editorGeneration;
+  let recovering=false;
+  try{
+    let data=await api(`/api/gpos/${guid}`);
+    if(!ownsSelection())return;
+    if(data.gpo.revision<getKnownGpoRevision(guid)){
+      if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
+      // Repair a stale detail once, without taking a newer editor or selection.
+      if(!ownsRecovery())return;
+      recovering=true;
+      data=await api(`/api/gpos/${guid}`,{cache:"no-store"});
+      if(!ownsRecovery())return;
+      if(data.gpo.revision<getKnownGpoRevision(guid)){
+        if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
+        showPersistentError("The policy changed again while it was loading. Select it again to review its current revision.");return;
+      }
+    }
+    applyPayload(data);
+    $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
+    renderAll();renderList();
+  }catch(error){
+    if(ownsSelection()&&(!recovering||ownsRecovery()))showPersistentError(`Could not load policy: ${error.message}`);
+  }
 }
 export function renderAll({refreshBrowser=true}={}){
   const g=state.current;$("#title").textContent=g.name;$("#revision").textContent=`Revision ${g.revision}`;
