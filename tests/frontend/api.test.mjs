@@ -143,6 +143,27 @@ describe("api", () => {
     expect(message.textContent).toBe("");
   });
 
+  test("a successful action with no error to clear retains a current read's reporter", async () => {
+    const { summary, message } = banner();
+    const report = captureErrorReporter(() => true);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(success()));
+    await api("/api/example", { method: "POST" });
+    expect(report("Current policy reread failed")).toBe(true);
+    expect(summary.hidden).toBe(false);
+    expect(message.textContent).toContain("Current policy reread failed");
+  });
+
+  test("resolving an earlier warning does not dismiss a current read's outcome", async () => {
+    const { summary, message } = banner();
+    showPersistentError("Earlier warning");
+    const report = captureErrorReporter(() => true);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(success()));
+    await api("/api/example", { method: "POST" });
+    expect(summary.hidden).toBe(true);
+    expect(report("Current policy reread failed")).toBe(true);
+    expect(message.textContent).toContain("Current policy reread failed");
+  });
+
   test("shapes JSON requests and preserves caller headers", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
