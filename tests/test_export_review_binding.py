@@ -25,30 +25,34 @@ BUILDERS = dict(
 
 
 @pytest.fixture
-def workspace(tmp_path: Path) -> Iterator[tuple[TestClient, WorkspaceStore, dict]]:
+def workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[tuple[TestClient, WorkspaceStore, dict]]:
     store = WorkspaceStore(tmp_path / "workspace.db")
-    delivery.app.state.store = store
-    delivery.app.state.owns_store = False
-    with TestClient(delivery.app) as client:
-        created = client.post("/api/gpos", json={"name": "Synthetic reviewed export"}).json()
-        guid = created["gpo"]["guid"]
-        result = client.post(
-            f"/api/gpos/{guid}/settings",
-            json={
-                "expected_revision": 1,
-                "setting": {
-                    "side": "computer",
-                    "hive": "HKLM",
-                    "key": r"Software\Policies\SyntheticExportReview",
-                    "value_name": "Reviewed",
-                    "registry_type": "REG_SZ",
-                    "value": "before",
+    monkeypatch.setattr(delivery.app.state, "store", store, raising=False)
+    monkeypatch.setattr(delivery.app.state, "owns_store", False, raising=False)
+    try:
+        with TestClient(delivery.app) as client:
+            created = client.post("/api/gpos", json={"name": "Synthetic reviewed export"}).json()
+            guid = created["gpo"]["guid"]
+            result = client.post(
+                f"/api/gpos/{guid}/settings",
+                json={
+                    "expected_revision": 1,
+                    "setting": {
+                        "side": "computer",
+                        "hive": "HKLM",
+                        "key": r"Software\Policies\SyntheticExportReview",
+                        "value_name": "Reviewed",
+                        "registry_type": "REG_SZ",
+                        "value": "before",
+                    },
                 },
-            },
-        )
-        assert result.status_code == 201
-        yield client, store, result.json()
-    store.close()
+            )
+            assert result.status_code == 201
+            yield client, store, result.json()
+    finally:
+        store.close()
 
 
 def tokens(payload: dict) -> dict:
