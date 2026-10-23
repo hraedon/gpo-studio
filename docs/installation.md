@@ -214,6 +214,12 @@ The dialog shows counts and per-file issues. A missing/unreadable directory keep
 the previous source; a valid empty or wholly malformed folder can replace it with
 an empty catalogue, reported explicitly in the dialog.
 
+Loading affects every tab connected to this Studio process. If the catalogue
+changes while a policy editor is open, applying its old mapping is refused and
+the entered values stay available. Close the editor and review the policy from
+the current catalogue before applying it. Bulk selections are also tied to the
+reviewed catalogue; completed batches remain saved if a later batch is refused.
+
 For repeatable startup, put the folder option in your launch command or shortcut:
 
 ```powershell

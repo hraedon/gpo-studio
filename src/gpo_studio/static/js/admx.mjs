@@ -1,31 +1,40 @@
 import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
-import {api,toast} from './api.mjs';
-import {clearFormErrors,handleFormFailure} from './errors.mjs';
+import {api,toast,showPersistentError} from './api.mjs';
+import {clearFormErrors,handleFormFailure,showFormErrors} from './errors.mjs';
 import {loadList,renderList,renderAll} from './render.mjs';
 import {resetEditor,beginMutation,isCurrentEditor,isSameEditor,mutationFailed,endMutation,updateMutationList} from './mutation-context.mjs';
 
+import {catalogueEpoch as revisionEpoch,observeCatalogue,observeCatalogueConflict,reviewedCatalogueIsCurrent,onCatalogueChange,initCatalogueMonitoring,CATALOGUE_REVIEW_MESSAGE} from './catalogue-context.mjs';
+
+function markConfigureStale(){
+  const form=$("#configure-form");
+  form.dataset.catalogueStale="true";
+  showFormErrors(form,{message:CATALOGUE_REVIEW_MESSAGE});
+  form.querySelector('button[value="default"]').disabled=true;
+}
+
 let admxLoaded=null,admxTimer=null,admxCatsLoaded=false,admxRequest=0,catalogueEpoch=0;
-export function resetAdmxCatalogue(){catalogueEpoch++;admxLoaded=null;admxCatsLoaded=false;admxRequest++;clearTimeout(admxTimer);$("#admx-detail").hidden=true}
+export function resetAdmxCatalogue(){catalogueEpoch++;admxLoaded=null;admxCatsLoaded=false;admxRequest++;clearTimeout(admxTimer);$("#admx-detail").hidden=true;$("#admx-detail").replaceChildren();$("#admx-results").replaceChildren();$("#admx-categories").replaceChildren()}
 export async function checkAdmx(){
-  const epoch=catalogueEpoch;
+  const epoch=catalogueEpoch,started=revisionEpoch();
   if(admxLoaded===null){
-    try{const h=await api("/api/health");if(epoch!==catalogueEpoch)return;admxLoaded=h.admx_loaded===true}
-    catch(error){if(epoch===catalogueEpoch)toast(error.message);return}
+    try{const h=await api("/api/health");if(!observeCatalogue(h,started)||epoch!==catalogueEpoch)return;admxLoaded=h.admx_loaded===true}
+    catch(error){if(epoch===catalogueEpoch)showPersistentError(error.message);return}
     $("#admx-empty").hidden=admxLoaded;$("#admx-content").hidden=!admxLoaded;
   }
   if(admxLoaded){if(!admxCatsLoaded)loadAdmxCategories();loadAdmxResults($("#admx-search").value)}
 }
 async function loadAdmxResults(q){
-  const request=++admxRequest;
-  try{const data=await api(`/api/admx/search?q=${encodeURIComponent(q)}`);if(request!==admxRequest)return;$("#admx-results").hidden=false;$("#admx-detail").hidden=true;
+  const request=++admxRequest,started=revisionEpoch();
+  try{const data=await api(`/api/admx/search?q=${encodeURIComponent(q)}`);if(!observeCatalogue(data,started)||request!==admxRequest)return;$("#admx-results").hidden=false;$("#admx-detail").hidden=true;
     $("#admx-results").innerHTML=data.items.length?data.items.map(p=>`<button class="admx-result" data-id="${escapeHtml(p.qualified_id||p.id)}"><div><strong>${escapeHtml(p.display_name)}</strong><span class="side ${p.class_==='Machine'?'computer':'user'}">${escapeHtml(p.class_)}</span></div><small class="mono">${escapeHtml(p.key)}</small><p>${escapeHtml((p.explain_text||"").slice(0,120))}${(p.explain_text||"").length>120?'…':''}</p></button>`).join(""):'<div class="table-empty">No policies found.</div>';
     $$(".admx-result").forEach(el=>el.onclick=()=>loadAdmxDetail(el.dataset.id));
-  }catch(e){toast(e.message)}
+  }catch(e){showPersistentError(e.message)}
 }
 async function loadAdmxDetail(id){
   clearTimeout(admxTimer);
-  const request=++admxRequest;
-  try{const p=await api(`/api/admx/policies/${encodeURIComponent(id)}`);if(request!==admxRequest)return;$("#admx-results").hidden=true;$("#admx-detail").hidden=false;
+  const request=++admxRequest,started=revisionEpoch();
+  try{const p=await api(`/api/admx/policies/${encodeURIComponent(id)}`);if(!observeCatalogue(p,started)||request!==admxRequest)return;$("#admx-results").hidden=true;$("#admx-detail").hidden=false;
     const fields=(p.elements||[]).map(e=>{
       const pres=(p.presentation||[]).find(pr=>pr.ref_id===e.id)||{};
       const label=escapeHtml(pres.label||e.id);
@@ -48,14 +57,14 @@ async function loadAdmxDetail(id){
     // policy is the most common kind, and Enabled/Disabled/Not configured is
     // exactly what it needs. Previously the button only rendered when the
     // policy had element fields, so such policies could not be configured.
-    {const btn=document.createElement("button");btn.className="primary";btn.textContent="Configure policy";btn.id="admx-configure-btn";$("#admx-detail").appendChild(btn);btn.onclick=()=>openConfigureDialog(p.qualified_id||p.id,p.display_name,p.class_,fields)}
+    {const btn=document.createElement("button");btn.className="primary";btn.textContent="Configure policy";btn.id="admx-configure-btn";$("#admx-detail").appendChild(btn);btn.onclick=()=>openConfigureDialog(p.qualified_id||p.id,p.display_name,p.class_,fields,p.catalogue_revision)}
     $("#admx-back").onclick=()=>{admxRequest++;$("#admx-detail").hidden=true;$("#admx-results").hidden=false};
-  }catch(e){toast(e.message)}
+  }catch(e){showPersistentError(e.message)}
 }
 async function loadAdmxCategories(){
-  const epoch=catalogueEpoch;
-  try{const data=await api("/api/admx/categories");if(epoch!==catalogueEpoch)return;admxCatsLoaded=true;$("#admx-categories").innerHTML=data.items.length?data.items.map(c=>`<div class="admx-cat">${escapeHtml(c.display_name)}<small class="mono">${escapeHtml(c.id)}</small></div>`).join(""):'<div class="table-empty">No categories.</div>';
-  }catch(error){if(epoch===catalogueEpoch)toast(error.message)}
+  const epoch=catalogueEpoch,started=revisionEpoch();
+  try{const data=await api("/api/admx/categories");if(!observeCatalogue(data,started)||epoch!==catalogueEpoch)return;admxCatsLoaded=true;$("#admx-categories").innerHTML=data.items.length?data.items.map(c=>`<div class="admx-cat">${escapeHtml(c.display_name)}<small class="mono">${escapeHtml(c.id)}</small></div>`).join(""):'<div class="table-empty">No categories.</div>';
+  }catch(error){if(epoch===catalogueEpoch)showPersistentError(error.message)}
 }
 // Element options only apply when the policy is Enabled: GPMC greys out the
 // options panel for Disabled and Not Configured, and the API rejects element
@@ -67,7 +76,8 @@ function syncConfigureState(){
   options.hidden=!enabled;
   $$("[data-elem-id]",options).forEach(el=>{el.disabled=!enabled});
 }
-function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml){
+function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml,reviewedRevision){
+  if(!reviewedCatalogueIsCurrent(reviewedRevision)){showPersistentError(CATALOGUE_REVIEW_MESSAGE);return}
   const form=$("#configure-form");resetEditor(form);form.reset();clearFormErrors(form);
   $("#configure-title").textContent=`Configure: ${policyName}`;
   const gpoSelect=$("#configure-target-gpo");
@@ -83,12 +93,19 @@ function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml){
   $("#configure-fields").innerHTML=stateHtml+sideHtml+optionsHtml;
   $("#configure-state").onchange=syncConfigureState;
   syncConfigureState();
+  form.dataset.catalogueRevision=reviewedRevision;delete form.dataset.catalogueStale;
   form.dataset.policyId=policyId;
   form.dataset.policyClass=policyClass;
   $("#configure-dialog").showModal();
 }
 export function initAdmx(){
-$("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;clearFormErrors(f);const policyId=f.dataset.policyId;const policyClass=f.dataset.policyClass;
+initCatalogueMonitoring();
+onCatalogueChange(()=>{
+  resetAdmxCatalogue();
+  if($("#configure-dialog").open)markConfigureStale();
+  if(!$("#panel-admx").hidden)queueMicrotask(()=>checkAdmx());
+});
+$("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;if(f.dataset.catalogueStale||!reviewedCatalogueIsCurrent(f.dataset.catalogueRevision)){markConfigureStale();return}clearFormErrors(f);const policyId=f.dataset.policyId;const policyClass=f.dataset.policyClass;
   const targetGuid=$("#configure-target-gpo").value;if(!targetGuid){toast("Select a target GPO");return}
   const targetGpo=state.gpos.find(g=>g.guid===targetGuid);if(!targetGpo){toast("Target GPO not found");return}
   let side=policyClass==="Machine"?"computer":policyClass==="User"?"user":$("#configure-side").value;
@@ -106,11 +123,20 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
   });
   if(!ok)return;
   const context=beginMutation(f,{target:targetGpo});if(!context)return;
-  try{const data=await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,state:policyState,actor:"local-operator",reason:f.reason.value,expected_revision:context.revision})});
+  const reviewedRevision=f.dataset.catalogueRevision,started=revisionEpoch();
+  try{const data=await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,state:policyState,actor:"local-operator",reason:f.reason.value,expected_revision:context.revision,expected_catalogue_revision:reviewedRevision})});
     updateMutationList(data,renderList);
     const selectTarget=isSameEditor(context);if(isCurrentEditor(context))context.dialog.close();if(selectTarget)await loadList(targetGuid)
     toast(policyState==="not_configured"?"Policy set to Not configured":"Policy settings applied to GPO")}
-  catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{fieldNames:context.fieldNames,targetGuid:context.guid,preserveEditorTarget:true,isActive:()=>isSameEditor(context),onCurrent:(latest,{discardForm})=>{updateMutationList(latest,renderList);if(discardForm){applyPayload(latest);renderAll();renderList()}}}))}finally{endMutation(context)}
+  catch(error){
+    if(error.code==="catalogue_conflict"||!reviewedCatalogueIsCurrent(reviewedRevision)){
+      observeCatalogueConflict(error,started);
+      if(isCurrentEditor(context))markConfigureStale();else showPersistentError(CATALOGUE_REVIEW_MESSAGE);
+    }else await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{fieldNames:context.fieldNames,targetGuid:context.guid,preserveEditorTarget:true,isActive:()=>isSameEditor(context),onCurrent:(latest,{discardForm})=>{updateMutationList(latest,renderList);if(discardForm){applyPayload(latest);renderAll();renderList()}}}));
+  }finally{
+    endMutation(context);
+    if(isCurrentEditor(context)&&(f.dataset.catalogueStale||!reviewedCatalogueIsCurrent(reviewedRevision)))markConfigureStale();
+  }
 };
 $("#admx-search").oninput=e=>{clearTimeout(admxTimer);admxTimer=setTimeout(()=>loadAdmxResults(e.target.value),250)};
 }

@@ -1,5 +1,5 @@
 import {state,$,$$} from './state.mjs';
-import {api,toast,clearPersistentError} from './api.mjs';
+import {api,toast,clearPersistentError,showPersistentError} from './api.mjs';
 import {clearFormErrors,showFormErrors} from './errors.mjs';
 import {loadList,renderList,renderSettings,loadHistory} from './render.mjs';
 import {openGpo,openSetting,openLink,openFilter,openWmi,openWmiCatalogue,openEstate,openFork,openCopySettings,syncSettingForm,initForms} from './forms.mjs';
@@ -18,11 +18,9 @@ import {initTemplates} from './templates.mjs';
 const tabs=$$(".tab[role='tab']");
 
 function reportPersistentError(message){
-  const summary=$("#error-summary");
-  summary.textContent=`Error: ${message}`;
-  summary.hidden=false;
-  summary.focus();
+  showPersistentError(message);
 }
+$("#dismiss-error").onclick=()=>{clearPersistentError();$("#main-content").focus()};
 
 function setAppStatus(message){
   const status=$("#app-status");

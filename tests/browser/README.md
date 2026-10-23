@@ -22,3 +22,8 @@ GPO_STUDIO_TEST_PYTHON=.venv/bin/python npm run test:browser
 
 When unset, the server harness uses `uv` locally and the active `python`
 executable in CI.
+
+`catalogue-context.spec.mjs` uses independent browser contexts and real synthetic
+ADMX folders with the same policy ID but different registry mappings. It checks
+stale saves and a reload between bulk batches without relying on cross-tab hints.
+It restores the harness's default source after each test.

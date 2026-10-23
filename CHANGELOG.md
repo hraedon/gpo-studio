@@ -39,6 +39,11 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 - Keep archived policies read-only in the settings browser, including bulk actions.
 - Report unreadable ADMX folders with actionable JSON errors while retaining the
   previous catalogue; reject empty or whitespace-only `--admx-dir` values.
+- Bind policy configuration and bulk changes to the reviewed ADMX catalogue,
+  so a folder reload in another tab cannot silently change the policy mapping.
+  Keep unsaved configuration values on a catalogue conflict and require review.
+- Keep persistent errors visible through background reads and older request
+  completions; provide an explicit Dismiss action that returns keyboard focus.
 - Scope the authenticated IIS shared-service profile and its acceptance gates
   in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
 

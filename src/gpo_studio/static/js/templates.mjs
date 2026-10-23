@@ -1,8 +1,15 @@
 import { $, $$ } from "./state.mjs";
 import { api } from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
-import { checkAdmx, resetAdmxCatalogue } from "./admx.mjs";
-import { loadBrowser, resetBrowserCatalogue } from "./browser.mjs";
+import { checkAdmx } from "./admx.mjs";
+import { loadBrowser } from "./browser.mjs";
+
+import {
+  catalogueEpoch,
+  observeCatalogue,
+  onCatalogueChange,
+  announceCatalogueChange,
+} from "./catalogue-context.mjs";
 
 let dialogGeneration = 0,
   sourcesRequest = 0,
@@ -26,7 +33,8 @@ function renderSources(items) {
 }
 
 async function refreshSources(generation, { setPath = false } = {}) {
-  const request = ++sourcesRequest;
+  const request = ++sourcesRequest,
+    started = catalogueEpoch();
   let data;
   try {
     data = await api("/api/templates");
@@ -37,6 +45,7 @@ async function refreshSources(generation, { setPath = false } = {}) {
   }
   if (generation !== dialogGeneration || request !== sourcesRequest)
     return null;
+  if (!observeCatalogue(data, started)) return null;
   renderSources(data.items);
   if (setPath)
     $("#templates-form").elements.path.value =
@@ -87,6 +96,26 @@ function describeLoad(result) {
 }
 
 export function initTemplates() {
+  onCatalogueChange(() => {
+    if (!$("#templates-dialog").open) return;
+    const generation = dialogGeneration,
+      ownLoad = loadingFolder;
+    refreshSources(generation)
+      .then((items) => {
+        if (
+          items &&
+          !ownLoad &&
+          !loadingFolder &&
+          generation === dialogGeneration
+        )
+          $("#templates-status").textContent =
+            "The template catalogue changed. Review the current sources below.";
+      })
+      .catch((error) => {
+        if (generation === dialogGeneration)
+          showFormErrors($("#templates-form"), error);
+      });
+  });
   $("#open-templates").onclick = openTemplates;
   $$("[data-open-templates]").forEach((button) => {
     button.onclick = openTemplates;
@@ -96,7 +125,8 @@ export function initTemplates() {
     const form = event.currentTarget;
     const button = $("#templates-load");
     if (button.disabled || loadingFolder) return;
-    const generation = dialogGeneration;
+    const generation = dialogGeneration,
+      started = catalogueEpoch();
     loadingFolder = true;
     clearFormErrors(form);
     button.disabled = true;
@@ -128,9 +158,11 @@ export function initTemplates() {
         const currentGeneration = dialogGeneration;
         if (generation === currentGeneration)
           form.elements.path.value = result.path;
-        describeLoad(result);
-        resetAdmxCatalogue();
-        resetBrowserCatalogue();
+        if (observeCatalogue(result, started)) describeLoad(result);
+        else
+          $("#templates-status").textContent =
+            "The folder load completed, but the catalogue changed again. Review the current sources below.";
+        announceCatalogueChange();
         try {
           await refreshSources(currentGeneration);
         } catch (error) {
