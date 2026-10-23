@@ -6,37 +6,6 @@ import { join } from "node:path";
 const workspaceDirectory = mkdtempSync(join(tmpdir(), "gpo-studio-browser-"));
 const database = join(workspaceDirectory, "workspace.db");
 
-// Keep import tests inside their own inbox, with no administrator backup data.
-const inboxDirectory = join(workspaceDirectory, "inbox");
-const backupGuid = "11111111-2222-3333-4444-555555555555";
-// Projects and CI retries share this server. Each import needs a distinct name.
-for (const project of ["chromium", "firefox-smoke"]) {
-  for (const scenario of ["late", "enter"]) {
-    for (const retry of [0, 1]) {
-      writeSyntheticBackup(`synthetic-${scenario}-${project}-${retry}`);
-    }
-  }
-}
-function writeSyntheticBackup(relativePath) {
-  const backupDirectory = join(inboxDirectory, relativePath);
-  for (const side of ["Machine", "User"]) {
-    const sideDirectory = join(backupDirectory, backupGuid, side);
-    mkdirSync(sideDirectory, { recursive: true });
-    writeFileSync(
-      join(sideDirectory, "Registry.pol"),
-      Buffer.from([0x50, 0x52, 0x65, 0x67, 1, 0, 0, 0]),
-    );
-  }
-  writeFileSync(
-    join(backupDirectory, "manifest.xml"),
-    `<?xml version="1.0" encoding="utf-8"?>
-<BackupInstances xmlns="http://www.microsoft.com/GroupPolicy/Types"><BackupInstance>
-<BackupTime>2026-01-01T00:00:00</BackupTime><ID>synthetic-backup</ID><GPO>
-<Identifier>${backupGuid}</Identifier><DisplayName>Synthetic inbox baseline ${relativePath}</DisplayName>
-<Domain>synthetic.test</Domain></GPO></BackupInstance></BackupInstances>`,
-  );
-}
-
 // Without a catalogue the Administrative Templates tab only ever renders its
 // empty state, so the ADMX authoring surface was unreachable from browser
 // tests. Seed a synthetic pack shaped like a real one: 2006/07 namespace, a
@@ -115,7 +84,8 @@ const server = spawn(command, args, {
     ...process.env,
     PYTHONUNBUFFERED: "1",
     GPO_STUDIO_ADMX_DIR: admxDirectory,
-    GPO_STUDIO_INBOX_DIR: inboxDirectory,
+    // Existing import journeys create backups under the checkout output directory.
+    GPO_STUDIO_INBOX_DIR: process.cwd(),
   },
 });
 

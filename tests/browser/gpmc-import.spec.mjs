@@ -1,4 +1,29 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { expect, test } from "@playwright/test";
+
+function syntheticBackup(testInfo) {
+  const directory = testInfo.outputPath("synthetic-backup");
+  const guid = "11111111-2222-3333-4444-555555555555";
+  const name = `Synthetic inbox baseline ${testInfo.project.name} ${testInfo.retry} ${Date.now()}`;
+  for (const side of ["Machine", "User"]) {
+    const sideDirectory = join(directory, guid, side);
+    mkdirSync(sideDirectory, { recursive: true });
+    writeFileSync(
+      join(sideDirectory, "Registry.pol"),
+      Buffer.from([0x50, 0x52, 0x65, 0x67, 1, 0, 0, 0]),
+    );
+  }
+  writeFileSync(
+    join(directory, "manifest.xml"),
+    `<?xml version="1.0" encoding="utf-8"?>
+<BackupInstances xmlns="http://www.microsoft.com/GroupPolicy/Types"><BackupInstance>
+<BackupTime>2026-01-01T00:00:00</BackupTime><ID>synthetic-backup</ID><GPO>
+<Identifier>${guid}</Identifier><DisplayName>${name}</DisplayName><Domain>synthetic.test</Domain>
+</GPO></BackupInstance></BackupInstances>`,
+  );
+  return { path: relative(process.cwd(), directory), name };
+}
 
 function deferred() {
   let resolve;
@@ -31,7 +56,7 @@ for (const outcome of ["success", "failure"]) {
     page,
     request,
   }, testInfo) => {
-    const backupPath = `synthetic-late-${testInfo.project.name}-${testInfo.retry}`;
+    const backupPath = syntheticBackup(testInfo).path;
     const name = `Synthetic import view ${outcome} ${Date.now()}`;
     const created = await request.post("/api/gpos", {
       data: { name, actor: "browser-test", reason: "Import context fixture" },
@@ -163,7 +188,8 @@ test("Enter imports the reviewed backup as a read-only baseline @smoke", async (
   page,
   request,
 }, testInfo) => {
-  const backupPath = `synthetic-enter-${testInfo.project.name}-${testInfo.retry}`;
+  const backup = syntheticBackup(testInfo);
+  const backupPath = backup.path;
   await page.goto("/");
   const dialog = await openImport(page);
   await dialog.getByLabel("Inbox-relative backup path").fill(backupPath);
@@ -189,9 +215,7 @@ test("Enter imports the reviewed backup as a read-only baseline @smoke", async (
     reason: "Review synthetic baseline",
   });
   await expect(dialog).not.toBeVisible();
-  await expect(page.locator("#title")).toHaveText(
-    `Synthetic inbox baseline ${backupPath}`,
-  );
+  await expect(page.locator("#title")).toHaveText(backup.name);
   await expect(page.locator("#edit-metadata")).toBeDisabled();
   const guid = await page
     .locator("#gpo-list .gpo-item.active")
