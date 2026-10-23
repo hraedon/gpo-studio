@@ -6,6 +6,12 @@ import {resetEditor,beginMutation,isCurrentEditor,isSameEditor,mutationFailed,en
 
 import {catalogueEpoch as revisionEpoch,observeCatalogue,observeCatalogueConflict,reviewedCatalogueIsCurrent,onCatalogueChange,initCatalogueMonitoring,CATALOGUE_REVIEW_MESSAGE} from './catalogue-context.mjs';
 
+// Each option represents the revision shown when this editor opened. Sidebar
+// refreshes and older saves may update live summaries, but cannot consent to a
+// newer target revision on behalf of this form.
+const configureTargets=new WeakMap();
+function targetSnapshot(gpo){return Object.freeze({guid:gpo.guid,name:gpo.name,revision:gpo.revision})}
+
 function markConfigureStale(){
   const form=$("#configure-form");
   form.dataset.catalogueStale="true";
@@ -82,6 +88,7 @@ function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml,reviewed
   $("#configure-title").textContent=`Configure: ${policyName}`;
   const gpoSelect=$("#configure-target-gpo");
   const targets=state.gpos.filter(g=>g.status!=="archived");
+  configureTargets.set(form,new Map(targets.map(g=>[g.guid,targetSnapshot(g)])));
   gpoSelect.innerHTML=targets.map(g=>`<option value="${escapeHtml(g.guid)}">${escapeHtml(g.name)} (r${g.revision})</option>`).join("");
   if(targets.some(g=>g.guid===state.current?.guid))gpoSelect.value=state.current.guid;
   else gpoSelect.value="";
@@ -107,7 +114,8 @@ onCatalogueChange(()=>{
 });
 $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;if(f.dataset.catalogueStale||!reviewedCatalogueIsCurrent(f.dataset.catalogueRevision)){markConfigureStale();return}clearFormErrors(f);const policyId=f.dataset.policyId;const policyClass=f.dataset.policyClass;
   const targetGuid=$("#configure-target-gpo").value;if(!targetGuid){toast("Select a target GPO");return}
-  const targetGpo=state.gpos.find(g=>g.guid===targetGuid);if(!targetGpo){toast("Target GPO not found");return}
+  const targetSnapshots=configureTargets.get(f);
+  const targetGpo=targetSnapshots?.get(targetGuid);if(!targetGpo){toast("Close and reopen this editor to review the target GPO");return}
   let side=policyClass==="Machine"?"computer":policyClass==="User"?"user":$("#configure-side").value;
   const policyState=$("#configure-state").value;
   const values={};
@@ -132,7 +140,20 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
     if(error.code==="catalogue_conflict"||!reviewedCatalogueIsCurrent(reviewedRevision)){
       observeCatalogueConflict(error,started);
       if(isCurrentEditor(context))markConfigureStale();else showPersistentError(CATALOGUE_REVIEW_MESSAGE);
-    }else await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{fieldNames:context.fieldNames,targetGuid:context.guid,preserveEditorTarget:true,isActive:()=>isSameEditor(context),onCurrent:(latest,{discardForm})=>{updateMutationList(latest,renderList);if(discardForm){applyPayload(latest);renderAll();renderList()}}}));
+    }else await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{fieldNames:context.fieldNames,targetGuid:context.guid,preserveEditorTarget:true,isActive:()=>isSameEditor(context),onCurrent:(latest,{discardForm})=>{
+      updateMutationList(latest,renderList);
+      if(discardForm){applyPayload(latest);renderAll();renderList();return}
+      const option=[...$("#configure-target-gpo").options].find(item=>item.value===latest.gpo.guid);
+      if(latest.gpo.status==="archived"){
+        if(option)option.disabled=true;
+        $("#configure-target-gpo").value="";
+        showFormErrors(form,{message:"The target policy is archived. Choose another draft or fork it before applying settings."});
+        return false;
+      }
+      // Only explicit Review and reapply advances this target's snapshot.
+      targetSnapshots.set(latest.gpo.guid,targetSnapshot(latest.gpo));
+      if(option)option.textContent=`${latest.gpo.name} (r${latest.gpo.revision})`;
+    }}));
   }finally{
     endMutation(context);
     if(isCurrentEditor(context)&&(f.dataset.catalogueStale||!reviewedCatalogueIsCurrent(reviewedRevision)))markConfigureStale();

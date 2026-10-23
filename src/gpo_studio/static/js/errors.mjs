@@ -117,7 +117,10 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
   };
   reapply.onclick=()=>{
     if(!isActive()){dialog.close();return}
-    onCurrent?.(latest,{discardForm:false});
+    // A reviewed target can become read-only; its editor may refuse reapply.
+    if(onCurrent?.(latest,{discardForm:false})===false){
+      dialog.close();setStatus("");form.querySelector(".form-error")?.focus();return;
+    }
     const editor=form.closest("dialog");
     if(editor&&!preserveEditorTarget)editor.editorTarget={guid:latest.gpo.guid,revision:latest.gpo.revision,name:latest.gpo.name};
     dialog.close();

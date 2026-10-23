@@ -44,6 +44,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   Keep unsaved configuration values on a catalogue conflict and require review.
 - Keep persistent errors visible through background reads and older request
   completions; provide an explicit Dismiss action that returns keyboard focus.
+- Keep each ADMX target bound to the revision displayed when its editor opened;
+  late sidebar updates cannot silently advance it. Explicit conflict review
+  updates that target's revision, and archived targets require another draft.
 - Scope the authenticated IIS shared-service profile and its acceptance gates
   in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
 
