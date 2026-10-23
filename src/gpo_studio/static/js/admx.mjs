@@ -1,3 +1,4 @@
+import { policyDisplayLabel } from "./policy-label.mjs";
 import { createReadScope } from "./read-context.mjs";
 import {state,$,$$,escapeHtml,applyPayload,getGpoGeneration} from './state.mjs';
 import {api,toast,showPersistentError,actionApi} from './api.mjs';
@@ -70,7 +71,7 @@ async function loadAdmxResults(q,options={}){
   const request=++admxRequest,read=captureAdmxRead(request,options),{started}=read;
   const pending=options.managed?null:cataloguePending(read,"Searching ADMX policies…");let success=false;
   try{const data=await /* request: admx.search */ api(`/api/admx/search?q=${encodeURIComponent(q)}`);if(!observeCatalogue(data,started)||request!==admxRequest||!read.isCurrent())return;$("#admx-results").hidden=false;$("#admx-detail").hidden=true;
-    $("#admx-results").innerHTML=data.items.length?data.items.map(p=>`<button class="admx-result" data-id="${escapeHtml(p.qualified_id||p.id)}"><div><strong>${escapeHtml(p.display_name)}</strong><span class="side ${p.class_==='Machine'?'computer':'user'}">${escapeHtml(p.class_)}</span></div><small class="mono">${escapeHtml(p.key)}</small><p>${escapeHtml((p.explain_text||"").slice(0,120))}${(p.explain_text||"").length>120?'…':''}</p></button>`).join(""):'<div class="table-empty">No policies found.</div>';
+    $("#admx-results").innerHTML=data.items.length?data.items.map(p=>`<button class="admx-result" data-id="${escapeHtml(p.qualified_id||p.id)}"><div><strong>${escapeHtml(policyDisplayLabel(p))}</strong><span class="side ${p.class_==='Machine'?'computer':'user'}">${escapeHtml(p.class_)}</span></div><small class="mono">${escapeHtml(p.key)}</small><p>${escapeHtml((p.explain_text||"").slice(0,120))}${(p.explain_text||"").length>120?'…':''}</p></button>`).join(""):'<div class="table-empty">No policies found.</div>';
     $$(".admx-result").forEach(el=>el.onclick=()=>loadAdmxDetail(el.dataset.id));
     success=true;return true;
   }catch(error){read.reportError(error.message);return false}finally{finishCatalogueRead(read,pending,success)}
@@ -98,12 +99,12 @@ async function loadAdmxDetail(id,options={}){
       }
       return `<div class="config-field"><small>Unsupported element kind: ${escapeHtml(e.kind)}</small></div>`;
     }).join("");
-    $("#admx-detail").innerHTML=`<div class="admx-detail-head"><button class="quiet" id="admx-back">← Back</button><h3>${escapeHtml(p.display_name)}</h3></div><dl class="details"><dt>ID</dt><dd class="mono">${escapeHtml(p.id)}</dd>${p.namespace?`<dt>Namespace</dt><dd class="mono">${escapeHtml(p.namespace)}</dd>`:""}<dt>Class</dt><dd>${escapeHtml(p.class_)}</dd><dt>Key</dt><dd class="mono">${escapeHtml(p.key)}</dd><dt>Category</dt><dd>${escapeHtml(p.parent_category)||"—"}</dd><dt>Supported on</dt><dd>${escapeHtml(p.supported_on)||"—"}</dd><dt>Explanation</dt><dd>${escapeHtml(p.explain_text)||"—"}</dd>${p.elements&&p.elements.length?`<dt>Elements</dt><dd>${p.elements.map(e=>`<div class="mono">${escapeHtml(e.kind)}: ${escapeHtml(e.id)}</div>`).join("")}</dd>`:""}${p.presentation&&p.presentation.length?`<dt>Presentation</dt><dd>${p.presentation.map(e=>`<div>${escapeHtml(e.kind)}: ${escapeHtml(e.label||e.id)}</div>`).join("")}</dd>`:""}</dl>`;
+    $("#admx-detail").innerHTML=`<div class="admx-detail-head"><button class="quiet" id="admx-back">← Back</button><h3>${escapeHtml(policyDisplayLabel(p))}</h3></div><dl class="details"><dt>ID</dt><dd class="mono">${escapeHtml(p.id)}</dd>${p.namespace?`<dt>Namespace</dt><dd class="mono">${escapeHtml(p.namespace)}</dd>`:""}<dt>Class</dt><dd>${escapeHtml(p.class_)}</dd><dt>Key</dt><dd class="mono">${escapeHtml(p.key)}</dd><dt>Category</dt><dd>${escapeHtml(p.parent_category)||"—"}</dd><dt>Supported on</dt><dd>${escapeHtml(p.supported_on)||"—"}</dd><dt>Explanation</dt><dd>${escapeHtml(p.explain_text)||"—"}</dd>${p.elements&&p.elements.length?`<dt>Elements</dt><dd>${p.elements.map(e=>`<div class="mono">${escapeHtml(e.kind)}: ${escapeHtml(e.id)}</div>`).join("")}</dd>`:""}${p.presentation&&p.presentation.length?`<dt>Presentation</dt><dd>${p.presentation.map(e=>`<div>${escapeHtml(e.kind)}: ${escapeHtml(e.label||e.id)}</div>`).join("")}</dd>`:""}</dl>`;
     // Always offered, including for policies with no elements: a plain on/off
     // policy is the most common kind, and Enabled/Disabled/Not configured is
     // exactly what it needs. Previously the button only rendered when the
     // policy had element fields, so such policies could not be configured.
-    {const btn=document.createElement("button");btn.className="primary";btn.textContent="Configure policy";btn.id="admx-configure-btn";$("#admx-detail").appendChild(btn);btn.onclick=()=>openConfigureDialog(p.qualified_id||p.id,p.display_name,p.class_,fields,p.catalogue_revision)}
+    {const btn=document.createElement("button");btn.className="primary";btn.textContent="Configure policy";btn.id="admx-configure-btn";$("#admx-detail").appendChild(btn);btn.onclick=()=>openConfigureDialog(p.qualified_id||p.id,policyDisplayLabel(p),p.class_,fields,p.catalogue_revision)}
     $("#admx-back").onclick=()=>{admxRequest++;admxReads.cancelReactivation();admxIntent={type:"search",value:$("#admx-search").value};$("#admx-load-status").replaceChildren();$("#admx-load-status").hidden=true;$("#admx-detail").hidden=true;$("#admx-results").hidden=false};
     success=true;return true;
   }catch(error){read.reportError(error.message);return false}finally{finishCatalogueRead(read,pending,success)}

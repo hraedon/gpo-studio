@@ -9,6 +9,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Show policy identities when accepted ADMX display names are missing or blank,
+  keeping configured-policy controls and catalogue review visibly labelled.
+
 - Preserve uncertainty from historical state records outside current list-policy
   patterns, regardless of the current writer's identity family; keep ordinary
   legacy child ordinals separate from policy-state evidence.

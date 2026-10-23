@@ -1,3 +1,4 @@
+import { policyDisplayLabel } from "./policy-label.mjs";
 import {
   state,
   $,
@@ -288,6 +289,7 @@ function renderResolved(items) {
   tbody.innerHTML = items
     .map((p, index) => {
       const detailId = `browser-detail-${index}`;
+      const label = escapeHtml(policyDisplayLabel(p));
       const categoryPath = (p.category_path || []).join(" › ") || "—";
       const ambiguousBadge = p.ambiguous
         ? ` <span class="browser-ambiguous" title="Also matches: ${escapeHtml((p.ambiguous_with || []).join(", "))}">ambiguous</span>`
@@ -298,9 +300,9 @@ function renderResolved(items) {
         ? observationReasons[p.state_reason] || "The observed state cannot be determined from these registry records."
         : "";
       return (
-        `<tr><td><input type="checkbox" class="browser-bulk-checkbox" data-bulk-policy-id="${escapeHtml(p.policy_id)}" data-bulk-side="${escapeHtml(p.side)}" aria-label="Select ${escapeHtml(p.display_name)}"${checked}></td>` +
+        `<tr><td><input type="checkbox" class="browser-bulk-checkbox" data-bulk-policy-id="${escapeHtml(p.policy_id)}" data-bulk-side="${escapeHtml(p.side)}" aria-label="Select ${label}"${checked}></td>` +
         `<td><span class="side ${escapeHtml(p.side)}">${escapeHtml(p.side)}</span></td>` +
-        `<td><button type="button" class="browser-policy-toggle" aria-expanded="false" aria-controls="${detailId}">${escapeHtml(p.display_name)}${ambiguousBadge}</button></td>` +
+        `<td><button type="button" class="browser-policy-toggle" aria-expanded="false" aria-controls="${detailId}">${label}${ambiguousBadge}</button></td>` +
         `<td><span class="pill ${p.state === "enabled" ? "ok" : "warn"}">${escapeHtml(stateLabel)}</span></td>` +
         `<td>${escapeHtml(categoryPath)}</td>` +
         `<td>${escapeHtml(p.supported_on) || "—"}</td></tr>` +
