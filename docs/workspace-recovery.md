@@ -571,8 +571,9 @@ policy/side. It distinguishes actual stored legacy/structured frames from today'
 writer-family choice. State and fixed-list records do not become editable dynamic
 list items; interpreting a legacy spelling as a disabled-element write requires
 the scalar's actual address. Uncertain component roles remain visible as unresolved raw records rather
-than invented form values. This does not implement the reviewed repair workflow
-in WI-087 or the independent observed list-state work in WI-088.
+than invented form values. Component-role resolution, observed list-policy state (WI-088), and reviewed
+identity repair (WI-087) remain separate concerns; these bindings do not rewrite
+history or infer mutation intent.
 Older builds can open and read the raw records; structured list-element rows may
 appear unresolved in their settings browser. They must not reconfigure these ADMX
 policies: the old prefix-based writer cannot safely interpret the new IDs.

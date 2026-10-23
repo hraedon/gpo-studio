@@ -316,41 +316,38 @@ def _state_pattern(
     return pattern
 
 
-def _is_policy_state_record(
-    setting: RegistrySetting,
-    policy: PolicyDefinition,
-    side: Side,
-    *,
-    structured_ids: bool,
-) -> bool:
-    identity = parse_structured_setting_id(setting.id)
+def _may_be_policy_state_record(row: _StoredReadBinding, plan: _PolicyReadPlan) -> bool:
+    """Outside a native pattern, preserve uncertainty from actual stored framing.
+
+    A structured child is distinct from a state writer. A canonical legacy state
+    spelling can be a stale state writer OR an overlapping child: it cannot
+    establish certainty about the current pattern. Noncanonical child ordinals
+    (zero, leading zero, non-ASCII) are not emitted by the policy-list writer.
+    Today's writer-family choice says nothing about a historical row's encoding.
+    """
+    identity = row.structured
     if identity is not None:
         return (
-            identity.policy_id == policy.qualified_id
-            and identity.side == side
+            identity.policy_id == plan.policy_id and identity.side == plan.side
             and identity.kind in ("state", "state-list")
         )
-    if structured_ids:
+    suffix = row.legacy_suffix
+    if suffix is None:
         return False
-    parsed = _parse_setting_id(setting.id)
-    if parsed is None or parsed[:2] != (policy.qualified_id, side):
-        return False
-    suffix = parsed[2]
     if suffix == "state":
         return True
-    if not suffix.startswith("listitem-"):
-        return False
-    ordinal = suffix[len("listitem-") :]
-    # Match only writer ordinals, not valid legacy child IDs such as listitem-0.
-    return ordinal.isascii() and ordinal.isdigit() and not ordinal.startswith("0")
+    prefix, separator, ordinal = suffix.rpartition("-")
+    return bool(
+        separator and prefix == "listitem" and ordinal.isascii()
+        and ordinal.isdigit() and not ordinal.startswith("0")
+    )
 
 
 def _observe_list_state(
     policy: PolicyDefinition,
     side: Side,
-    settings: tuple[RegistrySetting, ...],
-    *,
-    structured_ids: bool,
+    rows: tuple[_StoredReadBinding, ...],
+    plan: _PolicyReadPlan,
 ) -> tuple[ObservedPolicyState, ObservedStateReason | None]:
     enabled = _state_pattern(policy, side, effective_enabled_value(policy), policy.enabled_list)
     disabled = _state_pattern(policy, side, effective_disabled_value(policy), policy.disabled_list)
@@ -359,12 +356,13 @@ def _observe_list_state(
     addresses = enabled.keys() | disabled.keys()
     state_keys = {address[:3] for address in addresses}
     actual: _StatePattern = {}
-    for setting in settings:
+    for row in rows:
+        setting = row.setting
         address = setting.identity()
         if setting.action == "delete_all_values" and address[:3] in state_keys:
             return "indeterminate", "unsupported_state_pattern"
         if address not in addresses:
-            if _is_policy_state_record(setting, policy, side, structured_ids=structured_ids):
+            if _may_be_policy_state_record(row, plan):
                 return "indeterminate", "no_complete_pattern"
             continue
         signature = _native_write(setting.registry_type, setting.value, setting.action)
@@ -738,15 +736,13 @@ def build_settings_browser(
         # Family selection scans the source schema. Keep it outside the
         # element×setting loop (and avoid hashing the whole policy as a cache key).
         structured_ids = structured_policy_ids(policy)
+        plan = _build_policy_read_plan(policy, side)
+        bound_rows = tuple(_bind_stored_setting(plan, setting) for setting in raw)
         if policy.enabled_list is not None or policy.disabled_list is not None:
-            observed_state, state_reason = _observe_list_state(
-                policy, side, raw, structured_ids=structured_ids
-            )
+            observed_state, state_reason = _observe_list_state(policy, side, bound_rows, plan)
         else:
             observed_state = _derive_state(policy, side, raw, structured_ids=structured_ids)
             state_reason = None
-        plan = _build_policy_read_plan(policy, side)
-        bound_rows = tuple(_bind_stored_setting(plan, setting) for setting in raw)
         element_values, claimed = _decode_element_values(plan, bound_rows)
         unresolved.extend(
             UnresolvedSetting(row.setting, "ambiguous legacy policy component")

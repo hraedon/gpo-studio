@@ -9,6 +9,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Preserve uncertainty from historical state records outside current list-policy
+  patterns, regardless of the current writer's identity family; keep ordinary
+  legacy child ordinals separate from policy-state evidence.
+
 - Observe complete Enabled and Disabled list-policy patterns in the settings browser;
   show Indeterminate for identical, incomplete or unobservable patterns without changing
   legal authoring states, exports or stored policy records.
