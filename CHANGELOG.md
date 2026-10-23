@@ -49,6 +49,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   updates that target's revision, and archived targets require another draft.
 - Show a visible saving message in pending editors and explain that closing the
   dialog keeps the save running.
+- Keep visible captions on preference members, registry values and targeting
+  fields after they are filled, with keyboard-friendly layouts on narrow screens.
 - Scope the authenticated IIS shared-service profile and its acceptance gates
   in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
 

@@ -265,7 +265,7 @@ function addMemberRow(member=null){
   const list=$("#gpp-members-list");
   const row=document.createElement("div");
   row.className="gpp-row";
-  row.innerHTML=`<input data-field="sid" placeholder="SID (required)" maxlength="255" required><input data-field="name" placeholder="Name" maxlength="255"><select data-field="action">${GROUP_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><button type="button" class="quiet">×</button>`;
+  row.innerHTML=`<label class="gpp-field">Member SID<input data-field="sid" placeholder="SID (required)" maxlength="255" required></label><label class="gpp-field">Member name<input data-field="name" placeholder="Name" maxlength="255"></label><label class="gpp-field">Member action<select data-field="action">${GROUP_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select></label><button type="button" class="quiet">×</button>`;
   if(member){row.querySelector('[data-field=sid]').value=member.sid;row.querySelector('[data-field=name]').value=member.name||"";row.querySelector('[data-field=action]').value=member.action;row.dataset.id=member.id||""}
   const removeButton=row.querySelector("button");removeButton.setAttribute("aria-label","Remove member row");removeButton.onclick=()=>row.remove();
   list.appendChild(row);
@@ -378,7 +378,7 @@ function addValueRow(value=null){
   const list=$("#gpp-values-list");
   const row=document.createElement("div");
   row.className="gpp-row";
-  row.innerHTML=`<input data-field="name" placeholder="Value name (empty = key-only)" maxlength="255"><select data-field="type"><option value="">(key-only)</option>${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select><input data-field="value" aria-label="Registry value data" placeholder="Value"><select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><label title="Configure the key's default value"><input type="checkbox" data-field="default"> Default</label><button type="button" class="quiet">×</button>`;
+  row.innerHTML=`<label class="gpp-field">Registry value name<input data-field="name" placeholder="Value name (empty = key-only)" maxlength="255"></label><label class="gpp-field">Registry value type<select data-field="type"><option value="">(key-only)</option>${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select></label><label class="gpp-field">Registry value data<input data-field="value" aria-label="Registry value data" placeholder="Value"></label><label class="gpp-field">Registry value action<select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select></label><label title="Configure the key's default value"><input type="checkbox" data-field="default"> Default</label><button type="button" class="quiet">×</button>`;
   const valueHelp=document.createElement("small");
   valueHelp.id="gpp-registry-value-help";valueHelp.dataset.valueHelp="";valueHelp.textContent='REG_MULTI_SZ uses a JSON array of strings, e.g. ["first", "second"]. Spaces, empty strings and semicolons are kept in the workspace. Use [] for an empty list.';
   row.appendChild(valueHelp);
@@ -450,7 +450,7 @@ function addPredicateRow(listId,previewId,row=null){
   const list=$("#"+listId);
   const el=document.createElement("div");
   el.className="gpp-row";
-  el.innerHTML=`<span class="gpp-connector mono" aria-hidden="true"></span><select data-field="type">${ILT_TYPES.map(t=>`<option value="${t}">${ILT_LABELS[t]}</option>`).join("")}</select><label><input type="checkbox" data-field="negate"> NOT</label><input data-field="value" placeholder="${ILT_HINTS.ou}"><button type="button" class="quiet" data-move="-1">↑</button><button type="button" class="quiet" data-move="1">↓</button><button type="button" class="quiet" data-remove>×</button>`;
+  el.innerHTML=`<span class="gpp-connector mono" aria-hidden="true"></span><label class="gpp-field">Targeting predicate type<select data-field="type">${ILT_TYPES.map(t=>`<option value="${t}">${ILT_LABELS[t]}</option>`).join("")}</select></label><label><input type="checkbox" data-field="negate"> NOT</label><label class="gpp-field">Targeting predicate value<input data-field="value" placeholder="${ILT_HINTS.ou}"></label><button type="button" class="quiet" data-move="-1">↑</button><button type="button" class="quiet" data-move="1">↓</button><button type="button" class="quiet" data-remove>×</button>`;
   const typeSel=el.querySelector('[data-field=type]');
   const valueInput=el.querySelector('[data-field=value]');
   const negateBox=el.querySelector('[data-field=negate]');

@@ -85,3 +85,9 @@ dialog{max-height:calc(100dvh - 30px);overflow:hidden}dialog form{display:grid;g
 @media(max-width:850px){.rail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.rail>.brand,.rail>.search,.rail>nav,.rail>footer{grid-column:1/-1}.rail>button.full{margin:0;white-space:normal}.rail>.brand{margin-bottom:4px}}
 
 @media(max-width:600px){.rail>button.full{padding:8px 10px;font-size:13px}}
+
+/* Dynamic preference fields keep visible labels after their prompts disappear. */
+.gpp-row>label.gpp-field{display:flex;flex-direction:column;align-items:stretch;gap:4px;flex:1 1 150px;min-width:0;margin:0;white-space:normal;font-weight:650;color:var(--ink)}
+.gpp-row>label.gpp-field :is(input,select){display:block;width:100%;min-width:0;margin:0}
+.gpp-row>small[data-value-help],.gpp-row>.gpp-readonly-warn{flex-basis:100%}
+@media(max-width:600px){.gpp-row>label.gpp-field{flex-basis:100%}}
