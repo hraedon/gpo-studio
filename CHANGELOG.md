@@ -9,6 +9,12 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Observe complete native scalar-marker patterns as well as policy lists; expose
+  uncertainty and unresolved historical state records at moved addresses while
+  preserving child values, raw history and independent export eligibility.
+- Document that fork-prefixed/imported ADMX rows are not automatically selected
+  by reconfiguration and require explicitly reviewed recovery.
+
 - Read raw legacy list ordinals without integer-conversion failures and keep
   unorderable digit-like ordinals visible as unresolved records, while preserving
   previously successful decimal spellings, source names and historical list order.

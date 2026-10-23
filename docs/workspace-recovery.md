@@ -571,7 +571,7 @@ policy/side. It distinguishes actual stored legacy/structured frames from today'
 writer-family choice. State and fixed-list records do not become editable dynamic
 list items; interpreting a legacy spelling as a disabled-element write requires
 the scalar's actual address. Uncertain component roles remain visible as unresolved raw records rather
-than invented form values. Component-role resolution, observed list-policy state (WI-088), and reviewed
+than invented form values. Component-role resolution, observed policy-level state (WI-088), and reviewed
 identity repair (WI-087) remain separate concerns; these bindings do not rewrite
 history or infer mutation intent.
 Older builds can open and read the raw records; structured list-element rows may
@@ -610,12 +610,29 @@ For recovery without guessing or changing the original:
    preferences and other GPO content need their own review. The new GPO has a
    new GUID, so its whole-policy digest need not equal the original's.
 
+Fork-prefixed ADMX IDs and imported raw IDs do not name an ADMX owner for
+reconfiguration, even when their current native addresses match a template.
+Enabling or disabling that policy can retain the copied rows and add writes at
+the same addresses, producing `duplicate_setting` validation issues and blocked
+native exports. Not configured can leave the copied rows in place. Review the
+raw records explicitly; neither an address match nor a settings-browser state
+observation authorizes automatic ownership repair. WI-087 tracks this recovery
+limitation as well as ambiguous and duplicate editor identities.
+
 Copy retains editor IDs and Fork prefixes them; both preserve a duplicate pair
 and therefore do **not** repair a malformed source with duplicate IDs. Restoring
 a clean historical revision is another recovery path; restoring a duplicated
 revision is refused without
 rewriting that historical snapshot. A dedicated reviewed repair workflow remains
 open as [WI-087](work-items.md#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities).
+
+Policy-state observations compare complete native scalar-marker/list patterns.
+An old state row at a moved address is not evidence of either current state;
+unclaimed possible state records remain unresolved, and the policy can be
+Indeterminate while its raw records and independently eligible exports remain
+available. Child-only inference retains its heuristic except when unclaimed
+historical level records expose uncertainty. Reads never repair these records.
+
 These are local editor/storage guarantees; they do not qualify native Windows
 policy behavior.
 

@@ -3248,10 +3248,13 @@ def configured_settings(
     - resolved_count: total resolved policies before the limit slice.
     - unresolved_count: total unresolved settings before the limit slice.
 
-    ``state`` is an observation, not persisted authoring intent. List-policy
-    patterns matching both or neither state are ``indeterminate`` with a
+    ``state`` is an observation, not persisted authoring intent. Declared scalar
+    marker/list patterns matching both or neither state are ``indeterminate`` with a
     ``state_reason``. Empty patterns provide no positive state evidence; policies
     without attributed records do not acquire fabricated configured rows.
+    Stale possible level records expose uncertainty and unclaimed records remain
+    unresolved; decoded children remain available. Child-only inference retains
+    its heuristic unless unclaimed historical level evidence is present.
     Indeterminate is not accepted by configure or bulk mutation requests.
 
     ``ambiguous`` is true when the policy matches multiple ADMX policies;

@@ -61,15 +61,21 @@ Catalogue-backed policy reads expose an opaque `catalogue_revision` token;
 configured-settings reads also identify the `gpo_revision` they rendered.
 
 Configured-settings `state` is read-only evidence, separate from configure/bulk
-write targets. For policies declaring `enabledList` or `disabledList`, the reader
-compares complete normalized policy-level patterns, including a scalar marker
-when present. Exactly one nonempty matching pattern identifies Enabled or
-Disabled. Both/neither matches, unsupported patterns and missing positive state
+write targets. For policies declaring a scalar `valueName` marker, `enabledList` or
+`disabledList`, the reader compares complete normalized policy-level patterns,
+including effective default scalar writes. Exactly one nonempty matching pattern
+identifies Enabled or Disabled. Both/neither matches, unsupported patterns and missing positive state
 evidence produce `indeterminate` with a separate `state_reason`; the read filter
-accepts that observation. Policy-ownership ambiguity remains separate. Policies
+accepts that observation. Policy-ownership ambiguity remains separate. The
+ownership helper intentionally retains its catalogue parameter for call compatibility, while ownership framing
+does not use current catalogue addresses to infer a historical producer. Policies
 with no attributed records are absent from this configured-only view: empty
 patterns cannot prove historical Enabled, Disabled or Not configured intent.
-Existing non-list inference is unchanged. Observations do not alter export
+Child-only policies retain the existing inference heuristic unless an unclaimed
+possible historical policy-level record exposes uncertainty. Actual stored state
+frames outside current pattern addresses cannot prove a current state, regardless
+of today's identity family; unclaimed rows remain visible as unresolved evidence.
+Decoded child values remain available. Observations do not alter export
 eligibility, write records, or introduce an Indeterminate mutation target.
 Explicit Enable/Disable/Not configured actions retain their existing validation,
 actor/reason and GPO/catalogue version checks, including for Indeterminate rows.

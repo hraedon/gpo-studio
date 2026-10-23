@@ -4136,9 +4136,13 @@ Editing warnings must not become core validation errors or a blanket export ban;
 clean restores and other explicitly reviewed recovery actions remain possible.
 Tests cover historical catalogue changes, raw side edits, ambiguous owners, repeated
 IDs, multiple malformed families, stale revisions and failed-write rollback. Nothing
-rewrites historical revisions or silently infers a winner. The warnings and repair
-workflow are future work, not implemented by the ownership refusal. Native Windows
-policy qualification remains separate.
+rewrites historical revisions or silently infers a winner. The repair
+workflow must also preview fork-prefixed/imported ADMX rows that owner-based
+reconfiguration does not select: enabling can leave duplicate native addresses
+and block exports, while Not configured can leave copied rows. Current address
+matches must not silently assign ownership or authorize deletion. The warnings
+and repair workflow are future work, not implemented by the ownership refusal.
+Native Windows policy qualification remains separate.
 
 
 ## WI-088 — derive observed list-policy state without inventing intent
@@ -4167,5 +4171,11 @@ Tests cover set-only, mixed actions, all-delete, scalar controls, identical list
 partial/native mixed snapshots, both sides and unchanged head/history/documents
 through every read/filter. Matching work is precomputed/bounded per policy; no
 hidden writes, state rewrite, snapshot migration or silent repair is introduced.
-Any native Windows qualification remains separate. This work is not implemented
-by the conservative legacy-ownership or identity-family performance corrections.
+The candidate evaluator also covers declared scalar markers and stale historical
+level frames independently of today's writer family. Child-only heuristics remain
+unless unclaimed possible historical level evidence exposes uncertainty; child
+values and unresolved raw records stay separate. Tests cover scalar both/neither,
+delete/reversed/default markers, moved addresses and unchanged storage/export
+eligibility. The candidate implementation remains pending its required checks and
+independent review; this item stays open. Native Windows qualification remains
+separate and is not supplied by these local observation corrections.

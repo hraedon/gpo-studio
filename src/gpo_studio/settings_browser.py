@@ -344,43 +344,48 @@ def _may_be_policy_state_record(row: _StoredReadBinding, plan: _PolicyReadPlan) 
     )
 
 
-def _observe_list_state(
+def _observe_policy_state(
     policy: PolicyDefinition,
     side: Side,
     rows: tuple[_StoredReadBinding, ...],
     plan: _PolicyReadPlan,
-) -> tuple[ObservedPolicyState, ObservedStateReason | None]:
+) -> tuple[ObservedPolicyState, ObservedStateReason | None, frozenset[int]]:
+    """Observe declared policy-level writes; do not infer historical intent."""
     enabled = _state_pattern(policy, side, effective_enabled_value(policy), policy.enabled_list)
     disabled = _state_pattern(policy, side, effective_disabled_value(policy), policy.disabled_list)
     if enabled is None or disabled is None:
-        return "indeterminate", "unsupported_state_pattern"
+        return "indeterminate", "unsupported_state_pattern", frozenset()
     addresses = enabled.keys() | disabled.keys()
+    unmatched = frozenset(
+        index for index, row in enumerate(rows)
+        if row.setting.identity() not in addresses and _may_be_policy_state_record(row, plan)
+    )
+    if unmatched:
+        return "indeterminate", "no_complete_pattern", unmatched
     state_keys = {address[:3] for address in addresses}
     actual: _StatePattern = {}
     for row in rows:
         setting = row.setting
         address = setting.identity()
         if setting.action == "delete_all_values" and address[:3] in state_keys:
-            return "indeterminate", "unsupported_state_pattern"
+            return "indeterminate", "unsupported_state_pattern", unmatched
         if address not in addresses:
-            if _may_be_policy_state_record(row, plan):
-                return "indeterminate", "no_complete_pattern"
             continue
         signature = _native_write(setting.registry_type, setting.value, setting.action)
         if signature is None or address in actual:
-            return "indeterminate", "no_complete_pattern"
+            return "indeterminate", "no_complete_pattern", unmatched
         actual[address] = signature
     if not actual:
-        return "indeterminate", "no_state_evidence"
+        return "indeterminate", "no_state_evidence", unmatched
     matches_enabled = bool(enabled) and actual == enabled
     matches_disabled = bool(disabled) and actual == disabled
     if matches_enabled and matches_disabled:
-        return "indeterminate", "both_patterns_match"
+        return "indeterminate", "both_patterns_match", unmatched
     if matches_enabled:
-        return "enabled", None
+        return "enabled", None, unmatched
     if matches_disabled:
-        return "disabled", None
-    return "indeterminate", "no_complete_pattern"
+        return "disabled", None, unmatched
+    return "indeterminate", "no_complete_pattern", unmatched
 
 
 def _derive_state(
@@ -761,25 +766,40 @@ def build_settings_browser(
         structured_ids = structured_policy_ids(policy)
         plan = _build_policy_read_plan(policy, side)
         bound_rows = tuple(_bind_stored_setting(plan, setting) for setting in raw)
-        if policy.enabled_list is not None or policy.disabled_list is not None:
-            observed_state, state_reason = _observe_list_state(policy, side, bound_rows, plan)
-        else:
-            observed_state = _derive_state(policy, side, raw, structured_ids=structured_ids)
-            state_reason = None
         element_values, claimed, unsupported = _decode_element_values(plan, bound_rows)
-        unresolved.extend(
-            UnresolvedSetting(bound_rows[index].setting, "unsupported legacy list ordinal")
-            for index in sorted(unsupported)
-        )
-        unresolved.extend(
-            UnresolvedSetting(row.setting, "ambiguous legacy policy component")
-            for index, row in enumerate(bound_rows)
-            if index not in unsupported
-            and index not in claimed and row.address not in plan.non_list_addresses
-            and (row.legacy_list_conflict or (
-                row.legacy_suffix is not None and row.legacy_suffix.startswith("disabled-element-")
-            ))
-        )
+        if policy.value_name or policy.enabled_list is not None or policy.disabled_list is not None:
+            observed_state, state_reason, unmatched_state = _observe_policy_state(
+                policy, side, bound_rows, plan
+            )
+        else:
+            # Child-only schemas retain their heuristic unless unclaimed stored
+            # level framing supplies uncertainty about a historical state writer.
+            unmatched_state = frozenset(
+                index for index, row in enumerate(bound_rows)
+                if index not in claimed and _may_be_policy_state_record(row, plan)
+            )
+            if unmatched_state:
+                observed_state, state_reason = "indeterminate", "no_complete_pattern"
+            else:
+                observed_state = _derive_state(policy, side, raw, structured_ids=structured_ids)
+                state_reason = None
+        # Diagnose each row once within this group. Component decoding has its own
+        # stronger explanation; a successfully decoded child remains available.
+        for row_index, row in enumerate(bound_rows):
+            reason = None
+            if row_index in unsupported:
+                reason = "unsupported legacy list ordinal"
+            elif row_index not in claimed and row.address not in plan.non_list_addresses and (
+                row.legacy_list_conflict or (
+                    row.legacy_suffix is not None
+                    and row.legacy_suffix.startswith("disabled-element-")
+                )
+            ):
+                reason = "ambiguous legacy policy component"
+            elif row_index in unmatched_state and row_index not in claimed:
+                reason = "unmatched policy state evidence"
+            if reason is not None:
+                unresolved.append(UnresolvedSetting(row.setting, reason))
         supported_on_display = _resolve_supported_on(catalogue, policy)
         cat_names, cat_ids = _category_path(catalogue, policy)
 

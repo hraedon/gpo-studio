@@ -101,7 +101,7 @@ def _admx_id(qualified_id: str, side: str, suffix: str) -> str:
 
 
 def test_settings_with_admx_prefix_resolve_to_policy() -> None:
-    policy = _policy()
+    policy = _policy(value_name="TestValue")
     cat = _catalogue(policies=(policy,))
     qid = policy.qualified_id
     settings = [
@@ -146,7 +146,7 @@ def test_empty_settings_yield_empty_result() -> None:
 
 
 def test_state_delete_on_state_setting_yields_disabled() -> None:
-    policy = _policy()
+    policy = _policy(value_name="TestValue")
     cat = _catalogue(policies=(policy,))
     qid = policy.qualified_id
     settings = [
@@ -157,7 +157,7 @@ def test_state_delete_on_state_setting_yields_disabled() -> None:
 
 
 def test_state_set_on_state_setting_yields_enabled() -> None:
-    policy = _policy()
+    policy = _policy(value_name="TestValue")
     cat = _catalogue(policies=(policy,))
     qid = policy.qualified_id
     settings = [
