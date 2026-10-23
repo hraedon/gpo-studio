@@ -5,6 +5,8 @@ import {
   escapeHtml,
   applyPayload,
   updateGpoSummary,
+  getGpoGeneration,
+  isGpoObservationCurrent,
 } from "./state.mjs";
 import { api, toast, audit, showPersistentError } from "./api.mjs";
 import { renderAll, renderList } from "./render.mjs";
@@ -29,7 +31,8 @@ let admxLoaded = null,
 // for the settings tab.
 const filters = { side: "all", state: "all", q: "", category: "" };
 const selectedPolicies = new Map();
-let browserGpoGuid = null;
+let browserGpoGuid = null,
+  browserGpoGeneration = 0;
 let browserContext = 0;
 let configuredRequest = 0;
 let bulkApplying = false;
@@ -47,8 +50,10 @@ function policyKey(policy) {
 }
 
 function selectBrowserGpo(guid) {
-  if (browserGpoGuid === guid) return;
+  const generation = getGpoGeneration(guid);
+  if (browserGpoGuid === guid && browserGpoGeneration === generation) return;
   browserGpoGuid = guid;
+  browserGpoGeneration = generation;
   browserContext++;
   configuredRequest++;
   selectedPolicies.clear();
@@ -86,6 +91,7 @@ export function resetBrowserCatalogue() {
 export async function loadBrowser() {
   if (!state.current) return;
   const guid = state.current.guid;
+  const generation = getGpoGeneration(guid);
   const epoch = catalogueEpoch,
     started = revisionEpoch();
   selectBrowserGpo(guid);
@@ -96,14 +102,20 @@ export async function loadBrowser() {
       if (!observeCatalogue(h, started) || epoch !== catalogueEpoch) return;
       admxLoaded = h.admx_loaded === true;
     } catch (error) {
-      if (epoch === catalogueEpoch) showPersistentError(error.message);
+      if (
+        epoch === catalogueEpoch &&
+        state.current?.guid === guid &&
+        generation === getGpoGeneration(guid)
+      )
+        showPersistentError(error.message);
       return;
     }
   }
   if (
     epoch !== catalogueEpoch ||
     state.current?.guid !== guid ||
-    browserGpoGuid !== guid
+    browserGpoGuid !== guid ||
+    generation !== getGpoGeneration(guid)
   )
     return;
   $("#browser-empty").hidden = admxLoaded;
@@ -115,7 +127,8 @@ export async function loadBrowser() {
   if (
     epoch !== catalogueEpoch ||
     state.current?.guid !== guid ||
-    browserGpoGuid !== guid
+    browserGpoGuid !== guid ||
+    generation !== getGpoGeneration(guid)
   )
     return;
   await loadConfiguredSettings();
@@ -161,6 +174,7 @@ async function loadConfiguredSettings() {
   if (!state.current) return;
   const guid = state.current.guid;
   const revision = state.current.revision;
+  const generation = getGpoGeneration(guid);
   selectBrowserGpo(guid);
   const request = ++configuredRequest,
     started = revisionEpoch();
@@ -177,7 +191,8 @@ async function loadConfiguredSettings() {
       request !== configuredRequest ||
       browserGpoGuid !== guid ||
       state.current?.guid !== guid ||
-      state.current.revision !== revision
+      state.current.revision !== revision ||
+      generation !== getGpoGeneration(guid)
     )
       return;
     if (!Number.isInteger(data.gpo_revision) || data.gpo_revision !== revision)
@@ -188,17 +203,23 @@ async function loadConfiguredSettings() {
     if (
       reviewContext &&
       (reviewContext.catalogueRevision !== observed.revision ||
-        reviewContext.gpoRevision !== data.gpo_revision)
+        reviewContext.gpoRevision !== data.gpo_revision ||
+        reviewContext.generation !== generation)
     )
       selectedPolicies.clear();
     reviewContext = {
       guid,
+      generation,
       catalogueRevision: observed.revision,
       gpoRevision: data.gpo_revision,
     };
     renderBrowser(data);
   } catch (e) {
-    if (request === configuredRequest && state.current?.guid === guid) {
+    if (
+      request === configuredRequest &&
+      state.current?.guid === guid &&
+      generation === getGpoGeneration(guid)
+    ) {
       reviewContext = null;
       selectedPolicies.clear();
       renderBrowser({
@@ -342,7 +363,8 @@ function updateBulkBar() {
     !reviewContext ||
     !reviewedCatalogueIsCurrent(reviewContext.catalogueRevision) ||
     reviewContext.guid !== state.current?.guid ||
-    reviewContext.gpoRevision !== state.current?.revision;
+    reviewContext.gpoRevision !== state.current?.revision ||
+    reviewContext.generation !== getGpoGeneration(reviewContext.guid);
   $("#browser-readonly").hidden = !readOnly;
   if (readOnly) selectedPolicies.clear();
   $("#browser-bulk-reason").disabled = bulkApplying || readOnly || unreviewed;
@@ -378,7 +400,8 @@ async function applyBulkState(targetState) {
   if (
     !reviewContext ||
     staleCatalogue ||
-    reviewContext.gpoRevision !== state.current.revision
+    reviewContext.gpoRevision !== state.current.revision ||
+    reviewContext.generation !== getGpoGeneration(reviewContext.guid)
   ) {
     selectedPolicies.clear();
     updateBulkBar();
@@ -389,6 +412,7 @@ async function applyBulkState(targetState) {
   }
   const guid = state.current.guid;
   const revision = reviewContext.gpoRevision;
+  const generation = reviewContext.generation;
   const reviewedRevision = reviewContext.catalogueRevision,
     started = revisionEpoch();
   const context = browserContext;
@@ -398,7 +422,10 @@ async function applyBulkState(targetState) {
   );
   if (
     selectedCatalogueChanged ||
-    selected.some((policy) => policy.gpoRevision !== revision)
+    selected.some(
+      (policy) =>
+        policy.gpoRevision !== revision || policy.generation !== generation,
+    )
   ) {
     selectedPolicies.clear();
     updateBulkBar();
@@ -419,6 +446,10 @@ async function applyBulkState(targetState) {
       const policies = selected.filter((policy) => policy.side === side);
       for (let start = 0; start < policies.length; start += 100) {
         const batch = policies.slice(start, start + 100);
+        if (generation !== getGpoGeneration(guid))
+          throw new Error(
+            "This policy was deleted. Reload and review the target before applying more changes.",
+          );
         if (!reviewedCatalogueIsCurrent(reviewedRevision))
           throw new Error(catalogueReviewMessage);
         payload = await api(`/api/gpos/${guid}/bulk-policy-state`, {
@@ -432,14 +463,19 @@ async function applyBulkState(targetState) {
             target_state: targetState,
           }),
         });
+        if (!isGpoObservationCurrent(payload.gpo)) return;
         completed.push(...batch);
         updateGpoSummary(payload.gpo);
         renderList();
       }
     }
-    if (state.current?.guid === guid && browserContext === context) {
+    if (
+      state.current?.guid === guid &&
+      browserContext === context &&
+      generation === getGpoGeneration(guid)
+    ) {
       if (state.current.revision === revision) {
-        applyPayload(payload);
+        if (!applyPayload(payload)) return;
         renderAll({ refreshBrowser: false });
         renderList();
       }
@@ -453,10 +489,14 @@ async function applyBulkState(targetState) {
     const sameCatalogue =
       reviewedCatalogueIsCurrent(reviewedRevision) &&
       error.code !== "catalogue_conflict";
-    if (state.current?.guid === guid && browserContext === context) {
+    if (
+      state.current?.guid === guid &&
+      browserContext === context &&
+      generation === getGpoGeneration(guid)
+    ) {
       const canRetain = sameCatalogue && state.current.revision === revision;
       if (payload && state.current.revision === revision) {
-        applyPayload(payload);
+        if (!applyPayload(payload)) return;
         renderAll({ refreshBrowser: false });
         renderList();
       }
@@ -465,6 +505,7 @@ async function applyBulkState(targetState) {
         const nextRevision = payload?.gpo.revision ?? revision;
         reviewContext = {
           guid,
+          generation,
           catalogueRevision: reviewedRevision,
           gpoRevision: nextRevision,
         };

@@ -114,7 +114,9 @@ for (const failure of [false, true]) {
       await expect(
         dialog.getByRole("button", { name: "Create starter", exact: true }),
       ).toBeEnabled();
-      await expect(page.locator("#gpo-list")).not.toContainText(firstName);
+      if (!failure)
+        await expect(page.locator("#gpo-list")).toContainText(firstName);
+      else await expect(page.locator("#gpo-list")).not.toContainText(firstName);
       const list = await (await request.get("/api/starter-gpos")).json();
       expect(list.items.some((item) => item.name === firstName)).toBe(!failure);
       if (failure)
@@ -127,7 +129,7 @@ for (const failure of [false, true]) {
   });
 }
 
-test("Starter creation prevents duplicate submits, preserves values on failure, and retries without adding a sidebar policy", async ({
+test("Starter creation prevents duplicate submits, preserves values on failure, and retries with server-authoritative sidebar membership", async ({
   page,
   request,
 }) => {
@@ -176,7 +178,7 @@ test("Starter creation prevents duplicate submits, preserves values on failure, 
       .click();
     await expect(dialog).toBeHidden();
     await expect(page.locator("#starter-list")).toContainText(name);
-    await expect(page.locator("#gpo-list")).not.toContainText(name);
+    await expect(page.locator("#gpo-list")).toContainText(name);
     const saved = (
       await (await request.get("/api/starter-gpos")).json()
     ).items.find((item) => item.name === name);
@@ -378,7 +380,7 @@ for (const failure of [false, true]) {
 }
 
 for (const reopen of [false, true]) {
-  test(`a delayed Starter deletion never reopens or refreshes a ${reopen ? "newer" : "closed"} list`, async ({
+  test(`a delayed Starter deletion ${reopen ? "refreshes the current open" : "never reopens a closed"} list`, async ({
     page,
     request,
   }) => {
@@ -430,7 +432,8 @@ for (const reopen of [false, true]) {
       await flushUi(page);
       if (reopen) await expect(dialog).toBeVisible();
       else await expect(dialog).toBeHidden();
-      expect(listingRequests).toBe(before);
+      if (reopen) expect(listingRequests).toBe(before + 1);
+      else expect(listingRequests).toBe(before);
       expect(
         (await (await request.get("/api/starter-gpos")).json()).items.some(
           (item) => item.guid === removed.guid,

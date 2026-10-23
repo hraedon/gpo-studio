@@ -1,7 +1,13 @@
-import { $, $$, escapeHtml } from "./state.mjs";
+import {
+  $,
+  $$,
+  escapeHtml,
+  observeGpoDeleted,
+  getGpoGeneration,
+} from "./state.mjs";
 import { api, toast, showPersistentError } from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
-import { loadList, renderList } from "./render.mjs";
+import { loadList, renderList, showEmpty } from "./render.mjs";
 import {
   resetEditor,
   beginMutation,
@@ -97,11 +103,10 @@ async function submitCreateStarter(event) {
   }
   const context = beginMutation(form, { workspace: true });
   if (!context) return;
-  const catalogue = listContext();
   context.name = form.name.value;
   clearFormErrors(form);
   try {
-    await api("/api/starter-gpos", {
+    const data = await api("/api/starter-gpos", {
       method: "POST",
       body: JSON.stringify({
         name: form.name.value,
@@ -112,8 +117,13 @@ async function submitCreateStarter(event) {
       }),
     });
     if (isCurrentEditor(context)) context.dialog.close();
-    // A Starter is catalogue content, never an ordinary sidebar GPO.
-    await refreshStarterList(catalogue);
+    // Both server-authoritative collections include Starters. Completion may
+    // refresh the current open library without reopening a closed one.
+    updateMutationList(data, renderList);
+    await Promise.all([
+      refreshStarterList(listContext()),
+      loadList(undefined, { select: false, reportErrors: false }),
+    ]);
     toast("Starter GPO created");
   } catch (error) {
     await mutationFailed(context, error, showFormErrors);
@@ -173,7 +183,7 @@ async function submitDerive(event) {
 
 async function deleteStarter(guid, revision, name) {
   if (pendingDeletes.has(guid)) return;
-  const catalogue = listContext();
+  const generation = getGpoGeneration(guid);
   if (
     !confirm(
       `Delete Starter GPO "${name}"? This removes it from the workspace and cannot be undone.`,
@@ -196,7 +206,17 @@ async function deleteStarter(guid, revision, name) {
         expected_revision: revision,
       }),
     });
-    await refreshStarterList(catalogue);
+    // A late acknowledgement for a retired deletion must not invalidate a
+    // subsequent incarnation a second time.
+    if (generation === getGpoGeneration(guid)) {
+      const selected = observeGpoDeleted(guid);
+      renderList();
+      if (selected) showEmpty();
+    }
+    await Promise.all([
+      refreshStarterList(listContext()),
+      loadList(undefined, { select: false, reportErrors: false }),
+    ]);
     toast("Starter GPO deleted");
   } catch (error) {
     showPersistentError(`${name}: ${error.message}`);

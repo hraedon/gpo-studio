@@ -74,6 +74,31 @@ outside that lock; a failed load or merge preserves the previous snapshot.
 This is a single-process authoring contract. Persistent catalogue configuration
 and coordination between hosted workers remain part of the shared-service work.
 
+## Collection observations and removed policies
+
+The server's ordinary policy listing includes Starter GPOs. A successful Starter
+create or delete updates that membership and refreshes the current open Starter
+library. Completion does not reopen a closed library or select another policy.
+Deleting the selected policy clears its workspace view; unrelated selections,
+pending navigation and editors retain their ownership.
+
+The browser records each confirmed deletion with a per-GUID monotonic watermark.
+These numbers last for the page lifetime so older UI continuations remain retired
+even after newer list reads finish. They are ordering metadata, without persistent
+browser storage or cached policy content. A fresh request issued after deletion
+may admit a genuinely recreated GUID. Existing authoritative-list removal and
+post-dispatch upsert observations continue to apply.
+
+API delivery registers response-object provenance in a WeakMap using the dispatch
+watermark, with no early summary, selection, editor or error updates. Owned summary
+and payload consumers check that provenance before publishing. Copies of a GPO
+must retain explicit provenance rather than acquiring the current generation by
+accident. Dialog opening views and chosen ADMX targets separately retain their opening
+policy generations: a new Save request cannot retarget an old draft to a recreated
+GUID/revision. Related unsaved fields remain available, and the operator must
+close and reopen the editor to review an existing target. Conflict and bulk paths
+use the same deletion ordering checks alongside their revision/catalogue guards.
+
 ## Reviewed artifact downloads
 
 The first-party export review captures the policy GUID, revision and review-model

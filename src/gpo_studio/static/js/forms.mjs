@@ -73,7 +73,7 @@ export function openComment(setting){
   form.comment.value=setting.comment||"";
   $("#comment-dialog").showModal();
 }
-function applyCurrent(data){applyPayload(data);renderAll();renderList()}
+function applyCurrent(data){if(!applyPayload(data))return false;renderAll();renderList();return true}
 async function mutationFailure(form,error,context){await handleFormFailure(form,error,{onCurrent:applyCurrent,fieldNames:context.fieldNames,isActive:()=>isCurrentEditor(context)&&(context.workspace||isSameEditor(context))})}
 function registryValue(form){
   const raw=form.value.value,type=form.registry_type.value;

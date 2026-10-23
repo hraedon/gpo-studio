@@ -1,5 +1,5 @@
 import {api,setStatus,showPersistentError} from './api.mjs';
-import {getKnownGpoRevision} from './state.mjs';
+import {getKnownGpoRevision,getGpoGeneration,isGpoObservationCurrent} from './state.mjs';
 
 function fieldCandidates(path){
   const parts=String(path||"").split(/[/.]|\[|\]/).filter(Boolean);
@@ -84,17 +84,25 @@ function changeCount(diff){
 // Old reads/finalizers must not write into a reopened comparison.
 const conflictReviews=new WeakMap();
 
-export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,fieldNames=null,targetGuid=null,preserveEditorTarget=false}={}){
+export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,fieldNames=null,targetGuid=null,targetGeneration=null,preserveEditorTarget=false}={}){
   if(error.status!==409||!Number.isInteger(error.expectedRevision)||!Number.isInteger(error.currentRevision))return false;
   const currentGuid=targetGuid||form.dataset.gpoGuid||location.pathname.split("/").filter(Boolean).at(-1);
   const guid=currentGuid&&currentGuid!=="undefined"?currentGuid:null;
   const dialog=document.querySelector("#conflict-dialog"),details=document.querySelector("#conflict-details");
   if(!guid||!dialog||!details||!isActive()){showPersistentError(error.message);return true}
   const editor=form.closest("dialog"),editorSession=editor?.editorSession;
+  const generation=targetGeneration??editor?.editorTarget?.generation??getGpoGeneration(guid);
   const reload=document.querySelector("#conflict-reload"),reapply=document.querySelector("#conflict-reapply");
   const review={latest:null,pending:false,session:null};
   conflictReviews.set(dialog,review);
-  const active=()=>conflictReviews.get(dialog)===review&&dialog.open&&dialog.editorSession===review.session&&editor?.editorSession===editorSession&&isActive();
+  const owns=()=>conflictReviews.get(dialog)===review&&dialog.open&&dialog.editorSession===review.session&&editor?.editorSession===editorSession;
+  const targetCurrent=()=>generation===getGpoGeneration(guid);
+  const active=()=>owns()&&targetCurrent()&&isActive();
+  const rejectDeletedTarget=()=>{
+    if(!owns()||targetCurrent())return false;
+    showFormErrors(dialog.querySelector("form"),{message:"This policy was deleted. Your unsaved values are retained. Close this comparison and reopen the editor to review an existing target."});
+    reload.disabled=true;reapply.disabled=true;return true;
+  };
   const floor=()=>Math.max(error.currentRevision,review.latest?.gpo.revision||0,getKnownGpoRevision(guid));
   const unsaved=(fieldNames||[...new FormData(form).keys()]).filter(name=>!name.toLowerCase().includes("actor"));
   const renderComparison=(latest,diff,notice="")=>{
@@ -109,7 +117,7 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
   const readCurrent=async(withDiff)=>{
     for(let attempt=0;attempt<2;attempt++){
       const latest=await api(`/api/gpos/${encodeURIComponent(guid)}`,{cache:"no-store"});
-      if(!active())return null;
+      if(rejectDeletedTarget()||!active()||!isGpoObservationCurrent(latest.gpo))return null;
       if(latest.gpo.guid!==guid||!Number.isInteger(latest.gpo.revision))throw new Error("The current policy could not be verified. Your unsaved values are retained.");
       let diff=null;
       if(latest.gpo.revision>=floor()){
@@ -124,12 +132,12 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
     throw new Error("The policy changed again while loading its current revision. Your unsaved values are retained. Try Load current revision or Review and reapply again.");
   };
   const usable=result=>{
-    if(!result||!active())return false;
+    if(rejectDeletedTarget()||!result||!active()||!isGpoObservationCurrent(result.latest.gpo))return false;
     if(result.latest.gpo.revision<floor())throw new Error("The policy changed again. Your unsaved values are retained. Refresh the comparison before continuing.");
     return true;
   };
   const run=async(operation)=>{
-    if(!active()||review.pending)return;
+    if(rejectDeletedTarget()||!active()||review.pending)return;
     review.pending=true;reload.disabled=true;reapply.disabled=true;
     clearFormErrors(dialog.querySelector("form"));
     try{await operation()}
@@ -138,7 +146,7 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
       if(!review.latest)details.textContent="The current revision could not be loaded. Your unsaved values are retained. Choose an action to try again, or keep editing.";
       showFormErrors(dialog.querySelector("form"),fetchError)
     }}
-    finally{if(active()){review.pending=false;reload.disabled=false;reapply.disabled=false}}
+    finally{rejectDeletedTarget();if(active()){review.pending=false;reload.disabled=false;reapply.disabled=false}}
   };
   reload.onclick=()=>run(async()=>{
     // Discard is explicit consent to load the authoritative snapshot now,
@@ -159,7 +167,7 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
     if(onCurrent?.(latest,{discardForm:false})===false){
       dialog.close();setStatus("");form.querySelector(".form-error")?.focus();return;
     }
-    if(editor&&!preserveEditorTarget)editor.editorTarget={guid:latest.gpo.guid,revision:latest.gpo.revision,name:latest.gpo.name};
+    if(editor&&!preserveEditorTarget)editor.editorTarget={guid:latest.gpo.guid,revision:latest.gpo.revision,name:latest.gpo.name,generation};
     dialog.close();
     setStatus(`Your kept values are shown against revision ${latest.gpo.revision}. Submit again to reapply them.`);
     form.querySelector("button[value='default'],button[type='submit']")?.focus()

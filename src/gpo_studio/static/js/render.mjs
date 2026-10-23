@@ -1,4 +1,4 @@
-import {state,$,$$,escapeHtml,applyPayload,getGpoSummaryVersion,replaceGpoSummaries,getKnownGpoRevision} from './state.mjs';
+import {state,$,$$,escapeHtml,applyPayload,getGpoSummaryVersion,replaceGpoSummaries,getKnownGpoRevision,isGpoObservationCurrent,getGpoGeneration} from './state.mjs';
 import {api,captureErrorReporter} from './api.mjs';
 import {openSetting,deleteSetting,openComment,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
 import {renderGpp} from './gpp.mjs';
@@ -33,27 +33,27 @@ export function renderList(){
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
 export async function selectGpo(guid,{editorGeneration}={}){
   if(editorGeneration!==undefined&&editorGeneration!==state.editorGeneration)return;
-  const request=++selectionRequest,originalEditorGeneration=state.editorGeneration;
-  const ownsSelection=()=>request===selectionRequest&&(editorGeneration===undefined||editorGeneration===state.editorGeneration);
+  const request=++selectionRequest,originalEditorGeneration=state.editorGeneration,generation=getGpoGeneration(guid);
+  const ownsSelection=()=>request===selectionRequest&&generation===getGpoGeneration(guid)&&(editorGeneration===undefined||editorGeneration===state.editorGeneration);
   const ownsRecovery=()=>ownsSelection()&&originalEditorGeneration===state.editorGeneration;
   let recovering=false;
   const reportError=captureErrorReporter(()=>ownsSelection()&&(!recovering||ownsRecovery()));
   try{
     let data=await api(`/api/gpos/${guid}`);
-    if(!ownsSelection())return;
+    if(!ownsSelection()||!isGpoObservationCurrent(data.gpo))return;
     if(data.gpo.revision<getKnownGpoRevision(guid)){
       if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
       // Repair a stale detail once, without taking a newer editor or selection.
       if(!ownsRecovery())return;
       recovering=true;
       data=await api(`/api/gpos/${guid}`,{cache:"no-store"});
-      if(!ownsRecovery())return;
+      if(!ownsRecovery()||!isGpoObservationCurrent(data.gpo))return;
       if(data.gpo.revision<getKnownGpoRevision(guid)){
         if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
         reportError("The policy changed again while it was loading. Select it again to review its current revision.");return;
       }
     }
-    applyPayload(data);
+    if(!applyPayload(data))return;
     $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
     renderAll();renderList();
   }catch(error){
@@ -116,15 +116,16 @@ export function renderWmi(){
 export async function loadHistory(){
   if(!state.current)return;
   const {guid,revision,name}=state.current;
+  const generation=getGpoGeneration(guid);
   const request=++historyRequest;
   $("#history-list").textContent="Loading revision history…";
   try{
     const data=await api(`/api/gpos/${guid}/revisions`);
-    if(request!==historyRequest||state.current?.guid!==guid||state.current.revision!==revision)return;
+    if(request!==historyRequest||generation!==getGpoGeneration(guid)||state.current?.guid!==guid||state.current.revision!==revision)return;
     $("#history-list").innerHTML=data.items.map((r,index)=>`<div class="revision-item"><div><p><strong>Revision ${r.revision}</strong> · ${escapeHtml(r.reason)}</p><small>${escapeHtml(r.actor)} · ${new Date(r.created_at).toLocaleString()}</small></div>${index?`<button data-restore="${r.revision}">Restore</button>`:'<span class="pill ok">Current</span>'}</div>`).join("");
     $$('[data-restore]').forEach(el=>el.onclick=()=>restoreRevision(Number(el.dataset.restore),{guid,revision,name}));
   }catch(error){
-    if(request!==historyRequest||state.current?.guid!==guid||state.current.revision!==revision)return;
+    if(request!==historyRequest||generation!==getGpoGeneration(guid)||state.current?.guid!==guid||state.current.revision!==revision)return;
     $("#history-list").textContent=`Could not load revision history: ${error.message}`;
   }
 }
