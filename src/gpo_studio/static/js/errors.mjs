@@ -1,4 +1,5 @@
 import {api,setStatus,showPersistentError} from './api.mjs';
+import {getKnownGpoRevision} from './state.mjs';
 
 function fieldCandidates(path){
   const parts=String(path||"").split(/[/.]|\[|\]/).filter(Boolean);
@@ -79,55 +80,94 @@ function changeCount(diff){
   return ["settings","links","security_filters","gpp_groups","gpp_registry","metadata","cse_metadata","conflicts","link_conflicts","security_filter_conflicts","gpp_conflicts","metadata_conflicts","cse_metadata_conflicts","fdeploy","fdeploy_conflicts"].reduce((count,key)=>count+(Array.isArray(diff[key])?diff[key].length:0),0)+(diff.wmi_filter?1:0)+(diff.wmi_filter_conflict?1:0)
 }
 
+// A review owns its original editor and this opening of the shared dialog.
+// Old reads/finalizers must not write into a reopened comparison.
+const conflictReviews=new WeakMap();
+
 export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,fieldNames=null,targetGuid=null,preserveEditorTarget=false}={}){
   if(error.status!==409||!Number.isInteger(error.expectedRevision)||!Number.isInteger(error.currentRevision))return false;
   const currentGuid=targetGuid||form.dataset.gpoGuid||location.pathname.split("/").filter(Boolean).at(-1);
   const guid=currentGuid&&currentGuid!=="undefined"?currentGuid:null;
-  let latest=null,diff=null;
-  try{
-    if(guid){
-      latest=await api(`/api/gpos/${encodeURIComponent(guid)}`);
-      const from=error.expectedRevision;
-      const to=latest.gpo.revision;
-      if(Number.isInteger(from)&&from>0&&to>from){
-        diff=await api(`/api/gpos/${encodeURIComponent(guid)}/revisions/diff?from_revision=${from}&to_revision=${to}`)
+  const dialog=document.querySelector("#conflict-dialog"),details=document.querySelector("#conflict-details");
+  if(!guid||!dialog||!details||!isActive()){showPersistentError(error.message);return true}
+  const editor=form.closest("dialog"),editorSession=editor?.editorSession;
+  const reload=document.querySelector("#conflict-reload"),reapply=document.querySelector("#conflict-reapply");
+  const review={latest:null,pending:false,session:null};
+  conflictReviews.set(dialog,review);
+  const active=()=>conflictReviews.get(dialog)===review&&dialog.open&&dialog.editorSession===review.session&&editor?.editorSession===editorSession&&isActive();
+  const floor=()=>Math.max(error.currentRevision,review.latest?.gpo.revision||0,getKnownGpoRevision(guid));
+  const unsaved=(fieldNames||[...new FormData(form).keys()]).filter(name=>!name.toLowerCase().includes("actor"));
+  const renderComparison=(latest,diff,notice="")=>{
+    clearFormErrors(dialog.querySelector("form"));details.replaceChildren();
+    appendDetail(details,"Your form revision",error.expectedRevision);
+    appendDetail(details,"Current workspace revision",latest.gpo.revision);
+    appendDetail(details,"Changes saved since you opened the form",changeCount(diff));
+    appendDetail(details,"Unsaved fields retained",unsaved.join(", ")||"form action");
+    if(notice){const message=document.createElement("p");message.setAttribute("role","status");message.textContent=notice;details.appendChild(message)}
+    review.latest=latest;
+  };
+  const readCurrent=async(withDiff)=>{
+    for(let attempt=0;attempt<2;attempt++){
+      const latest=await api(`/api/gpos/${encodeURIComponent(guid)}`,{cache:"no-store",reportNetworkError:false});
+      if(!active())return null;
+      if(latest.gpo.guid!==guid||!Number.isInteger(latest.gpo.revision))throw new Error("The current policy could not be verified. Your unsaved values are retained.");
+      let diff=null;
+      if(latest.gpo.revision>=floor()){
+        if(withDiff&&error.expectedRevision>0&&latest.gpo.revision>error.expectedRevision){
+          diff=await api(`/api/gpos/${encodeURIComponent(guid)}/revisions/diff?from_revision=${error.expectedRevision}&to_revision=${latest.gpo.revision}`,{cache:"no-store",reportNetworkError:false});
+          if(!active())return null;
+        }
+        // Newer data can arrive during either the full read or the diff read.
+        if(latest.gpo.revision>=floor())return{latest,diff};
       }
     }
-  }catch(fetchError){showPersistentError(fetchError.message)}
-
-  if(!isActive()){showPersistentError(error.message);return true}
-  const dialog=document.querySelector("#conflict-dialog");
-  const details=document.querySelector("#conflict-details");
-  if(!dialog||!details||!latest){showPersistentError(error.message);return true}
-  details.replaceChildren();
-  appendDetail(details,"Your form revision",error.expectedRevision??"unknown");
-  appendDetail(details,"Current workspace revision",latest.gpo.revision);
-  appendDetail(details,"Changes saved since you opened the form",changeCount(diff));
-  const unsaved=(fieldNames||[...new FormData(form).keys()]).filter(name=>!name.toLowerCase().includes("actor"));
-  appendDetail(details,"Unsaved fields retained",unsaved.join(", ")||"form action");
-
-  const reload=document.querySelector("#conflict-reload");
-  const reapply=document.querySelector("#conflict-reapply");
-  reload.onclick=()=>{
-    if(!isActive()){dialog.close();return}
-    onCurrent?.(latest,{discardForm:true});
-    dialog.close();
-    form.closest("dialog")?.close();
-    setStatus(`Loaded revision ${latest.gpo.revision}. Your unsaved values were discarded.`)
+    throw new Error("The policy changed again while loading its current revision. Your unsaved values are retained. Try Load current revision or Review and reapply again.");
   };
-  reapply.onclick=()=>{
-    if(!isActive()){dialog.close();return}
-    // A reviewed target can become read-only; its editor may refuse reapply.
+  const usable=result=>{
+    if(!result||!active())return false;
+    if(result.latest.gpo.revision<floor())throw new Error("The policy changed again. Your unsaved values are retained. Refresh the comparison before continuing.");
+    return true;
+  };
+  const run=async(operation)=>{
+    if(!active()||review.pending)return;
+    review.pending=true;reload.disabled=true;reapply.disabled=true;
+    clearFormErrors(dialog.querySelector("form"));
+    try{await operation()}
+    catch(fetchError){if(active())showFormErrors(dialog.querySelector("form"),fetchError)}
+    finally{if(active()){review.pending=false;reload.disabled=false;reapply.disabled=false}}
+  };
+  reload.onclick=()=>run(async()=>{
+    // Discard is explicit consent to load the authoritative snapshot now,
+    // rather than applying the potentially obsolete comparison payload.
+    const result=await readCurrent(false);if(!usable(result))return;
+    onCurrent?.(result.latest,{discardForm:true});
+    dialog.close();editor?.close();
+    setStatus(`Loaded revision ${result.latest.gpo.revision}. Your unsaved values were discarded.`)
+  });
+  reapply.onclick=()=>run(async()=>{
+    if(!review.latest||review.latest.gpo.revision<floor()){
+      const result=await readCurrent(true);if(!usable(result))return;
+      renderComparison(result.latest,result.diff,"The policy changed again. Review this refreshed comparison, then choose Review and reapply again to keep your values.");
+      details.focus();return;
+    }
+    const latest=review.latest;
+    // Only the snapshot actually displayed may advance the editor's CAS target.
     if(onCurrent?.(latest,{discardForm:false})===false){
       dialog.close();setStatus("");form.querySelector(".form-error")?.focus();return;
     }
-    const editor=form.closest("dialog");
     if(editor&&!preserveEditorTarget)editor.editorTarget={guid:latest.gpo.guid,revision:latest.gpo.revision,name:latest.gpo.name};
     dialog.close();
     setStatus(`Your kept values are shown against revision ${latest.gpo.revision}. Submit again to reapply them.`);
     form.querySelector("button[value='default'],button[type='submit']")?.focus()
-  };
-  dialog.showModal();
+  });
+  details.textContent="Loading the current revision. Your unsaved values are retained.";
+  reload.disabled=false;reapply.disabled=false;
+  dialog.showModal();review.session=dialog.editorSession;
+  // The write has already failed. Release its pending controls now so Keep
+  // editing is immediately usable even while this owned comparison read waits.
+  void run(async()=>{
+    const result=await readCurrent(true);if(usable(result))renderComparison(result.latest,result.diff);
+  });
   return true
 }
 
