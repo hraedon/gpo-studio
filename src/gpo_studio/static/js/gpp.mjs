@@ -15,7 +15,7 @@ const REG_TYPES=["REG_SZ","REG_EXPAND_SZ","REG_BINARY","REG_DWORD","REG_MULTI_SZ
 const REG_VALUE_HINTS={REG_SZ:"Text value",REG_EXPAND_SZ:"Text with %VAR% expansion",REG_BINARY:"Hex bytes, e.g. 01FFA0",REG_DWORD:"Non-negative decimal integer",REG_MULTI_SZ:'JSON array of strings, e.g. ["first", "second"]',REG_QWORD:"Non-negative decimal integer"};
 const REG_VALUE_ACTIONS=["create","replace","update","delete"];
 const GROUP_ACTIONS=["add","replace","remove","update"];
-function applyCurrent(data){applyPayload(data);renderAll();renderList()}
+function applyCurrent(data){if(!applyPayload(data))return false;renderAll();renderList();return true}
 
 
 function copyName(name,existingNames){

@@ -1,4 +1,4 @@
-import {state,$,$$} from './state.mjs';
+import {state,$,$$,getGpoGeneration} from './state.mjs';
 import {api,toast,clearPersistentError,showPersistentError} from './api.mjs';
 import {clearFormErrors,showFormErrors} from './errors.mjs';
 import {loadList,renderList,renderSettings,loadHistory} from './render.mjs';
@@ -88,7 +88,7 @@ function initialiseDialog(dialog){
     pendingAnnouncement.textContent="";
     state.editorGeneration++;
     dialog.editorSession=Symbol("editor session");
-    dialog.editorTarget={guid:state.current?.guid??null,revision:state.current?.revision??null,name:state.current?.name||"workspace"};
+    dialog.editorTarget={guid:state.current?.guid??null,revision:state.current?.revision??null,name:state.current?.name||"workspace",generation:getGpoGeneration(state.current?.guid)};
     const active=document.activeElement;
     dialog.returnFocus=active instanceof HTMLElement?active:null;
     nativeShowModal();

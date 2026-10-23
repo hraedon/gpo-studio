@@ -1,4 +1,4 @@
-import {state,$} from './state.mjs';
+import {state,$,getGpoSummaryVersion,stampGpoResponse} from './state.mjs';
 export class ApiError extends Error{
   constructor(message,{status=0,payload=null}={}){super(message);this.name="ApiError";this.status=status;this.payload=payload;this.issues=payload?.error?.issues||[];this.code=payload?.error?.code||"";this.expectedRevision=payload?.error?.expected_revision??null;this.currentRevision=payload?.error?.current_revision??null}
 }
@@ -19,6 +19,7 @@ export function captureErrorReporter(isCurrent){
 export async function api(path,options={}){
   const {headers={},...requestOptions}=options;
   const errorVersion=persistentErrorVersion,method=(requestOptions.method||"GET").toUpperCase(),hadError=uiElement("#error-summary")?.hidden===false;
+  const observationVersion=getGpoSummaryVersion();
   let response;
   try{response=await fetch(path,{...requestOptions,headers:{"Content-Type":"application/json",...headers}})}
   // Like HTTP failures, transport failures reach the caller before any UI report.
@@ -31,6 +32,7 @@ export async function api(path,options={}){
   // a successful action may clear the error it started with; newer errors stay.
   // Resolving an earlier warning does not dismiss a still-current read's outcome.
   if(method!=="GET"&&method!=="HEAD"&&hadError&&errorVersion===persistentErrorVersion)clearError(false);
+  stampGpoResponse(payload,observationVersion);
   return payload;
 }
 export function toast(message){const el=uiElement("#toast");if(!el)return;el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2600)}

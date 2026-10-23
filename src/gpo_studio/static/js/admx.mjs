@@ -1,4 +1,4 @@
-import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
+import {state,$,$$,escapeHtml,applyPayload,getGpoGeneration} from './state.mjs';
 import {api,toast,showPersistentError} from './api.mjs';
 import {clearFormErrors,handleFormFailure,showFormErrors} from './errors.mjs';
 import {loadList,renderList,renderAll} from './render.mjs';
@@ -10,7 +10,7 @@ import {catalogueEpoch as revisionEpoch,observeCatalogue,observeCatalogueConflic
 // refreshes and older saves may update live summaries, but cannot consent to a
 // newer target revision on behalf of this form.
 const configureTargets=new WeakMap();
-function targetSnapshot(gpo){return Object.freeze({guid:gpo.guid,name:gpo.name,revision:gpo.revision})}
+function targetSnapshot(gpo){return Object.freeze({guid:gpo.guid,name:gpo.name,revision:gpo.revision,generation:getGpoGeneration(gpo.guid)})}
 
 function markConfigureStale(){
   const form=$("#configure-form");
@@ -140,9 +140,9 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
     if(error.code==="catalogue_conflict"||!reviewedCatalogueIsCurrent(reviewedRevision)){
       observeCatalogueConflict(error,started);
       if(isCurrentEditor(context))markConfigureStale();else showPersistentError(CATALOGUE_REVIEW_MESSAGE);
-    }else await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{fieldNames:context.fieldNames,targetGuid:context.guid,preserveEditorTarget:true,isActive:()=>isSameEditor(context),onCurrent:(latest,{discardForm})=>{
+    }else await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{fieldNames:context.fieldNames,targetGuid:context.guid,targetGeneration:context.generation,preserveEditorTarget:true,isActive:()=>isSameEditor(context),onCurrent:(latest,{discardForm})=>{
       updateMutationList(latest,renderList);
-      if(discardForm){applyPayload(latest);renderAll();renderList();return}
+      if(discardForm){if(!applyPayload(latest))return false;renderAll();renderList();return}
       const option=[...$("#configure-target-gpo").options].find(item=>item.value===latest.gpo.guid);
       if(latest.gpo.status==="archived"){
         if(option)option.disabled=true;

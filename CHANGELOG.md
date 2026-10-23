@@ -9,6 +9,11 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Refresh reopened Starter libraries after committed changes and keep the ordinary
+  policy sidebar consistent with server membership without changing unrelated editors.
+- Retire deleted policy views and older responses; preserve unsaved editor values
+  and require a renewed review before saving to a recreated policy identity.
+
 - Report request failures through the current view or editor, preserving newer
   warnings and separating completed imports from later list-refresh failures.
 - Bind reviewed downloads to the policy revision and review hash, retaining inline
