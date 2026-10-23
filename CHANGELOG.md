@@ -9,6 +9,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Refresh stale conflict comparisons and require renewed reapply consent; load the
+  current revision without rewinding newer policy data or replacing reopened editors.
+
 - Fix Cancel and Close across dialogs with invalid required fields, and make Enter
   submit creation instead of silently dismissing it.
 - Add an ADMX folder dialog with source counts, load diagnostics and refreshed policy

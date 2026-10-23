@@ -7,6 +7,9 @@ export function updateGpoSummary(gpo){
   const existing=state.gpos.find(item=>item.guid===gpo.guid);
   if(existing){if(existing.revision<=gpo.revision)Object.assign(existing,fields)}else state.gpos.push(fields);
 }
+export function getKnownGpoRevision(guid){
+  return Math.max(state.gpos.find(gpo=>gpo.guid===guid)?.revision||0,state.current?.guid===guid?state.current.revision:0);
+}
 export function applyPayload(payload){
   updateGpoSummary(payload.gpo);
   state.current=payload.gpo;
