@@ -59,6 +59,21 @@ middleware, not from request JSON. The roadmap lists this as a gate.
 
 Catalogue-backed policy reads expose an opaque `catalogue_revision` token;
 configured-settings reads also identify the `gpo_revision` they rendered.
+
+Configured-settings `state` is read-only evidence, separate from configure/bulk
+write targets. For policies declaring `enabledList` or `disabledList`, the reader
+compares complete normalized policy-level patterns, including a scalar marker
+when present. Exactly one nonempty matching pattern identifies Enabled or
+Disabled. Both/neither matches, unsupported patterns and missing positive state
+evidence produce `indeterminate` with a separate `state_reason`; the read filter
+accepts that observation. Policy-ownership ambiguity remains separate. Policies
+with no attributed records are absent from this configured-only view: empty
+patterns cannot prove historical Enabled, Disabled or Not configured intent.
+Existing non-list inference is unchanged. Observations do not alter export
+eligibility, write records, or introduce an Indeterminate mutation target.
+Explicit Enable/Disable/Not configured actions retain their existing validation,
+actor/reason and GPO/catalogue version checks, including for Indeterminate rows.
+These synthetic read-contract checks are not additional Windows qualification.
 The browser sends the reviewed token as `expected_catalogue_revision` on policy
 configuration and every bulk batch, alongside the GPO's expected revision.
 Changing a source or restarting the process rotates the catalogue token.

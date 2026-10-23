@@ -15,14 +15,22 @@ from .admx import (
     effective_disabled_value,
     effective_enabled_value,
 )
-from .model import RegistrySetting, Side
+from .model import RegistrySetting, Side, ValidationError
 from .policy_config import (
-    PolicyState,
     legacy_setting_parts,
     parse_structured_setting_id,
+    policy_value_write,
     setting_policy_owners,
     structured_policy_ids,
 )
+
+ObservedPolicyState = Literal["enabled", "disabled", "indeterminate"]
+ObservedStateReason = Literal[
+    "both_patterns_match", "no_complete_pattern", "no_state_evidence", "unsupported_state_pattern"
+]
+_NativeAddress = tuple[str, str, str, str]
+_NativeWrite = tuple[str, str, int | str]
+_StatePattern = dict[_NativeAddress, _NativeWrite]
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +41,7 @@ class ConfiguredSetting:
     category_path: list[str]
     category_ids: list[str]
     side: Side
-    state: PolicyState
+    state: ObservedPolicyState
     element_values: dict[str, bool | int | str | list[str]]
     raw_settings: tuple[RegistrySetting, ...]
     supported_on: str
@@ -41,6 +49,7 @@ class ConfiguredSetting:
     source_admx: str = ""
     ambiguous: bool = False
     ambiguous_with: list[str] = field(default_factory=list)
+    state_reason: ObservedStateReason | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,13 +268,128 @@ def _policy_value_matches(policy_value: PolicyValue, setting: RegistrySetting) -
     return str(setting.value) == policy_value.data
 
 
+def _native_write(
+    registry_type: str, value: int | str | list[str], action: str
+) -> _NativeWrite | None:
+    if action == "delete":
+        # Delete has no Set payload; historical placeholders are immaterial.
+        return ("delete", "", "")
+    if action != "set":
+        return None
+    if registry_type in ("REG_DWORD", "REG_QWORD") and type(value) is int:
+        bits = 32 if registry_type == "REG_DWORD" else 64
+        return ("set", registry_type, value) if 0 <= value < 1 << bits else None
+    if registry_type in ("REG_SZ", "REG_EXPAND_SZ") and isinstance(value, str):
+        return ("set", registry_type, value)
+    return None
+
+
+def _state_pattern(
+    policy: PolicyDefinition,
+    side: Side,
+    value: PolicyValue | None,
+    value_list: PolicyValueList | None,
+) -> _StatePattern | None:
+    """Policy-level writes only; no editor IDs or required element resolution."""
+    if _hive_for(side) not in _hives_for_class(policy.class_):
+        return None
+    writes: list[tuple[str, str, PolicyValue]] = []
+    if policy.value_name and value is not None:
+        writes.append((policy.key, policy.value_name, value))
+    if value_list is not None:
+        writes.extend(
+            (item.key or value_list.default_key or policy.key, item.value_name, item.value)
+            for item in value_list.items
+        )
+    pattern: _StatePattern = {}
+    for key, name, policy_value in writes:
+        try:
+            registry_type, data, action = policy_value_write(policy_value)
+        except (ValidationError, ValueError, TypeError):
+            return None
+        signature = _native_write(registry_type, data, action)
+        address = (side, _hive_for(side), key.casefold(), name.casefold())
+        if signature is None or address in pattern:
+            return None
+        pattern[address] = signature
+    return pattern
+
+
+def _is_policy_state_record(
+    setting: RegistrySetting,
+    policy: PolicyDefinition,
+    side: Side,
+    *,
+    structured_ids: bool,
+) -> bool:
+    identity = parse_structured_setting_id(setting.id)
+    if identity is not None:
+        return (
+            identity.policy_id == policy.qualified_id
+            and identity.side == side
+            and identity.kind in ("state", "state-list")
+        )
+    if structured_ids:
+        return False
+    parsed = _parse_setting_id(setting.id)
+    if parsed is None or parsed[:2] != (policy.qualified_id, side):
+        return False
+    suffix = parsed[2]
+    if suffix == "state":
+        return True
+    if not suffix.startswith("listitem-"):
+        return False
+    ordinal = suffix[len("listitem-") :]
+    # Match only writer ordinals, not valid legacy child IDs such as listitem-0.
+    return ordinal.isascii() and ordinal.isdigit() and not ordinal.startswith("0")
+
+
+def _observe_list_state(
+    policy: PolicyDefinition,
+    side: Side,
+    settings: tuple[RegistrySetting, ...],
+    *,
+    structured_ids: bool,
+) -> tuple[ObservedPolicyState, ObservedStateReason | None]:
+    enabled = _state_pattern(policy, side, effective_enabled_value(policy), policy.enabled_list)
+    disabled = _state_pattern(policy, side, effective_disabled_value(policy), policy.disabled_list)
+    if enabled is None or disabled is None:
+        return "indeterminate", "unsupported_state_pattern"
+    addresses = enabled.keys() | disabled.keys()
+    state_keys = {address[:3] for address in addresses}
+    actual: _StatePattern = {}
+    for setting in settings:
+        address = setting.identity()
+        if setting.action == "delete_all_values" and address[:3] in state_keys:
+            return "indeterminate", "unsupported_state_pattern"
+        if address not in addresses:
+            if _is_policy_state_record(setting, policy, side, structured_ids=structured_ids):
+                return "indeterminate", "no_complete_pattern"
+            continue
+        signature = _native_write(setting.registry_type, setting.value, setting.action)
+        if signature is None or address in actual:
+            return "indeterminate", "no_complete_pattern"
+        actual[address] = signature
+    if not actual:
+        return "indeterminate", "no_state_evidence"
+    matches_enabled = bool(enabled) and actual == enabled
+    matches_disabled = bool(disabled) and actual == disabled
+    if matches_enabled and matches_disabled:
+        return "indeterminate", "both_patterns_match"
+    if matches_enabled:
+        return "enabled", None
+    if matches_disabled:
+        return "disabled", None
+    return "indeterminate", "no_complete_pattern"
+
+
 def _derive_state(
     policy: PolicyDefinition,
     side: Side,
     settings: tuple[RegistrySetting, ...],
     *,
     structured_ids: bool,
-) -> PolicyState:
+) -> Literal["enabled", "disabled"]:
     hive = _hive_for(side)
     state_settings = [
         s
@@ -492,7 +616,13 @@ def build_settings_browser(
         # Family selection scans the source schema. Keep it outside the
         # element×setting loop (and avoid hashing the whole policy as a cache key).
         structured_ids = structured_policy_ids(policy)
-        state = _derive_state(policy, side, raw, structured_ids=structured_ids)
+        if policy.enabled_list is not None or policy.disabled_list is not None:
+            observed_state, state_reason = _observe_list_state(
+                policy, side, raw, structured_ids=structured_ids
+            )
+        else:
+            observed_state = _derive_state(policy, side, raw, structured_ids=structured_ids)
+            state_reason = None
         element_values = _decode_element_values(
             policy, side, raw, structured_ids=structured_ids
         )
@@ -518,7 +648,8 @@ def build_settings_browser(
                 category_path=cat_names,
                 category_ids=cat_ids,
                 side=side,
-                state=state,
+                state=observed_state,
+                state_reason=state_reason,
                 element_values=element_values,
                 raw_settings=raw,
                 supported_on=supported_on_display,
@@ -591,7 +722,7 @@ def _propagate_counts(nodes: list[CategoryNode], visited: set[str] | None = None
 def search_configured_settings(
     result: SettingsBrowserResult,
     query: str | None,
-    state: PolicyState | None,
+    state: ObservedPolicyState | None,
     category_id: str | None,
 ) -> SettingsBrowserResult:
     filtered: list[ConfiguredSetting] = []

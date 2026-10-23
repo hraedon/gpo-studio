@@ -341,6 +341,13 @@ def _policy_value_write(
             assert_never(value.kind)
 
 
+def policy_value_write(
+    value: PolicyValue,
+) -> tuple[RegistryType, int | str, Literal["set", "delete"]]:
+    """Share the existing native value conversion with read-only observers."""
+    return _policy_value_write(value)
+
+
 def _resolve_enabled(
     policy: PolicyDefinition, config: PolicyConfiguration
 ) -> list[RegistrySetting]:

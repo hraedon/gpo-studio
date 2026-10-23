@@ -242,6 +242,13 @@ function renderBrowser(data) {
   renderUnresolved(data.unresolved);
 }
 
+const observationReasons = {
+  both_patterns_match: "Enabled and Disabled write the same observed policy-level pattern.",
+  no_complete_pattern: "The registry records do not match a complete Enabled or Disabled policy-level pattern.",
+  no_state_evidence: "These records contain no positive policy-level state evidence. An empty pattern does not establish an authoring choice.",
+  unsupported_state_pattern: "This policy-level pattern cannot be determined safely from the available registry records.",
+};
+
 function renderResolved(items) {
   const tbody = $("#browser-resolved-table");
   tbody.innerHTML = items
@@ -252,11 +259,15 @@ function renderResolved(items) {
         ? ` <span class="browser-ambiguous" title="Also matches: ${escapeHtml((p.ambiguous_with || []).join(", "))}">ambiguous</span>`
         : "";
       const checked = selectedPolicies.has(policyKey(p)) ? " checked" : "";
+      const stateLabel = p.state === "indeterminate" ? "Indeterminate" : p.state;
+      const stateReason = p.state === "indeterminate"
+        ? observationReasons[p.state_reason] || "The observed state cannot be determined from these registry records."
+        : "";
       return (
         `<tr><td><input type="checkbox" class="browser-bulk-checkbox" data-bulk-policy-id="${escapeHtml(p.policy_id)}" data-bulk-side="${escapeHtml(p.side)}" aria-label="Select ${escapeHtml(p.display_name)}"${checked}></td>` +
         `<td><span class="side ${escapeHtml(p.side)}">${escapeHtml(p.side)}</span></td>` +
         `<td><button type="button" class="browser-policy-toggle" aria-expanded="false" aria-controls="${detailId}">${escapeHtml(p.display_name)}${ambiguousBadge}</button></td>` +
-        `<td><span class="pill ${p.state === "enabled" ? "ok" : "warn"}">${escapeHtml(p.state)}</span></td>` +
+        `<td><span class="pill ${p.state === "enabled" ? "ok" : "warn"}">${escapeHtml(stateLabel)}</span></td>` +
         `<td>${escapeHtml(categoryPath)}</td>` +
         `<td>${escapeHtml(p.supported_on) || "—"}</td></tr>` +
         `<tr class="browser-detail-row" id="${detailId}" hidden><td colspan="6">` +
@@ -266,6 +277,7 @@ function renderResolved(items) {
         `<dt>Namespace</dt><dd class="mono">${escapeHtml(p.namespace) || "—"}</dd>` +
         `<dt>Supported on</dt><dd>${escapeHtml(p.supported_on) || "—"}</dd>` +
         `<dt>Raw settings</dt><dd>${p.raw_setting_count}</dd>` +
+        (stateReason ? `<dt>Observed state</dt><dd>${escapeHtml(stateReason)}</dd>` : "") +
         `<dt>Element values</dt><dd>${formatElementValues(p.element_values)}</dd>` +
         (p.ambiguous
           ? `<dt>Ambiguous with</dt><dd class="mono">${escapeHtml((p.ambiguous_with || []).join(", ")) || "—"}</dd>`

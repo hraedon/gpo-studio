@@ -163,7 +163,7 @@
           <div id="browser-content" hidden>
             <div class="filter-row" role="group" aria-label="Filter configured settings by configuration side"><button class="chip active" aria-pressed="true" data-side="all">All</button><button class="chip" aria-pressed="false" data-side="computer">Computer</button><button class="chip" aria-pressed="false" data-side="user">User</button></div>
             <div class="browser-filter-row">
-              <label>State<select id="browser-state-filter"><option value="all">All</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+              <label>Observed state<select id="browser-state-filter"><option value="all">All</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="indeterminate">Indeterminate</option></select></label>
               <label>Category<select id="browser-category-filter"><option value="">All categories</option></select></label>
               <input id="browser-search" type="search" placeholder="Search by policy name or ID" aria-label="Search configured policies by name or ID">
             </div>
@@ -175,7 +175,7 @@
               <button type="button" class="quiet" data-bulk-state="not_configured">Not configured</button>
               <input type="text" id="browser-bulk-reason" placeholder="Reason for bulk change" maxlength="500" aria-label="Bulk change reason">
             </div>
-            <div class="table-card"><table><thead><tr><th><input type="checkbox" id="browser-bulk-select-all" aria-label="Select all policies"></th><th>Side</th><th>Policy</th><th>State</th><th>Category</th><th>Support</th></tr></thead><tbody id="browser-resolved-table"></tbody></table><div class="table-empty" id="browser-resolved-empty">No configured policies match the current filters.</div></div>
+            <div class="table-card"><table><thead><tr><th><input type="checkbox" id="browser-bulk-select-all" aria-label="Select all policies"></th><th>Side</th><th>Policy</th><th>Observed state</th><th>Category</th><th>Support</th></tr></thead><tbody id="browser-resolved-table"></tbody></table><div class="table-empty" id="browser-resolved-empty">No configured policies match the current filters.</div></div>
             <div class="section-head" style="margin-top:1.5rem"><div><p class="eyebrow">Raw registry values with no matching policy</p><h2>Unmatched registry settings <span id="browser-unresolved-count"></span></h2></div></div>
             <div class="table-card browser-unresolved-card"><table><thead><tr><th>Side</th><th>Registry path</th><th>Name</th><th>Type</th><th>Value</th><th>Reason</th></tr></thead><tbody id="browser-unresolved-table"></tbody></table><div class="table-empty" id="browser-unresolved-empty">No unmatched registry settings.</div></div>
           </div>

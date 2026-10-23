@@ -246,6 +246,8 @@ from .security_template import (
     template_issues,
 )
 from .settings_browser import (
+    ObservedPolicyState,
+    ObservedStateReason,
     build_category_tree,
     build_settings_browser,
     search_configured_settings,
@@ -1265,7 +1267,8 @@ class ConfiguredSettingResponse(BaseModel):
     category_path: list[str]
     category_ids: list[str]
     side: str
-    state: str
+    state: ObservedPolicyState
+    state_reason: ObservedStateReason | None = None
     element_values: dict[str, bool | int | str | list[str]]
     supported_on: str
     namespace: str
@@ -3199,7 +3202,7 @@ def configured_settings(
     request: Request,
     guid: str,
     q: str | None = Query(default=None, max_length=200),
-    state: Literal["enabled", "disabled"] | None = None,
+    state: ObservedPolicyState | None = None,
     category: str | None = Query(default=None, max_length=255),
     side: Literal["computer", "user"] | None = None,
     limit: int = Query(default=200, ge=1, le=1000),
@@ -3210,13 +3213,19 @@ def configured_settings(
     - resolved: policies matched against the loaded ADMX catalogue.
       Each item includes policy_id, display_name, explain_text,
       category_path, category_ids, side, state, element_values,
-      supported_on, namespace, raw_setting_count, ambiguous, and
-      ambiguous_with.
+      supported_on, namespace, raw_setting_count, ambiguous,
+      ambiguous_with, and state_reason.
     - unresolved: registry settings that could not be matched to a policy.
       Each item includes id, side, hive, key, value_name, registry_type,
       value, action, and reason.
     - resolved_count: total resolved policies before the limit slice.
     - unresolved_count: total unresolved settings before the limit slice.
+
+    ``state`` is an observation, not persisted authoring intent. List-policy
+    patterns matching both or neither state are ``indeterminate`` with a
+    ``state_reason``. Empty patterns provide no positive state evidence; policies
+    without attributed records do not acquire fabricated configured rows.
+    Indeterminate is not accepted by configure or bulk mutation requests.
 
     ``ambiguous`` is true when the policy matches multiple ADMX policies;
     ``ambiguous_with`` lists the qualified IDs of those other policies.
@@ -3239,6 +3248,7 @@ def configured_settings(
             "category_ids": cs.category_ids,
             "side": cs.side,
             "state": cs.state,
+            "state_reason": cs.state_reason,
             "element_values": cs.element_values,
             "supported_on": cs.supported_on,
             "namespace": cs.namespace,

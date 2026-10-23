@@ -9,6 +9,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Observe complete Enabled and Disabled list-policy patterns in the settings browser;
+  show Indeterminate for identical, incomplete or unobservable patterns without changing
+  legal authoring states, exports or stored policy records.
+
 - Keep multiply parseable legacy ADMX identities unresolved and refuse automatic
   reconfiguration even when current catalogue addresses or edited sides appear unique;
   preserve raw records/history and document explicitly reviewed recovery.
