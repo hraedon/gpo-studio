@@ -286,9 +286,7 @@ def test_activation_cannot_cross_guard_resolution_and_store_commit(
         role.activation = True
         return result
 
-    method = (
-        "replace_settings_with_prefix" if kind == "configure" else "bulk_replace_settings_by_prefix"
-    )
+    method = "replace_selected_settings"
     original_mutation = getattr(store, method)
 
     def pause_before_commit(*args: Any, **kwargs: Any) -> Any:

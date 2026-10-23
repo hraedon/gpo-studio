@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal, assert_never
@@ -17,10 +16,13 @@ from .admx import (
     effective_enabled_value,
 )
 from .model import RegistrySetting, Side
-from .policy_config import PolicyState
-
-_ADMX_PREFIX = "admx-"
-_SIDE_PATTERN = re.compile(r"-(computer|user)-")
+from .policy_config import (
+    PolicyState,
+    legacy_setting_parts,
+    parse_structured_setting_id,
+    setting_policy_owners,
+    structured_policy_ids,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,28 +80,24 @@ class _PolicyRegistryMapping:
     element_id: str = ""
 
 
-def _parse_setting_id(
-    setting_id: str,
-) -> tuple[str, Side, str] | None:
-    if not setting_id.startswith(_ADMX_PREFIX):
-        return None
-    remainder = setting_id[len(_ADMX_PREFIX) :]
-    matches = list(_SIDE_PATTERN.finditer(remainder))
-    if not matches:
-        return None
-    match = matches[-1]
-    qualified_id = remainder[: match.start()]
-    side_str = match.group(1)
-    suffix = remainder[match.end() :]
-    side: Side = "computer" if side_str == "computer" else "user"
-    return qualified_id, side, suffix
+def _parse_setting_id(setting_id: str) -> tuple[str, Side, str] | None:
+    structured = parse_structured_setting_id(setting_id)
+    if structured is not None:
+        return structured.policy_id, structured.side, ""
+    parts = legacy_setting_parts(setting_id)
+    return parts[0] if len(parts) == 1 else None
 
 
 def _setting_suffix(setting_id: str) -> str | None:
-    parsed = _parse_setting_id(setting_id)
-    if parsed is None:
+    structured = parse_structured_setting_id(setting_id)
+    if structured is not None:
+        if structured.kind == "state":
+            return "state"
+        if structured.kind == "state-list":
+            return f"listitem-{structured.ordinal}"
         return None
-    return parsed[2]
+    parsed = _parse_setting_id(setting_id)
+    return parsed[2] if parsed is not None else None
 
 
 def _hive_for(side: Side) -> Literal["HKLM", "HKCU"]:
@@ -202,6 +200,7 @@ def _resolve_setting_mappings(
         tuple[Literal["HKLM", "HKCU"], str, str], list[_PolicyRegistryMapping]
     ],
     policy_map: dict[str, PolicyDefinition],
+    catalogue: AdmxCatalogue,
 ) -> tuple[_PolicyRegistryMapping, ...]:
     matches: list[_PolicyRegistryMapping] = []
     seen: set[tuple[str, Side]] = set()
@@ -216,9 +215,7 @@ def _resolve_setting_mappings(
         matches.append(mapping)
         seen.add(identity)
 
-    parsed = _parse_setting_id(setting.id)
-    if parsed is not None:
-        qualified_id, side, _suffix = parsed
+    for qualified_id, side in setting_policy_owners(setting, catalogue):
         identity = (qualified_id, side)
         if identity not in seen:
             policy = policy_map.get(qualified_id)
@@ -277,6 +274,7 @@ def _derive_state(
     ]
     synthetic_state_settings = [
         s for s in settings if _setting_suffix(s.id) == "state"
+        and (parse_structured_setting_id(s.id) is not None or not structured_policy_ids(policy))
     ]
     state_settings = list(
         {s.identity(): s for s in state_settings + synthetic_state_settings}.values()
@@ -310,18 +308,43 @@ def _setting_belongs_to_element(
     policy: PolicyDefinition,
     side: Side,
 ) -> bool:
-    parsed = _parse_setting_id(setting.id)
-    if parsed is not None:
-        suffix = parsed[2]
-        if suffix == element.id or suffix.startswith(f"{element.id}-"):
-            return True
+    structured = parse_structured_setting_id(setting.id)
+    if structured is not None:
+        return (structured.policy_id == policy.qualified_id and structured.side == side
+                and structured.kind in ("element", "element-list", "disabled-element")
+                and structured.component == element.id)
+    if not structured_policy_ids(policy):
+        parsed = _parse_setting_id(setting.id)
+        if parsed is not None:
+            suffix = parsed[2]
+            if parsed[:2] == (policy.qualified_id, side):
+                if suffix == "disabled-element-" + element.id:
+                    return True
+                if element.kind == "list":
+                    tail = suffix[len(element.id):]
+                    return suffix == element.id or (
+                        suffix.startswith(element.id + "-") and tail[1:].isdigit()
+                    )
+                return suffix == element.id
     element_key = element.registry_key or policy.key
-    if not element.registry_value_name:
+    if setting.hive != _hive_for(side) or setting.key.casefold() != element_key.casefold():
         return False
-    return (
-        setting.hive == _hive_for(side)
-        and setting.key.casefold() == element_key.casefold()
-        and setting.value_name.casefold() == element.registry_value_name.casefold()
+    if element.kind == "list":
+        # Legacy list IDs can collide with a scalar's ID. Exact named addresses
+        # distinguish those rows without trusting an ambiguous textual suffix.
+        for other in policy.elements:
+            if other.kind != "list" and other.registry_value_name and (
+                (other.registry_key or policy.key).casefold() == setting.key.casefold()
+                and other.registry_value_name.casefold() == setting.value_name.casefold()
+            ):
+                return False
+        prefix = dict(element.attributes).get("valuePrefix")
+        if prefix is not None:
+            remainder = setting.value_name[len(prefix):]
+            return setting.value_name.startswith(prefix) and remainder.isdigit()
+        return True
+    return bool(element.registry_value_name) and (
+        setting.value_name.casefold() == element.registry_value_name.casefold()
     )
 
 
@@ -375,6 +398,10 @@ def _collect_list_items(
     synthetic_items: list[tuple[int, RegistrySetting]] = []
     fallback_items: list[RegistrySetting] = []
     for s in settings:
+        structured = parse_structured_setting_id(s.id)
+        if structured is not None and structured.kind == "element-list":
+            synthetic_items.append((structured.ordinal, s))
+            continue
         parsed = _parse_setting_id(s.id)
         if parsed is not None:
             suffix = parsed[2]
@@ -422,6 +449,10 @@ def build_settings_browser(
     unresolved: list[UnresolvedSetting] = []
 
     for setting in settings:
+        owners = setting_policy_owners(setting, catalogue)
+        if len(owners) > 1:
+            unresolved.append(UnresolvedSetting(setting, "ambiguous legacy policy ownership"))
+            continue
         parsed = _parse_setting_id(setting.id)
         if parsed is not None:
             qualified_id, _side, _suffix = parsed
@@ -430,7 +461,7 @@ def build_settings_browser(
                     UnresolvedSetting(setting=setting, reason="template not loaded")
                 )
                 continue
-        mappings = _resolve_setting_mappings(setting, index, policy_map)
+        mappings = _resolve_setting_mappings(setting, index, policy_map, catalogue)
         if not mappings:
             unresolved.append(
                 UnresolvedSetting(setting=setting, reason="no matching policy")

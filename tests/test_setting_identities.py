@@ -1,0 +1,676 @@
+"""Authoring identities must preserve every reviewed registry record and owner."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Iterator
+from dataclasses import asdict, replace
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote, unquote
+from uuid import uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+
+from gpo_studio.admx import (
+    AdmxCatalogue,
+    PolicyDefinition,
+    PolicyElement,
+    PolicyListItem,
+    PolicyValue,
+    PolicyValueList,
+)
+from gpo_studio.api import app
+from gpo_studio.canonical import policy_semantic_dict
+from gpo_studio.export import _gpmc_preg_bytes
+from gpo_studio.model import GPO, RegistrySetting, ValidationError
+from gpo_studio.policy_config import (
+    PolicyConfiguration,
+    legacy_setting_parts,
+    parse_structured_setting_id,
+    policy_setting_positions,
+    resolve_policy,
+    structured_policy_ids,
+)
+from gpo_studio.store import WorkspaceStore
+
+KEY = r"Software\Policies\Synthetic\Identity"
+
+
+def policy(name: str = "Simple", **fields: Any) -> PolicyDefinition:
+    return PolicyDefinition(
+        id=name,
+        class_="Machine",
+        key=KEY + "\\" + name,
+        namespace="Synthetic.Identities",
+        display_name="Synthetic " + name,
+        explain_text="Synthetic identity test",
+        supported_on="",
+        **fields,
+    )
+
+
+def text(name: str, value_name: str = "Option") -> PolicyElement:
+    return PolicyElement(kind="text", id=name, registry_value_name=value_name)
+
+
+def schemas() -> tuple[PolicyDefinition, ...]:
+    state = PolicyValue("decimal", "1", "REG_DWORD")
+    return (
+        policy(value_name="State", enabled_value=state),
+        policy("Other", value_name="OtherState", enabled_value=state),
+        policy(
+            "StateElement",
+            value_name="State",
+            enabled_value=state,
+            elements=(text("state", "ZZZOption"),),
+        ),
+        policy(
+            "ListElement",
+            elements=(
+                PolicyElement(
+                    kind="list",
+                    id="Items",
+                    registry_key=KEY + "\\Items",
+                    attributes=(("valuePrefix", "Item"),),
+                ),
+                text("Items-1"),
+            ),
+        ),
+        policy(
+            "StateListElement",
+            enabled_list=PolicyValueList(
+                (PolicyListItem("ListValue", PolicyValue("string", "fixed", "REG_SZ")),)
+            ),
+            elements=(text("listitem-1"),),
+        ),
+        policy(
+            "DisabledElement",
+            value_name="State",
+            enabled_value=state,
+            elements=(text("Option", "Option"), text("disabled-element-Option", "Second")),
+        ),
+    )
+
+
+async def single_decode_test_app(scope: Any, receive: Any, send: Any) -> None:
+    # The pinned TestClient unquotes httpx2.URL.path, which is already decoded.
+    # Preserve the real ASGI single-decode contract for literal percent escapes.
+    if scope["type"] == "http":
+        scope = {**scope, "path": unquote(scope["raw_path"].decode("ascii"))}
+    await app(scope, receive, send)
+
+
+@pytest.fixture
+def harness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[TestClient, WorkspaceStore]]:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    monkeypatch.setattr(
+        app.state, "admx_catalogue", AdmxCatalogue(policies=schemas()), raising=False
+    )
+    monkeypatch.setattr(app.state, "template_sources", [], raising=False)
+    monkeypatch.delattr(app.state, "catalogue_snapshot", raising=False)
+    try:
+        with TestClient(single_decode_test_app) as client:
+            yield client, store
+    finally:
+        store.close()
+        if hasattr(app.state, "catalogue_snapshot"):
+            del app.state.catalogue_snapshot
+
+
+def draft(client: TestClient, name: str = "Synthetic target") -> dict[str, Any]:
+    response = client.post("/api/gpos", json={"name": name})
+    assert response.status_code == 201
+    return dict(response.json()["gpo"])
+
+
+def configured(client: TestClient, gpo: dict[str, Any], name: str, **fields: Any) -> Any:
+    policy_id = name if ":" in name else "Synthetic.Identities:" + name
+    return client.post(
+        f"/api/admx/policies/{quote(policy_id, safe='')}/configure",
+        json={
+            "gpo_guid": gpo["guid"],
+            "side": "computer",
+            "expected_revision": gpo["revision"],
+            "reason": "Apply reviewed synthetic settings",
+            **fields,
+        },
+    )
+
+
+def storage(store: WorkspaceStore) -> tuple[str, ...]:
+    """Logical head/history/document equality, including failed transaction effects."""
+    return tuple(store._connection.iterdump())
+
+
+def inject_legacy(store: WorkspaceStore, settings: tuple[RegistrySetting, ...]) -> GPO:
+    # Seed with unique identities, then simulate bytes written by an older build.
+    initial = tuple(replace(item, id=f"seed-{index}") for index, item in enumerate(settings))
+    gpo = store.create_gpo(
+        "Synthetic legacy head",
+        settings=initial,
+        identity="test",
+        reason="Seed clean recovery revision",
+    )
+    current = store.update_metadata(
+        gpo.guid,
+        1,
+        {"description": "Legacy head"},
+        identity="test",
+        reason="Seed head for legacy injection",
+    )
+    row = store._connection.execute(
+        "SELECT snapshot_json FROM gpos WHERE guid=?", (gpo.guid,)
+    ).fetchone()
+    data = json.loads(row[0])
+    data["settings"] = [asdict(item) for item in settings]
+    payload = json.dumps(data)
+    store._connection.execute("UPDATE gpos SET snapshot_json=? WHERE guid=?", (payload, gpo.guid))
+    store._connection.execute(
+        "UPDATE revisions SET snapshot_json=? WHERE gpo_guid=? AND revision=2", (payload, gpo.guid)
+    )
+    store._connection.commit()
+    return store.get_gpo(current.guid)
+
+
+def record(identifier: str = "shared", name: str = "One") -> RegistrySetting:
+    return RegistrySetting(identifier, "computer", "HKLM", KEY, name, "REG_SZ", name)
+
+
+@pytest.mark.parametrize("state", ["enabled", "disabled", "not_configured"])
+@pytest.mark.parametrize(
+    "ids",
+    [
+        ["Simple", "Simple"],
+        ["Simple", "Synthetic.Identities:Simple"],
+    ],
+)
+def test_duplicate_resolved_bulk_owners_leave_every_table_unchanged(
+    harness: Any, state: str, ids: list[str]
+) -> None:
+    client, store = harness
+    gpo = draft(client)
+    before = storage(store)
+    response = client.post(
+        f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+        json={
+            "policy_ids": ids,
+            "side": "computer",
+            "target_state": state,
+            "expected_revision": 1,
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["issues"][0]["code"] == "duplicate_policy_id"
+    assert storage(store) == before
+
+
+def test_distinct_bulk_owners_and_distinct_sides_remain_valid(
+    harness: Any, monkeypatch: Any
+) -> None:
+    client, _store = harness
+    both = replace(schemas()[0], class_="Both")
+    monkeypatch.setattr(app.state, "admx_catalogue", AdmxCatalogue(policies=(both, schemas()[1])))
+    gpo = draft(client)
+    response = client.post(
+        f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+        json={
+            "policy_ids": ["Simple", "Synthetic.Identities:Simple", "Other"],
+            "policy_sides": {
+                "Simple": "computer",
+                "Synthetic.Identities:Simple": "user",
+                "Other": "computer",
+            },
+            "target_state": "enabled",
+            "expected_revision": 1,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert len({item["id"] for item in response.json()["gpo"]["settings"]}) == 3
+
+
+@pytest.mark.parametrize(
+    ("name", "values", "expected"),
+    [
+        ("StateElement", {"state": "text-data"}, {"state": "text-data"}),
+        (
+            "ListElement",
+            {"Items": ["one", "two"], "Items-1": "text-data"},
+            {"Items": ["one", "two"], "Items-1": "text-data"},
+        ),
+        ("StateListElement", {"listitem-1": "text-data"}, {"listitem-1": "text-data"}),
+        (
+            "DisabledElement",
+            {"Option": "one", "disabled-element-Option": "two"},
+            {"Option": "one", "disabled-element-Option": "two"},
+        ),
+    ],
+)
+def test_reserved_component_names_preserve_writes_and_browser_values(
+    harness: Any, name: str, values: Any, expected: Any
+) -> None:
+    client, _store = harness
+    gpo = draft(client)
+    response = configured(client, gpo, name, values=values)
+    assert response.status_code == 200, response.text
+    saved = response.json()["gpo"]
+    ids = [item["id"] for item in saved["settings"]]
+    assert len(ids) == len(set(ids)) and all(item.startswith("admx2:") for item in ids)
+    decoded = client.get(f"/api/gpos/{gpo['guid']}/configured-settings").json()
+    assert decoded["resolved"][0]["element_values"] == expected
+    repeated = configured(client, saved, name, values=values)
+    assert repeated.status_code == 200
+    assert repeated.json()["gpo"]["settings"] == saved["settings"]
+    disabled = configured(client, repeated.json()["gpo"], name, state="disabled")
+    assert disabled.status_code == 200, disabled.text
+    assert all(item["id"].startswith("admx2:") for item in disabled.json()["gpo"]["settings"])
+    removed = configured(client, disabled.json()["gpo"], name, state="not_configured")
+    assert removed.status_code == 200 and removed.json()["gpo"]["settings"] == []
+
+
+def overlapping_schemas() -> tuple[PolicyDefinition, PolicyDefinition]:
+    parent = replace(
+        policy("SafeParent", elements=(text("Child:SafeChild-computer-state", "Parent"),)),
+        namespace="urn:synthetic:Parent",
+    )
+    child = replace(
+        policy(
+            "SafeChild", value_name="Child", enabled_value=PolicyValue("decimal", "1", "REG_DWORD")
+        ),
+        namespace="urn:synthetic:Parent:SafeParent-computer-Child",
+    )
+    return parent, child
+
+
+def test_overlapping_legacy_owners_configure_and_remove_independently(
+    harness: Any, monkeypatch: Any
+) -> None:
+    client, _store = harness
+    parent, child = overlapping_schemas()
+    monkeypatch.setattr(app.state, "admx_catalogue", AdmxCatalogue(policies=(parent, child)))
+    gpo = draft(client)
+    first = configured(
+        client, gpo, parent.qualified_id, values={parent.elements[0].id: "parent-data"}
+    ).json()["gpo"]
+    response = configured(client, first, child.qualified_id)
+    assert response.status_code == 200, response.text
+    second = response.json()["gpo"]
+    assert {item["value_name"] for item in second["settings"]} == {"Parent", "Child"}
+    response = configured(
+        client, second, parent.qualified_id, values={parent.elements[0].id: "changed"}
+    )
+    assert response.status_code == 200
+    third = response.json()["gpo"]
+    assert next(item["value"] for item in third["settings"] if item["value_name"] == "Child") == "1"
+    for owner, retained in [(parent, "Child"), (child, None)]:
+        response = configured(client, third, owner.qualified_id, state="not_configured")
+        assert response.status_code == 200
+        third = response.json()["gpo"]
+        assert [item["value_name"] for item in third["settings"]] == (
+            [retained] if retained else []
+        )
+
+
+def test_uniquely_addressed_legacy_rows_can_be_repaired_without_deleting_other_owner(
+    harness: Any, monkeypatch: Any
+) -> None:
+    client, store = harness
+    parent, child = overlapping_schemas()
+    monkeypatch.setattr(app.state, "admx_catalogue", AdmxCatalogue(policies=(parent, child)))
+    legacy_id = f"admx-{child.qualified_id}-computer-state"
+    old = inject_legacy(
+        store,
+        (
+            RegistrySetting(
+                legacy_id, "computer", "HKLM", parent.key, "Parent", "REG_SZ", "parent-old"
+            ),
+            RegistrySetting(legacy_id, "computer", "HKLM", child.key, "Child", "REG_DWORD", 1),
+        ),
+    )
+    response = configured(
+        client, old.to_dict(), parent.qualified_id, values={parent.elements[0].id: "parent-new"}
+    )
+    assert response.status_code == 200, response.text
+    rows = response.json()["gpo"]["settings"]
+    assert {item["value_name"] for item in rows} == {"Parent", "Child"}
+    assert len({item["id"] for item in rows}) == 2
+    assert next(item["id"] for item in rows if item["value_name"] == "Child") == legacy_id
+    assert len(store.get_revision(old.guid, 2).snapshot["settings"]) == 2
+
+
+def test_unknown_legacy_owner_refuses_reconfigure_without_changing_history(
+    harness: Any, monkeypatch: Any
+) -> None:
+    client, store = harness
+    parent, child = overlapping_schemas()
+    monkeypatch.setattr(app.state, "admx_catalogue", AdmxCatalogue(policies=(parent,)))
+    old = inject_legacy(
+        store,
+        (
+            RegistrySetting(
+                f"admx-{child.qualified_id}-computer-state",
+                "computer",
+                "HKLM",
+                child.key,
+                "Child",
+                "REG_DWORD",
+                1,
+            ),
+        ),
+    )
+    before = storage(store)
+    response = configured(client, old.to_dict(), parent.qualified_id, state="not_configured")
+    assert response.status_code == 422
+    assert response.json()["error"]["issues"][0]["code"] == "ambiguous_setting_owner"
+    assert storage(store) == before
+    result = client.get(f"/api/gpos/{old.guid}/configured-settings").json()
+    assert result["unresolved"][0]["reason"] == "ambiguous legacy policy ownership"
+    assert client.get(f"/api/gpos/{old.guid}/revisions/2").status_code == 200
+
+
+@pytest.mark.parametrize("operation", ["edit", "comment", "delete"])
+def test_ambiguous_id_target_actions_cannot_collapse_or_remove_multiple_rows(
+    harness: Any, operation: str
+) -> None:
+    client, store = harness
+    old = inject_legacy(store, (record(name="One"), record(name="Two")))
+    before = storage(store)
+    path = f"/api/gpos/{old.guid}/settings/shared"
+    if operation == "edit":
+        response = client.put(
+            path,
+            json={
+                "expected_revision": old.revision,
+                "setting": {
+                    "side": "computer",
+                    "hive": "HKLM",
+                    "key": KEY,
+                    "value_name": "Changed",
+                    "registry_type": "REG_SZ",
+                    "value": "changed",
+                },
+            },
+        )
+    elif operation == "comment":
+        response = client.patch(
+            path + "/comment", json={"expected_revision": old.revision, "comment": "note"}
+        )
+    else:
+        response = client.request("DELETE", path, json={"expected_revision": old.revision})
+    assert response.status_code == 422
+    assert response.json()["error"]["issues"][0]["code"] == "ambiguous_setting_id"
+    assert storage(store) == before
+    assert len(client.get(f"/api/gpos/{old.guid}").json()["gpo"]["settings"]) == 2
+
+
+@pytest.mark.parametrize("operation", ["create", "batch", "metadata", "copy", "fork", "restore"])
+def test_full_head_guard_covers_commit_paths_without_changing_legacy_data(
+    harness: Any, operation: str
+) -> None:
+    client, store = harness
+    old = inject_legacy(store, (record(name="One"), record(name="Two")))
+    target = store.create_gpo("Synthetic clean target", identity="test", reason="Seed target")
+    before = storage(store)
+    with pytest.raises(ValidationError) as failure:
+        if operation == "create":
+            store.create_gpo(
+                "Rejected duplicates", settings=old.settings, identity="test", reason="test"
+            )
+        elif operation == "batch":
+            store.put_settings(target.guid, 1, list(old.settings), identity="test", reason="test")
+        elif operation == "metadata":
+            store.update_metadata(
+                old.guid, old.revision, {"description": "new"}, identity="test", reason="test"
+            )
+        elif operation == "copy":
+            store.put_settings(target.guid, 1, list(old.settings), identity="test", reason="copy")
+        elif operation == "fork":
+            store.fork_gpo(old.guid, "Rejected fork", identity="test", reason="test")
+        else:
+            store.restore_revision(old.guid, 2, old.revision, identity="test", reason="test")
+    assert failure.value.issues[0].code == "duplicate_setting_id"
+    assert storage(store) == before
+    assert len(store.get_gpo(old.guid).settings) == 2
+
+
+def test_import_preflight_rejects_bad_entry_and_keeps_valid_ids(harness: Any) -> None:
+    _client, store = harness
+    good = GPO(
+        str(uuid4()),
+        "Synthetic valid import",
+        settings=(record("Case", "One"), record("case", "Two")),
+    )
+    bad = replace(
+        good,
+        guid=str(uuid4()),
+        name="Synthetic invalid import",
+        settings=(record(name="One"), record(name="Two")),
+    )
+    result = store.import_baseline_gpos(
+        [good, bad], identity="test", reason="Import synthetic entries"
+    )
+    assert result["imported"] == 1 and result["rejected"] == 1
+    assert [item.id for item in store.get_gpo(good.guid).settings] == ["Case", "case"]
+    assert len(store.revisions(good.guid)) == 1
+
+
+def test_ordinary_legacy_ids_support_import_copy_fork_and_clean_restore(harness: Any) -> None:
+    client, store = harness
+    old = inject_legacy(store, (record(name="One"), record(name="Two")))
+    recovered = store.restore_revision(
+        old.guid, 1, old.revision, identity="test", reason="Restore clean revision"
+    )
+    assert [item.id for item in recovered.settings] == ["seed-0", "seed-1"]
+    copied = store.create_gpo("Synthetic copy target", identity="test", reason="Seed target")
+    copied = store.put_settings(
+        copied.guid, 1, list(recovered.settings), identity="test", reason="Copy valid IDs"
+    )
+    assert copied.settings == recovered.settings
+    forked = store.fork_gpo(
+        copied.guid, "Synthetic valid fork", identity="test", reason="Fork valid IDs"
+    )
+    assert [item.id for item in forked.settings] == ["forked-seed-0", "forked-seed-1"]
+    assert len(client.get(f"/api/gpos/{old.guid}/revisions/2").json()["snapshot"]["settings"]) == 2
+
+
+def test_reviewed_positions_use_store_cas_before_any_replacement(harness: Any) -> None:
+    _client, store = harness
+    gpo = store.create_gpo(
+        "Synthetic stale selection", settings=(record("first"),), identity="test", reason="Seed"
+    )
+    current = store.update_metadata(
+        gpo.guid, 1, {"description": "concurrent change"}, identity="test", reason="Change"
+    )
+    before = storage(store)
+    from gpo_studio.model import ConflictError
+
+    with pytest.raises(ConflictError):
+        store.replace_selected_settings(
+            gpo.guid, 1, frozenset({0}), [], identity="test", reason="Stale selection"
+        )
+    assert storage(store) == before and store.get_gpo(gpo.guid) == current
+
+
+def test_schema_choice_is_stable_and_ordinary_ids_and_registry_bytes_stay_unchanged() -> None:
+    ordinary = schemas()[0]
+    assert not structured_policy_ids(ordinary)
+    settings = resolve_policy(ordinary, PolicyConfiguration("computer", {}))
+    assert settings[0].id == "admx-Synthetic.Identities:Simple-computer-state"
+    for scalar_id in ("Items-1", "Items-0", "Items-named"):
+        collision = replace(schemas()[3], elements=(schemas()[3].elements[0], text(scalar_id)))
+        for count in [0, 1, 12]:
+            resolved = resolve_policy(
+                collision,
+                PolicyConfiguration(
+                    "computer",
+                    {
+                        "Items": [str(index) for index in range(count)],
+                        scalar_id: "scalar",
+                    },
+                ),
+            )
+            assert all(parse_structured_setting_id(item.id) is not None for item in resolved)
+            assert len({item.id for item in resolved}) == count + 1
+    gpo = GPO(str(uuid4()), "Synthetic byte control", settings=tuple(settings))
+    renamed = replace(
+        gpo, settings=tuple(replace(item, id="editor-only-change") for item in settings)
+    )
+    assert policy_semantic_dict(gpo) == policy_semantic_dict(renamed)
+    assert _gpmc_preg_bytes(list(gpo.settings)) == _gpmc_preg_bytes(list(renamed.settings))
+
+
+def test_opaque_component_encoding_round_trips_and_rejects_malformed_ids() -> None:
+    p = policy("Unicode", elements=(text("state"), text("組-computer-δ:tail", "Other")))
+    resolved = resolve_policy(
+        p, PolicyConfiguration("computer", {"state": "one", "組-computer-δ:tail": "two"})
+    )
+    identities = [parse_structured_setting_id(item.id) for item in resolved]
+    assert [item.component for item in identities if item is not None] == [
+        "state",
+        "組-computer-δ:tail",
+    ]
+    assert len({item.id for item in resolved}) == 2
+    for malformed in [
+        "admx2:xx:computer:state::0",
+        "admx2:61:other:state::0",
+        "admx2:61:computer:state::01",
+        "admx2:61:computer:element-list:62:0",
+    ]:
+        assert parse_structured_setting_id(malformed) is None
+    assert len(legacy_setting_parts("admx-a-computer-b-computer-state")) == 2
+    assert len(legacy_setting_parts("admx-a-computer-computer-state")) == 2
+    with pytest.raises(ValidationError):
+        policy_setting_positions(
+            (record("admx-a-computer-b-computer-state"),), AdmxCatalogue(), {("a", "computer")}
+        )
+
+
+def test_route_unsafe_source_names_generate_ids_usable_by_existing_crud(
+    harness: Any, monkeypatch: Any
+) -> None:
+    client, _store = harness
+    p = replace(
+        policy("RoutePolicy", elements=(text("Option/?#%\\"),)),
+        namespace="https://synthetic.example/Policies/configure/pack%2Fone?stage=one#definition",
+    )
+    monkeypatch.setattr(app.state, "admx_catalogue", AdmxCatalogue(policies=(p,)))
+    gpo = draft(client)
+    detail_path = "/api/admx/policies/" + quote(p.qualified_id, safe="")
+    detail = client.get(detail_path)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["qualified_id"] == p.qualified_id
+    response = client.post(
+        detail_path + "/configure",
+        json={
+            "gpo_guid": gpo["guid"],
+            "side": "computer",
+            "expected_revision": 1,
+            "values": {p.elements[0].id: "original"},
+        },
+    )
+    assert response.status_code == 200, response.text
+    saved = response.json()["gpo"]
+    identifier = saved["settings"][0]["id"]
+    assert identifier.startswith("admx2:") and not set("/?#%\\").intersection(identifier)
+    path = f"/api/gpos/{gpo['guid']}/settings/{identifier}"
+    response = client.patch(
+        path + "/comment", json={"expected_revision": saved["revision"], "comment": "note"}
+    )
+    assert response.status_code == 200
+    saved = response.json()["gpo"]
+    response = client.put(
+        path,
+        json={
+            "expected_revision": saved["revision"],
+            "setting": {
+                "side": "computer",
+                "hive": "HKLM",
+                "key": p.key,
+                "value_name": "Option",
+                "registry_type": "REG_SZ",
+                "value": "edited",
+            },
+        },
+    )
+    assert response.status_code == 200
+    saved = response.json()["gpo"]
+    response = client.request("DELETE", path, json={"expected_revision": saved["revision"]})
+    assert response.status_code == 200, response.text
+    assert response.json()["gpo"]["settings"] == []
+
+
+def test_known_but_ambiguous_legacy_owners_cannot_be_guessed(
+    harness: Any, monkeypatch: Any
+) -> None:
+    client, store = harness
+    parent, child = overlapping_schemas()
+    parent = replace(parent, key=child.key, elements=(text(parent.elements[0].id, "Child"),))
+    monkeypatch.setattr(app.state, "admx_catalogue", AdmxCatalogue(policies=(parent, child)))
+    old = inject_legacy(
+        store,
+        (
+            RegistrySetting(
+                f"admx-{child.qualified_id}-computer-state",
+                "computer",
+                "HKLM",
+                child.key,
+                "Child",
+                "REG_DWORD",
+                1,
+            ),
+        ),
+    )
+    before = storage(store)
+    response = configured(client, old.to_dict(), parent.qualified_id, state="not_configured")
+    assert response.status_code == 422
+    assert response.json()["error"]["issues"][0]["code"] == "ambiguous_setting_owner"
+    assert storage(store) == before
+
+
+def test_explicit_reconfigure_repairs_legacy_state_collision_and_retains_both_writes(
+    harness: Any,
+) -> None:
+    client, store = harness
+    p = schemas()[2]
+    legacy_id = f"admx-{p.qualified_id}-computer-state"
+    old = inject_legacy(
+        store,
+        (
+            RegistrySetting(legacy_id, "computer", "HKLM", p.key, "State", "REG_DWORD", 1),
+            RegistrySetting(legacy_id, "computer", "HKLM", p.key, "ZZZOption", "REG_SZ", "old"),
+        ),
+    )
+    response = configured(client, old.to_dict(), p.qualified_id, values={"state": "new"})
+    assert response.status_code == 200, response.text
+    rows = response.json()["gpo"]["settings"]
+    assert {item["value_name"] for item in rows} == {"State", "ZZZOption"}
+    assert len({item["id"] for item in rows}) == 2
+    assert all(item["id"].startswith("admx2:") for item in rows)
+    historical = store.get_revision(old.guid, 2).snapshot["settings"]
+    assert [item["id"] for item in historical] == [legacy_id, legacy_id]
+
+
+def test_ordinary_scalar_prefix_names_keep_ids_and_decode_exact_elements(
+    harness: Any, monkeypatch: Any
+) -> None:
+    client, _store = harness
+    p = policy("ScalarPrefixes", elements=(text("Option", "ZZZ"), text("Option-extra", "AAA")))
+    assert not structured_policy_ids(p)
+    monkeypatch.setattr(app.state, "admx_catalogue", AdmxCatalogue(policies=(p,)))
+    gpo = draft(client)
+    response = configured(
+        client, gpo, p.qualified_id, values={"Option": "first", "Option-extra": "second"}
+    )
+    assert response.status_code == 200, response.text
+    rows = response.json()["gpo"]["settings"]
+    assert {item["id"] for item in rows} == {
+        f"admx-{p.qualified_id}-computer-Option",
+        f"admx-{p.qualified_id}-computer-Option-extra",
+    }
+    decoded = client.get(f"/api/gpos/{gpo['guid']}/configured-settings").json()
+    assert decoded["resolved"][0]["element_values"] == {"Option": "first", "Option-extra": "second"}

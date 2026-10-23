@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, TypeGuard, assert_never
+from typing import Literal, TypeGuard, assert_never, cast
 
 from .admx import (
+    AdmxCatalogue,
     EnumItem,
     PolicyDefinition,
     PolicyElement,
@@ -38,14 +41,199 @@ class PolicyConfiguration:
     state: PolicyState = "enabled"
 
 
-def policy_setting_prefix(policy: PolicyDefinition, side: Side) -> str:
-    """The setting-id prefix owned by one policy on one side.
+SettingWriteKind = Literal["state", "state-list", "element", "element-list", "disabled-element"]
+_SIDE_MARKER = re.compile(r"-(computer|user)-")
 
-    Built from ``qualified_id``, not the bare name: two vendors' identically
-    named policies configured in the same GPO would otherwise derive the same
-    setting ids and silently overwrite each other in the store.
-    """
+
+@dataclass(frozen=True, slots=True)
+class PolicySettingIdentity:
+    policy_id: str
+    side: Side
+    kind: SettingWriteKind
+    component: str = ""
+    ordinal: int = 0
+
+
+def structured_policy_ids(policy: PolicyDefinition) -> bool:
+    """Choose the identity family from the complete schema, never current values/state."""
+    route_unsafe = frozenset("/?#%\\")
+    if _SIDE_MARKER.search(policy.qualified_id) or route_unsafe.intersection(policy.qualified_id):
+        return True
+    list_ids = {element.id for element in policy.elements if element.kind == "list"}
+    for element in policy.elements:
+        if (
+            _SIDE_MARKER.search(element.id)
+            or route_unsafe.intersection(element.id)
+            or element.id == "state"
+            or re.fullmatch(r"listitem-[1-9][0-9]*", element.id)
+            or element.id.startswith("disabled-element-")
+        ):
+            return True
+        if any(
+            element.id[: match.start()] in list_ids
+            for match in re.finditer("-", element.id)
+        ):
+            return True
+    return False
+
+
+def policy_setting_prefix(policy: PolicyDefinition, side: Side) -> str:
+    if structured_policy_ids(policy):
+        return f"admx2:{policy.qualified_id.encode('utf-8').hex()}:{side}:"
     return f"admx-{policy.qualified_id}-{side}-"
+
+
+def _write_id(
+    prefix: str,
+    kind: SettingWriteKind,
+    component: str = "",
+    ordinal: int = 0,
+) -> str:
+    if prefix.startswith("admx2:"):
+        return f"{prefix}{kind}:{component.encode('utf-8').hex()}:{ordinal}"
+    match kind:
+        case "state":
+            return prefix + "state"
+        case "state-list":
+            return f"{prefix}listitem-{ordinal}"
+        case "element":
+            return prefix + component
+        case "element-list":
+            return f"{prefix}{component}-{ordinal}"
+        case "disabled-element":
+            return prefix + "disabled-element-" + component
+        case _:
+            assert_never(kind)
+
+
+def parse_structured_setting_id(setting_id: str) -> PolicySettingIdentity | None:
+    if not setting_id.startswith("admx2:"):
+        return None
+    parts = setting_id.split(":")
+    if len(parts) != 6:
+        return None
+    _, encoded_policy, side, kind, encoded_component, number = parts
+    if side not in ("computer", "user") or kind not in (
+        "state",
+        "state-list",
+        "element",
+        "element-list",
+        "disabled-element",
+    ):
+        return None
+    if not re.fullmatch(r"0|[1-9][0-9]*", number) or len(number) > 10:
+        return None
+    try:
+        policy_id = bytes.fromhex(encoded_policy).decode("utf-8")
+        component = bytes.fromhex(encoded_component).decode("utf-8")
+    except (ValueError, UnicodeError):
+        return None
+    # Canonical spelling prevents multiple encodings of the same owner/source.
+    if (
+        policy_id.encode("utf-8").hex() != encoded_policy
+        or component.encode("utf-8").hex() != encoded_component
+        or not policy_id
+    ):
+        return None
+    ordinal = int(number)
+    if kind in ("state-list", "element-list"):
+        if ordinal < 1:
+            return None
+    elif ordinal != 0:
+        return None
+    if kind in ("state", "state-list") and component:
+        return None
+    return PolicySettingIdentity(
+        policy_id, cast(Side, side), cast(SettingWriteKind, kind), component, ordinal
+    )
+
+
+def legacy_setting_parts(setting_id: str) -> tuple[tuple[str, Side, str], ...]:
+    if not setting_id.startswith("admx-"):
+        return ()
+    remaining = setting_id[5:]
+    return tuple(
+        (
+            remaining[: m.start()],
+            "computer" if m.group(1) == "computer" else "user",
+            remaining[m.start() + len(m.group(1)) + 2 :],
+        )
+        for m in re.finditer(r"(?=-(computer|user)-)", remaining)
+        if remaining[: m.start()]
+    )
+
+
+def _address_matches_policy(setting: RegistrySetting, policy: PolicyDefinition) -> bool:
+    key, name = setting.key.casefold(), setting.value_name.casefold()
+    if policy.value_name and (key, name) == (policy.key.casefold(), policy.value_name.casefold()):
+        return True
+    for values in (policy.enabled_list, policy.disabled_list):
+        if values is not None:
+            for item in values.items:
+                if (key, name) == (
+                    (item.key or values.default_key or policy.key).casefold(),
+                    item.value_name.casefold(),
+                ):
+                    return True
+    for element in policy.elements:
+        if key != (element.registry_key or policy.key).casefold():
+            continue
+        if element.kind == "list" or name == element.registry_value_name.casefold():
+            return True
+    return False
+
+
+def setting_policy_owners(
+    setting: RegistrySetting, catalogue: AdmxCatalogue
+) -> tuple[tuple[str, Side], ...]:
+    """Return every plausible owner; unavailable/ambiguous legacy owners are not guessed."""
+    structured = parse_structured_setting_id(setting.id)
+    if structured is not None:
+        return ((structured.policy_id, structured.side),) if structured.side == setting.side else ()
+    candidates = tuple(
+        dict.fromkeys(
+            (policy_id, side)
+            for policy_id, side, _suffix in legacy_setting_parts(setting.id)
+            if side == setting.side
+        )
+    )
+    if len(candidates) < 2:
+        return candidates
+    known = {p.qualified_id: p for p in catalogue.policies}
+    # An unloaded candidate cannot be disproved using the current catalogue.
+    if any(policy_id not in known for policy_id, _side in candidates):
+        return candidates
+    addressed = tuple(
+        owner for owner in candidates if _address_matches_policy(setting, known[owner[0]])
+    )
+    return addressed if len(addressed) == 1 else candidates
+
+
+def policy_setting_positions(
+    settings: Sequence[RegistrySetting],
+    catalogue: AdmxCatalogue,
+    selected_owners: set[tuple[str, Side]],
+) -> frozenset[int]:
+    positions: set[int] = set()
+    for index, setting in enumerate(settings):
+        owners = setting_policy_owners(setting, catalogue)
+        if not selected_owners.intersection(owners):
+            continue
+        if len(owners) != 1:
+            raise ValidationError(
+                [
+                    ValidationIssue(
+                        "error",
+                        "ambiguous_setting_owner",
+                        "This legacy setting can belong to more than one policy. Review its raw "
+                        "registry records and recover them into a fresh draft "
+                        "before reconfiguring.",
+                        f"settings/{index}/id",
+                    )
+                ]
+            )
+        positions.add(index)
+    return frozenset(positions)
 
 
 def resolve_policy(
@@ -55,8 +243,8 @@ def resolve_policy(
 
     Not Configured resolves to NO settings by design — the policy must be absent
     from Registry.pol so a lower-precedence GPO can still apply. Callers must
-    therefore also REMOVE the policy's existing settings (see
-    :func:`policy_setting_prefix`); writing an empty list through
+    therefore also REMOVE only the policy's reviewed, owned rows (see
+    :func:`policy_setting_positions`); writing an empty list through
     ``put_settings`` alone is a silent no-op that leaves the old state in place.
     """
     _check_side(policy, config.side)
@@ -115,7 +303,7 @@ def _state_settings(
         registry_type, data, action = _policy_value_write(value)
         settings.append(
             RegistrySetting(
-                id=f"{prefix}state",
+                id=_write_id(prefix, "state"),
                 side=config.side,
                 hive=hive,
                 key=policy.key,
@@ -131,7 +319,7 @@ def _state_settings(
             registry_type, data, action = _policy_value_write(item.value)
             settings.append(
                 RegistrySetting(
-                    id=f"{prefix}listitem-{index}",
+                    id=_write_id(prefix, "state-list", ordinal=index),
                     side=config.side,
                     hive=hive,
                     key=item.key or value_list.default_key or policy.key,
@@ -201,7 +389,11 @@ def _resolve_enabled(
         ):
             settings.append(
                 RegistrySetting(
-                    id=f"{prefix}{element.id}{suffix}",
+                    id=_write_id(
+                        prefix,
+                        "element-list" if element.kind == "list" else "element",
+                        element.id, int(suffix[1:]) if suffix else 0,
+                    ),
                     side=config.side,
                     hive=hive,
                     key=key,
@@ -249,7 +441,7 @@ def _disabled_element_deletes(
             continue
         settings.append(
             RegistrySetting(
-                id=f"{prefix}disabled-element-{element.id}",
+                id=_write_id(prefix, "disabled-element", element.id),
                 side=config.side,
                 hive=hive,
                 key=element.registry_key if element.registry_key else policy.key,

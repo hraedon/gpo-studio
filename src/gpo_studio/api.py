@@ -199,7 +199,7 @@ from .object_security import (
 from .policy_config import (
     PolicyConfiguration,
     PolicyState,
-    policy_setting_prefix,
+    policy_setting_positions,
     resolve_policy,
 )
 from .policy_families import (
@@ -2630,8 +2630,8 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/health"): _JSON,
     ("POST", "/api/workspace/integrity"): _JSON,
     ("GET", "/api/admx/search"): _JSON,
-    ("GET", "/api/admx/policies/{policy_id}"): _JSON,
-    ("POST", "/api/admx/policies/{policy_id}/configure"): _GPO_PAYLOAD,
+    ("GET", "/api/admx/policies/{policy_id:path}"): _JSON,
+    ("POST", "/api/admx/policies/{policy_id:path}/configure"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/bulk-policy-state"): _GPO_PAYLOAD,
     ("GET", "/api/admx/categories"): _JSON,
     ("GET", "/api/admx/categories/tree"): _JSON,
@@ -3015,7 +3015,7 @@ def admx_search(request: Request, q: str = "") -> dict[str, Any]:
     return {"catalogue_revision": snapshot.revision, "items": items, "count": len(items)}
 
 
-@app.get("/api/admx/policies/{policy_id}")
+@app.get("/api/admx/policies/{policy_id:path}")
 def admx_policy_detail(request: Request, policy_id: str) -> dict[str, Any]:
     snapshot = _catalogue_snapshot(request.app)
     policy = _resolve_policy(request, policy_id, catalogue=snapshot.catalogue)
@@ -3025,7 +3025,7 @@ def admx_policy_detail(request: Request, policy_id: str) -> dict[str, Any]:
     return payload
 
 
-@app.post("/api/admx/policies/{policy_id}/configure")
+@app.post("/api/admx/policies/{policy_id:path}/configure")
 def configure_policy(
     request: Request, policy_id: str, body: ConfigurePolicyRequest
 ) -> dict[str, Any]:
@@ -3040,14 +3040,19 @@ def configure_policy(
             issues.extend(validate_setting(s))
         if any(i.severity == "error" for i in issues):
             raise ValidationError(issues)
-        # Replace by prefix rather than upsert: re-configuring a policy must drop the
-        # settings its PREVIOUS state wrote. Enabled -> Disabled would otherwise
-        # leave the Enabled element values behind alongside the Disabled value, and
-        # Not Configured (no settings at all) would be a silent no-op.
-        gpo = _store(request).replace_settings_with_prefix(
+        current = _store(request).get_gpo(body.gpo_guid)
+        if current.revision != body.expected_revision:
+            raise ConflictError(
+                "The GPO changed before its policy settings could be selected.",
+                expected_revision=body.expected_revision, current_revision=current.revision,
+            )
+        positions = policy_setting_positions(
+            current.settings, snapshot.catalogue, {(policy.qualified_id, body.side)}
+        )
+        gpo = _store(request).replace_selected_settings(
             body.gpo_guid,
             body.expected_revision,
-            policy_setting_prefix(policy, body.side),
+            positions,
             settings,
             identity=_identity(body.actor),
             reason=body.reason,
@@ -3108,11 +3113,23 @@ def bulk_policy_state(
                         path="policy_sides",
                     )
                 ])
-        replacements: list[tuple[str, list[RegistrySetting]]] = []
+        replacements: list[RegistrySetting] = []
         per_policy_side = body.policy_sides or {}
+        owners: set[tuple[str, Literal["computer", "user"]]] = set()
+        resolved: list[tuple[PolicyDefinition, Literal["computer", "user"]]] = []
         for policy_id in body.policy_ids:
             policy = _resolve_policy(request, policy_id, catalogue=snapshot.catalogue)
             side = _policy_side(policy, per_policy_side.get(policy_id, body.side))
+            owner = (policy.qualified_id, side)
+            if owner in owners:
+                raise ValidationError([ValidationIssue(
+                    "error", "duplicate_policy_id",
+                    "A policy and configuration side may occur only once in a bulk request, "
+                    "including bare and qualified aliases.", "policy_ids",
+                )])
+            owners.add(owner)
+            resolved.append((policy, side))
+        for policy, side in resolved:
             config = PolicyConfiguration(side=side, values={}, state=body.target_state)
             settings = resolve_policy(policy, config)
             issues: list[ValidationIssue] = []
@@ -3120,11 +3137,18 @@ def bulk_policy_state(
                 issues.extend(validate_setting(s))
             if any(i.severity == "error" for i in issues):
                 raise ValidationError(issues)
-            prefix = policy_setting_prefix(policy, side)
-            replacements.append((prefix, settings))
-        gpo = _store(request).bulk_replace_settings_by_prefix(
+            replacements.extend(settings)
+        current = _store(request).get_gpo(guid)
+        if current.revision != body.expected_revision:
+            raise ConflictError(
+                "The GPO changed before its policy settings could be selected.",
+                expected_revision=body.expected_revision, current_revision=current.revision,
+            )
+        positions = policy_setting_positions(current.settings, snapshot.catalogue, owners)
+        gpo = _store(request).replace_selected_settings(
             guid,
             body.expected_revision,
+            positions,
             replacements,
             identity=_identity(body.actor),
             reason=body.reason,

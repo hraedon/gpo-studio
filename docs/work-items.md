@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**6 open.**
+**7 open.**
 
+- [WI-087](#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities) - preview and apply explicit registry-row identity/ownership repairs while preserving all chosen records and original history.
 - [WI-086](#wi-086--qualify-an-authenticated-iis-hosted-shared-authoring-profile) - prove the shared-service identity boundary, collaborative storage and repeatable IIS deployment under Plan 032.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
@@ -4105,3 +4106,25 @@ ADMX configuration, reproducible install/upgrade/recovery evidence, and independ
 review are banked; capability/support records name the exact qualified matrix.
 The web process retains no AD/SYSVOL write rights. Live publication is outside
 this item's closing condition.
+
+
+## WI-087 — provide a reviewed repair workflow for legacy registry identities
+
+**Opened:** 2026-10-23 (bulk/ADMX setting identity investigation).
+**Status:** open.
+
+The authoring fix refuses duplicate editor IDs and ambiguous legacy ownership
+before a write can choose or erase the wrong registry record. Existing heads and
+immutable history remain readable. Uniquely owned ADMX rows can be reconfigured;
+otherwise the [recovery guide](workspace-recovery.md#legacy-registry-editor-ids-and-ambiguous-admx-ownership)
+describes recovering chosen raw registry records into a fresh draft with newly
+generated UUIDs. Copy and Fork do not repair duplicated identities. A strict
+complete-head guard can prevent partial repairs which leave another bad family.
+
+**Closes when:** an explicit command or UI previews every selected row and owner,
+requires the operator's repair choices, preserves every chosen registry record
+and the original history, and commits unique identities as an audited revision
+or clearly identified fresh draft. Tests cover ambiguous owners, repeated IDs,
+multiple malformed families, stale revisions and failed-write rollback. Nothing
+rewrites historical revisions or silently infers a winner. Native Windows policy
+qualification remains separate.

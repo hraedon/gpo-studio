@@ -87,6 +87,31 @@ def _resolve_actor(identity: Identity | str) -> str:
     return identity.actor
 
 
+def setting_id_issues(settings: Iterable[RegistrySetting]) -> list[ValidationIssue]:
+    seen: set[str] = set()
+    issues: list[ValidationIssue] = []
+    for index, setting in enumerate(settings):
+        if setting.id in seen:
+            issues.append(ValidationIssue(
+                "error", "duplicate_setting_id",
+                "Registry setting editor IDs must be unique. Recover every intended "
+                "registry record into a fresh draft, or reconfigure its uniquely owned policy.",
+                f"settings/{index}/id",
+            ))
+        seen.add(setting.id)
+    return issues
+
+
+def _require_unambiguous_setting_id(gpo: GPO, setting_id: str) -> None:
+    if sum(setting.id == setting_id for setting in gpo.settings) > 1:
+        raise ValidationError([ValidationIssue(
+            "error", "ambiguous_setting_id",
+            "More than one registry record has this editor ID. This action cannot choose "
+            "one safely; review all records and recover them into a fresh draft.",
+            "setting_id",
+        )])
+
+
 def _setting(data: dict[str, Any]) -> RegistrySetting:
     return RegistrySetting(
         id=str(data["id"]),
@@ -969,6 +994,9 @@ class WorkspaceStore:
         # review): every create, import and mutation passes through here, so a
         # lone surrogate or a control character is refused BEFORE anything is
         # committed, whichever endpoint or field it arrived through.
+        identity_issues = setting_id_issues(gpo.settings)
+        if identity_issues:
+            raise ValidationError(identity_issues)
         unwritable = text_issues(gpo)
         if unwritable:
             raise ValidationError(unwritable)
@@ -1422,7 +1450,7 @@ class WorkspaceStore:
                     ensure_editor_ids(c) for c in gpo.gpp_collections
                 ),
             )
-            issues = validate_gpo(normalized)
+            issues = validate_gpo(normalized) + setting_id_issues(normalized.settings)
             if any(issue.severity == "error" for issue in issues):
                 rejected += 1
                 continue
@@ -1643,7 +1671,8 @@ class WorkspaceStore:
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
     def _validate_settings(self, settings: Iterable[RegistrySetting]) -> None:
-        errors: list[ValidationIssue] = []
+        settings = tuple(settings)
+        errors = setting_id_issues(settings)
         for setting in settings:
             for issue in validate_setting(setting):
                 if issue.severity == "error":
@@ -1665,6 +1694,7 @@ class WorkspaceStore:
         self._validate_settings([new_setting])
 
         def mutate(gpo: GPO) -> GPO:
+            _require_unambiguous_setting_id(gpo, new_setting.id)
             settings = [item for item in gpo.settings if item.id != new_setting.id]
             settings.append(new_setting)
             settings.sort(key=lambda item: item.identity())
@@ -1687,9 +1717,38 @@ class WorkspaceStore:
         new_ids = {s.id for s in new_settings}
 
         def mutate(gpo: GPO) -> GPO:
+            for setting_id in new_ids:
+                _require_unambiguous_setting_id(gpo, setting_id)
             existing = [s for s in gpo.settings if s.id not in new_ids]
             combined = existing + new_settings
             combined.sort(key=lambda item: item.identity())
+            return replace(gpo, settings=tuple(combined))
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def replace_selected_settings(
+        self,
+        guid: str,
+        expected_revision: int,
+        positions: frozenset[int],
+        new_settings: list[RegistrySetting],
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        """Replace reviewed row positions, bound to the exact revision by _mutate's CAS.
+
+        Selection contains positions rather than editor IDs: a legacy ID may
+        name two different records, and selecting by it would erase both.
+        """
+        self._validate_settings(new_settings)
+
+        def mutate(gpo: GPO) -> GPO:
+            if any(index < 0 or index >= len(gpo.settings) for index in positions):
+                raise ValueError("selected setting position is outside the reviewed revision")
+            kept = [setting for index, setting in enumerate(gpo.settings) if index not in positions]
+            combined = kept + new_settings
+            combined.sort(key=lambda setting: setting.identity())
             return replace(gpo, settings=tuple(combined))
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
@@ -1772,6 +1831,7 @@ class WorkspaceStore:
         reason: str,
     ) -> GPO:
         def mutate(gpo: GPO) -> GPO:
+            _require_unambiguous_setting_id(gpo, setting_id)
             setting = next((s for s in gpo.settings if s.id == setting_id), None)
             if setting is None:
                 raise NotFoundError(f"Setting {setting_id} was not found")
@@ -1793,6 +1853,7 @@ class WorkspaceStore:
         reason: str,
     ) -> GPO:
         def mutate(gpo: GPO) -> GPO:
+            _require_unambiguous_setting_id(gpo, setting_id)
             settings = tuple(item for item in gpo.settings if item.id != setting_id)
             if len(settings) == len(gpo.settings):
                 raise NotFoundError(f"Setting {setting_id} was not found")

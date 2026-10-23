@@ -9,6 +9,15 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Reject duplicate resolved policy/side operations in bulk authoring. Preserve
+  distinct ADMX writes with source-stable structured IDs where legacy names
+  collide, and replace exactly reviewed policy rows rather than overlapping
+  textual prefixes. Fully qualified URI policy IDs work through the existing
+  detail/configure routes.
+- Refuse duplicate registry editor identities before commits and ambiguous
+  ID-targeted edits, comments or deletions. Keep legacy heads/history readable;
+  document explicit recovery without silently dropping another registry record.
+
 - Refresh stale conflict comparisons and require renewed reapply consent; load the
   current revision without rewinding newer policy data or replacing reopened editors.
 

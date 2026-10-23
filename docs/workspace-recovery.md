@@ -540,3 +540,59 @@ authenticated audit identity.**
 - A multi-user deployment must take `actor` from trusted authentication
   middleware, not request JSON. That is on the roadmap and does not exist
   today.
+
+## Legacy registry editor IDs and ambiguous ADMX ownership
+
+Older builds could store several registry records under one editor ID, or infer
+ADMX policy ownership from overlapping text prefixes. Current writes reject
+`duplicate_setting_id`, `ambiguous_setting_id` and `ambiguous_setting_owner`
+instead of choosing a row or deleting another policy's settings. Existing heads
+and immutable revisions remain readable. Setting edit, comment and delete refuse
+an ID with multiple matching records, even when deleting all matches would leave
+an apparently valid result.
+
+Ordinary unambiguous ADMX editor IDs retain their spelling. Policies whose source
+identities use reserved element suffixes, collide with list indexes, contain side
+separators, or contain URL routing characters use deterministic `admx2:` IDs.
+These encode the exact policy, side, write kind, component and list ordinal. The
+choice uses the complete source schema and remains stable across values and
+Enabled/Disabled/Not configured. It changes editor metadata, not Registry.pol's
+registry addresses or value encoding. There is no workspace schema migration.
+Older builds can read these records, but must not reconfigure their ADMX policies:
+the old prefix-based writer cannot safely interpret the new IDs.
+
+If the loaded catalogue and registry addresses uniquely identify an affected
+legacy row's owner, explicitly reconfiguring that policy replaces only its
+reviewed rows in a new revision. Unknown or ambiguous owners require recovery.
+A strict complete-head identity check may also prevent a partial repair which
+would leave a different duplicated family in the same head.
+
+For recovery without guessing or changing the original:
+
+1. Create and verify a workspace backup using the commands above. Preserve the
+   original GPO and its history. Inspect its complete raw settings and relevant
+   historical revisions through `GET /api/gpos/{guid}` and
+   `GET /api/gpos/{guid}/revisions/{revision}`.
+2. Review every registry record, including records sharing an ID. If earlier
+   edits already overwrote a value, consult history; identity repair cannot
+   reconstruct lost intent. Resolve conflicting writes to the same registry
+   address explicitly.
+3. Create a fresh draft. For each registry record you choose to retain, call
+   `POST /api/gpos/{new_guid}/settings` with its complete `setting` fields
+   (`side`, `hive`, `key`, `value_name`, `registry_type`, `value`, `action`,
+   `comment`), plus actor, reason and the target's current `expected_revision`.
+   Omit the old editor ID: this endpoint gives each row a fresh UUID. Carry
+   each successful response's revision into the next request. DWORD/QWORD data
+   use canonical decimal strings, as the documented API requires.
+4. Compare all retained registry addresses, types, values and actions before
+   exporting. This procedure recovers the chosen registry portion; links,
+   preferences and other GPO content need their own review. The new GPO has a
+   new GUID, so its whole-policy digest need not equal the original's.
+
+Copy and Fork preserve source identities and therefore do **not** repair a
+malformed source with duplicate IDs. Restoring a clean historical revision is
+another recovery path; restoring a duplicated revision is refused without
+rewriting that historical snapshot. A dedicated reviewed repair workflow remains
+open as [WI-087](work-items.md#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities).
+These are local editor/storage guarantees; they do not qualify native Windows
+policy behavior.
