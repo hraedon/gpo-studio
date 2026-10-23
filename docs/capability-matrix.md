@@ -183,8 +183,12 @@ exported: `REG_SZ`, `REG_EXPAND_SZ`, `REG_BINARY`, `REG_DWORD`,
 
 ### ADMX-backed registry policy — preview
 
-ADMX/ADML catalogues are loaded at startup from `GPO_STUDIO_ADMX_DIR`. In the
-browser you can search policies, browse categories, read explain text and
+ADMX/ADML catalogues load at startup from `--admx-dir` (or
+`GPO_STUDIO_ADMX_DIR`, default `./admx`). The **ADMX folder** sidebar action
+can replace the default source for the current server session, with load counts
+and per-file diagnostics; it does not persist a startup setting. These folder
+controls are surfaced but have no Windows/IIS qualification. In the browser
+you can search policies, browse categories, read explain text and
 configure elements. Supported element kinds: boolean, decimal, text, multitext,
 list, enum. Configuring a policy resolves it to concrete `RegistrySetting`
 objects, and from then on every registry-policy guarantee applies.

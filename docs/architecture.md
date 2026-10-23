@@ -55,6 +55,25 @@ Restore never rewrites history; it copies an old snapshot into a new revision.
 A multi-user deployment must take `actor` from trusted authentication
 middleware, not from request JSON. The roadmap lists this as a gate.
 
+### ADMX catalogue context
+
+Catalogue-backed policy reads expose an opaque `catalogue_revision` token;
+configured-settings reads also identify the `gpo_revision` they rendered.
+The browser sends the reviewed token as `expected_catalogue_revision` on policy
+configuration and every bulk batch, alongside the GPO's expected revision.
+Changing a source or restarting the process rotates the catalogue token.
+A stale token returns HTTP 409 with `error.code = "catalogue_conflict"` before
+any workspace mutation. It requires reviewing the current policy rather than
+reapplying a GPO revision conflict. Legacy API clients may omit the catalogue
+precondition for compatibility; callers that need reviewed mappings must send it.
+
+The local process publishes the catalogue and its sources as one immutable
+snapshot. A shared reentrant lock covers activation and policy resolution through
+the workspace commit, in catalogue-then-store lock order. File ingestion runs
+outside that lock; a failed load or merge preserves the previous snapshot.
+This is a single-process authoring contract. Persistent catalogue configuration
+and coordination between hosted workers remain part of the shared-service work.
+
 ## Registry policy fidelity
 
 `registry_pol.py` implements PReg version 1:

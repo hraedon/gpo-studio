@@ -9,6 +9,56 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Refresh stale conflict comparisons and require renewed reapply consent; load the
+  current revision without rewinding newer policy data or replacing reopened editors.
+
+- Fix Cancel and Close across dialogs with invalid required fields, and make Enter
+  submit creation instead of silently dismissing it.
+- Add an ADMX folder dialog with source counts, load diagnostics and refreshed policy
+  browsers; add `--admx-dir` for repeatable startup without environment variables.
+- Keep ADMX configuration on the selected editable GPO, show persistent save errors,
+  and prevent duplicate pending configuration requests.
+- Discard obsolete estate-file selections and late policy navigation/diff responses;
+  refresh revision comparisons when switching policies.
+- Prevent duplicate pending draft creation and keep retry values intact.
+- Keep bulk policy selections scoped to the current GPO and configuration side,
+  including selections hidden by filters.
+- Use a compact two-column tool layout on narrow screens.
+- Keep dialog headers and actions outside the scrolling form body, so keyboard
+  focus stays visible on narrow screens; label configuration checkboxes and retain
+  field help through validation errors.
+- Keep exact multi-string registry values in the workspace using JSON array editors,
+  including spaces, semicolons and empty members; reject malformed input before
+  saving and explain Registry.pol's existing single-empty-string limitation.
+- Bind History restore actions and pending edits to their original GPO/revision and
+  editor session, so late responses preserve a newer selection or reopened form.
+- Freeze pending editor controls while keeping Close/Cancel usable; reopened
+  editors can start independent requests without older completions unlocking them.
+- Keep workspace creation/import usable during background navigation, close only
+  the completed editor, and prevent old list responses from hiding newer drafts.
+- Show duplicate-name conflicts inline instead of opening revision recovery.
+- Refresh all loaded ADMX sources after reloads, including background completion
+  after reopening the folder dialog, while preserving the next chosen path.
+- Keep archived policies read-only in the settings browser, including bulk actions.
+- Report unreadable ADMX folders with actionable JSON errors while retaining the
+  previous catalogue; reject empty or whitespace-only `--admx-dir` values.
+- Bind policy configuration and bulk changes to the reviewed ADMX catalogue,
+  so a folder reload in another tab cannot silently change the policy mapping.
+  Keep unsaved configuration values on a catalogue conflict and require review.
+- Keep persistent errors visible through background reads and older request
+  completions; provide an explicit Dismiss action that returns keyboard focus.
+- Keep each ADMX target bound to the revision displayed when its editor opened;
+  late sidebar updates cannot silently advance it. Explicit conflict review
+  updates that target's revision, and archived targets require another draft.
+- Show a visible saving message in pending editors and explain that closing the
+  dialog keeps the save running.
+- Keep visible captions on preference members, registry values and targeting
+  fields after they are filled, with keyboard-friendly layouts on narrow screens.
+- Preserve significant whitespace in ADMX folder paths so the UI loads the exact
+  chosen folder; reject whitespace-only paths before sending a load request.
+- Scope the authenticated IIS shared-service profile and its acceptance gates
+  in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

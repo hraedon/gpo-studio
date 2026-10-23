@@ -19,7 +19,7 @@ import zipfile
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypeVar, assert_never, cast, get_args
 from urllib.parse import urlparse
@@ -1291,6 +1291,8 @@ class UnresolvedSettingResponse(BaseModel):
 
 
 class ConfiguredSettingsResponse(BaseModel):
+    catalogue_revision: str
+    gpo_revision: int
     resolved: list[ConfiguredSettingResponse]
     unresolved: list[UnresolvedSettingResponse]
     resolved_count: int
@@ -1674,6 +1676,7 @@ class ImportAdmRequest(Audit):
 
 
 class ConfigurePolicyRequest(Audit):
+    expected_catalogue_revision: str | None = Field(default=None, min_length=1, max_length=128)
     gpo_guid: str = Field(min_length=1, max_length=255)
     side: Literal["computer", "user"]
     values: dict[str, bool | int | str | list[str] | list[list[str]]] = Field(default_factory=dict)
@@ -1683,6 +1686,7 @@ class ConfigurePolicyRequest(Audit):
 
 
 class BulkPolicyStateMutation(Audit):
+    expected_catalogue_revision: str | None = Field(default=None, min_length=1, max_length=128)
     policy_ids: list[str] = Field(min_length=1, max_length=100)
     side: Literal["computer", "user"] | None = None
     target_state: PolicyState
@@ -1731,17 +1735,76 @@ def _store(request: Request) -> WorkspaceStore:
     return cast(WorkspaceStore, request.app.state.store)
 
 
+# Activation and ADMX-derived workspace mutations share this lock. The lock
+# order is catalogue -> WorkspaceStore; no code holds a store lock while
+# acquiring this one. Loading files happens outside it, publication inside it.
+_CATALOGUE_LOCK = threading.RLock()
+_EMPTY_CATALOGUE = AdmxCatalogue()
+
+
+@dataclass(frozen=True, slots=True)
+class _CatalogueSnapshot:
+    catalogue: AdmxCatalogue
+    sources: tuple[Any, ...]
+    revision: str
+
+
+class _CatalogueConflict(StudioError):
+    def __init__(self, expected: str, current: str) -> None:
+        super().__init__(
+            "The ADMX catalogue changed. Reopen and review the policy before applying it."
+        )
+        self.expected = expected
+        self.current = current
+
+
+def _catalogue_snapshot(application: FastAPI, *, restart: bool = False) -> _CatalogueSnapshot:
+    with _CATALOGUE_LOCK:
+        catalogue = cast(
+            AdmxCatalogue, getattr(application.state, "admx_catalogue", _EMPTY_CATALOGUE)
+        )
+        sources = tuple(getattr(application.state, "template_sources", ()))
+        previous: _CatalogueSnapshot | None = getattr(
+            application.state, "catalogue_snapshot", None
+        )
+        # Preserve injection of the two historical state attributes by callers
+        # and fixtures. Production changes publish them together under this lock.
+        if (restart or previous is None or previous.catalogue is not catalogue
+                or previous.sources != sources):
+            previous = _CatalogueSnapshot(catalogue, sources, str(uuid_module.uuid4()))
+            application.state.catalogue_snapshot = previous
+        return previous
+
+
+def _activate_catalogue(
+    application: FastAPI, catalogue: AdmxCatalogue, sources: tuple[Any, ...]
+) -> _CatalogueSnapshot:
+    # The caller holds _CATALOGUE_LOCK through merge and publication.
+    snapshot = _CatalogueSnapshot(catalogue, sources, str(uuid_module.uuid4()))
+    application.state.admx_catalogue = snapshot.catalogue
+    application.state.template_sources = list(snapshot.sources)
+    application.state.catalogue_snapshot = snapshot
+    return snapshot
+
+
+def _require_catalogue(snapshot: _CatalogueSnapshot, expected: str | None) -> None:
+    if expected is not None and expected != snapshot.revision:
+        raise _CatalogueConflict(expected, snapshot.revision)
+
+
 def _catalogue(request: Request) -> AdmxCatalogue:
-    return cast(AdmxCatalogue, getattr(request.app.state, "admx_catalogue", AdmxCatalogue()))
+    return _catalogue_snapshot(request.app).catalogue
 
 
-def _resolve_policy(request: Request, policy_id: str) -> PolicyDefinition:
+def _resolve_policy(
+    request: Request, policy_id: str, *, catalogue: AdmxCatalogue | None = None
+) -> PolicyDefinition:
     """Look up a policy by qualified id or bare name, 404 when absent.
 
     An ambiguous bare name propagates as :class:`AmbiguousPolicyError` and is
     answered 409 by its handler — never resolved to an arbitrary candidate.
     """
-    policy = find_policy(_catalogue(request), policy_id)
+    policy = find_policy(catalogue if catalogue is not None else _catalogue(request), policy_id)
     if policy is None:
         raise NotFoundError(f"Policy '{policy_id}' not found")
     return policy
@@ -2426,6 +2489,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.admx_catalogue = AdmxCatalogue()
     if not hasattr(app.state, "template_sources"):
         app.state.template_sources = []
+    _catalogue_snapshot(app, restart=True)
     if not hasattr(app.state, "wmi_catalogue"):
         wmi_catalogue_path = os.getenv("GPO_STUDIO_WMI_CATALOGUE", "")
         if wmi_catalogue_path:
@@ -2662,6 +2726,19 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
 }
 
 
+@app.exception_handler(_CatalogueConflict)
+async def catalogue_conflict(request: Request, error: _CatalogueConflict) -> JSONResponse:
+    return JSONResponse(
+        _error_body(request, {
+            "message": str(error),
+            "code": "catalogue_conflict",
+            "expected_catalogue_revision": error.expected,
+            "current_catalogue_revision": error.current,
+        }),
+        status_code=409,
+    )
+
+
 @app.exception_handler(StudioError)
 async def studio_error(request: Request, error: StudioError) -> JSONResponse:
     status = (
@@ -2864,7 +2941,8 @@ def index() -> FileResponse:
 @app.get("/api/health")
 def health(request: Request) -> dict[str, Any]:
     store = _store(request)
-    catalogue = _catalogue(request)
+    snapshot = _catalogue_snapshot(request.app)
+    catalogue = snapshot.catalogue
     wmi_cat = _wmi_catalogue(request)
     healthy = not store.is_degraded
     try:
@@ -2873,6 +2951,7 @@ def health(request: Request) -> dict[str, Any]:
         meta = {}
         healthy = False
     return {
+        "catalogue_revision": snapshot.revision,
         "status": "ok" if healthy else "degraded",
         "version": __version__,
         "schema_version": meta.get("schema_version", "unknown"),
@@ -2900,7 +2979,8 @@ def workspace_integrity(request: Request, full: bool = False) -> dict[str, Any]:
 
 @app.get("/api/admx/search")
 def admx_search(request: Request, q: str = "") -> dict[str, Any]:
-    catalogue = _catalogue(request)
+    snapshot = _catalogue_snapshot(request.app)
+    catalogue = snapshot.catalogue
     query = q.lower()
     if query:
         policies = [
@@ -2932,14 +3012,16 @@ def admx_search(request: Request, q: str = "") -> dict[str, Any]:
         }
         for p in policies
     ]
-    return {"items": items, "count": len(items)}
+    return {"catalogue_revision": snapshot.revision, "items": items, "count": len(items)}
 
 
 @app.get("/api/admx/policies/{policy_id}")
 def admx_policy_detail(request: Request, policy_id: str) -> dict[str, Any]:
-    policy = _resolve_policy(request, policy_id)
+    snapshot = _catalogue_snapshot(request.app)
+    policy = _resolve_policy(request, policy_id, catalogue=snapshot.catalogue)
     payload = asdict(policy)
     payload["qualified_id"] = policy.qualified_id
+    payload["catalogue_revision"] = snapshot.revision
     return payload
 
 
@@ -2947,27 +3029,30 @@ def admx_policy_detail(request: Request, policy_id: str) -> dict[str, Any]:
 def configure_policy(
     request: Request, policy_id: str, body: ConfigurePolicyRequest
 ) -> dict[str, Any]:
-    policy = _resolve_policy(request, policy_id)
-    config = PolicyConfiguration(side=body.side, values=body.values, state=body.state)
-    settings = resolve_policy(policy, config)
-    issues: list[ValidationIssue] = []
-    for s in settings:
-        issues.extend(validate_setting(s))
-    if any(i.severity == "error" for i in issues):
-        raise ValidationError(issues)
-    # Replace by prefix rather than upsert: re-configuring a policy must drop the
-    # settings its PREVIOUS state wrote. Enabled -> Disabled would otherwise
-    # leave the Enabled element values behind alongside the Disabled value, and
-    # Not Configured (no settings at all) would be a silent no-op.
-    gpo = _store(request).replace_settings_with_prefix(
-        body.gpo_guid,
-        body.expected_revision,
-        policy_setting_prefix(policy, body.side),
-        settings,
-        identity=_identity(body.actor),
-        reason=body.reason,
-    )
-    return _gpo_payload(gpo, request)
+    with _CATALOGUE_LOCK:
+        snapshot = _catalogue_snapshot(request.app)
+        _require_catalogue(snapshot, body.expected_catalogue_revision)
+        policy = _resolve_policy(request, policy_id, catalogue=snapshot.catalogue)
+        config = PolicyConfiguration(side=body.side, values=body.values, state=body.state)
+        settings = resolve_policy(policy, config)
+        issues: list[ValidationIssue] = []
+        for s in settings:
+            issues.extend(validate_setting(s))
+        if any(i.severity == "error" for i in issues):
+            raise ValidationError(issues)
+        # Replace by prefix rather than upsert: re-configuring a policy must drop the
+        # settings its PREVIOUS state wrote. Enabled -> Disabled would otherwise
+        # leave the Enabled element values behind alongside the Disabled value, and
+        # Not Configured (no settings at all) would be a silent no-op.
+        gpo = _store(request).replace_settings_with_prefix(
+            body.gpo_guid,
+            body.expected_revision,
+            policy_setting_prefix(policy, body.side),
+            settings,
+            identity=_identity(body.actor),
+            reason=body.reason,
+        )
+        return {**_gpo_payload(gpo, request), "catalogue_revision": snapshot.revision}
 
 
 def _policy_side(
@@ -3003,62 +3088,67 @@ def _policy_side(
 def bulk_policy_state(
     request: Request, guid: str, body: BulkPolicyStateMutation
 ) -> dict[str, Any]:
-    # Reject policy_sides keys that are not in policy_ids rather than silently
-    # dropping them; a typo in a key would otherwise leave a policy un-sided
-    # with no signal to the caller.
-    if body.policy_sides:
-        extra = set(body.policy_sides) - set(body.policy_ids)
-        if extra:
-            raise ValidationError([
-                ValidationIssue(
-                    severity="error",
-                    code="unknown_policy_side_key",
-                    message=(
-                        "policy_sides contains keys not present in policy_ids: "
-                        + ", ".join(sorted(extra))
-                    ),
-                    path="policy_sides",
-                )
-            ])
-    replacements: list[tuple[str, list[RegistrySetting]]] = []
-    per_policy_side = body.policy_sides or {}
-    for policy_id in body.policy_ids:
-        policy = _resolve_policy(request, policy_id)
-        side = _policy_side(policy, per_policy_side.get(policy_id, body.side))
-        config = PolicyConfiguration(side=side, values={}, state=body.target_state)
-        settings = resolve_policy(policy, config)
-        issues: list[ValidationIssue] = []
-        for s in settings:
-            issues.extend(validate_setting(s))
-        if any(i.severity == "error" for i in issues):
-            raise ValidationError(issues)
-        prefix = policy_setting_prefix(policy, side)
-        replacements.append((prefix, settings))
-    gpo = _store(request).bulk_replace_settings_by_prefix(
-        guid,
-        body.expected_revision,
-        replacements,
-        identity=_identity(body.actor),
-        reason=body.reason,
-    )
-    return _gpo_payload(gpo, request)
+    with _CATALOGUE_LOCK:
+        snapshot = _catalogue_snapshot(request.app)
+        _require_catalogue(snapshot, body.expected_catalogue_revision)
+        # Reject policy_sides keys that are not in policy_ids rather than silently
+        # dropping them; a typo in a key would otherwise leave a policy un-sided
+        # with no signal to the caller.
+        if body.policy_sides:
+            extra = set(body.policy_sides) - set(body.policy_ids)
+            if extra:
+                raise ValidationError([
+                    ValidationIssue(
+                        severity="error",
+                        code="unknown_policy_side_key",
+                        message=(
+                            "policy_sides contains keys not present in policy_ids: "
+                            + ", ".join(sorted(extra))
+                        ),
+                        path="policy_sides",
+                    )
+                ])
+        replacements: list[tuple[str, list[RegistrySetting]]] = []
+        per_policy_side = body.policy_sides or {}
+        for policy_id in body.policy_ids:
+            policy = _resolve_policy(request, policy_id, catalogue=snapshot.catalogue)
+            side = _policy_side(policy, per_policy_side.get(policy_id, body.side))
+            config = PolicyConfiguration(side=side, values={}, state=body.target_state)
+            settings = resolve_policy(policy, config)
+            issues: list[ValidationIssue] = []
+            for s in settings:
+                issues.extend(validate_setting(s))
+            if any(i.severity == "error" for i in issues):
+                raise ValidationError(issues)
+            prefix = policy_setting_prefix(policy, side)
+            replacements.append((prefix, settings))
+        gpo = _store(request).bulk_replace_settings_by_prefix(
+            guid,
+            body.expected_revision,
+            replacements,
+            identity=_identity(body.actor),
+            reason=body.reason,
+        )
+        return {**_gpo_payload(gpo, request), "catalogue_revision": snapshot.revision}
 
 
 @app.get("/api/admx/categories")
 def admx_categories(request: Request) -> dict[str, Any]:
-    catalogue = _catalogue(request)
+    snapshot = _catalogue_snapshot(request.app)
+    catalogue = snapshot.catalogue
     items = [
         {"id": c.id, "parent_id": c.parent_id, "display_name": c.display_name}
         for c in catalogue.categories
     ]
-    return {"items": items, "count": len(items)}
+    return {"catalogue_revision": snapshot.revision, "items": items, "count": len(items)}
 
 
 @app.get("/api/admx/categories/tree")
 def admx_category_tree(request: Request) -> dict[str, Any]:
     from .settings_browser import CategoryNode
 
-    catalogue = _catalogue(request)
+    snapshot = _catalogue_snapshot(request.app)
+    catalogue = snapshot.catalogue
     roots = build_category_tree(catalogue)
 
     def _node_dict(node: CategoryNode) -> dict[str, Any]:
@@ -3070,7 +3160,11 @@ def admx_category_tree(request: Request) -> dict[str, Any]:
             "children": [_node_dict(c) for c in node.children],
         }
 
-    return {"items": [_node_dict(r) for r in roots], "count": len(roots)}
+    return {
+        "catalogue_revision": snapshot.revision,
+        "items": [_node_dict(r) for r in roots],
+        "count": len(roots),
+    }
 
 
 @app.get(
@@ -3103,8 +3197,10 @@ def configured_settings(
     ``ambiguous`` is true when the policy matches multiple ADMX policies;
     ``ambiguous_with`` lists the qualified IDs of those other policies.
     """
-    gpo = _store(request).get_gpo(guid)
-    catalogue = _catalogue(request)
+    with _CATALOGUE_LOCK:
+        snapshot = _catalogue_snapshot(request.app)
+        gpo = _store(request).get_gpo(guid)
+    catalogue = snapshot.catalogue
     result = build_settings_browser(catalogue, gpo.settings)
     if q or state or category:
         result = search_configured_settings(result, q, state, category)
@@ -3143,6 +3239,8 @@ def configured_settings(
         for u in result.unresolved[:limit]
     ]
     return {
+        "catalogue_revision": snapshot.revision,
+        "gpo_revision": gpo.revision,
         "resolved": resolved_items,
         "unresolved": unresolved_items,
         "resolved_count": len(result.resolved),
@@ -3158,7 +3256,8 @@ class IngestTemplateRequest(BaseModel):
 
 @app.get("/api/templates")
 def list_template_sources(request: Request) -> dict[str, Any]:
-    sources: list[Any] = getattr(request.app.state, "template_sources", [])
+    snapshot = _catalogue_snapshot(request.app)
+    sources = snapshot.sources
     items = []
     for result in sources:
         items.append({
@@ -3169,32 +3268,38 @@ def list_template_sources(request: Request) -> dict[str, Any]:
             "policy_count": len(result.catalogue.policies),
             "error_count": len(result.errors),
         })
-    return {"items": items, "count": len(items)}
+    return {"catalogue_revision": snapshot.revision, "items": items, "count": len(items)}
 
 
 @app.post("/api/templates/ingest", status_code=201)
 def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dict[str, Any]:
     from .template_store import TemplateError, ingest_source
 
-    directory = Path(body.path).resolve()
-    template_root = os.getenv("GPO_STUDIO_TEMPLATE_ROOT", "")
-    if template_root:
-        root = Path(template_root).resolve()
-        if not directory.is_relative_to(root):
-            raise StudioError(
-                f"Path escapes template root: {directory}"
-            )
     try:
+        directory = Path(body.path).resolve()
+        template_root = os.getenv("GPO_STUDIO_TEMPLATE_ROOT", "")
+        if template_root:
+            root = Path(template_root).resolve()
+            if not directory.is_relative_to(root):
+                raise StudioError(
+                    f"Path escapes template root: {directory}"
+                )
         result = ingest_source(body.name, body.kind, directory)
     except TemplateError as exc:
         raise StudioError(str(exc)) from exc
-    sources: list[Any] = getattr(request.app.state, "template_sources", [])
-    sources = [s for s in sources if s.source.name != body.name]
-    sources.append(result)
-    request.app.state.template_sources = sources
-    merged = _merge_template_catalogues(sources)
-    request.app.state.admx_catalogue = merged
+    except OSError as exc:
+        raise StudioError(
+            f"Cannot read ADMX folder: {body.path}. Check that the folder is available "
+            "and GPO Studio has permission to read it."
+        ) from exc
+    with _CATALOGUE_LOCK:
+        current = _catalogue_snapshot(request.app)
+        sources = [s for s in current.sources if s.source.name != body.name]
+        sources.append(result)
+        merged = _merge_template_catalogues(sources)
+        snapshot = _activate_catalogue(request.app, merged, tuple(sources))
     return {
+        "catalogue_revision": snapshot.revision,
         "name": result.source.name,
         "kind": result.source.kind,
         "path": result.source.path,
@@ -3208,7 +3313,7 @@ def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dic
 def template_collisions(request: Request) -> dict[str, Any]:
     from .template_store import detect_collisions
 
-    sources: list[Any] = getattr(request.app.state, "template_sources", [])
+    sources = _catalogue_snapshot(request.app).sources
     if not sources:
         return {
             "has_issues": False,
@@ -3247,7 +3352,7 @@ def template_collisions(request: Request) -> dict[str, Any]:
 def build_template_lock(request: Request) -> dict[str, Any]:
     from .template_store import build_lock
 
-    sources: list[Any] = getattr(request.app.state, "template_sources", [])
+    sources = _catalogue_snapshot(request.app).sources
     lock = build_lock(tuple(sources))
     return {"source_hashes": [{"name": n, "sha256": h} for n, h in lock.source_hashes]}
 
@@ -3265,7 +3370,7 @@ class ValidateLockRequest(BaseModel):
 def validate_template_lock(request: Request, body: ValidateLockRequest) -> dict[str, Any]:
     from .template_store import TemplateLock, validate_lock
 
-    sources: list[Any] = getattr(request.app.state, "template_sources", [])
+    sources = _catalogue_snapshot(request.app).sources
     lock = TemplateLock(
         source_hashes=tuple((h.name, h.sha256) for h in body.source_hashes)
     )

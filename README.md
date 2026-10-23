@@ -44,6 +44,13 @@ python -m venv .venv
 .venv/bin/gpo-studio
 ```
 
+Use **ADMX folder** in the sidebar to load templates for the current server
+session. For repeatable startup without environment variables:
+
+```bash
+uv run gpo-studio run --admx-dir "/path/to/PolicyDefinitions"
+```
+
 Full install and configuration options are in
 [`docs/installation.md`](docs/installation.md).
 

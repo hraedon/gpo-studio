@@ -2,6 +2,7 @@ import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
 import {api,toast,audit,showPersistentError} from './api.mjs';
 import {clearFormErrors,showFormErrors,handleFormFailure} from './errors.mjs';
 import {renderAll,renderList} from './render.mjs';
+import {captureMutation,resetEditor,beginMutation,isSameEditor,completeMutation,mutationFailed,endMutation} from './mutation-context.mjs';
 
 // The authored predicate types: the same set as ilt.AUTHORABLE_PREDICATE_TYPES
 // (tests/test_gpp_clone_restore.py holds them equal). An OS predicate is
@@ -11,7 +12,7 @@ const ILT_LABELS={ou:"OU",group:"Group",registry:"Registry",ip_range:"IP range",
 const ILT_HINTS={ou:"Distinguished name, e.g. OU=Servers,DC=studio,DC=local",group:"Group SID or name, e.g. S-1-5-32-544",registry:"Key\\ValueName path",ip_range:"CIDR (10.0.0.0/8) or range (10.0.0.1-10.0.0.99)",environment:"NAME=value",wmi_query:"WQL query (SELECT ... FROM ...)",os:"class/version/type/edition/sp, e.g. NT/WINTHRESHOLD/WS/NE/NE"};
 const ILT_PREVIEW={ou:v=>"Member of "+v,group:v=>"Member of group "+v,registry:v=>"Registry "+v+" matches",ip_range:v=>"IP in "+v,environment:v=>"Environment "+v,wmi_query:v=>"WMI query: "+v,os:v=>"Operating system "+v};
 const REG_TYPES=["REG_SZ","REG_EXPAND_SZ","REG_BINARY","REG_DWORD","REG_MULTI_SZ","REG_QWORD"];
-const REG_VALUE_HINTS={REG_SZ:"Text value",REG_EXPAND_SZ:"Text with %VAR% expansion",REG_BINARY:"Hex bytes, e.g. 01FFA0",REG_DWORD:"Non-negative decimal integer",REG_MULTI_SZ:"Semicolon or newline-separated values",REG_QWORD:"Non-negative decimal integer"};
+const REG_VALUE_HINTS={REG_SZ:"Text value",REG_EXPAND_SZ:"Text with %VAR% expansion",REG_BINARY:"Hex bytes, e.g. 01FFA0",REG_DWORD:"Non-negative decimal integer",REG_MULTI_SZ:'JSON array of strings, e.g. ["first", "second"]',REG_QWORD:"Non-negative decimal integer"};
 const REG_VALUE_ACTIONS=["create","replace","update","delete"];
 const GROUP_ACTIONS=["add","replace","remove","update"];
 function applyCurrent(data){applyPayload(data);renderAll();renderList()}
@@ -229,13 +230,13 @@ export function initGpp(){
 function showRetained(formId,item){
   const form=$("#"+formId);
   let note=form.querySelector(".gpp-retained-note");
-  if(!note){note=document.createElement("p");note.className="gpp-note gpp-retained-note";note.setAttribute("role","note");form.querySelector(".dialog-actions")?.insertAdjacentElement("beforebegin",note)||form.appendChild(note)}
+  if(!note){note=document.createElement("p");note.className="gpp-note gpp-retained-note";note.setAttribute("role","note");(form.querySelector(":scope > .dialog-body")||form).appendChild(note)}
   const text=retainedSummary(item);
   note.textContent=text;note.hidden=!text;
 }
 
 export function openGppGroup(scope,group=null){
-  const f=$("#gpp-group-form");f.reset();clearFormErrors(f);
+  const f=$("#gpp-group-form");resetEditor(f);f.reset();clearFormErrors(f);
   state.editingGppGroup=group;
   f.scope.value=scope;
   $("#gpp-group-dialog-title").textContent=group?"Edit group":"Add group";
@@ -264,7 +265,7 @@ function addMemberRow(member=null){
   const list=$("#gpp-members-list");
   const row=document.createElement("div");
   row.className="gpp-row";
-  row.innerHTML=`<input data-field="sid" placeholder="SID (required)" maxlength="255" required><input data-field="name" placeholder="Name" maxlength="255"><select data-field="action">${GROUP_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><button type="button" class="quiet">×</button>`;
+  row.innerHTML=`<label class="gpp-field">Member SID<input data-field="sid" placeholder="SID (required)" maxlength="255" required></label><label class="gpp-field">Member name<input data-field="name" placeholder="Name" maxlength="255"></label><label class="gpp-field">Member action<select data-field="action">${GROUP_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select></label><button type="button" class="quiet">×</button>`;
   if(member){row.querySelector('[data-field=sid]').value=member.sid;row.querySelector('[data-field=name]').value=member.name||"";row.querySelector('[data-field=action]').value=member.action;row.dataset.id=member.id||""}
   const removeButton=row.querySelector("button");removeButton.setAttribute("aria-label","Remove member row");removeButton.onclick=()=>row.remove();
   list.appendChild(row);
@@ -286,49 +287,56 @@ async function submitGppGroup(event){
   const broadMembershipChange=group.action==="replace"||group.action==="remove"||group.remove_all_users||group.remove_all_groups||group.members.some(member=>member.action==="replace"||member.action==="remove");
   if(broadMembershipChange&&!confirm(`Save broad membership change for group "${group.name}"?\n\nAction: ${group.action}. Remove all users: ${group.remove_all_users?'yes':'no'}. Remove all groups: ${group.remove_all_groups?'yes':'no'}. Review the required change reason before continuing.`))return;
   const path=state.editingGppGroup?`/api/gpos/${state.current.guid}/preferences/groups/${state.editingGppGroup.id}`:`/api/gpos/${state.current.guid}/preferences/groups`;
-  try{const data=await api(path,{method:state.editingGppGroup?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),group})});$("#gpp-group-dialog").close();applyCurrent(data);toast("GPP group saved")}catch(error){await handleFormFailure(f,error,{onCurrent:applyCurrent})}
+  const context=beginMutation(f);if(!context)return;clearFormErrors(f);
+  try{const data=await api(path,{method:state.editingGppGroup?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),expected_revision:context.revision,group})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP group saved")}catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{onCurrent:applyCurrent,fieldNames:context.fieldNames,isActive:()=>isSameEditor(context)}))}finally{endMutation(context)}
 }
 
 export async function deleteGppGroup(scope,id){
+  const context=captureMutation();
   const collection=(state.current.gpp_collections||[]).find(item=>item.scope===scope);
   const group=(collection?.groups||[]).find(item=>item.id===id);
   if(!confirm(`Remove GPP group "${group?.name||id}" from the ${scope} draft?\n\nIts action, members, and item-level targeting will be removed in one new revision.`))return;
-  try{const data=await api(`/api/gpos/${state.current.guid}/preferences/groups/${id}`,{method:"DELETE",body:JSON.stringify({scope,...audit("Remove GPP group")})});applyCurrent(data);toast("GPP group removed")}catch(error){showPersistentError(error.message)}
+  try{const data=await api(`/api/gpos/${context.guid}/preferences/groups/${id}`,{method:"DELETE",body:JSON.stringify({scope,...audit("Remove GPP group")})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP group removed")}catch(error){await mutationFailed(context,error)}
 }
 
 export async function moveGppItem(scope,kind,id,offset){
+  const context=captureMutation();
   const collection=(state.current.gpp_collections||[]).find(item=>item.scope===scope);
   const items=collection?.[kind]||[];
   const orderedIds=moveGppItemIds(items,id,offset);
   if(!orderedIds)return;
   try{
     const label=kind==="groups"?"groups":"registry items";
-    const data=await api(`/api/gpos/${state.current.guid}/preferences/reorder`,{method:"POST",body:JSON.stringify({scope,kind,ordered_ids:orderedIds,...audit(`Reorder GPP ${label}`)})});
-    applyCurrent(data);toast(`GPP ${label} reordered`);
-  }catch(error){showPersistentError(error.message)}
+    const data=await api(`/api/gpos/${context.guid}/preferences/reorder`,{method:"POST",body:JSON.stringify({scope,kind,ordered_ids:orderedIds,...audit(`Reorder GPP ${label}`)})});
+    completeMutation(context,data,{apply:applyCurrent,renderList});toast(`GPP ${label} reordered`);
+  }catch(error){await mutationFailed(context,error)}
 }
 
 export async function cloneGppItem(scope,kind,item,existingNames=[]){
+  const context=captureMutation();
   const label=kind==="groups"?"group":"registry item";
   try{
-    const request=gppCloneRequest(state.current.guid,scope,kind,item,existingNames);
+    const request=gppCloneRequest(context.guid,scope,kind,item,existingNames);
     const data=await api(request.path,{method:"POST",body:JSON.stringify({...request.body,...audit(`Clone GPP ${label}`)})});
-    applyCurrent(data);toast(`GPP ${label} cloned`);
+    const applied=completeMutation(context,data,{apply:applyCurrent,renderList});toast(`GPP ${label} cloned`);
+    if(!applied||document.querySelector("dialog[open]"))return;
     // Open the copy (the last item) for editing.
     const collection=(state.current.gpp_collections||[]).find(entry=>entry.scope===scope);
     const items=collection?.[kind]||[];
     const copied=items[items.length-1];
     if(copied){if(kind==="groups")openGppGroup(scope,copied);else openGppRegistry(scope,copied)}
-  }catch(error){showPersistentError(error.message)}
+  }catch(error){await mutationFailed(context,error)}
 }
 
 export async function restoreGppItem(scope,kind,id){
+  const context=captureMutation();
   const revisionText=prompt("Revision containing the item version to restore:");
   if(revisionText===null)return;
   const revision=Number(revisionText);
   if(!Number.isInteger(revision)||revision<1){toast("Enter a valid revision number");return}
   try{
-    const historical=await api(`/api/gpos/${state.current.guid}/revisions/${revision}`);
+    const historical=await api(`/api/gpos/${context.guid}/revisions/${revision}`);
+    if(state.current?.guid!==context.guid||state.current.revision!==context.revision){showPersistentError("The selected policy changed. Start the item restore again from its current revision.");return}
     const item=findRevisionGppItem(historical.snapshot,scope,kind,id);
     if(!item){toast(`This item does not exist in revision ${revision}`);return}
     const currentCollection=(state.current.gpp_collections||[]).find(collection=>collection.scope===scope);
@@ -336,14 +344,14 @@ export async function restoreGppItem(scope,kind,id){
     const label=kind==="groups"?(current?.name||item.name):(current?.key||item.key);
     if(!confirm(`Restore ${kind==="groups"?"group":"registry item"} "${label}" from revision ${revision}?\n\nOnly this item will be overwritten. The restore is appended as a new revision; all other current policy content remains unchanged.`))return;
     const property=kind==="groups"?"group":"registry";
-    const request=gppRestoreRequest(state.current.guid,scope,kind,id,revision);
+    const request=gppRestoreRequest(context.guid,scope,kind,id,revision);
     const data=await api(request.path,{method:"POST",body:JSON.stringify({...request.body,...audit(`Restore GPP ${property} from revision ${revision}`)})});
-    applyCurrent(data);toast(`${kind==="groups"?"Group":"Registry item"} restored from revision ${revision}`);
-  }catch(error){showPersistentError(error.message)}
+    completeMutation(context,data,{apply:applyCurrent,renderList});toast(`${kind==="groups"?"Group":"Registry item"} restored from revision ${revision}`);
+  }catch(error){await mutationFailed(context,error)}
 }
 
 export function openGppRegistry(scope,registry=null){
-  const f=$("#gpp-registry-form");f.reset();clearFormErrors(f);
+  const f=$("#gpp-registry-form");resetEditor(f);f.reset();clearFormErrors(f);
   state.editingGppRegistry=registry;
   f.scope.value=scope;
   $("#gpp-registry-dialog-title").textContent=registry?"Edit registry":"Add registry";
@@ -370,7 +378,10 @@ function addValueRow(value=null){
   const list=$("#gpp-values-list");
   const row=document.createElement("div");
   row.className="gpp-row";
-  row.innerHTML=`<input data-field="name" placeholder="Value name (empty = key-only)" maxlength="255"><select data-field="type"><option value="">(key-only)</option>${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select><input data-field="value" placeholder="Value"><select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><label title="Configure the key's default value"><input type="checkbox" data-field="default"> Default</label><button type="button" class="quiet">×</button>`;
+  row.innerHTML=`<label class="gpp-field">Registry value name<input data-field="name" placeholder="Value name (empty = key-only)" maxlength="255"></label><label class="gpp-field">Registry value type<select data-field="type"><option value="">(key-only)</option>${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select></label><label class="gpp-field">Registry value data<input data-field="value" aria-label="Registry value data" placeholder="Value"></label><label class="gpp-field">Registry value action<select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select></label><label title="Configure the key's default value"><input type="checkbox" data-field="default"> Default</label><button type="button" class="quiet">×</button>`;
+  const valueHelp=document.createElement("small");
+  valueHelp.id="gpp-registry-value-help";valueHelp.dataset.valueHelp="";valueHelp.textContent='REG_MULTI_SZ uses a JSON array of strings, e.g. ["first", "second"]. Spaces, empty strings and semicolons are kept in the workspace. Use [] for an empty list.';
+  row.appendChild(valueHelp);
   const typeSel=row.querySelector('[data-field=type]');
   const valueInput=row.querySelector('[data-field=value]');
   const actionSel=row.querySelector('[data-field=action]');
@@ -379,9 +390,9 @@ function addValueRow(value=null){
     if(defaultBox.checked){row.querySelector('[data-field=name]').value="";row.querySelector('[data-field=name]').disabled=true}
     else{row.querySelector('[data-field=name]').disabled=false}
   };
-  typeSel.onchange=()=>{if(!typeSel.value&&!defaultBox.checked)valueInput.value="";valueInput.placeholder=typeSel.value?REG_VALUE_HINTS[typeSel.value]||"Value":defaultBox.checked?"Default value":"Key-only entry";valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked)};
+  typeSel.onchange=()=>{if(!typeSel.value&&!defaultBox.checked)valueInput.value="";if(typeSel.value==="REG_MULTI_SZ"&&!valueInput.value)valueInput.value="[]";valueHelp.hidden=typeSel.value!=="REG_MULTI_SZ";const descriptions=(valueInput.getAttribute("aria-describedby")||"").split(/\s+/).filter(id=>id&&id!==valueHelp.id);if(!valueHelp.hidden)descriptions.push(valueHelp.id);if(descriptions.length)valueInput.setAttribute("aria-describedby",descriptions.join(" "));else valueInput.removeAttribute("aria-describedby");valueInput.placeholder=typeSel.value?REG_VALUE_HINTS[typeSel.value]||"Value":defaultBox.checked?"Default value":"Key-only entry";valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked)};
   actionSel.onchange=()=>{valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked)};
-  if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type||"";valueInput.value=Array.isArray(value.value)?value.value.join(";"):String(value.value);actionSel.value=value.action;defaultBox.checked=!!value.default;if(defaultBox.checked)row.querySelector('[data-field=name]').disabled=true}
+  if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type||"";valueInput.value=Array.isArray(value.value)?JSON.stringify(value.value):String(value.value);actionSel.value=value.action;defaultBox.checked=!!value.default;if(defaultBox.checked)row.querySelector('[data-field=name]').disabled=true}
   valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked);
   typeSel.onchange();
   const removeButton=row.querySelector("button");removeButton.setAttribute("aria-label","Remove registry value row");removeButton.onclick=()=>row.remove();
@@ -399,7 +410,10 @@ function collectValue(){
     const action=row.querySelector('[data-field=action]').value;
     let value;
     if(action==="delete")value="";
-    else if(type==="REG_MULTI_SZ")value=raw.split(/[\r\n;]+/).map(s=>s.trim()).filter(s=>s.length>0);
+    else if(type==="REG_MULTI_SZ"){
+      try{value=JSON.parse(raw)}catch{throw new Error('REG_MULTI_SZ must be a JSON array of strings, for example ["first", "second"].')}
+      if(!Array.isArray(value)||value.some(item=>typeof item!=="string"))throw new Error("REG_MULTI_SZ must be a JSON array containing only strings.");
+    }
     else if(type==="REG_DWORD"||type==="REG_QWORD")value=raw.trim();
     else value=raw;
     return {name,value,registry_type:type,action,default:isDefault};
@@ -409,7 +423,8 @@ async function submitGppRegistry(event){
   event.preventDefault();
   if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
   const f=event.currentTarget,scope=f.scope.value;
-  const value=collectValue();
+  let value;
+  try{value=collectValue()}catch(error){showFormErrors(f,{issues:[{path:"value",message:error.message}]});return}
   if(!value){showFormErrors(f,{issues:[{message:"A registry value is required."}]});return}
   if(!value.default&&String(value.value).trim()&&!value.name.trim()&&value.registry_type){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
   const registryOsProblem=osProblem("gpp-ilt-registry-list");
@@ -419,21 +434,23 @@ async function submitGppRegistry(event){
   if(badDword){showFormErrors(f,{issues:[{message:`${value.registry_type} value for "${value.name||"(default)"}" must be a non-negative decimal integer.`}]});return}
   const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,value,ilt_filter:commonIlt};
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
-  try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),registry})});$("#gpp-registry-dialog").close();applyCurrent(data);toast("GPP registry saved")}catch(error){await handleFormFailure(f,error,{onCurrent:applyCurrent})}
+  const context=beginMutation(f);if(!context)return;clearFormErrors(f);
+  try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),expected_revision:context.revision,registry})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP registry saved")}catch(error){await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{onCurrent:applyCurrent,fieldNames:context.fieldNames,isActive:()=>isSameEditor(context)}))}finally{endMutation(context)}
 }
 
 export async function deleteGppRegistry(scope,id){
+  const context=captureMutation();
   const collection=(state.current.gpp_collections||[]).find(item=>item.scope===scope);
   const registry=(collection?.registry||[]).find(item=>item.id===id);
   if(!confirm(`Remove GPP registry item "${registry?.key||id}" from the ${scope} draft?\n\nIts value and item-level targeting will be removed in one new revision.`))return;
-  try{const data=await api(`/api/gpos/${state.current.guid}/preferences/registry/${id}`,{method:"DELETE",body:JSON.stringify({scope,...audit("Remove GPP registry")})});applyCurrent(data);toast("GPP registry removed")}catch(error){showPersistentError(error.message)}
+  try{const data=await api(`/api/gpos/${context.guid}/preferences/registry/${id}`,{method:"DELETE",body:JSON.stringify({scope,...audit("Remove GPP registry")})});completeMutation(context,data,{apply:applyCurrent,renderList});toast("GPP registry removed")}catch(error){await mutationFailed(context,error)}
 }
 
 function addPredicateRow(listId,previewId,row=null){
   const list=$("#"+listId);
   const el=document.createElement("div");
   el.className="gpp-row";
-  el.innerHTML=`<span class="gpp-connector mono" aria-hidden="true"></span><select data-field="type">${ILT_TYPES.map(t=>`<option value="${t}">${ILT_LABELS[t]}</option>`).join("")}</select><label><input type="checkbox" data-field="negate"> NOT</label><input data-field="value" placeholder="${ILT_HINTS.ou}"><button type="button" class="quiet" data-move="-1">↑</button><button type="button" class="quiet" data-move="1">↓</button><button type="button" class="quiet" data-remove>×</button>`;
+  el.innerHTML=`<span class="gpp-connector mono" aria-hidden="true"></span><label class="gpp-field">Targeting predicate type<select data-field="type">${ILT_TYPES.map(t=>`<option value="${t}">${ILT_LABELS[t]}</option>`).join("")}</select></label><label><input type="checkbox" data-field="negate"> NOT</label><label class="gpp-field">Targeting predicate value<input data-field="value" placeholder="${ILT_HINTS.ou}"></label><button type="button" class="quiet" data-move="-1">↑</button><button type="button" class="quiet" data-move="1">↓</button><button type="button" class="quiet" data-remove>×</button>`;
   const typeSel=el.querySelector('[data-field=type]');
   const valueInput=el.querySelector('[data-field=value]');
   const negateBox=el.querySelector('[data-field=negate]');

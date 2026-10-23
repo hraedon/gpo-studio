@@ -2,7 +2,16 @@ export const state={gpos:[],current:null,validation:[],policyHash:"",reviewHash:
 export const $=selector=>document.querySelector(selector);
 export const $$=selector=>[...document.querySelectorAll(selector)];
 export const escapeHtml=value=>String(value??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+export function updateGpoSummary(gpo){
+  const fields={guid:gpo.guid,name:gpo.name,status:gpo.status,revision:gpo.revision,updated_at:gpo.updated_at};
+  const existing=state.gpos.find(item=>item.guid===gpo.guid);
+  if(existing){if(existing.revision<=gpo.revision)Object.assign(existing,fields)}else state.gpos.push(fields);
+}
+export function getKnownGpoRevision(guid){
+  return Math.max(state.gpos.find(gpo=>gpo.guid===guid)?.revision||0,state.current?.guid===guid?state.current.revision:0);
+}
 export function applyPayload(payload){
+  updateGpoSummary(payload.gpo);
   state.current=payload.gpo;
   state.validation=payload.validation||[];
   state.policyHash=payload.policy_semantic_sha256||"";

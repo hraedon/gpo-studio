@@ -1,11 +1,20 @@
-import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
+import {state,$,$$,escapeHtml,applyPayload,updateGpoSummary} from './state.mjs';
 import {api} from './api.mjs';
 import {openSetting,deleteSetting,openComment,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
 import {renderGpp} from './gpp.mjs';
 import {loadBrowser} from './browser.mjs';
+import {loadDiffSelectors} from './diff.mjs';
+
+let selectionRequest=0,historyRequest=0,listRequest=0;
 
 export async function loadList(selectGuid){
-  const data=await api("/api/gpos");state.gpos=data.items;renderList();
+  const selection=selectionRequest,request=++listRequest;
+  const data=await api("/api/gpos");
+  if(request!==listRequest)return;
+  state.gpos=data.items;
+  if(state.current)updateGpoSummary(state.current);
+  renderList();
+  if(selection!==selectionRequest)return;
   const guid=selectGuid||state.current?.guid||state.gpos[0]?.guid;
   if(guid)await selectGpo(guid);else showEmpty();
 }
@@ -16,11 +25,14 @@ export function renderList(){
 }
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
 export async function selectGpo(guid){
-  const data=await api(`/api/gpos/${guid}`);applyPayload(data);
+  const request=++selectionRequest;
+  const data=await api(`/api/gpos/${guid}`);
+  if(request!==selectionRequest)return;
+  applyPayload(data);
   $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
   renderAll();renderList();
 }
-export function renderAll(){
+export function renderAll({refreshBrowser=true}={}){
   const g=state.current;$("#title").textContent=g.name;$("#revision").textContent=`Revision ${g.revision}`;
   $$("form").forEach(form=>{form.dataset.gpoGuid=g.guid});
   $("#fork-gpo").hidden=!(g.source_guid||g.status==="archived");$("#copy-settings").hidden=g.status==="archived";
@@ -38,7 +50,8 @@ export function renderAll(){
   $$('[data-edit-setting],[data-delete-setting],[data-comment-setting],[data-edit-link],[data-delete-link],[data-edit-filter],[data-delete-filter],[data-edit-gpp-group],[data-delete-gpp-group],[data-edit-gpp-registry],[data-delete-gpp-registry],[data-clone-gpp-group],[data-clone-gpp-registry],[data-move-gpp-group],[data-move-gpp-registry],[data-restore-gpp-group],[data-restore-gpp-registry]').forEach(control=>{if(readOnly){control.disabled=true;control.title="Archived policies are read-only. Fork this policy to edit it."}});
   $$('[data-export-kind]').forEach(link=>{const capability=state.artifactCapabilities[link.dataset.exportKind]||{};const blocked=capability.enabled===false;link.setAttribute("aria-disabled",String(blocked));link.classList.toggle("disabled",blocked);link.title=blocked?(capability.reason||"Validation errors block this artifact. Open export review for details."):"Review this artifact before downloading."});
   if($("#panel-history").classList.contains("active"))loadHistory();
-  if($("#panel-browser").classList.contains("active"))loadBrowser();
+  if(refreshBrowser&&$("#panel-browser").classList.contains("active"))loadBrowser();
+  if($("#panel-diff").classList.contains("active"))loadDiffSelectors();
 }
 export function renderValidation(){
   const errors=state.validation.filter(i=>i.severity==="error"),warnings=state.validation.filter(i=>i.severity==="warning");
@@ -73,6 +86,17 @@ export function renderWmi(){
   $("#wmi-display").innerHTML=`<dl class="details"><dt>Name</dt><dd>${escapeHtml(w.name)}</dd><dt>Language</dt><dd>${escapeHtml(w.language)}</dd><dt>Query</dt><dd class="mono">${escapeHtml(w.query)}</dd>${w.description?`<dt>Description</dt><dd>${escapeHtml(w.description)}</dd>`:""}</dl>`;
 }
 export async function loadHistory(){
-  const data=await api(`/api/gpos/${state.current.guid}/revisions`);$("#history-list").innerHTML=data.items.map((r,index)=>`<div class="revision-item"><div><p><strong>Revision ${r.revision}</strong> · ${escapeHtml(r.reason)}</p><small>${escapeHtml(r.actor)} · ${new Date(r.created_at).toLocaleString()}</small></div>${index?`<button data-restore="${r.revision}">Restore</button>`:'<span class="pill ok">Current</span>'}</div>`).join("");
-  $$('[data-restore]').forEach(el=>el.onclick=()=>restoreRevision(Number(el.dataset.restore)));
+  if(!state.current)return;
+  const {guid,revision,name}=state.current;
+  const request=++historyRequest;
+  $("#history-list").textContent="Loading revision history…";
+  try{
+    const data=await api(`/api/gpos/${guid}/revisions`);
+    if(request!==historyRequest||state.current?.guid!==guid||state.current.revision!==revision)return;
+    $("#history-list").innerHTML=data.items.map((r,index)=>`<div class="revision-item"><div><p><strong>Revision ${r.revision}</strong> · ${escapeHtml(r.reason)}</p><small>${escapeHtml(r.actor)} · ${new Date(r.created_at).toLocaleString()}</small></div>${index?`<button data-restore="${r.revision}">Restore</button>`:'<span class="pill ok">Current</span>'}</div>`).join("");
+    $$('[data-restore]').forEach(el=>el.onclick=()=>restoreRevision(Number(el.dataset.restore),{guid,revision,name}));
+  }catch(error){
+    if(request!==historyRequest||state.current?.guid!==guid||state.current.revision!==revision)return;
+    $("#history-list").textContent=`Could not load revision history: ${error.message}`;
+  }
 }

@@ -1,5 +1,21 @@
-import { state, $, $$, escapeHtml, applyPayload } from "./state.mjs";
+import {
+  state,
+  $,
+  $$,
+  escapeHtml,
+  applyPayload,
+  updateGpoSummary,
+} from "./state.mjs";
 import { api, toast, audit, showPersistentError } from "./api.mjs";
+import { renderAll, renderList } from "./render.mjs";
+import {
+  catalogueEpoch as revisionEpoch,
+  observeCatalogue,
+  observeCatalogueConflict,
+  reviewedCatalogueIsCurrent,
+  onCatalogueChange,
+  initCatalogueMonitoring,
+} from "./catalogue-context.mjs";
 
 // Module-level caches. The ADMX catalogue and category tree are workspace-
 // level, so they only need to be loaded once per session. The configured
@@ -12,36 +28,113 @@ let admxLoaded = null,
 // Filter state persists across GPO switches, mirroring how state.side behaves
 // for the settings tab.
 const filters = { side: "all", state: "all", q: "", category: "" };
-const selectedPolicyIds = new Set();
+const selectedPolicies = new Map();
+let browserGpoGuid = null;
+let browserContext = 0;
+let configuredRequest = 0;
+let bulkApplying = false;
+let catalogueEpoch = 0;
+let categoryRevision = null,
+  reviewContext = null;
+const catalogueReviewMessage =
+  "The ADMX catalogue changed. Review the current settings and select them again before making a bulk change.";
+
+function policyKey(policy) {
+  return JSON.stringify([policy.side, policy.policy_id]);
+}
+
+function selectBrowserGpo(guid) {
+  if (browserGpoGuid === guid) return;
+  browserGpoGuid = guid;
+  browserContext++;
+  configuredRequest++;
+  selectedPolicies.clear();
+  reviewContext = null;
+  $("#browser-bulk-reason").value = "";
+  renderBrowser({
+    resolved: [],
+    unresolved: [],
+    resolved_count: 0,
+    unresolved_count: 0,
+  });
+}
+
+export function resetBrowserCatalogue() {
+  catalogueEpoch++;
+  admxLoaded = null;
+  categoryTree = null;
+  categoryTreeLoaded = false;
+  categoryRevision = null;
+  reviewContext = null;
+  filters.category = "";
+  $("#browser-category-filter").value = "";
+  configuredRequest++;
+  selectedPolicies.clear();
+  populateCategorySelect();
+  renderBrowser({
+    resolved: [],
+    unresolved: [],
+    resolved_count: 0,
+    unresolved_count: 0,
+  });
+  updateBulkBar();
+}
 
 export async function loadBrowser() {
   if (!state.current) return;
+  const guid = state.current.guid;
+  const epoch = catalogueEpoch,
+    started = revisionEpoch();
+  selectBrowserGpo(guid);
+  updateBulkBar();
   if (admxLoaded === null) {
     try {
       const h = await api("/api/health");
+      if (!observeCatalogue(h, started) || epoch !== catalogueEpoch) return;
       admxLoaded = h.admx_loaded === true;
-    } catch {
-      admxLoaded = false;
+    } catch (error) {
+      if (epoch === catalogueEpoch) showPersistentError(error.message);
+      return;
     }
   }
+  if (
+    epoch !== catalogueEpoch ||
+    state.current?.guid !== guid ||
+    browserGpoGuid !== guid
+  )
+    return;
   $("#browser-empty").hidden = admxLoaded;
   $("#browser-content").hidden = !admxLoaded;
   if (!admxLoaded) return;
   if (!categoryTreeLoaded) {
-    categoryTreeLoaded = true;
-    await loadCategoryTree();
+    if (!(await loadCategoryTree())) return;
   }
+  if (
+    epoch !== catalogueEpoch ||
+    state.current?.guid !== guid ||
+    browserGpoGuid !== guid
+  )
+    return;
   await loadConfiguredSettings();
 }
 
 async function loadCategoryTree() {
+  const epoch = catalogueEpoch,
+    started = revisionEpoch();
   try {
     const data = await api("/api/admx/categories/tree");
+    const observed = observeCatalogue(data, started);
+    if (!observed || epoch !== catalogueEpoch) return false;
+    categoryRevision = observed.revision;
+    categoryTreeLoaded = true;
     categoryTree = data.items || [];
     populateCategorySelect();
+    return true;
   } catch (e) {
-    toast(e.message);
+    if (epoch !== catalogueEpoch) return;
+    showPersistentError(e.message);
     categoryTree = [];
+    return false;
   }
 }
 
@@ -63,18 +156,56 @@ function populateCategorySelect() {
 
 async function loadConfiguredSettings() {
   if (!state.current) return;
+  const guid = state.current.guid;
+  const revision = state.current.revision;
+  selectBrowserGpo(guid);
+  const request = ++configuredRequest,
+    started = revisionEpoch();
   const params = new URLSearchParams();
   if (filters.q) params.set("q", filters.q);
   if (filters.state !== "all") params.set("state", filters.state);
   if (filters.category) params.set("category", filters.category);
   if (filters.side !== "all") params.set("side", filters.side);
   try {
-    const data = await api(
-      `/api/gpos/${state.current.guid}/configured-settings?${params}`,
-    );
+    const data = await api(`/api/gpos/${guid}/configured-settings?${params}`);
+    const observed = observeCatalogue(data, started);
+    if (
+      !observed ||
+      request !== configuredRequest ||
+      browserGpoGuid !== guid ||
+      state.current?.guid !== guid ||
+      state.current.revision !== revision
+    )
+      return;
+    if (!Number.isInteger(data.gpo_revision) || data.gpo_revision !== revision)
+      throw new Error(
+        "The policy snapshot changed or could not be verified. Reload the policy and review its settings before making a bulk change.",
+      );
+    if (categoryRevision !== observed.revision) return;
+    if (
+      reviewContext &&
+      (reviewContext.catalogueRevision !== observed.revision ||
+        reviewContext.gpoRevision !== data.gpo_revision)
+    )
+      selectedPolicies.clear();
+    reviewContext = {
+      guid,
+      catalogueRevision: observed.revision,
+      gpoRevision: data.gpo_revision,
+    };
     renderBrowser(data);
   } catch (e) {
-    toast(e.message);
+    if (request === configuredRequest && state.current?.guid === guid) {
+      reviewContext = null;
+      selectedPolicies.clear();
+      renderBrowser({
+        resolved: [],
+        unresolved: [],
+        resolved_count: 0,
+        unresolved_count: 0,
+      });
+      showPersistentError(e.message);
+    }
   }
 }
 
@@ -120,7 +251,7 @@ function renderResolved(items) {
       const ambiguousBadge = p.ambiguous
         ? ` <span class="browser-ambiguous" title="Also matches: ${escapeHtml((p.ambiguous_with || []).join(", "))}">ambiguous</span>`
         : "";
-      const checked = selectedPolicyIds.has(p.policy_id) ? " checked" : "";
+      const checked = selectedPolicies.has(policyKey(p)) ? " checked" : "";
       return (
         `<tr><td><input type="checkbox" class="browser-bulk-checkbox" data-bulk-policy-id="${escapeHtml(p.policy_id)}" data-bulk-side="${escapeHtml(p.side)}" aria-label="Select ${escapeHtml(p.display_name)}"${checked}></td>` +
         `<td><span class="side ${escapeHtml(p.side)}">${escapeHtml(p.side)}</span></td>` +
@@ -154,8 +285,14 @@ function renderResolved(items) {
   });
   $$(".browser-bulk-checkbox").forEach((cb) => {
     cb.onchange = () => {
-      if (cb.checked) selectedPolicyIds.add(cb.dataset.bulkPolicyId);
-      else selectedPolicyIds.delete(cb.dataset.bulkPolicyId);
+      const policy = {
+        policy_id: cb.dataset.bulkPolicyId,
+        side: cb.dataset.bulkSide,
+        ...reviewContext,
+      };
+      if (cb.checked) selectedPolicies.set(policyKey(policy), policy);
+      else selectedPolicies.delete(policyKey(policy));
+      syncSelectAllCheckbox(items);
       updateBulkBar();
     };
   });
@@ -189,7 +326,7 @@ function syncSelectAllCheckbox(items) {
     return;
   }
   const selectedVisible = items.filter((p) =>
-    selectedPolicyIds.has(p.policy_id),
+    selectedPolicies.has(policyKey(p)),
   );
   selectAll.checked = selectedVisible.length === items.length;
   selectAll.indeterminate =
@@ -197,53 +334,164 @@ function syncSelectAllCheckbox(items) {
 }
 
 function updateBulkBar() {
-  const count = selectedPolicyIds.size;
+  const readOnly = state.current?.status === "archived";
+  const unreviewed =
+    !reviewContext ||
+    !reviewedCatalogueIsCurrent(reviewContext.catalogueRevision) ||
+    reviewContext.guid !== state.current?.guid ||
+    reviewContext.gpoRevision !== state.current?.revision;
+  $("#browser-readonly").hidden = !readOnly;
+  if (readOnly) selectedPolicies.clear();
+  $("#browser-bulk-reason").disabled = bulkApplying || readOnly || unreviewed;
+  const count = selectedPolicies.size;
   const bar = $("#browser-bulk-bar");
   bar.hidden = count === 0;
   $("#browser-bulk-count").textContent = `${count} selected`;
+  $$("[data-bulk-state]").forEach((button) => {
+    button.disabled = bulkApplying || readOnly || unreviewed;
+  });
+  $$(".browser-bulk-checkbox, #browser-bulk-select-all").forEach((checkbox) => {
+    checkbox.disabled = bulkApplying || readOnly || unreviewed;
+  });
 }
 
 async function applyBulkState(targetState) {
-  if (!selectedPolicyIds.size) return;
+  if (
+    bulkApplying ||
+    state.current?.status === "archived" ||
+    !selectedPolicies.size ||
+    state.current?.guid !== browserGpoGuid
+  )
+    return;
   const reason = $("#browser-bulk-reason").value.trim();
   if (!reason) {
     toast("Enter a reason for the bulk change");
     $("#browser-bulk-reason").focus();
     return;
   }
-  const checkboxes = $$(".browser-bulk-checkbox:checked");
-  const policyIds = [];
-  const policySides = {};
-  for (const cb of checkboxes) {
-    const id = cb.dataset.bulkPolicyId;
-    policyIds.push(id);
-    policySides[id] = cb.dataset.bulkSide;
+  if (
+    !reviewContext ||
+    !reviewedCatalogueIsCurrent(reviewContext.catalogueRevision) ||
+    reviewContext.gpoRevision !== state.current.revision
+  ) {
+    selectedPolicies.clear();
+    updateBulkBar();
+    showPersistentError(catalogueReviewMessage);
+    return;
   }
+  const guid = state.current.guid;
+  const revision = reviewContext.gpoRevision;
+  const reviewedRevision = reviewContext.catalogueRevision,
+    started = revisionEpoch();
+  const context = browserContext;
+  const selected = [...selectedPolicies.values()];
+  if (
+    selected.some(
+      (policy) =>
+        policy.catalogueRevision !== reviewedRevision ||
+        policy.gpoRevision !== revision,
+    )
+  ) {
+    selectedPolicies.clear();
+    updateBulkBar();
+    showPersistentError(catalogueReviewMessage);
+    return;
+  }
+  const mutationAudit = audit(reason);
+  let payload = null;
+  const completed = [];
+  bulkApplying = true;
+  updateBulkBar();
   try {
-    const data = await api(
-      `/api/gpos/${state.current.guid}/bulk-policy-state`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          ...audit(reason),
-          policy_ids: policyIds,
-          policy_sides: policySides,
-          target_state: targetState,
-        }),
-      },
-    );
-    applyPayload(data);
-    selectedPolicyIds.clear();
-    $("#browser-bulk-reason").value = "";
-    await loadBrowser();
+    // The API's policy_sides map cannot encode one Both-class policy twice.
+    // Keep each side in its own revision, carrying the returned revision forward.
+    for (const side of ["computer", "user"]) {
+      const policies = selected.filter((policy) => policy.side === side);
+      for (let start = 0; start < policies.length; start += 100) {
+        const batch = policies.slice(start, start + 100);
+        if (!reviewedCatalogueIsCurrent(reviewedRevision))
+          throw new Error(catalogueReviewMessage);
+        payload = await api(`/api/gpos/${guid}/bulk-policy-state`, {
+          method: "POST",
+          body: JSON.stringify({
+            ...mutationAudit,
+            expected_revision: payload?.gpo.revision ?? revision,
+            expected_catalogue_revision: reviewedRevision,
+            policy_ids: batch.map((policy) => policy.policy_id),
+            side,
+            target_state: targetState,
+          }),
+        });
+        completed.push(...batch);
+        updateGpoSummary(payload.gpo);
+        renderList();
+      }
+    }
+    if (state.current?.guid === guid && browserContext === context) {
+      if (state.current.revision === revision) {
+        applyPayload(payload);
+        renderAll({ refreshBrowser: false });
+        renderList();
+      }
+      selectedPolicies.clear();
+      $("#browser-bulk-reason").value = "";
+      await loadBrowser();
+    }
     toast(`Bulk ${targetState.replace("_", " ")} applied`);
   } catch (error) {
-    await loadBrowser();
-    showPersistentError(error.message);
+    observeCatalogueConflict(error, started);
+    const sameCatalogue =
+      reviewedCatalogueIsCurrent(reviewedRevision) &&
+      error.code !== "catalogue_conflict";
+    if (state.current?.guid === guid && browserContext === context) {
+      const canRetain = sameCatalogue && state.current.revision === revision;
+      if (payload && state.current.revision === revision) {
+        applyPayload(payload);
+        renderAll({ refreshBrowser: false });
+        renderList();
+      }
+      selectedPolicies.clear();
+      if (canRetain) {
+        const nextRevision = payload?.gpo.revision ?? revision;
+        reviewContext = {
+          guid,
+          catalogueRevision: reviewedRevision,
+          gpoRevision: nextRevision,
+        };
+        const done = new Set(completed.map(policyKey));
+        selected
+          .filter((policy) => !done.has(policyKey(policy)))
+          .forEach((policy) =>
+            selectedPolicies.set(policyKey(policy), {
+              ...policy,
+              gpoRevision: nextRevision,
+            }),
+          );
+      }
+      await loadBrowser();
+    }
+    const message =
+      error.code === "catalogue_conflict"
+        ? catalogueReviewMessage
+        : error.message;
+    showPersistentError(
+      completed.length
+        ? `${completed.length} ${completed.length === 1 ? "policy" : "policies"} changed before the remaining bulk change failed: ${message}`
+        : message,
+    );
+  } finally {
+    bulkApplying = false;
+    updateBulkBar();
   }
 }
 
 export function initBrowser() {
+  initCatalogueMonitoring();
+  onCatalogueChange(() => {
+    resetBrowserCatalogue();
+    if (!bulkApplying && !$("#panel-browser").hidden)
+      queueMicrotask(() => loadBrowser());
+  });
   $("#browser-search").oninput = (e) => {
     clearTimeout(browserTimer);
     browserTimer = setTimeout(() => {
@@ -274,12 +522,22 @@ export function initBrowser() {
     if (e.target.checked) {
       checkboxes.forEach((cb) => {
         cb.checked = true;
-        selectedPolicyIds.add(cb.dataset.bulkPolicyId);
+        const policy = {
+          policy_id: cb.dataset.bulkPolicyId,
+          side: cb.dataset.bulkSide,
+          ...reviewContext,
+        };
+        selectedPolicies.set(policyKey(policy), policy);
       });
     } else {
       checkboxes.forEach((cb) => {
         cb.checked = false;
-        selectedPolicyIds.delete(cb.dataset.bulkPolicyId);
+        selectedPolicies.delete(
+          policyKey({
+            policy_id: cb.dataset.bulkPolicyId,
+            side: cb.dataset.bulkSide,
+          }),
+        );
       });
     }
     updateBulkBar();

@@ -1,5 +1,5 @@
 import {state,$,$$} from './state.mjs';
-import {api,toast,clearPersistentError} from './api.mjs';
+import {api,toast,clearPersistentError,showPersistentError} from './api.mjs';
 import {clearFormErrors,showFormErrors} from './errors.mjs';
 import {loadList,renderList,renderSettings,loadHistory} from './render.mjs';
 import {openGpo,openSetting,openLink,openFilter,openWmi,openWmiCatalogue,openEstate,openFork,openCopySettings,syncSettingForm,initForms} from './forms.mjs';
@@ -13,15 +13,14 @@ import {initSecurityTemplate} from './security-template.mjs';
 import {initFolderRedirection} from './folder-redirection.mjs';
 import {initScripts} from './scripts.mjs';
 import {initPublication} from './publication.mjs';
+import {initTemplates} from './templates.mjs';
 
 const tabs=$$(".tab[role='tab']");
 
 function reportPersistentError(message){
-  const summary=$("#error-summary");
-  summary.textContent=`Error: ${message}`;
-  summary.hidden=false;
-  summary.focus();
+  showPersistentError(message);
 }
+$("#dismiss-error").onclick=()=>{clearPersistentError();$("#main-content").focus()};
 
 function setAppStatus(message){
   const status=$("#app-status");
@@ -65,9 +64,20 @@ function focusableElements(dialog){
 }
 
 function initialiseDialog(dialog){
+  const form=dialog.querySelector("form");
+  const head=form?.querySelector(":scope > .dialog-head");
+  const actions=form?.querySelector(":scope > .dialog-actions");
+  if(form&&head&&actions){
+    const body=document.createElement("div");
+    body.className="dialog-body";
+    body.append(...[...form.childNodes].filter(node=>node!==head&&node!==actions));
+    head.after(body);form.append(actions);
+  }
   const nativeShowModal=dialog.showModal.bind(dialog);
   dialog.showModal=()=>{
     if(dialog.open)return;
+    dialog.editorSession=Symbol("editor session");
+    dialog.editorTarget={guid:state.current?.guid??null,revision:state.current?.revision??null,name:state.current?.name||"workspace"};
     const active=document.activeElement;
     dialog.returnFocus=active instanceof HTMLElement?active:null;
     nativeShowModal();
@@ -78,6 +88,10 @@ function initialiseDialog(dialog){
       if(target instanceof HTMLElement)target.focus();
     });
   };
+  dialog.addEventListener("click",event=>{
+    const cancel=event.target.closest('button[value="cancel"]');
+    if(cancel&&cancel.closest("dialog")===dialog){event.preventDefault();dialog.close("cancel")}
+  });
   dialog.addEventListener("keydown",event=>{
     if(event.key!=="Tab")return;
     const focusable=focusableElements(dialog);
@@ -230,6 +244,7 @@ initSecurityTemplate();
 initFolderRedirection();
 initScripts();
 initPublication();
+initTemplates();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
 loadList().then(()=>setAppStatus("")).catch(error=>{
