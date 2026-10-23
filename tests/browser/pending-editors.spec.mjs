@@ -498,49 +498,37 @@ admxTest(
 );
 
 for (const kind of ["creation", "estate import"]) {
-  test(`${kind} remains usable when initial policy loading changes the underlay`, async ({
+  test(`${kind} remains usable when a pending explicit policy selection changes the underlay`, async ({
     page,
     request,
   }) => {
-    await seed(request, `Initial ${kind}`);
-    const release = deferred(),
-      arrived = deferred(),
-      completed = deferred();
-    await page.route("**/api/gpos/*", async (route) => {
-      if (route.request().method() !== "GET") return route.continue();
-      const response = await route.fetch();
-      arrived.resolve((await response.json()).gpo);
-      await release.promise;
-      await route.fulfill({ response });
-      completed.resolve();
-    });
+    const alpha = await seed(request, `Workspace ${kind} Alpha`);
+    const beta = await seed(request, `Workspace ${kind} Beta`);
+    await openPolicy(page, alpha);
+    const navigation = await hold(page, `**/api/gpos/${beta.guid}`, "GET");
+    const saving = await hold(
+      page,
+      kind === "creation" ? "**/api/gpos" : "**/api/estate/import",
+    );
     try {
-      await page.goto("/");
-      const selected = await arrived.promise;
-      await expect(page.locator("#title")).toHaveText("Choose a policy");
+      await page.locator(`[data-guid="${beta.guid}"]`).click();
+      expect((await navigation.arrived).status).toBe(200);
+      await expect(page.locator("#title")).toHaveText(alpha.name);
       await page
         .locator(kind === "creation" ? "#new-gpo" : "#import-estate")
         .click();
       const dialog = page.locator(
         kind === "creation" ? "#gpo-dialog" : "#estate-dialog",
       );
-      release.resolve();
-      await completed.promise;
-      await expect(page.locator("#title")).toHaveText(selected.name);
+      navigation.release();
+      await navigation.completed;
+      await expect(page.locator("#title")).toHaveText(beta.name);
+      await expect(dialog).toBeVisible();
+      let name;
       if (kind === "creation") {
-        const name = `Synthetic startup creation ${Date.now()}`;
+        name = `Synthetic explicit-navigation creation ${Date.now()}`;
         await dialog.getByLabel("Name", { exact: true }).fill(name);
-        const created = page.waitForResponse(
-          (response) =>
-            response.request().method() === "POST" &&
-            response.url().endsWith("/api/gpos"),
-        );
         await dialog.getByRole("button", { name: "Create policy" }).click();
-        const response = await created;
-        expect(response.status()).toBe(201);
-        await expect(
-          page.locator(`[data-guid="${(await response.json()).gpo.guid}"]`),
-        ).toContainText(name);
       } else {
         await dialog.locator("#estate-file").setInputFiles({
           name: "synthetic-empty-estate.json",
@@ -556,20 +544,32 @@ for (const kind of ["creation", "estate import"]) {
         await expect(dialog.locator("#estate-file-info")).not.toContainText(
           "Reading",
         );
-        const imported = page.waitForResponse(
-          (response) =>
-            response.request().method() === "POST" &&
-            response.url().endsWith("/api/estate/import"),
-        );
         await dialog
           .getByRole("button", { name: "Import", exact: true })
           .click();
-        expect((await imported).status()).toBe(200);
       }
+      const result = await saving.arrived;
+      expect(result.status).toBe(kind === "creation" ? 201 : 200);
+      // The workspace operation remains valid after navigation, and another
+      // submit while its response is pending must not duplicate the save.
+      await dialog.locator("form").evaluate((form) => form.requestSubmit());
+      await page.evaluate(
+        () =>
+          new Promise((resolve) => globalThis.requestAnimationFrame(resolve)),
+      );
+      expect(saving.count()).toBe(1);
+      saving.release();
+      await saving.completed;
       await expect(dialog).toBeHidden();
-      await expect(page.locator("#title")).toHaveText(selected.name);
+      await expect(page.locator("#title")).toHaveText(beta.name);
+      expect(saving.count()).toBe(1);
+      if (kind === "creation")
+        await expect(
+          page.locator(`[data-guid="${result.body.gpo.guid}"]`),
+        ).toContainText(name);
     } finally {
-      release.resolve();
+      navigation.release();
+      saving.release();
     }
   });
 }
