@@ -182,6 +182,10 @@ def test_extension_list_families_reads_every_guid_export_can_register() -> None:
     assert api.extension_list_families("gPCMachineExtensionNames", scripts) == {
         ("Machine", "Scripts")
     }
+    user_scripts = f"[{export._SCRIPTS_CSE_GUID}{export._SCRIPTS_USER_TOOL_GUID}]"
+    assert api.extension_list_families("gPCUserExtensionNames", user_scripts) == {
+        ("User", "Scripts")
+    }
     unknown = "[{00000000-0000-0000-0000-0000000000AB}{00000000-0000-0000-0000-0000000000CD}]"
     carried = api.extension_list_families("gPCMachineExtensionNames", unknown)
     assert carried is not None

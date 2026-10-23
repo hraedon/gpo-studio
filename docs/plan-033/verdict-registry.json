@@ -541,6 +541,13 @@
     "wp9-evidence/wi062-20260910/user-security-filtering/verification.json",
     "wp9-evidence/wi062-20260910/user-side-disabled/verification.json"
   ],
-  "pending_requalification": [],
+  "pending_requalification": [
+    "wp1b-evidence/release110-refreeze-20261020/publication/verification.json",
+    "wp1b-evidence/release110-refreeze-20261020/scripts-metadata/verification.json",
+    "wp1b-evidence/release110-refreeze-20261020/wp1b/verification.json",
+    "wp2-evidence/release110-refreeze-20261020/wp2/verification.json",
+    "wp3-evidence/release110-refreeze-20261020/firewall/verification.json",
+    "wp6-evidence/release110-refreeze-20261020/endpoint/verification.json"
+  ],
   "wp0_manifest": "wp0-evidence/release110-refreeze-20261020/wp0/manifest.json"
 }

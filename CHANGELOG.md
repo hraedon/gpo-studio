@@ -9,6 +9,18 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+### Changed
+
+- The native backup export writes the **measured user-side Scripts tool GUID**
+  (`{40B66650-4972-11D1-A7CA-0000F87571E3}`) in `UserExtensionGuids` instead of
+  reusing the machine side's `{40B6664F-…}` (Plan 035 WP-1, estate window 19 —
+  record `w19-r2`, re-verified at revision 4 as `w22-r1`). `MachineExtensionGuids`
+  is unchanged. The six lane verdicts that bind `export.py` (endpoint, firewall,
+  publication, scripts-metadata, wp1b, wp2) are parked in
+  `pending_requalification` until the requalification batch re-runs them.
+  User-side scripts remain refused at the API (`scripts_user_side_unmeasured`)
+  until WI-071's logon/shutdown lane banks a verdict.
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

@@ -37,6 +37,12 @@ _REGISTRY_PAIR = (
 # Measured on the wire: the pair GPMC registered in gPCMachineExtensionNames
 # on the transaction that first authored script entries (claim-registry R2).
 _SCRIPTS_PAIR = "[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3}]"
+# The user side carries its own tool half, measured in Plan 035 window 19
+# (w19-r2, re-verified w22-r1): 40B66650 where the machine side has 40B6664F.
+_SCRIPTS_USER_PAIR = (
+    "[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}"
+    "{40B66650-4972-11D1-A7CA-0000F87571E3}]"
+)
 
 
 def _r2_legacy_policy() -> ScriptPolicy:
@@ -330,7 +336,7 @@ def test_user_side_scripts_land_under_user() -> None:
     assert core is not None
     user = core.find(f"{_BKP}UserExtensionGuids")
     assert user is not None and user.text is not None
-    assert user.text == _SCRIPTS_PAIR
+    assert user.text == _SCRIPTS_USER_PAIR
 
 
 def test_bundle_without_scripts_has_no_scripts_artifacts() -> None:

@@ -1,16 +1,20 @@
 # Plan 035: Native console captures after 1.1.0
 
-Status: **active: captures only, nothing implemented or surfaced** (updated
-2026-10-20). WP-1 and WP-2 were captured in windows-console-driver estate
+Status: **active: captures banked; WP-1's product change made, awaiting its
+requalification batch** (updated 2026-10-23). WP-1 and WP-2 were captured in
+windows-console-driver estate
 window 19, with fixtures and tests banked here
 (`tests/fixtures/native-scripts-sides-gpme/`, `tests/fixtures/native-firewall-gpme-view/`;
 [WI-071](../docs/work-items.md#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger),
 [WI-077](../docs/work-items.md#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid)). After review they
 were requalified over three review rounds, most recently at revision 4 in window 22
-(record-schema v3 records), with leaf-exact envelopes and record-bound inputs and bytes. No product code has
-changed: WP-1's `export.py` change is not made, so it is neither surfaced nor
-Windows-verified, and it waits for a requalification batch over the six lanes
-that bind `export.py`. WP-2 needs no `export.py` change. WP-3 has not started.
+(record-schema v3 records), with leaf-exact envelopes and record-bound inputs and bytes.
+WP-1's `export.py` change HAS NOW LANDED (the user side writes its measured tool
+GUID `{40B66650-…}`; the six verdicts that bind `export.py` are parked in
+`pending_requalification`) and is capture-backed in the suite, but it is not yet
+surfaced as live evidence: the requalification batch over the six lanes that bind
+`export.py` (endpoint, firewall, publication, scripts-metadata, wp1b, wp2) retires
+that debt. WP-2 needs no `export.py` change. WP-3 has not started.
 Nothing here blocks 1.1.0.
 
 The three work
@@ -25,9 +29,11 @@ commit ([batch note](../docs/plan-033/release110-batch.md)). Three work items
 stay open because a cmdlet cannot author what they need to measure:
 
 - [WI-071](../docs/work-items.md#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger):
-  the Scripts lane measures computer-side startup scripts only. The user-side
+  the Scripts lane measured computer-side startup scripts only. The user-side
   Scripts extension pair, and the `scripts.ini` shapes for logon and shutdown,
-  are unmeasured, and a round trip cannot detect a wrong extension pair.
+  were unmeasured when this plan was written — window 19 captured both and the
+  `export.py` change has landed (see the status above); what remains is the
+  requalification batch and the lane extension.
 - [WI-066](../docs/work-items.md#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer):
   the folder-redirection capture (R3) answered one of its four questions. The
   option-flag encoding and the multi-group representation need the capture R12
