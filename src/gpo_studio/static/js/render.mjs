@@ -1,5 +1,5 @@
 import {state,$,$$,escapeHtml,applyPayload,getGpoSummaryVersion,replaceGpoSummaries,getKnownGpoRevision} from './state.mjs';
-import {api,showPersistentError} from './api.mjs';
+import {api,captureErrorReporter} from './api.mjs';
 import {openSetting,deleteSetting,openComment,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
 import {renderGpp} from './gpp.mjs';
 import {loadBrowser} from './browser.mjs';
@@ -7,9 +7,16 @@ import {loadDiffSelectors} from './diff.mjs';
 
 let selectionRequest=0,historyRequest=0,listRequest=0;
 
-export async function loadList(selectGuid,{select=true}={}){
+export async function loadList(selectGuid,{select=true,reportErrors=true}={}){
   const selection=selectionRequest,request=++listRequest,editorGeneration=state.editorGeneration,summaryVersion=getGpoSummaryVersion();
-  const data=await api("/api/gpos");
+  const reportError=captureErrorReporter(()=>reportErrors&&request===listRequest&&editorGeneration===state.editorGeneration);
+  let data;
+  try{data=await api("/api/gpos")}
+  catch(error){
+    // A failed refresh is separate from an already committed mutation. Retired
+    // origins can refresh the sidebar without owning another editor's errors.
+    reportError(`Could not refresh policies: ${error.message}`);return;
+  }
   if(request!==listRequest)return;
   replaceGpoSummaries(data.items,summaryVersion);
   renderList();
@@ -30,26 +37,27 @@ export async function selectGpo(guid,{editorGeneration}={}){
   const ownsSelection=()=>request===selectionRequest&&(editorGeneration===undefined||editorGeneration===state.editorGeneration);
   const ownsRecovery=()=>ownsSelection()&&originalEditorGeneration===state.editorGeneration;
   let recovering=false;
+  const reportError=captureErrorReporter(()=>ownsSelection()&&(!recovering||ownsRecovery()));
   try{
-    let data=await api(`/api/gpos/${guid}`,{reportNetworkError:false});
+    let data=await api(`/api/gpos/${guid}`);
     if(!ownsSelection())return;
     if(data.gpo.revision<getKnownGpoRevision(guid)){
       if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
       // Repair a stale detail once, without taking a newer editor or selection.
       if(!ownsRecovery())return;
       recovering=true;
-      data=await api(`/api/gpos/${guid}`,{cache:"no-store",reportNetworkError:false});
+      data=await api(`/api/gpos/${guid}`,{cache:"no-store"});
       if(!ownsRecovery())return;
       if(data.gpo.revision<getKnownGpoRevision(guid)){
         if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
-        showPersistentError("The policy changed again while it was loading. Select it again to review its current revision.");return;
+        reportError("The policy changed again while it was loading. Select it again to review its current revision.");return;
       }
     }
     applyPayload(data);
     $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
     renderAll();renderList();
   }catch(error){
-    if(ownsSelection()&&(!recovering||ownsRecovery()))showPersistentError(`Could not load policy: ${error.message}`);
+    reportError(`Could not load policy: ${error.message}`);
   }
 }
 export function renderAll({refreshBrowser=true}={}){

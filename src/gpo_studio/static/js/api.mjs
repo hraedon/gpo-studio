@@ -7,13 +7,22 @@ let persistentErrorVersion=0;
 export function setStatus(message){const el=uiElement("#app-status");if(!el)return;el.textContent=message;el.hidden=!message}
 export function showPersistentError(message){persistentErrorVersion++;const el=uiElement("#error-summary");if(!el)return;(uiElement("#error-message")||el).textContent=`Error: ${message}`;el.hidden=false;el.focus()}
 export function clearPersistentError(){persistentErrorVersion++;const el=uiElement("#error-summary");if(!el)return;(uiElement("#error-message")||el).textContent="";el.hidden=true}
+// A read may report only for its owner and the error context it started in.
+export function captureErrorReporter(isCurrent){
+  const version=persistentErrorVersion;
+  return message=>{
+    if(version!==persistentErrorVersion||!isCurrent())return false;
+    showPersistentError(message);return true;
+  };
+}
 export async function api(path,options={}){
-  // Owned background reads report transport errors only through their current UI.
-  const {headers={},reportNetworkError=true,...requestOptions}=options;
+  const {headers={},...requestOptions}=options;
   const errorVersion=persistentErrorVersion,method=(requestOptions.method||"GET").toUpperCase();
   let response;
   try{response=await fetch(path,{...requestOptions,headers:{"Content-Type":"application/json",...headers}})}
-  catch(error){const wrapped=new ApiError("The local GPO Studio server is unavailable. Your unsaved values are still in this form.");wrapped.cause=error;if(reportNetworkError)showPersistentError(wrapped.message);throw wrapped}
+  // Like HTTP failures, transport failures reach the caller before any UI report.
+  // The caller decides whether its view/editor still owns the outcome.
+  catch(error){const wrapped=new ApiError("The local GPO Studio server is unavailable. Your unsaved values are still in this form.");wrapped.cause=error;throw wrapped}
   const type=response.headers.get("content-type")||"";
   const payload=type.includes("json")?await response.json():await response.text();
   if(!response.ok)throw new ApiError(payload?.error?.message||payload?.detail||`Request failed (${response.status})`,{status:response.status,payload});

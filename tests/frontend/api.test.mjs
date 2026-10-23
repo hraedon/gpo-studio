@@ -4,6 +4,8 @@ import {
   api,
   audit,
   showPersistentError,
+  clearPersistentError,
+  captureErrorReporter,
 } from "../../src/gpo_studio/static/js/api.mjs";
 import { state } from "../../src/gpo_studio/static/js/state.mjs";
 
@@ -80,7 +82,6 @@ describe("api", () => {
     vi.stubGlobal("fetch", fetchMock);
     const pending = api("/api/example", {
       cache: "no-store",
-      reportNetworkError: false,
     });
     showPersistentError("A newer operation needs attention");
     const focusCalls = summary.focus.mock.calls.length;
@@ -90,20 +91,56 @@ describe("api", () => {
     expect(summary.hidden).toBe(false);
     expect(message.textContent).toContain("newer operation");
     expect(summary.focus).toHaveBeenCalledTimes(focusCalls);
-    expect(fetchMock.mock.calls[0][1]).not.toHaveProperty("reportNetworkError");
   });
 
-  test("ordinary transport failures still report the unavailable server", async () => {
+  test.each(["GET", "POST"])(
+    "%s transport failures reach the caller without publishing UI errors",
+    async (method) => {
+      const { summary, message } = banner();
+      const cause = new Error("Synthetic connection failure");
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(cause));
+      await expect(api("/api/example", { method })).rejects.toMatchObject({
+        message: expect.stringContaining("server is unavailable"),
+        cause,
+        status: 0,
+      });
+      expect(summary.hidden).toBe(true);
+      expect(message.textContent).toBe("");
+      expect(summary.focus).not.toHaveBeenCalled();
+    },
+  );
+
+  test("a current read reporter publishes once while a retired owner remains quiet", () => {
     const { summary, message } = banner();
-    const cause = new Error("Synthetic connection failure");
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(cause));
-    await expect(api("/api/example")).rejects.toMatchObject({
-      message: expect.stringContaining("server is unavailable"),
-      cause,
-    });
-    expect(summary.hidden).toBe(false);
-    expect(message.textContent).toContain("server is unavailable");
-    expect(summary.focus).toHaveBeenCalled();
+    const retired = captureErrorReporter(() => false);
+    const current = captureErrorReporter(() => true);
+    expect(retired("Retired failure")).toBe(false);
+    expect(summary.hidden).toBe(true);
+    expect(current("Current refresh failed")).toBe(true);
+    expect(message.textContent).toContain("Current refresh failed");
+    expect(current("Duplicate outcome")).toBe(false);
+    expect(message.textContent).not.toContain("Duplicate");
+    expect(summary.focus).toHaveBeenCalledTimes(1);
+  });
+
+  test("an older read reporter cannot overwrite a newer actionable error", () => {
+    const { summary, message } = banner();
+    const report = captureErrorReporter(() => true);
+    showPersistentError("A newer operation needs attention");
+    const calls = summary.focus.mock.calls.length;
+    expect(report("Old refresh failed")).toBe(false);
+    expect(message.textContent).toContain("newer operation");
+    expect(summary.focus).toHaveBeenCalledTimes(calls);
+  });
+
+  test("dismissing an error retires a pending read's reporter", () => {
+    const { summary, message } = banner();
+    showPersistentError("Earlier warning");
+    const report = captureErrorReporter(() => true);
+    clearPersistentError();
+    expect(report("Late refresh failure")).toBe(false);
+    expect(summary.hidden).toBe(true);
+    expect(message.textContent).toBe("");
   });
 
   test("shapes JSON requests and preserves caller headers", async () => {

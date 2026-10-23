@@ -142,7 +142,7 @@ $("#wmi-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:`/api/gp
       const data=await api("/api/estate/import",{method:"POST",body:JSON.stringify(body)});
       const selectImported=isSameEditor(context);
       if(isCurrentEditor(context))context.dialog.close();
-      await loadList(undefined,{select:selectImported});toast(`Imported ${data.imported} GPO(s), skipped ${data.skipped}`);
+      await loadList(undefined,{select:selectImported,reportErrors:selectImported});toast(`Imported ${data.imported} GPO(s), skipped ${data.skipped}`);
     }catch(error){await mutationFailed(context,error,(f,e)=>showFormErrors(f,e instanceof SyntaxError?{message:"Invalid JSON: "+e.message}:e))}finally{endMutation(context)}
   };
   $('#estate-file').onchange=async()=>{

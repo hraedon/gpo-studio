@@ -108,13 +108,13 @@ export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true,
   };
   const readCurrent=async(withDiff)=>{
     for(let attempt=0;attempt<2;attempt++){
-      const latest=await api(`/api/gpos/${encodeURIComponent(guid)}`,{cache:"no-store",reportNetworkError:false});
+      const latest=await api(`/api/gpos/${encodeURIComponent(guid)}`,{cache:"no-store"});
       if(!active())return null;
       if(latest.gpo.guid!==guid||!Number.isInteger(latest.gpo.revision))throw new Error("The current policy could not be verified. Your unsaved values are retained.");
       let diff=null;
       if(latest.gpo.revision>=floor()){
         if(withDiff&&error.expectedRevision>0&&latest.gpo.revision>error.expectedRevision){
-          diff=await api(`/api/gpos/${encodeURIComponent(guid)}/revisions/diff?from_revision=${error.expectedRevision}&to_revision=${latest.gpo.revision}`,{cache:"no-store",reportNetworkError:false});
+          diff=await api(`/api/gpos/${encodeURIComponent(guid)}/revisions/diff?from_revision=${error.expectedRevision}&to_revision=${latest.gpo.revision}`,{cache:"no-store"});
           if(!active())return null;
         }
         // Newer data can arrive during either the full read or the diff read.
