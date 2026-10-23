@@ -3,6 +3,7 @@ import { showPersistentError } from "./api.mjs";
 import { showFormErrors } from "./errors.mjs";
 
 const pendingForms = new WeakMap();
+const pendingAnnouncements = new WeakMap();
 
 export function captureMutation(form = null) {
   const dialog = form?.closest("dialog") || null;
@@ -75,6 +76,14 @@ export function beginMutation(form, { target = null, workspace = false } = {}) {
     control.disabled = true;
   });
   form.setAttribute("aria-busy", "true");
+  const announcement = context.dialog?.querySelector(
+    ":scope > [data-pending-announcement]",
+  );
+  if (announcement) {
+    context.announcement = announcement;
+    pendingAnnouncements.set(announcement, context);
+    announcement.textContent = pendingMessage.textContent;
+  }
   return context;
 }
 
@@ -124,6 +133,13 @@ export function endMutation(context) {
   if (!form || pendingForms.get(form) !== context) return;
   pendingForms.delete(form);
   context.pendingMessage?.remove();
+  if (
+    context.announcement &&
+    pendingAnnouncements.get(context.announcement) === context
+  ) {
+    pendingAnnouncements.delete(context.announcement);
+    context.announcement.textContent = "";
+  }
   context.controls.forEach(({ control, disabled }) => {
     control.disabled = disabled;
   });

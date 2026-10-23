@@ -95,7 +95,7 @@ async function backgroundSummary(
   page,
   request,
   suffix,
-  { retryFailure = false, cachedRetry = false } = {},
+  { retryFailure = false, retryAbort = false, cachedRetry = false } = {},
 ) {
   const alpha = await seed(request, `${suffix} Alpha`);
   const beta = await seed(request, `${suffix} Beta`);
@@ -143,7 +143,8 @@ async function backgroundSummary(
     } else if (reads === 2) {
       retryArrived.resolve(body);
       await retryRelease.promise;
-      if (retryFailure)
+      if (retryAbort) await route.abort("failed");
+      else if (retryFailure)
         await route.fulfill({
           status: 503,
           json: { error: { message: "Synthetic authoritative retry failure" } },
@@ -345,6 +346,40 @@ test("a repeated cached snapshot fails visibly after one retry rather than loopi
       (await (await request.get(`/api/gpos/${pending.alpha.guid}`)).json()).gpo
         .settings,
     ).toHaveLength(1);
+  } finally {
+    pending.releaseAll();
+  }
+});
+
+test("a retired recovery transport failure cannot publish an error or steal focus from a newer editor", async ({
+  page,
+  request,
+}) => {
+  const pending = await backgroundSummary(
+    page,
+    request,
+    "Transport retirement",
+    { retryAbort: true },
+  );
+  try {
+    pending.releaseFirst();
+    await pending.retryArrived;
+    const dialog = await metadataDraft(page);
+    await expect(dialog.getByLabel("Description")).toBeFocused();
+    pending.releaseRetry();
+    await pending.retryDone;
+    await flushUi(page);
+    await expect(page.locator("#error-summary")).toBeHidden();
+    await expectMetadataDraft(dialog);
+    await expect(dialog.getByLabel("Description")).toBeFocused();
+    await expect(page.locator("#title")).toHaveText(pending.beta.name);
+    expect(pending.reads()).toBe(2);
+    expect(pending.writes()).toBe(1);
+    const stored = (
+      await (await request.get(`/api/gpos/${pending.alpha.guid}`)).json()
+    ).gpo;
+    expect(stored.revision).toBe(2);
+    expect(stored.settings).toHaveLength(1);
   } finally {
     pending.releaseAll();
   }

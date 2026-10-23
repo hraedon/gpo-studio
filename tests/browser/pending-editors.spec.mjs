@@ -147,11 +147,27 @@ test("freezes setting fields while saving so later typing cannot be discarded", 
   const gpo = await seed(request, "Freeze Setting");
   await openPolicy(page, gpo);
   const dialog = await openSetting(page);
+  const announcement = dialog.locator(":scope > [data-pending-announcement]");
+  await expect(announcement).toHaveCount(1);
+  await expect(announcement).toHaveAttribute("role", "status");
+  await expect(announcement).toHaveAttribute("aria-live", "polite");
+  await expect(announcement).toHaveAttribute("aria-atomic", "true");
+  await expect(announcement).toHaveText("");
   const pending = await hold(page, `**/api/gpos/${gpo.guid}/settings`);
   try {
     await dialog.getByRole("button", { name: "Save setting" }).click();
     expect((await pending.arrived).status).toBe(201);
     await frozen(dialog);
+    await expect(dialog.locator("form")).toHaveAttribute("aria-busy", "true");
+    await expect(announcement).toHaveText(
+      "Saving changes… Closing this dialog keeps the save running.",
+    );
+    expect(
+      await announcement.evaluate((region) => region.closest("form") === null),
+    ).toBe(true);
+    await expect(dialog.locator(".form-pending")).toContainText(
+      "Saving changes…",
+    );
     await page
       .locator("#setting-form")
       .evaluate((form) => form.requestSubmit());
@@ -159,6 +175,8 @@ test("freezes setting fields while saving so later typing cannot be discarded", 
     pending.release();
     await pending.completed;
     await expect(dialog).toBeHidden();
+    await expect(announcement).toHaveCount(1);
+    await expect(announcement).toHaveText("");
     const saved = (await (await request.get(`/api/gpos/${gpo.guid}`)).json())
       .gpo;
     expect(saved.settings[0].value).toBe("Captured original value");
@@ -178,24 +196,30 @@ test("reopening metadata releases old UI ownership and an old finally cannot unl
   try {
     await page.locator("#new-gpo").click();
     const dialog = page.locator("#gpo-dialog");
+    const announcement = dialog.locator(":scope > [data-pending-announcement]");
+    await expect(announcement).toHaveText("");
     const createdName = `Synthetic independent creation ${Date.now()}`;
     await dialog.getByLabel("Name", { exact: true }).fill(createdName);
     await dialog.getByRole("button", { name: "Create policy" }).click();
     expect((await old.arrived).status).toBe(201);
     await frozen(dialog);
+    await expect(announcement).toContainText("Saving changes…");
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.locator("#edit-metadata").click();
+    await expect(announcement).toHaveText("");
     await expect(dialog.getByLabel("Name", { exact: true })).toBeEnabled();
     const renamed = `${gpo.name} renamed`;
     await dialog.getByLabel("Name", { exact: true }).fill(renamed);
     await dialog.getByRole("button", { name: "Save changes" }).click();
     expect((await newer.arrived).status).toBe(200);
+    await expect(announcement).toContainText("Saving changes…");
     old.release();
     await old.completed;
     await expect(
       page.locator(`[data-guid="${(await old.arrived).body.gpo.guid}"]`),
     ).toContainText(createdName);
     await frozen(dialog);
+    await expect(announcement).toContainText("Saving changes…");
     await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue(
       renamed,
     );
@@ -203,6 +227,7 @@ test("reopening metadata releases old UI ownership and an old finally cannot unl
     await newer.completed;
     await expect(dialog).toBeHidden();
     await expect(page.locator("#title")).toHaveText(renamed);
+    await expect(announcement).toHaveText("");
   } finally {
     old.release();
     newer.release();

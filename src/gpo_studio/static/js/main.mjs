@@ -74,9 +74,18 @@ function initialiseDialog(dialog){
     body.append(...[...form.childNodes].filter(node=>node!==head&&node!==actions));
     head.after(body);form.append(actions);
   }
+  // Keep the live region outside the busy form and present before any save.
+  const pendingAnnouncement=document.createElement("div");
+  pendingAnnouncement.className="sr-only";
+  pendingAnnouncement.dataset.pendingAnnouncement="";
+  pendingAnnouncement.setAttribute("role","status");
+  pendingAnnouncement.setAttribute("aria-live","polite");
+  pendingAnnouncement.setAttribute("aria-atomic","true");
+  dialog.appendChild(pendingAnnouncement);
   const nativeShowModal=dialog.showModal.bind(dialog);
   dialog.showModal=()=>{
     if(dialog.open)return;
+    pendingAnnouncement.textContent="";
     state.editorGeneration++;
     dialog.editorSession=Symbol("editor session");
     dialog.editorTarget={guid:state.current?.guid??null,revision:state.current?.revision??null,name:state.current?.name||"workspace"};

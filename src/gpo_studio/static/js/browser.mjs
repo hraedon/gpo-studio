@@ -39,6 +39,9 @@ let categoryRevision = null,
 const catalogueReviewMessage =
   "The ADMX catalogue changed. Review the current settings and select them again before making a bulk change.";
 
+const policyReviewMessage =
+  "The policy settings changed. Review the current settings and select them again before making a bulk change.";
+
 function policyKey(policy) {
   return JSON.stringify([policy.side, policy.policy_id]);
 }
@@ -369,14 +372,19 @@ async function applyBulkState(targetState) {
     $("#browser-bulk-reason").focus();
     return;
   }
+  const staleCatalogue =
+    reviewContext &&
+    !reviewedCatalogueIsCurrent(reviewContext.catalogueRevision);
   if (
     !reviewContext ||
-    !reviewedCatalogueIsCurrent(reviewContext.catalogueRevision) ||
+    staleCatalogue ||
     reviewContext.gpoRevision !== state.current.revision
   ) {
     selectedPolicies.clear();
     updateBulkBar();
-    showPersistentError(catalogueReviewMessage);
+    showPersistentError(
+      staleCatalogue ? catalogueReviewMessage : policyReviewMessage,
+    );
     return;
   }
   const guid = state.current.guid;
@@ -385,16 +393,18 @@ async function applyBulkState(targetState) {
     started = revisionEpoch();
   const context = browserContext;
   const selected = [...selectedPolicies.values()];
+  const selectedCatalogueChanged = selected.some(
+    (policy) => policy.catalogueRevision !== reviewedRevision,
+  );
   if (
-    selected.some(
-      (policy) =>
-        policy.catalogueRevision !== reviewedRevision ||
-        policy.gpoRevision !== revision,
-    )
+    selectedCatalogueChanged ||
+    selected.some((policy) => policy.gpoRevision !== revision)
   ) {
     selectedPolicies.clear();
     updateBulkBar();
-    showPersistentError(catalogueReviewMessage);
+    showPersistentError(
+      selectedCatalogueChanged ? catalogueReviewMessage : policyReviewMessage,
+    );
     return;
   }
   const mutationAudit = audit(reason);

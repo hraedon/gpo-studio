@@ -31,14 +31,14 @@ export async function selectGpo(guid,{editorGeneration}={}){
   const ownsRecovery=()=>ownsSelection()&&originalEditorGeneration===state.editorGeneration;
   let recovering=false;
   try{
-    let data=await api(`/api/gpos/${guid}`);
+    let data=await api(`/api/gpos/${guid}`,{reportNetworkError:false});
     if(!ownsSelection())return;
     if(data.gpo.revision<getKnownGpoRevision(guid)){
       if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
       // Repair a stale detail once, without taking a newer editor or selection.
       if(!ownsRecovery())return;
       recovering=true;
-      data=await api(`/api/gpos/${guid}`,{cache:"no-store"});
+      data=await api(`/api/gpos/${guid}`,{cache:"no-store",reportNetworkError:false});
       if(!ownsRecovery())return;
       if(data.gpo.revision<getKnownGpoRevision(guid)){
         if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
