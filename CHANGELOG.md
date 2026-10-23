@@ -9,6 +9,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Bind reviewed downloads to the policy revision and review hash, verify their bytes,
+  and retain inline export errors without affecting reopened reviews.
+
 - Replace the conflict comparison's loading message after an initial read fails,
   while preserving an already reviewed comparison if a later refresh fails.
 - Keep retired policy-read errors out of newer editors and announce pending saves

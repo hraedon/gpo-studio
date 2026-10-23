@@ -182,7 +182,7 @@ $("#fork-gpo").onclick=()=>openFork();
 $("#copy-settings").onclick=()=>openCopySettings();
 $("#search").oninput=renderList;
 
-let pendingExportUrl="";
+let exportReview=null;
 function addReviewRow(container,label,value){
   const row=document.createElement("p"),strong=document.createElement("strong");
   strong.textContent=`${label}: `;
@@ -194,7 +194,7 @@ $$('[data-export-kind]').forEach(link=>link.addEventListener("click",event=>{
   clearPersistentError();
   const capability=state.artifactCapabilities[link.dataset.exportKind]||{};
   const errors=state.validation.filter(issue=>issue.severity==="error");
-  const blocked=capability.enabled===false||errors.length>0;
+  const blocked=capability.enabled===false||errors.length>0||!state.reviewHash;
   const summary=$("#export-review-summary");
   summary.replaceChildren();
   addReviewRow(summary,"Policy",`${state.current.name} (${state.current.guid})`);
@@ -204,18 +204,65 @@ $$('[data-export-kind]').forEach(link=>link.addEventListener("click",event=>{
   addReviewRow(summary,"Review model SHA-256",state.reviewHash||"unavailable");
   addReviewRow(summary,"Preserved extension files",state.artifactCapabilities.preserved_content?.file_count||0);
   const issues=$("#export-review-issues");
-  issues.textContent=blocked?(capability.reason||`${errors.length} validation error(s) block this download. Fix the Preflight findings first.`):"No validation error blocks this download. Check the policy and digests before you continue.";
+  issues.textContent=blocked?(capability.reason||(!state.reviewHash?"The review hash is unavailable. Reload the policy before reviewing an export.":`${errors.length} validation error(s) block this download. Fix the Preflight findings first.`)):"No validation error blocks this download. Check the policy and digests before you continue.";
   issues.className=`review-issues ${blocked?"error-summary":"status-message"}`;
-  pendingExportUrl=link.href;
+  $("#export-review-form").removeAttribute("aria-busy");
+  exportReview={guid:state.current.guid,revision:state.current.revision,reviewHash:state.reviewHash,url:link.href,filename:link.dataset.exportKind==="powershell_plan"?`${state.current.guid}-plan.ps1`:"gpo-export.zip",pending:false};
   $("#export-review-download").disabled=blocked;
   $("#export-review-download").textContent=blocked?"Download blocked":"Download export";
   $("#export-review-dialog").showModal();
 }));
-$("#export-review-download").onclick=()=>{
-  if(!pendingExportUrl)return;
-  const anchor=document.createElement("a");
-  anchor.href=pendingExportUrl;anchor.download="";document.body.appendChild(anchor);anchor.click();anchor.remove();
-  $("#export-review-dialog").close();
+$("#export-review-dialog").addEventListener("close",()=>{if(!$("#export-review-dialog").open)exportReview=null});
+$("#export-review-download").onclick=async()=>{
+  const review=exportReview,dialog=$("#export-review-dialog"),button=$("#export-review-download"),issues=$("#export-review-issues");
+  if(!review||review.pending||button.disabled)return;
+  const ownsReview=()=>exportReview===review&&dialog.open;
+  review.pending=true;
+  button.disabled=true;button.textContent="Preparing download…";
+  $("#export-review-form").setAttribute("aria-busy","true");
+  const url=new URL(review.url);
+  url.searchParams.set("expected_revision",String(review.revision));
+  url.searchParams.set("expected_review_hash",review.reviewHash);
+  try{
+    const response=await fetch(url,{cache:"no-store"});
+    if(!ownsReview())return;
+    if(!response.ok){
+      const payload=await response.json().catch(()=>null);
+      const details=payload?.error?.issues?.map(issue=>issue.message).filter(Boolean).join(" ");
+      throw new Error(details||payload?.error?.message||`Download failed (${response.status}). Review the policy and try again.`);
+    }
+    if(response.headers.get("X-GPO-Studio-Guid")!==review.guid||
+       response.headers.get("X-GPO-Studio-Revision")!==String(review.revision)||
+       response.headers.get("X-GPO-Studio-Review-Hash")!==review.reviewHash){
+      throw new Error("The download did not match this export review. Close this review, reload the policy and review it again.");
+    }
+    const bytes=await response.arrayBuffer();
+    // Web Crypto is unavailable on supported ordinary HTTP origins. The
+    // revision/hash response binding remains mandatory on every origin.
+    if(globalThis.crypto?.subtle){
+      const digest=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),byte=>byte.toString(16).padStart(2,"0")).join("");
+      if(digest!==response.headers.get("X-GPO-Studio-Artifact-SHA256"))throw new Error("The download bytes could not be verified. Try the download again.");
+    }
+    if(!ownsReview())return;
+    const blobUrl=URL.createObjectURL(new Blob([bytes],{type:response.headers.get("content-type")||"application/octet-stream"}));
+    const anchor=document.createElement("a");
+    anchor.href=blobUrl;
+    anchor.download=response.headers.get("content-disposition")?.match(/filename="([^"\r\n]+)"/)?.[1]||review.filename;
+    document.body.appendChild(anchor);anchor.click();anchor.remove();
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),60_000);
+    dialog.close();
+  }catch(error){
+    if(!ownsReview())return;
+    issues.textContent=error instanceof TypeError?"The local GPO Studio server is unavailable. Keep this review open and try again.":error.message;
+    issues.className="review-issues error-summary";
+    issues.tabIndex=-1;issues.focus();
+  }finally{
+    review.pending=false;
+    if(ownsReview()){
+      $("#export-review-form").removeAttribute("aria-busy");
+      button.disabled=false;button.textContent="Download export";
+    }
+  }
 };
 
 $("#import-gpmc").onclick=async()=>{

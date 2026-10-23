@@ -2739,6 +2739,33 @@ async def catalogue_conflict(request: Request, error: _CatalogueConflict) -> JSO
     )
 
 
+class _ExportReviewConflict(StudioError):
+    def __init__(
+        self, gpo: GPO, expected_revision: int, expected_hash: str, current_hash: str,
+    ) -> None:
+        super().__init__(
+            "The policy changed after this export review. Close this review, "
+            "reload the policy and review it again."
+        )
+        self.gpo = gpo
+        self.expected_revision = expected_revision
+        self.expected_hash = expected_hash
+        self.current_hash = current_hash
+
+
+@app.exception_handler(_ExportReviewConflict)
+async def export_review_conflict(request: Request, error: _ExportReviewConflict) -> JSONResponse:
+    return JSONResponse(_error_body(request, {
+        "message": str(error),
+        "code": "export_review_conflict",
+        "guid": error.gpo.guid,
+        "expected_revision": error.expected_revision,
+        "current_revision": error.gpo.revision,
+        "expected_review_hash": error.expected_hash,
+        "current_review_hash": error.current_hash,
+    }), status_code=409)
+
+
 @app.exception_handler(StudioError)
 async def studio_error(request: Request, error: StudioError) -> JSONResponse:
     status = (
@@ -4217,26 +4244,69 @@ def restore(request: Request, guid: str, revision: int, body: RestoreMutation) -
     return _gpo_payload(gpo, request)
 
 
-@app.get("/api/gpos/{guid}/export.zip")
-@egress("zip-studio")
-def bundle(request: Request, guid: str) -> Response:
+def _reviewed_export(
+    request: Request, guid: str, expected_revision: int | None, expected_review_hash: str | None,
+) -> tuple[GPO, str]:
+    # Fetch once: the guard, validation and serializer all use this immutable
+    # object, even if another request commits a newer workspace revision.
     gpo = _store(request).get_gpo(guid)
+    if (expected_revision is None) != (expected_review_hash is None):
+        raise StudioError("Supply expected_revision and expected_review_hash together.")
+    review_hash = _digest(review_model_sha256, gpo)
+    if review_hash is None:
+        raise StudioError(
+            "This policy cannot be hashed for export review. "
+            "Resolve its validation findings first."
+        )
+    if expected_revision is not None and expected_review_hash is not None and (
+        gpo.revision != expected_revision or review_hash != expected_review_hash
+    ):
+        raise _ExportReviewConflict(gpo, expected_revision, expected_review_hash, review_hash)
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
     if errors:
         raise ValidationError(errors)
+    return gpo, review_hash
+
+
+def _reviewed_export_headers(gpo: GPO, review_hash: str, content: bytes | str) -> dict[str, str]:
+    data = content.encode("utf-8") if isinstance(content, str) else content
+    return {
+        "Cache-Control": "no-store",
+        "X-GPO-Studio-Guid": gpo.guid,
+        "X-GPO-Studio-Revision": str(gpo.revision),
+        "X-GPO-Studio-Review-Hash": review_hash,
+        "X-GPO-Studio-Artifact-SHA256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+@app.get("/api/gpos/{guid}/export.zip")
+@egress("zip-studio")
+def bundle(
+    request: Request,
+    guid: str,
+    expected_revision: int | None = Query(default=None, ge=1),
+    expected_review_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
+) -> Response:
+    gpo, review_hash = _reviewed_export(request, guid, expected_revision, expected_review_hash)
     fname = f"{_safe_filename(gpo.guid)}-publication.zip"
-    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
-    return Response(checked_studio_bundle(gpo), media_type="application/zip", headers=headers)
+    content = checked_studio_bundle(gpo)
+    headers = _reviewed_export_headers(gpo, review_hash, content)
+    headers["Content-Disposition"] = f'attachment; filename="{fname}"'
+    return Response(content, media_type="application/zip", headers=headers)
 
 
 @app.get("/api/gpos/{guid}/plan.ps1")
 @egress("powershell-plan")
-def plan(request: Request, guid: str) -> Response:
-    gpo = _store(request).get_gpo(guid)
-    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
-    if errors:
-        raise ValidationError(errors)
-    return Response(checked_plan(gpo), media_type="text/plain; charset=utf-8")
+def plan(
+    request: Request,
+    guid: str,
+    expected_revision: int | None = Query(default=None, ge=1),
+    expected_review_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
+) -> Response:
+    gpo, review_hash = _reviewed_export(request, guid, expected_revision, expected_review_hash)
+    content = checked_plan(gpo)
+    headers = _reviewed_export_headers(gpo, review_hash, content)
+    return Response(content, media_type="text/plain; charset=utf-8", headers=headers)
 
 
 @app.get("/api/gpos/{guid}/report.txt")
@@ -4440,21 +4510,25 @@ def _unknown_cse_refusal(gpo: GPO) -> ValidationIssue | None:
 
 @app.get("/api/gpos/{guid}/gpmc-backup")
 @egress("zip-gpmc")
-def gpmc_backup(request: Request, guid: str) -> Response:
-    gpo = _store(request).get_gpo(guid)
-    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
-    if errors:
-        raise ValidationError(errors)
+def gpmc_backup(
+    request: Request,
+    guid: str,
+    expected_revision: int | None = Query(default=None, ge=1),
+    expected_review_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
+) -> Response:
+    gpo, review_hash = _reviewed_export(request, guid, expected_revision, expected_review_hash)
     unknown_cse = _unknown_cse_refusal(gpo)
     if unknown_cse is not None:
         raise ValidationError([unknown_cse])
     backup_id = native_backup_id(gpo)
     fname = f"{_safe_filename(backup_id.strip('{}'))}-gpmc-backup.zip"
-    headers = {
+    content = checked_gpmc_backup(gpo)
+    headers = _reviewed_export_headers(gpo, review_hash, content)
+    headers.update({
         "Content-Disposition": f'attachment; filename="{fname}"',
         "X-GPO-Backup-Id": backup_id,
-    }
-    return Response(checked_gpmc_backup(gpo), media_type="application/zip", headers=headers)
+    })
+    return Response(content, media_type="application/zip", headers=headers)
 
 
 @app.post("/api/estate/import")
