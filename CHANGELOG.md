@@ -12,6 +12,13 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 - Observe complete Enabled and Disabled list-policy patterns in the settings browser;
   show Indeterminate for identical, incomplete or unobservable patterns without changing
   legal authoring states, exports or stored policy records.
+- Admit legacy ADMX IDs only after checking complete writer languages and fully
+  assembled owner frames, including side boundaries and arbitrary list ordinals;
+  retain canonical empty policy owners accepted by the parser and writer.
+- Plan configured-setting element bindings once per policy/side, keeping historical
+  state/fixed-list writes out of editable lists and requiring address evidence for
+  legacy disabled-element records. Preserve uncertain records visibly and keep
+  list-heavy historical reads from repeatedly scanning the source schema.
 
 - Keep multiply parseable legacy ADMX identities unresolved and refuse automatic
   reconfiguration even when current catalogue addresses or edited sides appear unique;

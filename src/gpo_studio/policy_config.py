@@ -54,8 +54,8 @@ class PolicySettingIdentity:
     ordinal: int = 0
 
 
-def structured_policy_ids(policy: PolicyDefinition) -> bool:
-    """Choose the identity family from the complete schema, never current values/state."""
+def _structured_family_compatibility(policy: PolicyDefinition) -> bool:
+    """Keep already-structured source families stable while closing legacy admission."""
     route_unsafe = frozenset("/?#%\\")
     if _SIDE_MARKER.search(policy.qualified_id) or route_unsafe.intersection(policy.qualified_id):
         return True
@@ -66,19 +66,82 @@ def structured_policy_ids(policy: PolicyDefinition) -> bool:
             or route_unsafe.intersection(element.id)
             or element.id == "state"
             or (
-                element.kind == "list" and element.id == "listitem"
+                element.kind == "list"
+                and element.id == "listitem"
                 and (policy.enabled_list is not None or policy.disabled_list is not None)
             )
             or re.fullmatch(r"listitem-[1-9][0-9]*", element.id)
             or element.id.startswith("disabled-element-")
         ):
             return True
-        if any(
-            element.id[: match.start()] in list_ids
-            for match in re.finditer("-", element.id)
-        ):
+        if any(element.id[: match.start()] in list_ids for match in re.finditer("-", element.id)):
             return True
     return False
+
+
+def _legacy_writer_languages_are_disjoint(policy: PolicyDefinition) -> bool:
+    """Prove closure of all legacy writer forms, including unbounded list ordinals.
+
+    Dynamic languages are ``element-id + '-' + [1-9][0-9]*``. Distinct
+    element-id languages cannot intersect: each prefix ends in '-', which a
+    positive decimal ordinal cannot contain. Finite writes are checked against
+    those languages analytically, rather than sampling a chosen list length.
+    """
+    elements = tuple(policy.elements)
+    list_ids: set[str] = set()
+    finite: list[str] = []
+    if policy.value_name:
+        finite.append("state")
+    count = max(
+        (
+            len(value_list.items)
+            for value_list in (policy.enabled_list, policy.disabled_list)
+            if value_list is not None
+        ),
+        default=0,
+    )
+    finite.extend(f"listitem-{ordinal}" for ordinal in range(1, count + 1))
+    for element in elements:
+        if element.kind == "list":
+            if element.id in list_ids:
+                return False
+            list_ids.add(element.id)
+        else:
+            finite.append(element.id)
+            if element.registry_value_name:
+                finite.append("disabled-element-" + element.id)
+    seen: set[str] = set()
+    for suffix in finite:
+        if suffix in seen:
+            return False
+        seen.add(suffix)
+        prefix, separator, ordinal = suffix.rpartition("-")
+        if separator and prefix in list_ids and re.fullmatch(r"[1-9][0-9]*", ordinal):
+            return False
+    # Digits cannot introduce a side marker; ordinal 1 suffices ONLY for this
+    # full-frame proof. The independent stream-overlap proof above covers every
+    # ordinal. Probe state even for an empty schema to bind the owner spelling.
+    suffixes = (*finite, *(element_id + "-1" for element_id in list_ids), "state")
+    for side in ("computer", "user"):
+        for suffix in suffixes:
+            setting_id = f"admx-{policy.qualified_id}-{side}-{suffix}"
+            if frozenset("/?#%\\").intersection(setting_id):
+                return False
+            if legacy_setting_parts(setting_id) != ((policy.qualified_id, side, suffix),):
+                return False
+    return True
+
+
+def structured_policy_ids(policy: PolicyDefinition) -> bool:
+    """Choose once from the complete source, never current values/state/list length.
+
+    Existing structured families retain their editor IDs. Every other source
+    must pass the mechanical legacy writer-language and full-owner-frame proof;
+    correctness no longer depends on the historical compatibility selector.
+    """
+    return _structured_family_compatibility(policy) or not _legacy_writer_languages_are_disjoint(
+        policy
+    )
 
 
 def policy_setting_prefix(policy: PolicyDefinition, side: Side) -> str:
@@ -133,10 +196,10 @@ def parse_structured_setting_id(setting_id: str) -> PolicySettingIdentity | None
     except (ValueError, UnicodeError):
         return None
     # Canonical spelling prevents multiple encodings of the same owner/source.
+    # An empty owner is emitted for parser-accepted empty policy names too.
     if (
         policy_id.encode("utf-8").hex() != encoded_policy
         or component.encode("utf-8").hex() != encoded_component
-        or not policy_id
     ):
         return None
     ordinal = int(number)
@@ -153,6 +216,7 @@ def parse_structured_setting_id(setting_id: str) -> PolicySettingIdentity | None
 
 
 def legacy_setting_parts(setting_id: str) -> tuple[tuple[str, Side, str], ...]:
+    """Keep every possible historical frame, including an empty source owner."""
     if not setting_id.startswith("admx-"):
         return ()
     remaining = setting_id[5:]
@@ -163,7 +227,6 @@ def legacy_setting_parts(setting_id: str) -> tuple[tuple[str, Side, str], ...]:
             remaining[m.start() + len(m.group(1)) + 2 :],
         )
         for m in re.finditer(r"(?=-(computer|user)-)", remaining)
-        if remaining[: m.start()]
     )
 
 

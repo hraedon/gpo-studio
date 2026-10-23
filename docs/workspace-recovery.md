@@ -558,6 +558,21 @@ These encode the exact policy, side, write kind, component and list ordinal. The
 choice uses the complete source schema and remains stable across values and
 Enabled/Disabled/Not configured. It changes editor metadata, not Registry.pol's
 registry addresses or value encoding. There is no workspace schema migration.
+
+Legacy admission checks the fully assembled IDs on both sides and the complete
+writer languages, including every canonical positive list ordinal. Existing
+structured source families retain their spelling. Empty source policy names
+accepted by the parser remain coherent through both identity families; historical
+empty-owner frames also participate in ambiguity checks before editable-side
+filtering. These rules do not rewrite stored records during a read.
+
+The settings browser prepares source bindings and address exclusions once per
+policy/side. It distinguishes actual stored legacy/structured frames from today's
+writer-family choice. State and fixed-list records do not become editable dynamic
+list items; interpreting a legacy spelling as a disabled-element write requires
+the scalar's actual address. Uncertain component roles remain visible as unresolved raw records rather
+than invented form values. This does not implement the reviewed repair workflow
+in WI-087 or the independent observed list-state work in WI-088.
 Older builds can open and read the raw records; structured list-element rows may
 appear unresolved in their settings browser. They must not reconfigure these ADMX
 policies: the old prefix-based writer cannot safely interpret the new IDs.

@@ -26,7 +26,7 @@ from gpo_studio.store import WorkspaceStore
 @st.composite
 def writer_identities(draw):
     alphabet = st.sampled_from("abcXYZ09:-_/?#%\\; λ雪")
-    owner = draw(st.text(alphabet, min_size=1, max_size=20))
+    owner = draw(st.text(alphabet, min_size=0, max_size=20))
     side = draw(st.sampled_from(("computer", "user")))
     kind = draw(
         st.sampled_from(("state", "state-list", "element", "element-list", "disabled-element"))
@@ -136,3 +136,211 @@ def test_accepted_empty_element_ids_roundtrip_through_writer_browser_and_api(
             and identity.component == ""
             for identity in disabled_ids
         )
+
+
+@pytest.mark.parametrize("side", ["computer", "user"])
+@pytest.mark.parametrize(
+    "kind,component,ordinal",
+    [
+        ("state", "", 0),
+        ("state-list", "", 1),
+        ("element", "", 0),
+        ("element-list", "", 1),
+        ("disabled-element", "", 0),
+    ],
+)
+def test_empty_owner_is_canonical_for_every_writer_kind(side, kind, component, ordinal) -> None:
+    identity = PolicySettingIdentity("", side, kind, component, ordinal)
+    assert parse_structured_setting_id(encoded(identity)) == identity
+
+
+@pytest.mark.parametrize(
+    "setting_id",
+    [
+        "admx2::other:state::0",
+        "admx2::computer:state:61:0",
+        "admx2::computer:state::00",
+        "admx2::computer:state::+0",
+        "admx2::computer:state::-0",
+        "admx2::computer:state-list::0",
+        "admx2::computer:state-list::01",
+        "admx2::computer:element::1",
+        "admx2::computer:element-list::10000000000",
+        "admx2::computer:unknown::0",
+        "admx2::computer:element:FF:0",
+        "admx2::computer:element:4A:0",
+        "admx2::computer:element:6 1:0",
+        "admx2:ff:computer:state::0",
+    ],
+)
+def test_empty_owner_acceptance_keeps_malformed_and_noncanonical_frames_refused(
+    setting_id: str,
+) -> None:
+    assert parse_structured_setting_id(setting_id) is None
+
+
+@st.composite
+def bounded_writer_schemas(draw):
+    from gpo_studio.admx import (
+        PolicyDefinition,
+        PolicyElement,
+        PolicyListItem,
+        PolicyValue,
+        PolicyValueList,
+    )
+
+    components = [
+        "",
+        "Plain",
+        "state",
+        "listitem",
+        "listitem-1",
+        "listitem-12",
+        "disabled-element",
+        "1",
+        "12",
+        "01",
+        "-1",
+        "computer",
+        "computer-",
+        "computer-Option",
+        "Tail-computer",
+        "user",
+        "user-",
+        "user-Option",
+        "Tail-user",
+        "Items",
+        "Items-12",
+        "Items-named",
+        "disabled-element-Option",
+        "組",
+        "x/y",
+        "x%2F",
+    ]
+    names = draw(st.lists(st.sampled_from(components), min_size=1, max_size=3, unique=True))
+    kinds = draw(
+        st.lists(st.sampled_from(("text", "list")), min_size=len(names), max_size=len(names))
+    )
+    elements = tuple(
+        PolicyElement(
+            kind=kind,
+            id=name,
+            registry_key=f"Software\\Policies\\Synthetic\\Closure\\Element{index}",
+            registry_value_name=f"Value{index}",
+            attributes=(("valuePrefix", "Item"),),
+        )
+        for index, (name, kind) in enumerate(zip(names, kinds, strict=True))
+    )
+    fixed_count = draw(st.sampled_from((0, 1, 13)))
+    fixed = (
+        PolicyValueList(
+            tuple(
+                PolicyListItem(f"Fixed{i}", PolicyValue("string", "fixed", "REG_SZ"))
+                for i in range(fixed_count)
+            )
+        )
+        if fixed_count
+        else None
+    )
+    return PolicyDefinition(
+        draw(
+            st.sampled_from(
+                (
+                    "p",
+                    "p-computer",
+                    "p-user",
+                    "-computer",
+                    "-user",
+                    "computer-p",
+                    "p-computer-",
+                    "p-user-",
+                    "",
+                )
+            )
+        ),
+        "Both",
+        r"Software\Policies\Synthetic\Closure",
+        "Synthetic closure",
+        "",
+        "",
+        namespace=draw(
+            st.sampled_from(("", "Synthetic.Closure", "https://synthetic.example.test/closure"))
+        ),
+        value_name=draw(st.sampled_from(("", "State"))),
+        elements=elements,
+        enabled_list=fixed,
+        disabled_list=fixed,
+    )
+
+
+@given(bounded_writer_schemas())
+@settings(max_examples=100, derandomize=True, deadline=None)
+def test_mechanical_legacy_admission_is_closed_over_actual_writer_outputs(policy) -> None:
+    """Observe real writer kinds/identities, including ordinal12 and cross-state aliases.
+
+    Disable the compatibility floor to prove that it grants no legacy safety:
+    the mechanical closure alone must handle every generated writer language.
+    """
+    from unittest.mock import patch
+
+    import gpo_studio.policy_config as writer
+
+    observed = []
+    write_id = writer._write_id
+
+    def recording(prefix, kind, component="", ordinal=0):
+        result = write_id(prefix, kind, component, ordinal)
+        observed.append((result, (kind, component, ordinal)))
+        return result
+
+    with (
+        patch.object(writer, "_structured_family_compatibility", return_value=False),
+        patch.object(writer, "_write_id", recording),
+    ):
+        family = writer.structured_policy_ids(policy)
+        seen = {}
+        for side in ("computer", "user"):
+            for count in (0, 1, 3, 12):
+                values = {
+                    element.id: (
+                        [f"item{i}" for i in range(count)] if element.kind == "list" else "scalar"
+                    )
+                    for element in policy.elements
+                }
+                for state in ("enabled", "disabled", "not_configured"):
+                    observed.clear()
+                    rows = writer.resolve_policy(
+                        policy,
+                        writer.PolicyConfiguration(
+                            side, values if state == "enabled" else {}, state
+                        ),
+                    )
+                    assert len({row.id for row in rows}) == len(rows)
+                    assert [row.id for row in rows] == [item[0] for item in observed]
+                    if state == "enabled":
+                        browser = build_settings_browser(AdmxCatalogue(policies=(policy,)), rows)
+                        assert not browser.unresolved
+                        decoded_values = (
+                            browser.resolved[0].element_values if browser.resolved else {}
+                        )
+                        assert all(
+                            decoded_values.get(element.id, []) == values[element.id]
+                            for element in policy.elements
+                        )
+                    for row, (_id, identity) in zip(rows, observed, strict=True):
+                        expected = (side, *identity)
+                        assert seen.setdefault(row.id, expected) == expected
+                        if family:
+                            decoded = writer.parse_structured_setting_id(row.id)
+                            assert decoded is not None
+                            assert (
+                                decoded.policy_id,
+                                decoded.side,
+                                decoded.kind,
+                                decoded.component,
+                                decoded.ordinal,
+                            ) == (policy.qualified_id, *expected)
+                        else:
+                            assert not set("/?#%\\").intersection(row.id)
+                            parts = writer.legacy_setting_parts(row.id)
+                            assert len(parts) == 1 and parts[0][:2] == (policy.qualified_id, side)
