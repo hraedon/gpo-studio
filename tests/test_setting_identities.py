@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+import types
 from collections.abc import Iterator
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,8 +34,10 @@ from gpo_studio.policy_config import (
     parse_structured_setting_id,
     policy_setting_positions,
     resolve_policy,
+    setting_policy_owners,
     structured_policy_ids,
 )
+from gpo_studio.settings_browser import build_settings_browser
 from gpo_studio.store import WorkspaceStore
 
 KEY = r"Software\Policies\Synthetic\Identity"
@@ -90,10 +95,14 @@ def schemas() -> tuple[PolicyDefinition, ...]:
             enabled_list=PolicyValueList(
                 (PolicyListItem("FixedValue", PolicyValue("string", "fixed", "REG_SZ")),)
             ),
-            elements=(PolicyElement(
-                kind="list", id="listitem", registry_key=KEY + "\\DynamicItems",
-                attributes=(("valuePrefix", "Item"),),
-            ),),
+            elements=(
+                PolicyElement(
+                    kind="list",
+                    id="listitem",
+                    registry_key=KEY + "\\DynamicItems",
+                    attributes=(("valuePrefix", "Item"),),
+                ),
+            ),
         ),
         policy(
             "DisabledElement",
@@ -298,6 +307,99 @@ def overlapping_schemas() -> tuple[PolicyDefinition, PolicyDefinition]:
     return parent, child
 
 
+@pytest.fixture(scope="module")
+def legacy_producer() -> Iterator[Any]:
+    """Run the real immutable old resolver, rather than inventing a legacy row ID."""
+    commit = "0d83fb49781dfcc8b2c54b40480ef58540dc12c3"
+    source = subprocess.check_output(
+        ["git", "show", f"{commit}:src/gpo_studio/policy_config.py"],
+        cwd=Path(__file__).resolve().parents[1],
+    )
+    module = types.ModuleType("gpo_studio._legacy_producer_0d83")
+    module.__package__ = "gpo_studio"
+    sys.modules[module.__name__] = module
+    try:
+        exec(compile(source, f"{commit}:policy_config.py", "exec"), module.__dict__)
+        yield module
+    finally:
+        del sys.modules[module.__name__]
+
+
+def legacy_child_row(legacy_producer: Any, *, mixed_sides: bool = False) -> RegistrySetting:
+    _parent, child = overlapping_schemas()
+    if mixed_sides:
+        child = replace(child, class_="User")
+    side = "user" if mixed_sides else "computer"
+    rows = legacy_producer.resolve_policy(child, legacy_producer.PolicyConfiguration(side, {}))
+    assert len(rows) == 1
+    return rows[0]
+
+
+def remapped_schemas() -> tuple[PolicyDefinition, PolicyDefinition]:
+    parent, child = overlapping_schemas()
+    return (
+        replace(
+            parent,
+            key=child.key,
+            elements=(replace(parent.elements[0], registry_value_name="Child"),),
+        ),
+        replace(child, key=child.key + r"\UpdatedMapping"),
+    )
+
+
+def test_current_catalogue_addresses_cannot_prove_a_legacy_rows_producer(
+    legacy_producer: Any,
+) -> None:
+    parent, child = overlapping_schemas()
+    row = legacy_child_row(legacy_producer)
+    original = asdict(row)
+    assert len(legacy_setting_parts(row.id)) == 2
+    expected = {(parent.qualified_id, "computer"), (child.qualified_id, "computer")}
+    catalogues = {"original": overlapping_schemas(), "remapped": remapped_schemas()}
+    observed = {
+        name: set(setting_policy_owners(row, AdmxCatalogue(policies=policies)))
+        for name, policies in catalogues.items()
+    }
+    assert observed == {"original": expected, "remapped": expected}
+    for policies in catalogues.values():
+        catalogue = AdmxCatalogue(policies=policies)
+        result = build_settings_browser(catalogue, (row,))
+        assert not result.resolved
+        assert result.unresolved[0].setting == row
+        assert result.unresolved[0].reason == "ambiguous legacy policy ownership"
+        for owner in expected:
+            with pytest.raises(ValidationError) as failure:
+                policy_setting_positions((row,), catalogue, {owner})
+            assert failure.value.issues[0].code == "ambiguous_setting_owner"
+        # Without the ownership refusal, this replacement could erase the row.
+        assert (
+            resolve_policy(policies[0], PolicyConfiguration("computer", {}, "not_configured")) == []
+        )
+    assert asdict(row) == original
+
+
+def test_a_side_edit_cannot_disambiguate_a_multiply_parseable_legacy_frame(
+    legacy_producer: Any,
+) -> None:
+    parent, child = overlapping_schemas()
+    child = replace(child, class_="User")
+    row = legacy_child_row(legacy_producer, mixed_sides=True)
+    catalogue = AdmxCatalogue(policies=(parent, child))
+    expected = {(parent.qualified_id, "computer"), (child.qualified_id, "user")}
+    rows = {"original": row, "side_edited": replace(row, side="computer", hive="HKLM")}
+    observed = {
+        name: set(setting_policy_owners(current, catalogue)) for name, current in rows.items()
+    }
+    assert observed == {"original": expected, "side_edited": expected}
+    for current in rows.values():
+        result = build_settings_browser(catalogue, (current,))
+        assert not result.resolved and len(result.unresolved) == 1
+        for owner in expected:
+            with pytest.raises(ValidationError) as failure:
+                policy_setting_positions((current,), catalogue, {owner})
+            assert failure.value.issues[0].code == "ambiguous_setting_owner"
+
+
 def test_overlapping_legacy_owners_configure_and_remove_independently(
     harness: Any, monkeypatch: Any
 ) -> None:
@@ -327,8 +429,13 @@ def test_overlapping_legacy_owners_configure_and_remove_independently(
         )
 
 
-def test_uniquely_addressed_legacy_rows_can_be_repaired_without_deleting_other_owner(
-    harness: Any, monkeypatch: Any
+@pytest.mark.parametrize("owner", ["parent", "child"])
+@pytest.mark.parametrize("state", ["enabled", "not_configured"])
+def test_current_address_matches_do_not_authorize_ambiguous_legacy_repair(
+    harness: Any,
+    monkeypatch: Any,
+    owner: str,
+    state: str,
 ) -> None:
     client, store = harness
     parent, child = overlapping_schemas()
@@ -343,15 +450,18 @@ def test_uniquely_addressed_legacy_rows_can_be_repaired_without_deleting_other_o
             RegistrySetting(legacy_id, "computer", "HKLM", child.key, "Child", "REG_DWORD", 1),
         ),
     )
-    response = configured(
-        client, old.to_dict(), parent.qualified_id, values={parent.elements[0].id: "parent-new"}
+    before = storage(store)
+    chosen = parent if owner == "parent" else child
+    values = (
+        {parent.elements[0].id: "parent-new"} if owner == "parent" and state == "enabled" else {}
     )
-    assert response.status_code == 200, response.text
-    rows = response.json()["gpo"]["settings"]
-    assert {item["value_name"] for item in rows} == {"Parent", "Child"}
-    assert len({item["id"] for item in rows}) == 2
-    assert next(item["id"] for item in rows if item["value_name"] == "Child") == legacy_id
-    assert len(store.get_revision(old.guid, 2).snapshot["settings"]) == 2
+    response = configured(client, old.to_dict(), chosen.qualified_id, state=state, values=values)
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["issues"][0]["code"] == "ambiguous_setting_owner"
+    read = client.get(f"/api/gpos/{old.guid}/configured-settings")
+    assert read.status_code == 200
+    assert not read.json()["resolved"] and len(read.json()["unresolved"]) == 2
+    assert storage(store) == before
 
 
 def test_unknown_legacy_owner_refuses_reconfigure_without_changing_history(
@@ -689,7 +799,8 @@ def test_ordinary_scalar_prefix_names_keep_ids_and_decode_exact_elements(
 
 @pytest.mark.parametrize("items", [[], ["one"], ["one", "two", "three"]])
 def test_fixed_policy_list_is_not_reconstructed_as_editable_list_content(
-    harness: Any, items: list[str],
+    harness: Any,
+    items: list[str],
 ) -> None:
     client, _store = harness
     gpo = draft(client)
@@ -706,19 +817,31 @@ def test_fixed_policy_list_is_not_reconstructed_as_editable_list_content(
 def test_policy_list_selector_preserves_ordinary_listitem_spelling_and_native_bytes() -> None:
     original = next(p for p in schemas() if p.id == "StateListListElement")
     for field in ("enabled_list", "disabled_list"):
-        candidate = replace(original, **{
-            "enabled_list": None, "disabled_list": None, field: original.enabled_list,
-        })
+        candidate = replace(
+            original,
+            **{
+                "enabled_list": None,
+                "disabled_list": None,
+                field: original.enabled_list,
+            },
+        )
         assert structured_policy_ids(candidate)
         for count in (0, 1, 12):
-            settings = resolve_policy(candidate, PolicyConfiguration(
-                "computer", {"listitem": [str(i) for i in range(count)]},
-            ))
+            settings = resolve_policy(
+                candidate,
+                PolicyConfiguration(
+                    "computer",
+                    {"listitem": [str(i) for i in range(count)]},
+                ),
+            )
             assert all(parse_structured_setting_id(item.id) is not None for item in settings)
             gpo = GPO(str(uuid4()), "Synthetic list byte control", settings=tuple(settings))
-            renamed = replace(gpo, settings=tuple(
-                replace(item, id=f"editor-only-{index}") for index, item in enumerate(settings)
-            ))
+            renamed = replace(
+                gpo,
+                settings=tuple(
+                    replace(item, id=f"editor-only-{index}") for index, item in enumerate(settings)
+                ),
+            )
             assert _gpmc_preg_bytes(list(gpo.settings)) == _gpmc_preg_bytes(list(renamed.settings))
     ordinary = replace(original, enabled_list=None, disabled_list=None)
     assert not structured_policy_ids(ordinary)
@@ -733,11 +856,19 @@ def test_legacy_fixed_list_remains_readable_without_becoming_editable_list_conte
     definition = next(p for p in schemas() if p.id == "StateListListElement")
     legacy = RegistrySetting(
         id="admx-Synthetic.Identities:StateListListElement-computer-listitem-1",
-        side="computer", hive="HKLM", key=definition.key,
-        value_name="FixedValue", registry_type="REG_SZ", value="fixed",
+        side="computer",
+        hive="HKLM",
+        key=definition.key,
+        value_name="FixedValue",
+        registry_type="REG_SZ",
+        value="fixed",
     )
-    gpo = store.create_gpo("Synthetic legacy fixed list", settings=(legacy,),
-                           identity="test", reason="Seed legacy identity")
+    gpo = store.create_gpo(
+        "Synthetic legacy fixed list",
+        settings=(legacy,),
+        identity="test",
+        reason="Seed legacy identity",
+    )
     before = storage(store)
     detail = client.get(f"/api/gpos/{gpo.guid}")
     assert detail.status_code == 200
@@ -745,3 +876,107 @@ def test_legacy_fixed_list_remains_readable_without_becoming_editable_list_conte
     configured_rows = client.get(f"/api/gpos/{gpo.guid}/configured-settings").json()
     assert configured_rows["resolved"][0]["element_values"].get("listitem", []) == []
     assert storage(store) == before
+
+
+@pytest.mark.parametrize("remapped", [False, True])
+@pytest.mark.parametrize("operation", ["configure", "bulk"])
+def test_historical_ambiguous_single_row_refuses_without_changing_readable_records(
+    harness: Any,
+    monkeypatch: Any,
+    legacy_producer: Any,
+    remapped: bool,
+    operation: str,
+) -> None:
+    client, store = harness
+    parent, child = remapped_schemas() if remapped else overlapping_schemas()
+    monkeypatch.setattr(app.state, "admx_catalogue", AdmxCatalogue(policies=(parent, child)))
+    row = legacy_child_row(legacy_producer)
+    old = inject_legacy(store, (row,))
+    before = storage(store)
+    if operation == "configure":
+        refused = configured(client, old.to_dict(), parent.qualified_id, state="not_configured")
+    else:
+        refused = client.post(
+            f"/api/gpos/{old.guid}/bulk-policy-state",
+            json={
+                "expected_revision": old.revision,
+                "policy_ids": [parent.qualified_id],
+                "side": "computer",
+                "target_state": "not_configured",
+                "actor": "test",
+                "reason": "Review ambiguous synthetic policy",
+            },
+        )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["error"]["issues"][0]["code"] == "ambiguous_setting_owner"
+    head = client.get(f"/api/gpos/{old.guid}")
+    assert head.status_code == 200
+    assert [item["id"] for item in head.json()["gpo"]["settings"]] == [row.id]
+    history = client.get(f"/api/gpos/{old.guid}/revisions/2")
+    assert history.status_code == 200
+    assert history.json()["snapshot"]["settings"][0]["id"] == row.id
+    read = client.get(f"/api/gpos/{old.guid}/configured-settings")
+    assert read.status_code == 200
+    assert not read.json()["resolved"] and len(read.json()["unresolved"]) == 1
+    assert read.json()["unresolved"][0]["reason"] == "ambiguous legacy policy ownership"
+    # Ownership uncertainty is an editing constraint, not a blanket export ban.
+    assert client.get(f"/api/gpos/{old.guid}/gpmc-backup").status_code == 200
+    assert storage(store) == before
+
+
+def test_exact_structured_and_single_frame_legacy_owners_keep_their_side_rules() -> None:
+    ordinary = schemas()[0]
+    row = resolve_policy(ordinary, PolicyConfiguration("computer", {}))[0]
+    assert len(legacy_setting_parts(row.id)) == 1
+    assert setting_policy_owners(row, AdmxCatalogue()) == ((ordinary.qualified_id, "computer"),)
+    assert not setting_policy_owners(replace(row, side="user", hive="HKCU"), AdmxCatalogue())
+
+    parent, child = overlapping_schemas()
+    structured = resolve_policy(child, PolicyConfiguration("computer", {}))[0]
+    assert structured.id.startswith("admx2:")
+    for policies in (overlapping_schemas(), remapped_schemas()):
+        catalogue = AdmxCatalogue(policies=policies)
+        assert setting_policy_owners(structured, catalogue) == ((child.qualified_id, "computer"),)
+        assert (
+            policy_setting_positions((structured,), catalogue, {(parent.qualified_id, "computer")})
+            == frozenset()
+        )
+        assert policy_setting_positions(
+            (structured,), catalogue, {(child.qualified_id, "computer")}
+        ) == frozenset({0})
+        assert not setting_policy_owners(replace(structured, side="user", hive="HKCU"), catalogue)
+
+
+def test_reviewed_fresh_draft_recovery_keeps_historical_ambiguous_source_unchanged(
+    harness: Any,
+    monkeypatch: Any,
+    legacy_producer: Any,
+) -> None:
+    client, store = harness
+    monkeypatch.setattr(app.state, "admx_catalogue", AdmxCatalogue(policies=remapped_schemas()))
+    old = inject_legacy(store, (legacy_child_row(legacy_producer),))
+    original = store.get_gpo(old.guid)
+    history = tuple(store.revisions(old.guid))
+    native = _gpmc_preg_bytes(list(original.settings))
+    fresh = draft(client, "Synthetic explicitly reviewed recovery")
+    chosen = asdict(original.settings[0])
+    del chosen["id"]
+    chosen["value"] = str(chosen["value"])
+    recovered = client.post(
+        f"/api/gpos/{fresh['guid']}/settings",
+        json={
+            "expected_revision": 1,
+            "setting": chosen,
+            "actor": "test",
+            "reason": "Retain reviewed raw registry record with fresh identity",
+        },
+    )
+    assert recovered.status_code == 201, recovered.text
+    new_id = recovered.json()["gpo"]["settings"][0]["id"]
+    UUID(new_id)
+    assert new_id != original.settings[0].id
+    assert _gpmc_preg_bytes(list(store.get_gpo(fresh["guid"]).settings)) == native
+    assert client.get(f"/api/gpos/{fresh['guid']}/gpmc-backup").status_code == 200
+    assert store.get_gpo(old.guid) == original
+    assert tuple(store.revisions(old.guid)) == history
+    assert client.get(f"/api/gpos/{old.guid}").status_code == 200

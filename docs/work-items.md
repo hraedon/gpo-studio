@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**7 open.**
+**8 open.**
 
+- [WI-088](#wi-088--derive-observed-list-policy-state-without-inventing-intent) - identify complete list-state patterns and show indeterminate observations without changing authoring states or writing on reads.
 - [WI-087](#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities) - preview and apply explicit registry-row identity/ownership repairs while preserving all chosen records and original history.
 - [WI-086](#wi-086--qualify-an-authenticated-iis-hosted-shared-authoring-profile) - prove the shared-service identity boundary, collaborative storage and repeatable IIS deployment under Plan 032.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
@@ -4115,8 +4116,10 @@ this item's closing condition.
 
 The authoring fix refuses duplicate editor IDs and ambiguous legacy ownership
 before a write can choose or erase the wrong registry record. Existing heads and
-immutable history remain readable. Uniquely owned ADMX rows can be reconfigured;
-otherwise the [recovery guide](workspace-recovery.md#legacy-registry-editor-ids-and-ambiguous-admx-ownership)
+immutable history remain readable. Exact structured owners and single-frame legacy
+owners can be reconfigured. Multiple legacy parses remain uncertain regardless of
+current catalogue/address/side matches; those cannot prove the historical producer.
+Otherwise the [recovery guide](workspace-recovery.md#legacy-registry-editor-ids-and-ambiguous-admx-ownership)
 describes recovering chosen raw registry records into a fresh draft with newly
 generated UUIDs. Copy retains editor IDs and Fork prefixes them; neither resolves
 a duplicate pair. Older builds can read the raw records, but structured list-element
@@ -4126,7 +4129,43 @@ can prevent partial repairs which leave another bad family.
 **Closes when:** an explicit command or UI previews every selected row and owner,
 requires the operator's repair choices, preserves every chosen registry record
 and the original history, and commits unique identities as an audited revision
-or clearly identified fresh draft. Tests cover ambiguous owners, repeated IDs,
-multiple malformed families, stale revisions and failed-write rollback. Nothing
-rewrites historical revisions or silently infers a winner. Native Windows policy
-qualification remains separate.
+or clearly identified fresh draft. Pre-edit identity warnings explain duplicate
+editor IDs, ambiguous ownership and recovery before an unrelated edit fails, while
+keeping readable records and independently eligible native exports available.
+Editing warnings must not become core validation errors or a blanket export ban;
+clean restores and other explicitly reviewed recovery actions remain possible.
+Tests cover historical catalogue changes, raw side edits, ambiguous owners, repeated
+IDs, multiple malformed families, stale revisions and failed-write rollback. Nothing
+rewrites historical revisions or silently infers a winner. The warnings and repair
+workflow are future work, not implemented by the ownership refusal. Native Windows
+policy qualification remains separate.
+
+
+## WI-088 — derive observed list-policy state without inventing intent
+
+**Opened:** 2026-10-23 (N7 bounded synthetic settings-browser observation).
+**Status:** open.
+
+At `2b63c83c`, configuring a list-only policy as Disabled correctly writes its
+`disabledList` set values, but the reverse reader labels it Enabled unless every
+list-item action is delete. A set DWORD0 pattern, mixed set/delete pattern and
+complete two-item Disabled pattern were labelled Enabled; all-delete and scalar
+controls worked. Identical Enabled/Disabled lists are indistinguishable, and a
+mixed snapshot matching neither complete pattern was also labelled Enabled.
+Read/filter operations preserved the workspace and sent no mutation requests.
+This is an existing read-inference defect; the writer is not being corrected here.
+
+**Closes when:** a read-only evaluator identifies the complete normalized Enabled
+and Disabled policy-level patterns using side/hive, registry key/value name,
+type, action and native value, including defaultKey/item-key semantics. Exactly
+one complete matching pattern identifies that observed state. Both or neither
+matching are explicitly indeterminate, rather than a guessed authoring decision.
+Observed-state representation is separate from mutation states: indeterminate
+must not become an accepted configure/bulk target. API/UI/filter behavior clearly
+presents those observations without reusing policy-ownership ambiguity metadata.
+Tests cover set-only, mixed actions, all-delete, scalar controls, identical lists,
+partial/native mixed snapshots, both sides and unchanged head/history/documents
+through every read/filter. Matching work is precomputed/bounded per policy; no
+hidden writes, state rewrite, snapshot migration or silent repair is introduced.
+Any native Windows qualification remains separate. This work is not implemented
+by the conservative legacy-ownership or identity-family performance corrections.

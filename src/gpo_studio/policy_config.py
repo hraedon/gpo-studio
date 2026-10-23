@@ -167,50 +167,24 @@ def legacy_setting_parts(setting_id: str) -> tuple[tuple[str, Side, str], ...]:
     )
 
 
-def _address_matches_policy(setting: RegistrySetting, policy: PolicyDefinition) -> bool:
-    key, name = setting.key.casefold(), setting.value_name.casefold()
-    if policy.value_name and (key, name) == (policy.key.casefold(), policy.value_name.casefold()):
-        return True
-    for values in (policy.enabled_list, policy.disabled_list):
-        if values is not None:
-            for item in values.items:
-                if (key, name) == (
-                    (item.key or values.default_key or policy.key).casefold(),
-                    item.value_name.casefold(),
-                ):
-                    return True
-    for element in policy.elements:
-        if key != (element.registry_key or policy.key).casefold():
-            continue
-        if element.kind == "list" or name == element.registry_value_name.casefold():
-            return True
-    return False
-
-
 def setting_policy_owners(
     setting: RegistrySetting, catalogue: AdmxCatalogue
 ) -> tuple[tuple[str, Side], ...]:
-    """Return every plausible owner; unavailable/ambiguous legacy owners are not guessed."""
+    """Retain every plausible producer; current mappings cannot prove its history.
+
+    The catalogue argument remains part of the shared call contract, but neither
+    its current addresses nor the row's editable side disambiguate a frame with
+    multiple parses. Only an unambiguous frame can be checked against that side.
+    """
     structured = parse_structured_setting_id(setting.id)
     if structured is not None:
         return ((structured.policy_id, structured.side),) if structured.side == setting.side else ()
-    candidates = tuple(
-        dict.fromkeys(
-            (policy_id, side)
-            for policy_id, side, _suffix in legacy_setting_parts(setting.id)
-            if side == setting.side
-        )
-    )
-    if len(candidates) < 2:
-        return candidates
-    known = {p.qualified_id: p for p in catalogue.policies}
-    # An unloaded candidate cannot be disproved using the current catalogue.
-    if any(policy_id not in known for policy_id, _side in candidates):
-        return candidates
-    addressed = tuple(
-        owner for owner in candidates if _address_matches_policy(setting, known[owner[0]])
-    )
-    return addressed if len(addressed) == 1 else candidates
+    candidates = tuple(dict.fromkeys(
+        (policy_id, side) for policy_id, side, _suffix in legacy_setting_parts(setting.id)
+    ))
+    if len(candidates) == 1 and candidates[0][1] != setting.side:
+        return ()
+    return candidates
 
 
 def policy_setting_positions(

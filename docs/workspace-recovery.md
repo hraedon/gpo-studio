@@ -562,11 +562,15 @@ Older builds can open and read the raw records; structured list-element rows may
 appear unresolved in their settings browser. They must not reconfigure these ADMX
 policies: the old prefix-based writer cannot safely interpret the new IDs.
 
-If the loaded catalogue and registry addresses uniquely identify an affected
-legacy row's owner, explicitly reconfiguring that policy replaces only its
-reviewed rows in a new revision. Unknown or ambiguous owners require recovery.
-A strict complete-head identity check may also prevent a partial repair which
-would leave a different duplicated family in the same head.
+Explicit reconfiguration can replace reviewed rows only when a structured ID
+names their exact owner, or a legacy ID has one unambiguous owner/side parse.
+If a legacy frame has multiple parses, all remain uncertain even when every
+candidate is loaded and only one currently matches its registry address or side.
+Catalogues and editable rows can change; their current mapping cannot prove the
+historical producer. Such rows remain unresolved in the settings browser and
+require explicit recovery rather than automatic ADMX reconfiguration. A strict
+complete-head identity check may also prevent a partial repair which would leave
+a different duplicated family in the same head.
 
 For recovery without guessing or changing the original:
 

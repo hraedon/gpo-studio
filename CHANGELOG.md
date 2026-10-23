@@ -9,6 +9,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Keep multiply parseable legacy ADMX identities unresolved and refuse automatic
+  reconfiguration even when current catalogue addresses or edited sides appear unique;
+  preserve raw records/history and document explicitly reviewed recovery.
+
 - Compute the ADMX identity family once per configured policy/side group so large
   policies avoid repeated schema scans in the settings browser.
 
