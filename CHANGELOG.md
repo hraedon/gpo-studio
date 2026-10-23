@@ -9,6 +9,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Preserve confirmed policy revisions when older reads finish; refresh lists after
+  cancelled estate imports without selecting beneath a newer editor.
 - Preserve reopened Starter GPO and GPMC import drafts after older saves finish;
   freeze pending controls and support Enter in the backup import form.
 - Keep automatic list/detail refreshes from changing a newer editor's policy, and
