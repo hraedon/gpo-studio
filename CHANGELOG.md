@@ -51,6 +51,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   dialog keeps the save running.
 - Keep visible captions on preference members, registry values and targeting
   fields after they are filled, with keyboard-friendly layouts on narrow screens.
+- Preserve significant whitespace in ADMX folder paths so the UI loads the exact
+  chosen folder; reject whitespace-only paths before sending a load request.
 - Scope the authenticated IIS shared-service profile and its acceptance gates
   in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
 

@@ -125,10 +125,22 @@ export function initTemplates() {
     const form = event.currentTarget;
     const button = $("#templates-load");
     if (button.disabled || loadingFolder) return;
+    const path = form.elements.path.value;
+    clearFormErrors(form);
+    if (!path.trim()) {
+      showFormErrors(form, {
+        issues: [
+          {
+            path: "path",
+            message: "ADMX folder must not be empty or whitespace-only.",
+          },
+        ],
+      });
+      return;
+    }
     const generation = dialogGeneration,
       started = catalogueEpoch();
     loadingFolder = true;
-    clearFormErrors(form);
     button.disabled = true;
     form.elements.path.disabled = true;
     $("#templates-status").textContent = "Loading templates…";
@@ -139,7 +151,7 @@ export function initTemplates() {
         body: JSON.stringify({
           name: "default",
           kind: "local",
-          path: form.elements.path.value.trim(),
+          path,
         }),
       });
     } catch (error) {
