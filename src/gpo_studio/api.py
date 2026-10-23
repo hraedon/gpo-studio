@@ -4254,6 +4254,11 @@ def _reviewed_export(
         raise StudioError("Supply expected_revision and expected_review_hash together.")
     review_hash = _digest(review_model_sha256, gpo)
     if review_hash is None:
+        # Legacy unwritable text may prevent hashing. Keep its actionable
+        # validation issues instead of masking the field with a digest refusal.
+        errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
+        if errors:
+            raise ValidationError(errors)
         raise StudioError(
             "This policy cannot be hashed for export review. "
             "Resolve its validation findings first."

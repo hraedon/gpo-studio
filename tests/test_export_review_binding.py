@@ -262,3 +262,43 @@ def test_current_capability_refusals_remain(workspace, kind):
         client.get(f"/api/gpos/{payload['gpo']['guid']}/{kind}", params=tokens(current)).status_code
         == 422
     )
+
+
+@pytest.mark.parametrize("guarded", [False, True], ids=["legacy", "reviewed"])
+@pytest.mark.parametrize("kind", KINDS)
+def test_unhashable_legacy_text_keeps_actionable_refusal_and_stored_records(
+    workspace, kind, guarded
+):
+    client, store, payload = workspace
+    guid = payload["gpo"]["guid"]
+    path = f"/api/gpos/{guid}/{kind}"
+    query = tokens(payload) if guarded else {}
+    assert client.get(path, params=query).status_code == 200
+
+    # Simulate a head written before the text gate. Reads remain tolerant; an
+    # export must report the actual field rather than mask it with a hash error.
+    row = store._connection.execute(
+        "SELECT snapshot_json FROM gpos WHERE guid = ?", (guid,)
+    ).fetchone()
+    snapshot = json.loads(row["snapshot_json"])
+    snapshot["description"] = "legacy\ud800text"
+    store._connection.execute(
+        "UPDATE gpos SET snapshot_json = ? WHERE guid = ?", (json.dumps(snapshot), guid)
+    )
+    store._connection.commit()
+    before = tuple(store._connection.iterdump())
+    read = client.get(f"/api/gpos/{guid}")
+    assert read.status_code == 200
+    assert read.json()["review_model_sha256"] is None
+    assert read.json()["gpo"]["description"] == "legacy\ud800text"
+    assert client.get("/api/gpos").status_code == 200
+
+    response = client.get(path, params=query)
+    assert response.status_code == 422
+    issues = response.json()["error"]["issues"]
+    assert any(
+        issue["code"] == "text_not_xml_writable" and issue["path"] == "description"
+        for issue in issues
+    )
+    assert "cannot be hashed" not in response.text
+    assert tuple(store._connection.iterdump()) == before
