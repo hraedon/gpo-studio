@@ -1431,7 +1431,11 @@ def test_a_stop_after_the_last_check_but_before_the_launch_prevents_the_lane(
     _until(lambda: any((batch / "tmp").glob("tmp.*")), "the launch pause")
     os.kill(proc.pid, signal.SIGTERM)
     _assert_cancelled_before_start(tmp_path, proc)
-    assert "lane cancelled before it started" in (batch / "logs/wp1b.log").read_text()
+    # The private directory can become visible before the driver arms its
+    # cancel file and checks STOP_SIGNAL. Either that check or the supervisor
+    # gate may therefore handle this stop; both must leave every command unrun.
+    log = (batch / "logs/wp1b.log").read_text()
+    assert "stopped before launch" in log or "lane cancelled before it started" in log
 
 
 def test_a_stop_after_the_fork_but_before_the_supervisor_is_ready_prevents_the_lane(
