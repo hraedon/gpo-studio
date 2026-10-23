@@ -9,6 +9,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Keep workspace header actions and long policy titles inside the viewport at desktop
+  and narrow widths, while retaining scrolling tabs and registry tables.
 - Retire ADMX lookups when search text changes; keep obsolete lookup and catalogue-read
   failures out of newer views, warnings and drafts while retaining active failure messages.
 - Refresh reopened Starter libraries after committed changes and keep the ordinary
