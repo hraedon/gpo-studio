@@ -494,14 +494,15 @@ def test_unknown_legacy_owner_refuses_reconfigure_without_changing_history(
     assert client.get(f"/api/gpos/{old.guid}/revisions/2").status_code == 200
 
 
+@pytest.mark.parametrize("identifier", ["shared", ""])
 @pytest.mark.parametrize("operation", ["edit", "comment", "delete"])
 def test_ambiguous_id_target_actions_cannot_collapse_or_remove_multiple_rows(
-    harness: Any, operation: str
+    harness: Any, operation: str, identifier: str
 ) -> None:
     client, store = harness
-    old = inject_legacy(store, (record(name="One"), record(name="Two")))
+    old = inject_legacy(store, (record(identifier, "One"), record(identifier, "Two")))
     before = storage(store)
-    path = f"/api/gpos/{old.guid}/settings/shared"
+    path = f"/api/gpos/{old.guid}/settings/{identifier}"
     if operation == "edit":
         response = client.put(
             path,
@@ -980,3 +981,46 @@ def test_reviewed_fresh_draft_recovery_keeps_historical_ambiguous_source_unchang
     assert store.get_gpo(old.guid) == original
     assert tuple(store.revisions(old.guid)) == history
     assert client.get(f"/api/gpos/{old.guid}").status_code == 200
+
+
+def test_explicit_empty_id_updates_exact_row_and_only_omitted_ids_mint_uuids(harness: Any) -> None:
+    client, store = harness
+    original = record("", "EmptyTarget")
+    neighbor = record("neighbor", "Neighbor")
+    gpo = store.create_gpo(
+        "Synthetic accepted empty editor ID", settings=(original, neighbor),
+        identity="test", reason="Seed accepted legacy empty ID",
+    )
+    body = {
+        "expected_revision": 1, "actor": "empty-id-author", "reason": "Update exact empty ID",
+        "setting": {
+            "side": "computer", "hive": "HKLM", "key": KEY,
+            "value_name": "EmptyTarget", "registry_type": "REG_SZ", "value": "changed",
+        },
+    }
+    updated = client.put(f"/api/gpos/{gpo.guid}/settings/", json=body)
+    assert updated.status_code == 200, updated.text
+    current = store.get_gpo(gpo.guid)
+    assert len(current.settings) == 2
+    assert next(item for item in current.settings if item.id == "").value == "changed"
+    assert next(item for item in current.settings if item.id == neighbor.id) == neighbor
+    assert store.get_revision(gpo.guid, 1).snapshot["settings"] == [
+        asdict(original), asdict(neighbor)
+    ]
+    assert store.revisions(gpo.guid)[0].actor == "empty-id-author"
+    assert store.revisions(gpo.guid)[0].reason == "Update exact empty ID"
+    before = storage(store)
+    assert client.put(f"/api/gpos/{gpo.guid}/settings/", json=body).status_code == 409
+    assert storage(store) == before
+    minted: set[str] = set()
+    for index in range(2):
+        body["expected_revision"] = current.revision
+        body["setting"] = {**body["setting"], "value_name": f"New{index}"}
+        added = client.post(f"/api/gpos/{gpo.guid}/settings", json=body)
+        assert added.status_code == 201, added.text
+        current = store.get_gpo(gpo.guid)
+        new_id = next(item.id for item in current.settings if item.value_name == f"New{index}")
+        UUID(new_id)
+        minted.add(new_id)
+    assert len(minted) == 2
+    assert len(current.settings) == 4

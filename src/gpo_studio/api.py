@@ -2654,9 +2654,9 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/gpos/{guid}"): _GPO_PAYLOAD,
     ("PATCH", "/api/gpos/{guid}"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/settings"): _GPO_PAYLOAD,
-    ("PUT", "/api/gpos/{guid}/settings/{setting_id}"): _GPO_PAYLOAD,
-    ("PATCH", "/api/gpos/{guid}/settings/{setting_id}/comment"): _GPO_PAYLOAD,
-    ("DELETE", "/api/gpos/{guid}/settings/{setting_id}"): _GPO_PAYLOAD,
+    ("PUT", "/api/gpos/{guid}/settings/{setting_id:path}"): _GPO_PAYLOAD,
+    ("PATCH", "/api/gpos/{guid}/settings/{setting_id:path}/comment"): _GPO_PAYLOAD,
+    ("DELETE", "/api/gpos/{guid}/settings/{setting_id:path}"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/copy-settings"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/import-adm"): _IMPORT,
     ("POST", "/api/gpos/{guid}/links"): _GPO_PAYLOAD,
@@ -3543,7 +3543,7 @@ def add_setting(request: Request, guid: str, body: SettingMutation) -> dict[str,
     return _gpo_payload(gpo, request)
 
 
-@app.put("/api/gpos/{guid}/settings/{setting_id}")
+@app.put("/api/gpos/{guid}/settings/{setting_id:path}")
 def edit_setting(
     request: Request, guid: str, setting_id: str, body: SettingMutation
 ) -> dict[str, Any]:
@@ -3558,7 +3558,7 @@ def edit_setting(
     return _gpo_payload(gpo, request)
 
 
-@app.patch("/api/gpos/{guid}/settings/{setting_id}/comment")
+@app.patch("/api/gpos/{guid}/settings/{setting_id:path}/comment")
 def update_setting_comment(
     request: Request, guid: str, setting_id: str, body: CommentMutation
 ) -> dict[str, Any]:
@@ -3573,7 +3573,7 @@ def update_setting_comment(
     return _gpo_payload(gpo, request)
 
 
-@app.delete("/api/gpos/{guid}/settings/{setting_id}")
+@app.delete("/api/gpos/{guid}/settings/{setting_id:path}")
 def delete_setting(
     request: Request, guid: str, setting_id: str, body: DeleteMutation
 ) -> dict[str, Any]:

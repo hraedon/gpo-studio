@@ -1690,7 +1690,9 @@ class WorkspaceStore:
         reason: str,
         setting_id: str | None = None,
     ) -> GPO:
-        new_setting = _setting({"id": setting_id or str(uuid.uuid4()), **values})
+        new_setting = _setting(
+            {"id": setting_id if setting_id is not None else str(uuid.uuid4()), **values}
+        )
         self._validate_settings([new_setting])
 
         def mutate(gpo: GPO) -> GPO:

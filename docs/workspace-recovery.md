@@ -618,3 +618,12 @@ rewriting that historical snapshot. A dedicated reviewed repair workflow remains
 open as [WI-087](work-items.md#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities).
 These are local editor/storage guarantees; they do not qualify native Windows
 policy behavior.
+
+The browser addresses legacy registry editor IDs containing URL delimiters,
+percent escapes or slashes as exact IDs for Edit, Comment and Delete. An explicit
+empty ID is also retained when editing; only adding a setting without an ID
+creates a UUID. Arbitrary imported IDs consisting solely of `.` or `..` cannot
+be addressed safely by browser URLs. Their browser actions refuse before sending
+a request, leave the records/history readable, and explain fresh-draft recovery
+with a new ID as described above. Copy preserves these IDs, so it does not remove
+this limitation; recovering chosen raw records with new UUIDs does.

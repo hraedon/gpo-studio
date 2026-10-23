@@ -23,6 +23,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   state/fixed-list writes out of editable lists and requiring address evidence for
   legacy disabled-element records. Preserve uncertain records visibly and keep
   list-heavy historical reads from repeatedly scanning the source schema.
+- Address legacy registry setting IDs exactly in edit, comment and delete actions,
+  including URL delimiters, percent escapes and slashes.
 
 - Keep multiply parseable legacy ADMX identities unresolved and refuse automatic
   reconfiguration even when current catalogue addresses or edited sides appear unique;

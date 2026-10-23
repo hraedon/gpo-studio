@@ -87,6 +87,12 @@ function registryValue(form){
   return type==="REG_DWORD"||type==="REG_QWORD"?raw.trim():raw;
 }
 
+function settingIdComponent(id){
+  const message="This legacy setting ID cannot be addressed safely in the browser. Review its raw registry record and recover it into a fresh draft with a new ID.";
+  if(id==="."||id==="..")throw new Error(message);
+  try{return encodeURIComponent(id)}catch(error){if(error instanceof URIError)throw new Error(message,{cause:error});throw error}
+}
+
 async function submitMutation(event,requestFor,message){
   event.preventDefault();
   const form=event.currentTarget;
@@ -124,7 +130,7 @@ $("#gpo-form").onsubmit=async event=>{
 };
 $("#setting-form").onsubmit=event=>submitMutation(event,(f,context)=>{
   const setting={side:f.side.value,hive:f.side.value==="computer"?"HKLM":"HKCU",key:f.key.value.replace(/^\\+|\\+$/g,""),value_name:f.value_name.value,registry_type:f.registry_type.value,value:registryValue(f),action:f.action.value,comment:f.comment.value};
-  return {path:state.editingSetting?`/api/gpos/${context.guid}/settings/${state.editingSetting.id}`:`/api/gpos/${context.guid}/settings`,method:state.editingSetting?"PUT":"POST",body:{...audit(f.reason.value),setting}};
+  return {path:state.editingSetting?`/api/gpos/${context.guid}/settings/${settingIdComponent(state.editingSetting.id)}`:`/api/gpos/${context.guid}/settings`,method:state.editingSetting?"PUT":"POST",body:{...audit(f.reason.value),setting}};
 },"Registry policy saved");
 $("#link-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:state.editingLink?`/api/gpos/${context.guid}/links/${state.editingLink.id}`:`/api/gpos/${context.guid}/links`,method:state.editingLink?"PUT":"POST",body:{...audit(f.reason.value),link:{target:f.target.value,order:Number(f.order.value),enabled:f.enabled.checked,enforced:f.enforced.checked}}}),"Link intent saved");
 $("#filter-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:state.editingFilter?`/api/gpos/${context.guid}/security-filters/${state.editingFilter.id}`:`/api/gpos/${context.guid}/security-filters`,method:state.editingFilter?"PUT":"POST",body:{...audit(f.reason.value),filter:{principal:f.principal.value,permission:f.permission.value,target_type:f.target_type.value,inheritable:f.inheritable.checked}}}),"Security filter saved");
@@ -179,12 +185,12 @@ $("#wmi-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:`/api/gp
     }catch(error){await mutationFailed(context,error,(f,e)=>showFormErrors(f,e))}finally{endMutation(context)}
   };
   $("#copy-settings-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:`/api/gpos/${context.guid}/copy-settings`,method:"POST",body:{...audit(f.reason.value),source_guid:f.source_guid.value,side:f.side.value||null}}),"Settings copied");
-  $("#comment-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:`/api/gpos/${context.guid}/settings/${f.setting_id.value}/comment`,method:"PATCH",body:{...audit(f.reason.value),comment:f.comment.value}}),"Comment saved");
+  $("#comment-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:`/api/gpos/${context.guid}/settings/${settingIdComponent(f.setting_id.value)}/comment`,method:"PATCH",body:{...audit(f.reason.value),comment:f.comment.value}}),"Comment saved");
 }
 async function removeMutation(context,path,reason,message){
   try{const data=await api(path,{method:"DELETE",body:JSON.stringify({actor:"local-operator",reason,expected_revision:context.revision})});completeMutation(context,data,{apply:applyCurrent,renderList});toast(message)}catch(error){await mutationFailed(context,error)}
 }
-export async function deleteSetting(id){const context=captureMutation();if(!confirm(`Remove registry setting ${id} from ${context.name}? This creates a new revision.`))return;await removeMutation(context,`/api/gpos/${context.guid}/settings/${id}`,"Remove registry policy","Setting removed")}
+export async function deleteSetting(id){const context=captureMutation();try{const component=settingIdComponent(id);if(!confirm(`Remove registry setting ${id} from ${context.name}? This creates a new revision.`))return;await removeMutation(context,`/api/gpos/${context.guid}/settings/${component}`,"Remove registry policy","Setting removed")}catch(error){await mutationFailed(context,error)}}
 export async function deleteLink(id){const context=captureMutation(),target=state.current.links.find(item=>item.id===id)?.target||id;if(!confirm(`Remove link intent for ${target} from ${context.name}? This creates a new revision.`))return;await removeMutation(context,`/api/gpos/${context.guid}/links/${id}`,"Remove link intent","Link removed")}
 export async function deleteFilter(id){const context=captureMutation(),principal=state.current.security_filters.find(item=>item.id===id)?.principal||id;if(!confirm(`Remove security filter ${principal} from ${context.name}? The policy may then apply more widely. This creates a new revision.`))return;await removeMutation(context,`/api/gpos/${context.guid}/security-filters/${id}`,"Remove security filter","Security filter removed")}
 const restoringGpos=new Set();
