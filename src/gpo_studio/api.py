@@ -3190,7 +3190,7 @@ def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dic
         raise StudioError(str(exc)) from exc
     except OSError as exc:
         raise StudioError(
-            f"Cannot read ADMX folder {body.path!r}. Check that the folder is available "
+            f"Cannot read ADMX folder: {body.path}. Check that the folder is available "
             "and GPO Studio has permission to read it."
         ) from exc
     sources: list[Any] = getattr(request.app.state, "template_sources", [])

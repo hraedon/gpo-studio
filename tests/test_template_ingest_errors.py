@@ -37,14 +37,21 @@ def template_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
     [PermissionError(errno.EACCES, "permission denied"), OSError(errno.EIO, "I/O failure")],
     ids=["permission-denied", "filesystem-error"],
 )
+@pytest.mark.parametrize(
+    "folder_name",
+    ["existing-unreadable", r"Synthetic\PolicyDefinitions"],
+    ids=["plain-path", "backslash-path"],
+)
 def test_unreadable_template_folder_keeps_previous_catalogue(
     template_client: TestClient,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     failure: OSError,
+    folder_name: str,
 ) -> None:
-    folder = tmp_path / "existing-unreadable"
-    folder.mkdir()
+    folder = tmp_path / folder_name
+    folder.mkdir(parents=True)
+    folder = folder.resolve()
     sources = app.state.template_sources
     catalogue = app.state.admx_catalogue
     assert catalogue.policies
