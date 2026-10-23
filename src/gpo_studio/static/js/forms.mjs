@@ -1,5 +1,6 @@
 import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
-import {api,toast,audit,showPersistentError} from './api.mjs';
+import {createReadScope} from './read-context.mjs';
+import {api,toast,audit,showPersistentError,actionApi} from './api.mjs';
 import {clearFormErrors,handleFormFailure,showFormErrors} from './errors.mjs';
 import {loadList,renderAll,renderList,loadHistory} from './render.mjs';
 import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,updateMutationList,completeMutation,mutationFailed,endMutation} from './mutation-context.mjs';
@@ -35,10 +36,15 @@ export function openWmi(){
   if(w){form.name.value=w.name;form.description.value=w.description;form.language.value=w.language;form.query.value=w.query;form.reason.value="Update WMI filter"}
   $("#wmi-dialog").showModal();
 }
+const wmiReads=createReadScope({element:()=>$("#wmi-catalogue-dialog")});
 export async function openWmiCatalogue(){
-  const list=$("#wmi-catalogue-list");list.innerHTML='<div class="table-empty">Loading…</div>';
+  wmiReads.invalidate();
+  const list=$("#wmi-catalogue-list");
   $("#wmi-catalogue-dialog").showModal();
-  try{const data=await api("/api/wmi-filters");
+  const read=wmiReads.start({report:error=>{list.innerHTML=`<div class="table-empty">${escapeHtml(error.message)}</div>`}});
+  const pending=read.beginPending({busy:[list],loading:[{element:list,message:"Loading…",recovery:"Reopen the WMI catalogue to reload filters.",className:"table-empty"}]});
+  try{const data=await /* request: wmi.catalogue */ api("/api/wmi-filters");
+    if(!read.isCurrent())return;
     if(!data.count){list.innerHTML='<div class="table-empty">The WMI filter catalogue is empty or not configured. Set GPO_STUDIO_WMI_CATALOGUE to use it.</div>';return}
     list.innerHTML=data.items.map(f=>`<div class="wmi-catalogue-entry"><div><strong>${escapeHtml(f.name)}</strong>${f.description?` <small>${escapeHtml(f.description)}</small>`:''}<code class="mono">${escapeHtml(f.query)}</code></div><button type="button" data-wmi-filter-id="${escapeHtml(f.id)}">Use this</button></div>`).join("");
     $$("[data-wmi-filter-id]").forEach(btn=>btn.onclick=()=>{
@@ -49,7 +55,7 @@ export async function openWmiCatalogue(){
       form.reason.value=`Apply WMI filter '${entry.name}' from catalogue`;
       $("#wmi-dialog").showModal();
     });
-  }catch(error){list.innerHTML=`<div class="table-empty">${escapeHtml(error.message)}</div>`}
+  }catch(error){read.reportError(error)}finally{pending.finish()}
 }
 let estateParsedJson=null,estateMode='upload',estateFileSelection=0;
 function setEstateMode(mode){estateMode=mode;$$('.estate-toggle .chip').forEach(c=>c.classList.toggle('active',c.dataset.mode===mode));$('#estate-upload-section').hidden=mode!=='upload';$('#estate-paste-section').hidden=mode!=='paste'}
@@ -73,7 +79,7 @@ export function openComment(setting){
   form.comment.value=setting.comment||"";
   $("#comment-dialog").showModal();
 }
-function applyCurrent(data){applyPayload(data);renderAll();renderList()}
+function applyCurrent(data){if(!applyPayload(data))return false;renderAll();renderList();return true}
 async function mutationFailure(form,error,context){await handleFormFailure(form,error,{onCurrent:applyCurrent,fieldNames:context.fieldNames,isActive:()=>isCurrentEditor(context)&&(context.workspace||isSameEditor(context))})}
 function registryValue(form){
   const raw=form.value.value,type=form.registry_type.value;
@@ -101,7 +107,7 @@ async function submitMutation(event,requestFor,message){
   clearFormErrors(form);
   try{
     const {path,method,body}=requestFor(form,context);
-    const data=await api(path,{method,body:JSON.stringify({...body,expected_revision:context.revision})});
+    const data=await /* request: form.mutation */ actionApi(path,{method,body:JSON.stringify({...body,expected_revision:context.revision})});
     completeMutation(context,data,{apply:applyCurrent,renderList});toast(message);
   }catch(error){await mutationFailed(context,error,mutationFailure)}finally{endMutation(context)}
 }
@@ -117,7 +123,7 @@ $("#gpo-form").onsubmit=async event=>{
   try{
     const body={name:form.name.value,description:form.description.value,actor:"local-operator",reason:form.reason.value};
     if(editing)Object.assign(body,{expected_revision:context.revision,computer_enabled:form.computer_enabled.checked,user_enabled:form.user_enabled.checked,status:form.status.value,domain:form.domain.value});
-    const data=await api(editing?`/api/gpos/${context.guid}`:"/api/gpos",{method:editing?"PATCH":"POST",body:JSON.stringify(body)});
+    const data=await /* request: gpo.save */ actionApi(editing?`/api/gpos/${context.guid}`:"/api/gpos",{method:editing?"PATCH":"POST",body:JSON.stringify(body)});
     if(editing)completeMutation(context,data,{apply:applyCurrent,renderList});
     else{
       const selectCreated=isSameEditor(context);
@@ -145,9 +151,10 @@ $("#wmi-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:`/api/gp
         if(!estateParsedJson){showFormErrors(form,{issues:[{message:"Choose a valid JSON file first"}]});return}
         body=estateParsedJson;
       }else body=JSON.parse(form.json.value);
-      const data=await api("/api/estate/import",{method:"POST",body:JSON.stringify(body)});
+      const data=await /* request: estate.import */ actionApi("/api/estate/import",{method:"POST",body:JSON.stringify(body)});
+      const selectImported=isSameEditor(context);
       if(isCurrentEditor(context))context.dialog.close();
-      await loadList();toast(`Imported ${data.imported} GPO(s), skipped ${data.skipped}`);
+      await loadList(undefined,{select:selectImported,reportErrors:selectImported});toast(`Imported ${data.imported} GPO(s), skipped ${data.skipped}`);
     }catch(error){await mutationFailed(context,error,(f,e)=>showFormErrors(f,e instanceof SyntaxError?{message:"Invalid JSON: "+e.message}:e))}finally{endMutation(context)}
   };
   $('#estate-file').onchange=async()=>{
@@ -177,7 +184,7 @@ $("#wmi-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:`/api/gp
     if(event.submitter?.value==="cancel"){form.closest("dialog").close();return}
     const context=beginMutation(form);if(!context)return;clearFormErrors(form);
     try{
-      const data=await api(`/api/gpos/${context.guid}/fork`,{method:"POST",body:JSON.stringify({name:form.name.value,actor:"local-operator",reason:form.reason.value})});
+      const data=await /* request: gpo.fork */ actionApi(`/api/gpos/${context.guid}/fork`,{method:"POST",body:JSON.stringify({name:form.name.value,actor:"local-operator",reason:form.reason.value})});
       const selectCreated=isSameEditor(context);updateMutationList(data,renderList);
       if(isCurrentEditor(context))context.dialog.close();
       if(selectCreated)await loadList(data.gpo.guid)
@@ -188,7 +195,7 @@ $("#wmi-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:`/api/gp
   $("#comment-form").onsubmit=event=>submitMutation(event,(f,context)=>({path:`/api/gpos/${context.guid}/settings/${settingIdComponent(f.setting_id.value)}/comment`,method:"PATCH",body:{...audit(f.reason.value),comment:f.comment.value}}),"Comment saved");
 }
 async function removeMutation(context,path,reason,message){
-  try{const data=await api(path,{method:"DELETE",body:JSON.stringify({actor:"local-operator",reason,expected_revision:context.revision})});completeMutation(context,data,{apply:applyCurrent,renderList});toast(message)}catch(error){await mutationFailed(context,error)}
+  try{const data=await /* request: form.delete */ actionApi(path,{method:"DELETE",body:JSON.stringify({actor:"local-operator",reason,expected_revision:context.revision})});completeMutation(context,data,{apply:applyCurrent,renderList});toast(message)}catch(error){await mutationFailed(context,error)}
 }
 export async function deleteSetting(id){const context=captureMutation();try{const component=settingIdComponent(id);if(!confirm(`Remove registry setting ${id} from ${context.name}? This creates a new revision.`))return;await removeMutation(context,`/api/gpos/${context.guid}/settings/${component}`,"Remove registry policy","Setting removed")}catch(error){await mutationFailed(context,error)}}
 export async function deleteLink(id){const context=captureMutation(),target=state.current.links.find(item=>item.id===id)?.target||id;if(!confirm(`Remove link intent for ${target} from ${context.name}? This creates a new revision.`))return;await removeMutation(context,`/api/gpos/${context.guid}/links/${id}`,"Remove link intent","Link removed")}
@@ -201,7 +208,7 @@ export async function restoreRevision(revision,target){
   const context=captureMutation();
   const buttons=$$('[data-restore]');buttons.forEach(button=>{button.disabled=true});restoringGpos.add(target.guid);
   try{
-    const data=await api(`/api/gpos/${target.guid}/revisions/${revision}/restore`,{method:"POST",body:JSON.stringify({actor:"local-operator",reason:`Restore revision ${revision}`,expected_revision:target.revision})});
+    const data=await /* request: history.restore */ actionApi(`/api/gpos/${target.guid}/revisions/${revision}/restore`,{method:"POST",body:JSON.stringify({actor:"local-operator",reason:`Restore revision ${revision}`,expected_revision:target.revision})});
     completeMutation(context,data,{apply:applyCurrent,renderList});
     if(state.current?.guid===target.guid)await loadHistory();
     toast(`Revision ${revision} restored`);

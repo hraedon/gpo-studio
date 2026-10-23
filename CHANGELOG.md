@@ -44,9 +44,45 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   ID-targeted edits, comments or deletions. Keep legacy heads/history readable;
   document explicit recovery without silently dropping another registry record.
 
+- Resolve prior warnings only after explicitly classified committed writes; keep
+  semantic POST previews free of transport-level UI side effects.
+- Release pending read controls independently of retired result publication, and
+  resume uncovered read-only views once with their original error authority.
+  Keep newer drafts, warnings, requests and dialog sessions in control.
+- Preserve intentional focus moves during a dialog's initial focus frame.
+
+- Preserve every ADMX source element ID, including `__proto__`, when collecting
+  Enabled field values for submission.
+- Keep workspace header actions and long policy titles inside the viewport at desktop
+  and narrow widths, while retaining scrolling tabs and registry tables.
+- Restore keyboard focus to the same row action after an owned save redraws the
+  table. Newer editors, policy changes and intentional focus moves retire an old
+  dialog's scheduled focus return.
+- Share read ownership across views and previews so retired responses cannot replace
+  current warnings, draft values, reviewed selections or pending download controls.
+  Keep useful background cache admission and dispatched mutation outcomes intact.
+- Retire ADMX lookups when search text changes; keep obsolete lookup and catalogue-read
+  failures out of newer views, warnings and drafts while retaining active failure messages.
+- Refresh reopened Starter libraries after committed changes and keep the ordinary
+  policy sidebar consistent with server membership without changing unrelated editors.
+- Retire deleted policy views and older responses; preserve unsaved editor values
+  and require a renewed review before saving to a recreated policy identity.
+- Report request failures through the current view or editor, preserving newer
+  warnings and separating completed imports from later list-refresh failures.
+- Bind reviewed downloads to the policy revision and review hash, retaining inline
+  export errors without affecting reopened reviews.
+- Replace the conflict comparison's loading message after an initial read fails,
+  while preserving an already reviewed comparison if a later refresh fails.
+- Keep retired policy-read errors out of newer editors and announce pending saves
+  outside busy forms; distinguish policy changes from catalogue reloads in bulk guidance.
 - Refresh stale conflict comparisons and require renewed reapply consent; load the
   current revision without rewinding newer policy data or replacing reopened editors.
-
+- Preserve confirmed policy revisions when older reads finish; refresh lists after
+  cancelled estate imports without selecting beneath a newer editor.
+- Preserve reopened Starter GPO and GPMC import drafts after older saves finish;
+  freeze pending controls and support Enter in the backup import form.
+- Keep automatic list/detail refreshes from changing a newer editor's policy, and
+  retain summaries learned after a list request without pinning deleted entries.
 - Fix Cancel and Close across dialogs with invalid required fields, and make Enter
   submit creation instead of silently dismissing it.
 - Add an ADMX folder dialog with source counts, load diagnostics and refreshed policy

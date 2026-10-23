@@ -91,3 +91,13 @@ dialog{max-height:calc(100dvh - 30px);overflow:hidden}dialog form{display:grid;g
 .gpp-row>label.gpp-field :is(input,select){display:block;width:100%;min-width:0;margin:0}
 .gpp-row>small[data-value-help],.gpp-row>.gpp-readonly-warn{flex-basis:100%}
 @media(max-width:600px){.gpp-row>label.gpp-field{flex-basis:100%}}
+
+/* Header actions wrap within the workspace at every width, including desktop. */
+.shell{grid-template-columns:278px minmax(0,1fr)}
+.topbar{flex-wrap:wrap;gap:12px}
+.topbar>div:first-child{flex:1 1 260px;min-width:0}
+.topbar h1{overflow-wrap:anywhere}
+.top-actions{flex-wrap:wrap;max-width:100%}
+@media(max-width:850px){.shell{grid-template-columns:minmax(0,1fr)}}
+/* Keep absolute screen-reader headings inside their intentionally scrolling table. */
+.table-card{position:relative}
