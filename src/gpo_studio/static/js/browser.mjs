@@ -1,5 +1,6 @@
 import { state, $, $$, escapeHtml, applyPayload } from "./state.mjs";
 import { api, toast, audit, showPersistentError } from "./api.mjs";
+import { renderAll, renderList } from "./render.mjs";
 
 // Module-level caches. The ADMX catalogue and category tree are workspace-
 // level, so they only need to be loaded once per session. The configured
@@ -323,7 +324,11 @@ async function applyBulkState(targetState) {
       }
     }
     if (state.current?.guid === guid && browserContext === context) {
-      if (state.current.revision === revision) applyPayload(payload);
+      if (state.current.revision === revision) {
+        applyPayload(payload);
+        renderAll({ refreshBrowser: false });
+        renderList();
+      }
       selectedPolicies.clear();
       $("#browser-bulk-reason").value = "";
       await loadBrowser();
@@ -331,7 +336,11 @@ async function applyBulkState(targetState) {
     toast(`Bulk ${targetState.replace("_", " ")} applied`);
   } catch (error) {
     if (state.current?.guid === guid && browserContext === context) {
-      if (payload && state.current.revision === revision) applyPayload(payload);
+      if (payload && state.current.revision === revision) {
+        applyPayload(payload);
+        renderAll({ refreshBrowser: false });
+        renderList();
+      }
       completed.forEach((policy) => selectedPolicies.delete(policyKey(policy)));
       await loadBrowser();
     }

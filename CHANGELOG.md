@@ -21,6 +21,13 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 - Keep bulk policy selections scoped to the current GPO and configuration side,
   including selections hidden by filters.
 - Use a compact two-column tool layout on narrow screens.
+- Keep dialog headers and actions outside the scrolling form body, so keyboard
+  focus stays visible on narrow screens; label configuration checkboxes and retain
+  field help through validation errors.
+- Preserve exact multi-string registry values through JSON array editors, including
+  spaces, semicolons and empty members; reject malformed input before saving.
+- Bind History restore actions and pending edits to their original GPO/revision and
+  editor session, so late responses preserve a newer selection or reopened form.
 - Scope the authenticated IIS shared-service profile and its acceptance gates
   in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
 

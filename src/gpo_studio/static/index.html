@@ -267,8 +267,8 @@
       <label>Name<input name="name" required maxlength="255" placeholder="Workstation security baseline" autocomplete="off"></label>
       <label>Description<textarea name="description" rows="3" maxlength="2000" placeholder="Purpose, owner, and rollout notes"></textarea></label>
       <div id="metadata-options" hidden>
-        <div class="switch-row"><span><strong>Computer configuration</strong><small>Apply machine-side policy</small></span><input name="computer_enabled" type="checkbox" checked></div>
-        <div class="switch-row"><span><strong>User configuration</strong><small>Apply user-side policy</small></span><input name="user_enabled" type="checkbox" checked></div>
+        <label class="switch-row"><span><strong id="gpo-computer-enabled-label">Computer configuration</strong><small id="gpo-computer-enabled-help">Apply machine-side policy</small></span><input name="computer_enabled" type="checkbox" aria-labelledby="gpo-computer-enabled-label" aria-describedby="gpo-computer-enabled-help" checked></label>
+        <label class="switch-row"><span><strong id="gpo-user-enabled-label">User configuration</strong><small id="gpo-user-enabled-help">Apply user-side policy</small></span><input name="user_enabled" type="checkbox" aria-labelledby="gpo-user-enabled-label" aria-describedby="gpo-user-enabled-help" checked></label>
         <label>Status<select name="status"><option value="draft">Draft</option><option value="ready">Ready for publication</option><option value="archived">Archived</option></select></label>
         <label>Domain<input name="domain" maxlength="255" placeholder="studio.local"></label>
       </div>
@@ -283,7 +283,7 @@
       <div class="grid two compact"><label>Configuration<select name="side"><option value="computer">Computer</option><option value="user">User</option></select></label><label>Action<select name="action"><option value="set">Set value</option><option value="delete">Delete value</option></select></label></div>
       <label>Registry key<div class="path-input"><span id="hive-prefix">HKLM\</span><input name="key" required placeholder="Software\Policies\Example"></div></label>
       <div class="grid two compact"><label>Value name<input name="value_name" placeholder="PolicyValue"></label><label>Type<select name="registry_type"><option>REG_SZ</option><option>REG_EXPAND_SZ</option><option>REG_DWORD</option><option>REG_QWORD</option><option>REG_MULTI_SZ</option><option>REG_BINARY</option></select></label></div>
-      <label>Value<textarea name="value" rows="3" placeholder="Value (one line per item for REG_MULTI_SZ)"></textarea><small id="value-help">Enter text.</small></label>
+      <label>Value<textarea name="value" rows="3" aria-describedby="value-help" placeholder="Value (JSON array for REG_MULTI_SZ)"></textarea><small id="value-help">Enter text.</small></label>
       <label>Comment<input name="comment" maxlength="1000" placeholder="Why this setting exists"></label>
       <label>Change reason<input name="reason" required value="Update registry policy"></label>
       <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Save setting</button></div>
@@ -317,7 +317,7 @@
       <label>Principal (SID or account)<input name="principal" required maxlength="255" placeholder="S-1-5-32-544 or DOMAIN\Admins"></label>
       <label>Permission<select name="permission"><option value="apply">Apply policy</option><option value="read">Read only</option></select></label>
       <label>Target type<select name="target_type"><option value="group">Group</option><option value="user">User</option><option value="computer">Computer</option></select></label>
-      <div class="switch-row"><span><strong>Inheritable</strong><small>Apply to child containers</small></span><input name="inheritable" type="checkbox" checked></div>
+      <label class="switch-row"><span><strong id="filter-inheritable-label">Inheritable</strong><small id="filter-inheritable-help">Apply to child containers</small></span><input name="inheritable" type="checkbox" aria-labelledby="filter-inheritable-label" aria-describedby="filter-inheritable-help" checked></label>
       <label>Change reason<input name="reason" required value="Add security filter"></label>
       <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button class="primary" value="default">Save filter</button></div>
     </form>

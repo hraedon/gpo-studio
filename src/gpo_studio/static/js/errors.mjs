@@ -8,8 +8,14 @@ function fieldCandidates(path){
 }
 
 export function clearFormErrors(form){
+  const errorIds=new Set([...form.querySelectorAll(".field-error")].map(element=>element.id));
   form.querySelectorAll(".form-error,.field-error").forEach(element=>element.remove());
-  form.querySelectorAll("[aria-invalid='true']").forEach(field=>{field.removeAttribute("aria-invalid");field.removeAttribute("aria-describedby")})
+  form.querySelectorAll("[aria-invalid='true']").forEach(field=>{
+    field.removeAttribute("aria-invalid");
+    const descriptions=(field.getAttribute("aria-describedby")||"").split(/\s+/).filter(id=>id&&!errorIds.has(id));
+    if(descriptions.length)field.setAttribute("aria-describedby",descriptions.join(" "));
+    else field.removeAttribute("aria-describedby")
+  })
 }
 
 function findIssueField(form,path){
@@ -38,14 +44,14 @@ export function showFormErrors(form,error){
     const message=issue.message||issue.msg||JSON.stringify(issue);
     if(field){
       if(!field.id)field.id=`field-${form.id||"form"}-${index}`;
-      const errorId=`${field.id}-error`;
+      const errorId=`${field.id}-error-${index}`;
       const link=document.createElement("a");
       link.href=`#${field.id}`;
       link.textContent=message;
       link.onclick=()=>queueMicrotask(()=>field.focus());
       item.appendChild(link);
       field.setAttribute("aria-invalid","true");
-      field.setAttribute("aria-describedby",errorId);
+      field.setAttribute("aria-describedby",[...new Set([...(field.getAttribute("aria-describedby")||"").split(/\s+/).filter(Boolean),errorId])].join(" "));
       const detail=document.createElement("span");
       detail.id=errorId;
       detail.className="sr-only field-error";
@@ -55,7 +61,8 @@ export function showFormErrors(form,error){
     list.appendChild(item)
   });
   summary.appendChild(list);
-  form.insertBefore(summary,form.firstChild);
+  const container=form.querySelector(":scope > .dialog-body")||form;
+  container.prepend(summary);
   summary.focus()
 }
 
@@ -72,7 +79,7 @@ function changeCount(diff){
   return ["settings","links","security_filters","gpp_groups","gpp_registry","metadata","cse_metadata","conflicts","link_conflicts","security_filter_conflicts","gpp_conflicts","metadata_conflicts","cse_metadata_conflicts","fdeploy","fdeploy_conflicts"].reduce((count,key)=>count+(Array.isArray(diff[key])?diff[key].length:0),0)+(diff.wmi_filter?1:0)+(diff.wmi_filter_conflict?1:0)
 }
 
-export async function reconcileConflict(form,error,{onCurrent}={}){
+export async function reconcileConflict(form,error,{onCurrent,isActive=()=>true}={}){
   if(error.status!==409)return false;
   const currentGuid=form.dataset.gpoGuid||location.pathname.split("/").filter(Boolean).at(-1);
   const guid=currentGuid&&currentGuid!=="undefined"?currentGuid:null;
@@ -88,6 +95,7 @@ export async function reconcileConflict(form,error,{onCurrent}={}){
     }
   }catch(fetchError){showPersistentError(fetchError.message)}
 
+  if(!isActive()){showPersistentError(error.message);return true}
   const dialog=document.querySelector("#conflict-dialog");
   const details=document.querySelector("#conflict-details");
   if(!dialog||!details||!latest){showPersistentError(error.message);return true}
@@ -101,13 +109,17 @@ export async function reconcileConflict(form,error,{onCurrent}={}){
   const reload=document.querySelector("#conflict-reload");
   const reapply=document.querySelector("#conflict-reapply");
   reload.onclick=()=>{
+    if(!isActive()){dialog.close();return}
     onCurrent?.(latest,{discardForm:true});
     dialog.close();
     form.closest("dialog")?.close();
     setStatus(`Loaded revision ${latest.gpo.revision}. Your unsaved values were discarded.`)
   };
   reapply.onclick=()=>{
+    if(!isActive()){dialog.close();return}
     onCurrent?.(latest,{discardForm:false});
+    const editor=form.closest("dialog");
+    if(editor)editor.editorTarget={guid:latest.gpo.guid,revision:latest.gpo.revision,name:latest.gpo.name};
     dialog.close();
     setStatus(`Your kept values are shown against revision ${latest.gpo.revision}. Submit again to reapply them.`);
     form.querySelector("button[value='default'],button[type='submit']")?.focus()
@@ -118,5 +130,6 @@ export async function reconcileConflict(form,error,{onCurrent}={}){
 
 export async function handleFormFailure(form,error,options={}){
   if(await reconcileConflict(form,error,options))return;
-  showFormErrors(form,error)
+  if(!options.isActive||options.isActive())showFormErrors(form,error);
+  else showPersistentError(error.message)
 }

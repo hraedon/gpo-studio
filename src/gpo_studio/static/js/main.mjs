@@ -66,9 +66,20 @@ function focusableElements(dialog){
 }
 
 function initialiseDialog(dialog){
+  const form=dialog.querySelector("form");
+  const head=form?.querySelector(":scope > .dialog-head");
+  const actions=form?.querySelector(":scope > .dialog-actions");
+  if(form&&head&&actions){
+    const body=document.createElement("div");
+    body.className="dialog-body";
+    body.append(...[...form.childNodes].filter(node=>node!==head&&node!==actions));
+    head.after(body);form.append(actions);
+  }
   const nativeShowModal=dialog.showModal.bind(dialog);
   dialog.showModal=()=>{
     if(dialog.open)return;
+    dialog.editorSession=Symbol("editor session");
+    dialog.editorTarget={guid:state.current?.guid??null,revision:state.current?.revision??null,name:state.current?.name||"workspace"};
     const active=document.activeElement;
     dialog.returnFocus=active instanceof HTMLElement?active:null;
     nativeShowModal();

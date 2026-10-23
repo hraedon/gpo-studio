@@ -260,3 +260,55 @@ test("does not apply an old GPO mutation response to the current GPO", async ({
   await expect(selection(page, "user")).not.toBeChecked();
   await expect(page.locator("#browser-bulk-bar")).toBeHidden();
 });
+
+test("bulk change refreshes the current revision before ADMX configuration", async ({
+  page,
+  request,
+}) => {
+  const policy = await seedPolicy(request, "bulk configure", ["computer"]);
+  await openBrowser(page, policy);
+  await selection(page, "computer").check();
+  await page
+    .locator("#browser-bulk-reason")
+    .fill("Disable before reconfiguring");
+  await page.locator('[data-bulk-state="disabled"]').click();
+  await expect(page.locator("#browser-bulk-bar")).toBeHidden();
+  const current = (await (await request.get(`/api/gpos/${policy.guid}`)).json())
+    .gpo;
+  await expect(page.locator("#revision")).toHaveText(
+    `Revision ${current.revision}`,
+  );
+  await expect(
+    page.locator(".gpo-item", { hasText: policy.name }),
+  ).toContainText(`r${current.revision}`);
+  await page.getByRole("tab", { name: "ADMX", exact: true }).click();
+  const searched = page.waitForResponse((response) =>
+    response.url().includes("/api/admx/search?q=SyntheticAuditPolicy"),
+  );
+  await page.locator("#admx-search").fill("SyntheticAuditPolicy");
+  await searched;
+  await expect(page.locator(".admx-result")).toHaveCount(1);
+  await page
+    .locator(".admx-result", { hasText: "Synthetic Audit Policy" })
+    .click();
+  await page.locator("#admx-configure-btn").click();
+  const dialog = page.locator("#configure-dialog");
+  await expect(dialog.locator("#configure-title")).toHaveText(
+    "Configure: Synthetic Audit Policy",
+  );
+  await expect(dialog.locator("#configure-target-gpo")).toHaveValue(
+    policy.guid,
+  );
+  const configure = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && request.url().endsWith("/configure"),
+  );
+  await dialog.getByRole("button", { name: "Apply policy" }).click();
+  expect((await configure).postDataJSON().expected_revision).toBe(
+    current.revision,
+  );
+  await expect(dialog).toBeHidden();
+  const updated = (await (await request.get(`/api/gpos/${policy.guid}`)).json())
+    .gpo;
+  expect(updated.revision).toBe(current.revision + 1);
+});

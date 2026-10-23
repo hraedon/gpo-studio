@@ -1,7 +1,8 @@
 import {state,$,$$,escapeHtml} from './state.mjs';
-import {api,toast} from './api.mjs';
+import {api,toast,showPersistentError} from './api.mjs';
 import {clearFormErrors,showFormErrors} from './errors.mjs';
-import {loadList} from './render.mjs';
+import {loadList,renderList} from './render.mjs';
+import {updateMutationList} from './mutation-context.mjs';
 
 let admxLoaded=null,admxTimer=null,admxCatsLoaded=false,admxRequest=0,configurePending=false,configureGeneration=0,catalogueEpoch=0;
 export function resetAdmxCatalogue(){catalogueEpoch++;admxLoaded=null;admxCatsLoaded=false;admxRequest++;clearTimeout(admxTimer);$("#admx-detail").hidden=true}
@@ -22,6 +23,7 @@ async function loadAdmxResults(q){
   }catch(e){toast(e.message)}
 }
 async function loadAdmxDetail(id){
+  clearTimeout(admxTimer);
   const request=++admxRequest;
   try{const p=await api(`/api/admx/policies/${encodeURIComponent(id)}`);if(request!==admxRequest)return;$("#admx-results").hidden=true;$("#admx-detail").hidden=false;
     const fields=(p.elements||[]).map(e=>{
@@ -104,12 +106,13 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
     else if(kind==="multitext"||kind==="list"){values[id]=el.value.split(/\r?\n/).filter(Boolean)}
   });
   if(!ok)return;
-  const generation=configureGeneration;
+  const generation=configureGeneration,currentGuid=state.current?.guid;
   configurePending=true;const submit=f.querySelector('button[value="default"]');submit.disabled=true;
-  try{await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,state:policyState,actor:"local-operator",reason:f.reason.value,expected_revision:targetGpo.revision})});
-    if(generation===configureGeneration)$("#configure-dialog").close();await loadList(targetGuid);
+  try{const data=await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,state:policyState,actor:"local-operator",reason:f.reason.value,expected_revision:targetGpo.revision})});
+    updateMutationList(data,renderList);
+    if(generation===configureGeneration&&$("#configure-dialog").open&&state.current?.guid===currentGuid){$("#configure-dialog").close();await loadList(targetGuid)}
     toast(policyState==="not_configured"?"Policy set to Not configured":"Policy settings applied to GPO")}
-  catch(error){if(generation===configureGeneration&&$("#configure-dialog").open)showFormErrors(f,error);else toast(error.message)}finally{configurePending=false;submit.disabled=!state.gpos.some(g=>g.status!=="archived")}
+  catch(error){if(generation===configureGeneration&&$("#configure-dialog").open&&state.current?.guid===currentGuid)showFormErrors(f,error);else showPersistentError(`${targetGpo.name}: ${error.message}`)}finally{configurePending=false;submit.disabled=!state.gpos.some(g=>g.status!=="archived")}
 };
 $("#admx-search").oninput=e=>{clearTimeout(admxTimer);admxTimer=setTimeout(()=>loadAdmxResults(e.target.value),250)};
 }

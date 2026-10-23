@@ -144,14 +144,17 @@ test("a late category response cannot restore an obsolete catalogue", async ({
   await expect(dialog.getByLabel("Folder path")).toHaveValue(original.path);
   await dialog.getByRole("button", { name: "Load folder" }).click();
   await expect(dialog.locator("#templates-load")).toBeEnabled();
-  await expect(page.locator("#browser-category-filter option")).toHaveCount(2);
+  const currentOptions = await page
+    .locator("#browser-category-filter option")
+    .allTextContents();
+  expect(currentOptions.length).toBeGreaterThan(1);
   release();
   await done;
   await dialog
     .getByRole("button", { name: "Close", exact: true })
     .last()
     .click();
-  await expect(page.locator("#browser-category-filter")).not.toContainText(
-    "OBSOLETE SOURCE",
+  await expect(page.locator("#browser-category-filter option")).toHaveText(
+    currentOptions,
   );
 });
