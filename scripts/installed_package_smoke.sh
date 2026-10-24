@@ -13,7 +13,6 @@ SERVER_PID=""
 trap 'kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$TMPDIR"' EXIT
 
 PYTHON=${PYTHON:-python3.13}
-PORT=8799
 DB="$TMPDIR/smoke.db"
 
 if [ -n "${GPO_STUDIO_WHEEL:-}" ]; then
@@ -69,9 +68,11 @@ echo "=== Checking CLI entry point ==="
 "$TMPDIR/venv/bin/gpo-studio" --help | head -1
 
 echo "=== Starting server ==="
-"$TMPDIR/venv/bin/gpo-studio" run --database "$DB" --port "$PORT" &
+# Port zero lets this server reserve its own endpoint atomically. Read its
+# announcement from the private log before sending any API request.
+"$TMPDIR/venv/bin/gpo-studio" run --database "$DB" --port 0 > "$TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
-sleep 2
+PORT=$("$TMPDIR/venv/bin/python" -I scripts/wait_smoke_server.py "$SERVER_PID" "$TMPDIR/server.log")
 
 echo "=== Checking installed API version ==="
 HEALTH=$(curl -sf "http://127.0.0.1:$PORT/api/health")
