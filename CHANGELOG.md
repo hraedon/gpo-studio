@@ -190,6 +190,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   normal validation errors. Canonical evidence hashes and signature checks
   retain their existing meaning. Missing or unreadable matrix signature files
   also produce a normal error without overwriting an existing output.
+- Close the SQLite connection behind the discovery fallback test wrapper,
+  avoiding an unclosed-database warning during later tests.
 
 ## [1.1.0] - 2026-10-20
 
