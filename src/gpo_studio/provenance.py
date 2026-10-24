@@ -157,8 +157,8 @@ def save_trust_anchor(anchor: TrustAnchor, path: Path) -> None:
 def load_trust_anchor(path: Path) -> TrustAnchor:
     """Load a trust anchor from a JSON file."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ProvenanceError(f"cannot load trust anchor {path}: {exc}") from exc
 
     mapping = _as_mapping(raw, "trust anchor")

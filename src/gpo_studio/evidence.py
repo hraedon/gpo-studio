@@ -337,10 +337,10 @@ def load_pack(path: Path) -> EvidencePack:
     future or stale schema cannot be silently misread.
     """
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except OSError as exc:
         raise PackError(f"cannot read pack {path}: {exc}") from exc
-    except json.JSONDecodeError as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PackError(f"invalid JSON in pack {path}: {exc}") from exc
     return parse_pack(raw, source=str(path))
 

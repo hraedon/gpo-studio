@@ -685,3 +685,19 @@ def test_wp4_doc_example_packs_parse_against_loader() -> None:
         # the loader rejects.
         assert pack.signable, f"WP-4 doc json block #{i} example is not signable"
         derive_claims([pack])
+
+
+@pytest.mark.parametrize("payload", [b"\xff", b"\xef\xbb\xbf\xff"])
+def test_load_pack_reports_invalid_encoding(tmp_path: Path, payload: bytes) -> None:
+    path = tmp_path / "pack.json"
+    path.write_bytes(payload)
+    with pytest.raises(PackError, match="invalid JSON"):
+        load_pack(path)
+
+
+def test_load_pack_accepts_utf8_bom_without_changing_canonical_hash(tmp_path: Path) -> None:
+    raw = _pack([RECORD_REGISTRY])
+    raw["operator"] = "Synthetic opérateur"
+    path = tmp_path / "pack.json"
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8-sig")
+    assert canonical_pack_hash(load_pack(path)) == canonical_pack_hash(parse_pack(raw))

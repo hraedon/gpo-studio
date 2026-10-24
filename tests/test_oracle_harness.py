@@ -323,3 +323,19 @@ def test_run_dry_run_suite_with_overrides(tmp_path: Path) -> None:
     env = manifests[0]["environment"]
     assert isinstance(env, dict)
     assert env["locale"] == "fr-FR"
+
+
+@pytest.mark.parametrize("payload", [b"\xff", b"\xef\xbb\xbf\xff"])
+def test_load_recipe_reports_invalid_encoding(tmp_path: Path, payload: bytes) -> None:
+    path = tmp_path / "recipe.json"
+    path.write_bytes(payload)
+    with pytest.raises(RecipeError, match="invalid JSON"):
+        load_recipe(path)
+
+
+def test_load_recipe_accepts_utf8_bom(tmp_path: Path) -> None:
+    raw = _minimal_recipe()
+    raw["description"] = "Synthetic recette échantillon"
+    path = tmp_path / "recipe.json"
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8-sig")
+    assert load_recipe(path) == parse_recipe(raw)
