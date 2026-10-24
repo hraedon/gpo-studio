@@ -13,7 +13,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 - The local Windows CI runner refuses workflow-wide environment variables and
   run defaults before remote access, preventing inherited CI settings from
-  being silently omitted from a local qualification.
+  being silently omitted from a local qualification. It also requires checkout
+  followed by setup-uv exactly once before the test phases, refusing workflows
+  whose setup no longer matches the local runner.
 
 ## [1.1.0] - 2026-10-20
 

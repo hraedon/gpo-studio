@@ -434,6 +434,41 @@ def test_windows_refuses_inherited_workflow_settings_before_remote_access(
     assert list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing-checkout",
+        "missing-uv",
+        "late-actions",
+        "late-uv",
+        "reversed-actions",
+        "duplicate-checkout",
+        "duplicate-uv",
+    ],
+)
+def test_windows_workflow_requires_the_qualified_setup_prefix(
+    ci_local: ModuleType, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    import yaml
+
+    document = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    job = document["jobs"]["test-windows"]
+    checkout, uv, *phases = job["steps"]
+    job["steps"] = {
+        "missing-checkout": [uv, *phases],
+        "missing-uv": [checkout, *phases],
+        "late-actions": [*phases, checkout, uv],
+        "late-uv": [checkout, *phases, uv],
+        "reversed-actions": [uv, checkout, *phases],
+        "duplicate-checkout": [checkout, checkout, uv, *phases],
+        "duplicate-uv": [checkout, uv, uv, *phases],
+    }[mutation]
+    monkeypatch.setattr(ci_local, "_run_git", lambda *_args, **_kwargs: yaml.safe_dump(document))
+
+    with pytest.raises(ValueError, match="unsupported Windows setup action"):
+        ci_local._windows_workflow_contract(ROOT, "a" * 40)
+
+
 def test_windows_bundle_excludes_private_refs_and_never_writes_source_refs(
     ci_local: ModuleType, tmp_path: Path
 ) -> None:

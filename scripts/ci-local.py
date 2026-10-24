@@ -1174,22 +1174,32 @@ def _windows_workflow_contract(
         raise ValueError("unsupported Windows job conditions/environment")
     if set(job["strategy"]) != {"matrix"} or set(job["strategy"]["matrix"]) != {"python-version"}:
         raise ValueError("unsupported Windows matrix strategy")
+    setup_actions: tuple[tuple[str, dict[str, object]], ...] = (
+        ("actions/checkout@", {"fetch-depth": 0}),
+        (
+            "astral-sh/setup-uv@",
+            {
+                "version": "0.12.0",
+                "python-version": "${{ matrix.python-version }}",
+                "enable-cache": True,
+            },
+        ),
+    )
+    setup_index = 0
     phases: list[tuple[str, tuple[str, ...]]] = []
     for step in steps:
         if "uses" in step:
             if set(step) - {"uses", "name", "with"}:
                 raise ValueError("unsupported Windows action conditions/environment")
-            if step["uses"].startswith("actions/checkout@") and step.get("with") == {
-                "fetch-depth": 0
-            }:
-                continue
-            if step["uses"].startswith("astral-sh/setup-uv@") and step.get("with") == {
-                "version": "0.12.0",
-                "python-version": "${{ matrix.python-version }}",
-                "enable-cache": True,
-            }:
-                continue
-            raise ValueError("unsupported Windows setup action")
+            if setup_index == len(setup_actions) or phases:
+                raise ValueError("unsupported Windows setup action order")
+            action, inputs = setup_actions[setup_index]
+            if not step["uses"].startswith(action) or step.get("with") != inputs:
+                raise ValueError("unsupported Windows setup action")
+            setup_index += 1
+            continue
+        if setup_index != len(setup_actions):
+            raise ValueError("unsupported Windows setup action order: missing setup prefix")
         command = step.get("run", "")
         if (
             set(step) - {"name", "run"}
