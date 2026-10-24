@@ -616,3 +616,24 @@ Fixture recovery removes only the test's own empty directory or junction before
 normal token cleanup. A production malformed record stays refused for explicit
 recovery. The full Windows 3.14 measurement above remains scoped to `498e19d7`;
 this later owner-path guard has separate probe evidence.
+
+The same review found that PowerShell's numeric casts accepted malformed owner
+text such as `12.5|1`, hexadecimal, exponent and comma forms. Both fields now
+require decimal digits before conversion, and the positive timestamp must be a
+valid Windows file time. Nine additional portable before/after cases cover those
+forms, field whitespace and an out-of-range timestamp. A real Windows numeric
+record probe also preserves the record and sentinel rather than deleting them.
+
+Cleanup now opens the process handle before authenticating its start time and
+retains it through `taskkill /T /F`, disposing it on every return path. Holding
+that kernel object reserves its PID even if the process exits before termination
+looks the ID up again, as described in Microsoft's
+[process-ID lifetime explanation](https://devblogs.microsoft.com/oldnewthing/20110107-00/?p=11803).
+A discriminating portable race fixture fails with the prior helper and passes
+with the handle retained through the tree stop. This keeps descendant cleanup
+available during bootstrap, before the wrapper has joined its private job.
+
+The atomic writer also avoids removing a temporary file that was successfully
+renamed, preserving a successful standalone PowerShell status. Its new executing
+regression fails before and passes after the change. A local `ssh -G` check pins
+effective batch mode without contacting a host or loading user SSH configuration.

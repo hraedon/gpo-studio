@@ -127,6 +127,25 @@ def test_windows_ssh_command_is_an_encoded_noninteractive_powershell_command(
     assert command[-1] == "; exit $LASTEXITCODE"
 
 
+def test_windows_ssh_effective_configuration_disables_interactive_auth(
+    ci_local: ModuleType,
+) -> None:
+    ssh = shutil.which("ssh")
+    if ssh is None:
+        pytest.skip("OpenSSH is required for the effective configuration check")
+    # -G only evaluates configuration; the empty config excludes user Match/Exec
+    # hooks, and this reserved hostname is never contacted.
+    completed = subprocess.run(
+        [ssh, "-F", os.devnull, *ci_local.SSH_OPTIONS, "-G", "builder@synthetic.invalid"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert completed.returncode == 0, completed.stderr
+    settings = dict(line.split(maxsplit=1) for line in completed.stdout.splitlines())
+    assert settings["batchmode"] == "yes"
+
+
 def test_powershell_literal_doubles_quotes_without_shell_interpolation(
     ci_local: ModuleType,
 ) -> None:
@@ -257,6 +276,15 @@ def test_clixml_errors_are_decoded(ci_local: ModuleType) -> None:
         ("link-file", 0, "invalid phase-owner"),
         ("link-directory", 0, "invalid phase-owner"),
         ("link-dangling", 0, "invalid phase-owner"),
+        ("decimal-pid", 0, "invalid phase-owner"),
+        ("hex-pid", 0, "invalid phase-owner"),
+        ("scientific-pid", 0, "invalid phase-owner"),
+        ("comma-pid", 0, "invalid phase-owner"),
+        ("plus-pid", 0, "invalid phase-owner"),
+        ("decimal-time", 0, "invalid phase-owner"),
+        ("scientific-time", 0, "invalid phase-owner"),
+        ("field-space", 0, "invalid phase-owner"),
+        ("invalid-filetime", 0, "invalid phase-owner"),
     ],
 )
 def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
@@ -302,6 +330,15 @@ def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
             "zero-pid": "'0|1'",
             "negative-pid": "'-1|1'",
             "zero-start": "$PID.ToString() + '|0'",
+            "decimal-pid": "'12.5|1'",
+            "hex-pid": "'0x10|1'",
+            "scientific-pid": "'1e2|1'",
+            "comma-pid": "'1,000|1'",
+            "plus-pid": "'+5|1'",
+            "decimal-time": "$PID.ToString() + '|1.25'",
+            "scientific-time": "$PID.ToString() + '|1e2'",
+            "field-space": "$PID.ToString() + ' |1'",
+            "invalid-filetime": "'2147483647|9223372036854775807'",
         }[record]
         fixture += f"Set-Content (Join-Path $sibling 'phase-owner') -Value ({value})\n"
     fixture += (
@@ -353,6 +390,62 @@ function Remove-Item {
         timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert completed.returncode == 0, completed.stderr
+    assert not target.exists()
+
+
+def test_windows_cleanup_pins_process_identity_until_tree_stop(
+    ci_local: ModuleType, tmp_path: Path
+) -> None:
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell is required for the process-identity race control")
+    target = tmp_path / "run"
+    target.mkdir()
+    script = ci_local._powershell_prelude() + "\n" + ci_local._windows_remove_owned_run_function()
+    # Model Windows' documented PID lifetime: retaining a process handle keeps
+    # its PID reserved. Without that pin, the fixture swaps the identity during
+    # the StartTime read, before taskkill can look the PID up again.
+    script += """Add-Type -TypeDefinition @'
+using System;
+public sealed class IdentityFixture {
+    public bool Held, Reassigned, Disposed;
+    public int Id { get { return 12345; } }
+    public bool HasExited { get { return false; } }
+    public IntPtr Handle { get { Held = true; return new IntPtr(1); } }
+    public DateTime StartTime { get {
+        if (!Held) Reassigned = true;
+        return new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    } }
+    public void Dispose() { Held = false; Disposed = true; }
+}
+'@
+$script:fixture=[IdentityFixture]::new()
+$script:stopped=$false
+function Get-Process { param($Id, $ErrorAction) return $script:fixture }
+function taskkill.exe {
+    if ($script:fixture.Reassigned -or -not $script:fixture.Held) {
+        throw 'TEST: PID identity was not pinned through the tree stop'
+    }
+    $script:stopped=$true
+}
+"""
+    script += f"$target={ci_local._powershell_literal(str(target))}\n"
+    script += (
+        "$stamp=[DateTime]::new(2026,1,1,0,0,0,[DateTimeKind]::Utc).ToFileTimeUtc()\n"
+        "[IO.File]::WriteAllText((Join-Path $target 'phase-owner'), ('12345|' + $stamp))\n"
+        "Remove-OwnedRun $target -KillLive\n"
+        "if(-not $script:stopped -or -not $script:fixture.Disposed) {\n"
+        "  throw 'TEST: stop or handle release was omitted'\n"
+        "}\nWrite-Output 'PINNED_THROUGH_STOP'\n"
+    )
+    completed = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "PINNED_THROUGH_STOP" in completed.stdout
     assert not target.exists()
 
 
@@ -558,6 +651,32 @@ def test_windows_owner_record_failure_never_publishes_partial_or_overwrites_exis
     else:
         assert "publication fault" in result.stderr
         assert not owner.exists()
+    assert not list(tmp_path.glob("phase-owner.*.tmp"))
+
+
+def test_windows_owner_record_success_preserves_shell_status(
+    ci_local: ModuleType, tmp_path: Path
+) -> None:
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell is required for native owner publication")
+    completed = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            ci_local._powershell_prelude()
+            + "\n"
+            + ci_local._windows_owner_record(ci_local._powershell_literal(str(tmp_path))),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
+    )
+    assert completed.returncode == 0, completed.stderr
+    pid, started = (tmp_path / "phase-owner").read_text().split("|")
+    assert int(pid) > 0 and int(started) > 0
     assert not list(tmp_path.glob("phase-owner.*.tmp"))
 
 
@@ -1761,8 +1880,8 @@ def test_opt_in_windows_cancelled_startup_stays_cancelled(ci_local: ModuleType, 
     os.environ.get("GPO_STUDIO_WINDOWS_INTEGRATION") != "1",
     reason="set GPO_STUDIO_WINDOWS_INTEGRATION=1 for the malformed owner-path probe",
 )
-@pytest.mark.parametrize("kind", ["directory", "junction"])
-def test_opt_in_windows_malformed_owner_directory_is_preserved(
+@pytest.mark.parametrize("kind", ["directory", "junction", "numeric"])
+def test_opt_in_windows_malformed_owner_record_is_preserved(
     ci_local: ModuleType, kind: str
 ) -> None:
     host = "cw-admin@mvmcitest01"
@@ -1770,13 +1889,16 @@ def test_opt_in_windows_malformed_owner_directory_is_preserved(
     second = None
     target = ci_local._powershell_literal(workspace.run)
     try:
-        create = (
-            "New-Item -ItemType Directory (Join-Path $target 'phase-owner') | Out-Null\n"
-            if kind == "directory"
-            else "New-Item -ItemType Directory (Join-Path $target 'owner-target') | Out-Null\n"
-            "New-Item -ItemType Junction -Path (Join-Path $target 'phase-owner') "
-            "-Value (Join-Path $target 'owner-target') | Out-Null\n"
-        )
+        if kind == "directory":
+            create = "New-Item -ItemType Directory (Join-Path $target 'phase-owner') | Out-Null\n"
+        elif kind == "junction":
+            create = (
+                "New-Item -ItemType Directory (Join-Path $target 'owner-target') | Out-Null\n"
+                "New-Item -ItemType Junction -Path (Join-Path $target 'phase-owner') "
+                "-Value (Join-Path $target 'owner-target') | Out-Null\n"
+            )
+        else:
+            create = "[IO.File]::WriteAllText((Join-Path $target 'phase-owner'), '12.5|1')\n"
         ci_local._run_remote_capture(
             host,
             ci_local._powershell_prelude()
@@ -1787,13 +1909,18 @@ def test_opt_in_windows_malformed_owner_directory_is_preserved(
         )
         with pytest.raises(RuntimeError, match="invalid phase-owner"):
             second = ci_local.windows_initialize(host, secrets.token_hex(12), timeout=30)
+        check = (
+            "if ((Get-Content (Join-Path $target 'phase-owner') -Raw) -ne '12.5|1') "
+            "{ throw 'malformed numeric owner was changed' }\n"
+            if kind == "numeric"
+            else "if(-not (Test-Path -LiteralPath (Join-Path $target 'phase-owner') "
+            "-PathType Container)) { throw 'malformed owner directory was removed' }\n"
+        )
         preserved = ci_local._run_remote_capture(
             host,
             ci_local._powershell_prelude()
             + f"\n$target={target}\n"
-            + "if(-not (Test-Path -LiteralPath (Join-Path $target 'phase-owner') "
-            + "-PathType Container)) "
-            + "{ throw 'malformed owner directory was removed' }\n"
+            + check
             + "Get-Content -LiteralPath (Join-Path $target 'sentinel') -Raw\n",
             timeout=30,
         )
@@ -1801,12 +1928,18 @@ def test_opt_in_windows_malformed_owner_directory_is_preserved(
     finally:
         # This is the test's own empty directory, created above; a production
         # malformed record is deliberately never removed by automated cleanup.
+        restore = (
+            "if (Test-Path -LiteralPath $owner -PathType Leaf) { "
+            "Remove-Item -LiteralPath $owner -Force }\n"
+            if kind == "numeric"
+            else "try { [IO.Directory]::Delete($owner) }\n"
+            "catch [IO.DirectoryNotFoundException] { }\n"
+        )
         ci_local._run_remote_capture(
             host,
             ci_local._powershell_prelude()
             + f"\n$owner=Join-Path {target} 'phase-owner'\n"
-            + "try { [IO.Directory]::Delete($owner) }\n"
-            + "catch [IO.DirectoryNotFoundException] { }\n"
+            + restore
             + "Write-Output 'OWNED_FIXTURE_RESTORED'\n",
             timeout=30,
         )

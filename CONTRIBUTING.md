@@ -90,8 +90,12 @@ recreate a run after cleanup succeeds. Normal workspace cleanup creates none.
 
 Owner records are published by an atomic rename before extraction or phase
 launch. Existing records must be ordinary files: directories and reparse points
-are refused before inferring that a sibling is stale. An existing malformed
-record is refused with an explicit diagnostic;
+are refused before inferring that a sibling is stale. Both fields must contain
+only decimal digits, with a positive process ID and a positive, valid Windows
+file time. Numeric expressions and other coercible text are refused. Cleanup
+holds a process handle from identity validation through tree termination,
+preventing the authenticated PID from being reassigned during that operation.
+An existing malformed record is refused with an explicit diagnostic;
 confirm that its exact run has stopped before manually removing that one token
 directory. Do not delete the shared run root to recover a single run.
 
