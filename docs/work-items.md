@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**5 open.**
+**6 open.**
 
+- [WI-089](#wi-089--a-python-write-failure-can-leave-a-workspace-transaction-open) - roll back partial workspace writes after Python exceptions and cancellation.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
@@ -4084,3 +4085,28 @@ changed as part of WP-1.
 reached the final-check/pre-launch pause before SIGTERM is sent, and repeated
 full-suite runs no longer reproduce the race while still proving that the lane
 command never launches.
+
+## WI-089 — a Python write failure can leave a workspace transaction open
+
+**Opened:** 2026-10-24 (review of draft creation for registry repair).
+**Status:** open.
+
+Creation, baseline import and recovery deletion caught only SQLite exceptions
+inside their transactions. Editing caught ordinary Python exceptions but not
+cancellation derived from `BaseException`. A failure after a SQL write could
+therefore leave a live transaction, partial rows visible on that connection,
+and no corresponding audit revision. A subsequent valid write then failed.
+This was reproduced with unencodable audit text in direct store calls; the
+HTTP request models already reject that text. No durable partial commit was
+demonstrated.
+
+All four transaction handlers now roll back on `BaseException` and preserve
+the original non-SQLite exception. SQLite error mapping stays unchanged.
+Baseline import still commits each successful item separately: a later failed
+item rolls back without undoing earlier imports, and retry skips those items.
+
+**Closes when:** injected ordinary exceptions and cancellation after SQL writes
+leave the database unchanged and reusable in each transaction path, direct
+unencodable audit text also rolls back, and a later-item import failure can be
+retried without changing the earlier item's immutable revision. Run the
+required local checks and the available Windows leg before review.

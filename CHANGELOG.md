@@ -9,6 +9,14 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Roll back workspace writes when a Python exception or cancellation interrupts
+  creation, editing, baseline import, or recovery deletion. Previously, some
+  failures left partial rows visible on the connection and prevented the next
+  write. The original exception is preserved; baseline items committed before
+  a later item fails remain imported (WI-089).
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

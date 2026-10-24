@@ -1120,10 +1120,14 @@ class WorkspaceStore:
                     (gpo.guid, 1, actor, reason, timestamp, payload),
                 )
                 self._connection.execute("COMMIT")
-            except sqlite3.Error as error:
+            except BaseException as error:
+                # Audit-string encoding and cancellation can fail after SQL
+                # wrote rows too; they must not leave a live transaction.
                 with contextlib.suppress(sqlite3.Error):
                     self._connection.execute("ROLLBACK")
-                self._map_sqlite_error(error)
+                if isinstance(error, sqlite3.Error):
+                    self._map_sqlite_error(error)
+                raise
         _after_commit(gpo, answers)
         return gpo
 
@@ -1312,10 +1316,11 @@ class WorkspaceStore:
                     "(SELECT digest FROM snapshot_documents)"
                 )
                 self._connection.execute("COMMIT")
-            except sqlite3.Error as exc:
+            except BaseException as exc:
                 with contextlib.suppress(sqlite3.Error):
                     self._connection.execute("ROLLBACK")
-                self._map_sqlite_error(exc)
+                if isinstance(exc, sqlite3.Error):
+                    self._map_sqlite_error(exc)
                 raise
 
     def _archive_rows(self, guid: str, deleted_at: str) -> None:
@@ -1461,12 +1466,14 @@ class WorkspaceStore:
                             (normalized.guid, 1, actor, reason, timestamp, payload),
                         )
                         self._connection.execute("COMMIT")
-                    except sqlite3.Error as error:
+                    except BaseException as error:
                         with contextlib.suppress(sqlite3.Error):
                             self._connection.execute("ROLLBACK")
-                        if isinstance(error, sqlite3.IntegrityError):
-                            raise
-                        self._map_sqlite_error(error)
+                        if isinstance(error, sqlite3.Error):
+                            if isinstance(error, sqlite3.IntegrityError):
+                                raise
+                            self._map_sqlite_error(error)
+                        raise
             except sqlite3.IntegrityError:
                 conflicts += 1
                 continue
@@ -1604,7 +1611,7 @@ class WorkspaceStore:
                     (current.guid, updated.revision, actor, reason, timestamp, payload),
                 )
                 self._connection.execute("COMMIT")
-            except Exception as exc:
+            except BaseException as exc:
                 with contextlib.suppress(sqlite3.Error):
                     self._connection.execute("ROLLBACK")
                 if isinstance(exc, sqlite3.Error):
