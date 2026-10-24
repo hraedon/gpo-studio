@@ -14,6 +14,11 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 - Malformed Windows local-CI workflow syntax and step/matrix shapes produce a
   normal diagnostic before remote access or ref recovery. Qualified setup
   inputs are compared by type and value, avoiding boolean/numeric aliases.
+- Refuse directory-shaped, linked or numerically malformed Windows CI owner
+  records before considering a sibling stale, preserving the run and its files
+  for explicit recovery. Hold the authenticated process handle through tree
+  termination and preserve successful shell status after owner publication.
+
 - The local Windows CI runner refuses workflow-wide environment variables and
   run defaults before remote access, preventing inherited CI settings from
   being silently omitted from a local qualification. It also requires checkout

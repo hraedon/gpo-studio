@@ -591,10 +591,84 @@ fixture-release deadline; production budgets and ownership assertions are
 unchanged. An injected twelve-second launch delay fails the old guard at
 10.28s and passes the new one at 12.89s. The polished runner/register/whole-value
 and plan-status batch passes **197 tests**, with nine host opt-ins skipped.
-The runner source and every remote script byte remain identical to `498e19d7`.
+At that test-only polish, the runner source and every remote script byte remain
+identical to `498e19d7`.
 
 This full recovery qualification reruns **3.14 only**. The 3.13 exit/Unicode/
 watchdog smoke passes are retained, but the earlier full 3.13 result belongs to
 the prior implementation and is not recounted here. Independent review evidence
 is tracked with the recovery PR. These are CI-tooling measurements, not new
 product wire-format or oracle qualifications; WI-084 remains open.
+
+
+### Owner-path review correction
+
+Review of `e9f09982` found a pre-existing malformed-state gap: a directory named
+`phase-owner` could be mistaken for an existing dead-owner record. A fresh run
+and its sentinel were then deleted by startup; directory-shaped and linked
+records now produce an explicit refusal before stale-state inference. The record
+must be an ordinary file. Both fresh and old directories, file/directory links
+and dangling links are covered by five executing portable before/after cases.
+
+The real Windows directory and junction probes fail with the prior owner helper
+and pass with the corrected helper, preserving the malformed entry and sentinel.
+Fixture recovery removes only the test's own empty directory or junction before
+normal token cleanup. A production malformed record stays refused for explicit
+recovery. The full Windows 3.14 measurement above remains scoped to `498e19d7`;
+this later owner-path guard has separate probe evidence.
+
+The same review found that PowerShell's numeric casts accepted malformed owner
+text such as `12.5|1`, hexadecimal, exponent and comma forms. Both fields now
+require decimal digits before conversion, and the positive timestamp must be a
+valid Windows file time. Nine additional portable before/after cases cover those
+forms, field whitespace and an out-of-range timestamp. A real Windows numeric
+record probe also preserves the record and sentinel rather than deleting them.
+
+Cleanup now opens the process handle before authenticating its start time and
+retains it through `taskkill /T /F`, disposing it on every return path. Holding
+that kernel object reserves its PID even if the process exits before termination
+looks the ID up again, as described in Microsoft's
+[process-ID lifetime explanation](https://devblogs.microsoft.com/oldnewthing/20110107-00/?p=11803).
+A discriminating portable race fixture fails with the prior helper and passes
+with the handle retained through the tree stop. This keeps descendant cleanup
+available while the bootstrap wrapper is alive, before it has joined its private job.
+
+Executing review of `0064f5f4` found that PowerShell can silently return null
+from a throwing .NET property getter despite `ErrorActionPreference=Stop`.
+Cleanup now checks the returned handle explicitly, refusing null or zero before
+any identity reads or tree termination and still disposing the process object.
+Both throwing-getter and zero-handle regressions fail against `0064f5f4` and
+pass with the guard. The full Windows 3.13 run of combined `3cca0180` began
+before this additional guard; its eventual result is scoped to that candidate.
+
+The same executing review reproduced a pre-existing status gap using a native
+command that silently returns a failure code in place of `taskkill`. Cleanup
+now checks that status and refuses to remove the run while its authenticated
+process remains alive. A concurrent process exit still permits cleanup. Both
+status cases use a real native failure code in portable PowerShell tests; the
+still-live case fails before the check and passes afterward. They model the
+failure contract, rather than claiming a real `taskkill` failure on the host.
+
+The required process identity properties are also checked for null, giving an
+explicit refusal for swallowed `HasExited`/`StartTime` getter failures. Owner
+metadata lookup suppresses only a genuine missing-item exception: other access
+errors stop startup instead of being interpreted as a missing record. Executing
+controls preserve the owner and sentinel for the metadata-error case. These are
+portable error-contract probes; a denied Windows ACL is not claimed as tested.
+
+The next executing review found the same suppressed-error pattern in the
+run-age lookup: an unreadable fresh ownerless run could bypass recent-run
+protection. Following the review-round rule in `AGENTS.md`, the correction uses
+a shared query boundary instead of another isolated lookup patch.
+`Get-ExistingItem` handles both owner and run-age metadata, accepting only a
+genuine missing-item exception. `Get-ExistingProcess` accepts only the exact
+missing-ID error and propagates other failures. Six permission/resource-error
+controls cover all three query sites; four fail at `80f31e43`, while its two
+existing owner-query controls already refuse correctly. This later design
+change still requires separate native verification after the running `3cca0180`
+job; that full run must not be attributed to these newer bytes.
+
+The atomic writer also avoids removing a temporary file that was successfully
+renamed, preserving a successful standalone PowerShell status. Its new executing
+regression fails before and passes after the change. A local `ssh -G` check pins
+effective batch mode without contacting a host or loading user SSH configuration.

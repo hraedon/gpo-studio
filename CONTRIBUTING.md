@@ -92,7 +92,23 @@ cancellation files are deliberately retained: a deferred initializer must not
 recreate a run after cleanup succeeds. Normal workspace cleanup creates none.
 
 Owner records are published by an atomic rename before extraction or phase
-launch. An existing malformed record is refused with an explicit diagnostic;
+launch. Existing records must be ordinary files: directories and reparse points
+are refused before inferring that a sibling is stale. Owner and run-age metadata
+use one lookup that accepts only a genuine missing item; process lookup accepts
+only the specific missing-ID error. Other query errors are refused rather than
+treated as absence. After trimming the record, both
+fields must contain
+only decimal digits, with a positive process ID and a positive, valid Windows
+file time. Numeric expressions and other coercible text are refused. Cleanup
+holds a process handle from identity validation through tree termination,
+preventing the authenticated PID from being reassigned during that operation.
+An unavailable or zero process handle is refused before inspecting identity or
+terminating a process tree. Unreadable process identity properties are refused too.
+If a process exits while its handle is being acquired, the runner may refuse
+conservatively; a later invocation can reclaim the stopped run.
+If tree termination fails while the authenticated process remains alive, cleanup
+refuses and preserves the run for a later retry.
+An existing malformed record is refused with an explicit diagnostic;
 confirm that its exact run has stopped before manually removing that one token
 directory. Do not delete the shared run root to recover a single run.
 
