@@ -4056,6 +4056,13 @@ fresh SSH environment check confirmed no run-directory, PATH or Git-config
 leak. Earlier main/matrix and historical-reproduction evidence is retained;
 WI-084 remains open for the other work packages.
 
+**2026-10-24 recovery follow-up:** startup cancellation is durable even when
+cleanup wins the lock race; owner records are published atomically; private
+Windows jobs reap background descendants after success/failure or wrapper
+termination. Portable and real Windows recovery probes pass. Fresh full Windows
+qualification and two independent reviews of these new script bytes are pending;
+the earlier full-run evidence remains scoped to `48b5e6ee`.
+
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
 restarts from branch `wp0/live-closure` at `432c751` (pushed), with these

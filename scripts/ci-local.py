@@ -44,6 +44,8 @@ WINDOWS_RUN_PREFIX = "gpo-studio-ci-local"
 WINDOWS_STALE_MARGIN = 600
 SSH_OPTIONS = [
     "-o",
+    "BatchMode=yes",
+    "-o",
     "ConnectTimeout=15",
     "-o",
     "ServerAliveInterval=15",
@@ -784,11 +786,16 @@ def _windows_remove_owned_run_function() -> str:
         "function Get-RunOwner([string]$target) {\n"
         "  $owner=Join-Path $target 'phase-owner'\n"
         "  if (Test-Path -LiteralPath $owner -PathType Leaf) {\n"
-        "    try { $parts=((Get-Content -LiteralPath $owner -Raw).Trim()).Split('|') }\n"
+        "    try {\n"
+        "      $record=Get-Content -LiteralPath $owner -Raw\n"
+        "      if ([string]::IsNullOrWhiteSpace($record)) { throw 'invalid phase-owner record' }\n"
+        "      $parts=$record.Trim().Split('|')\n"
+        "    }\n"
         "    catch { if (-not (Test-Path -LiteralPath $target)) { return }; throw }\n"
         "    if ($parts.Count -ne 2) { throw 'invalid phase-owner record' }\n"
         "    try { $processId=[int]$parts[0]; $started=[long]$parts[1] } "
         "catch { throw 'invalid phase-owner record' }\n"
+        "    if ($processId -le 0 -or $started -le 0) { throw 'invalid phase-owner record' }\n"
         "    $process=Get-Process -Id $processId -ErrorAction SilentlyContinue\n"
         "    if ($process -and $process.StartTime.ToFileTimeUtc() -eq $started) {\n"
         "      return $process\n"
@@ -826,6 +833,24 @@ def _windows_remove_owned_run_function() -> str:
     )
 
 
+def _windows_startup_lock_function() -> str:
+    return (
+        "function Enter-StartupLock([string]$owned, [int]$waitMilliseconds=0) {\n"
+        "  $until=[DateTime]::UtcNow.AddMilliseconds($waitMilliseconds)\n"
+        "  do {\n"
+        "    try { return [IO.File]::Open(($owned + '.startup-lock'), "
+        "'OpenOrCreate', 'ReadWrite', 'None') }\n"
+        "    catch [IO.IOException] {\n"
+        "      if ([DateTime]::UtcNow -ge $until) {\n"
+        "        throw 'refusing concurrent startup: remote startup lock is held'\n"
+        "      }\n"
+        "      Start-Sleep -Milliseconds 100\n"
+        "    }\n"
+        "  } while ($true)\n"
+        "}\n"
+    )
+
+
 def _windows_initialize_script(token: str, stale_after: int = 6000) -> str:
     if not re.fullmatch(r"[0-9a-f]{24}", token):
         raise ValueError("Windows run token is not 24 lowercase hex characters")
@@ -835,14 +860,16 @@ def _windows_initialize_script(token: str, stale_after: int = 6000) -> str:
         + "$runs=Join-Path $HOME '.ci-local\\runs'\n"
         + f"$owned=Join-Path $runs {_powershell_literal(WINDOWS_RUN_PREFIX)}\n"
         + _windows_remove_owned_run_function()
+        + _windows_startup_lock_function()
         + "New-Item -ItemType Directory -Force -Path $owned | Out-Null\n"
         # An OS file lock serializes inspection + creation across SSH sessions.
         # The empty lock file lives beside (not inside) the run root. A crash
         # releases its handle; it is never an authority to kill another run.
-        + "$lockPath=$owned + '.startup-lock'\n"
-        + "try { $lock=[IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None') }\n"
-        + "catch { throw 'refusing concurrent startup: remote startup lock is held' }\n"
+        + "$lock=Enter-StartupLock $owned\n"
         + "try {\n"
+        + f"$cancelled=Join-Path ($owned + '.cancelled') {_powershell_literal(token)}\n"
+        + "if (Test-Path -LiteralPath $cancelled) { "
+        + "throw 'refusing cancelled Windows run token' }\n"
         + "$siblings=@(Get-ChildItem -LiteralPath $owned -Force)\n"
         + "$siblings | ForEach-Object {\n"
         + "  if (-not $_.PSIsContainer) {\n"
@@ -910,7 +937,8 @@ def windows_cleanup(
         + f"$target=[IO.Path]::GetFullPath({target})\n"
         + "$owned=[IO.Path]::GetFullPath((Join-Path $HOME "
         + f"{_powershell_literal('.ci-local\\runs\\' + WINDOWS_RUN_PREFIX)}))\n"
-        + "$prefix=$owned.TrimEnd('\\') + '\\'\n"
+        + "$separator=[IO.Path]::DirectorySeparatorChar\n"
+        + "$prefix=$owned.TrimEnd($separator) + $separator\n"
         + "if (-not $target.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {\n"
         + "  throw 'refusing to remove a path outside the owned run root'\n"
         + "}\n"
@@ -918,7 +946,22 @@ def windows_cleanup(
         + "(Split-Path -Leaf $target) -notmatch '^[0-9a-f]{24}$') { "
         + "throw 'refusing a non-token run directory' }\n"
         + _windows_remove_owned_run_function()
-        + "Remove-OwnedRun $target -KillLive\n"
+        + _windows_startup_lock_function()
+        + "New-Item -ItemType Directory -Force -Path $owned | Out-Null\n"
+        # A lost initialization response needs a durable cancellation marker:
+        # the initializer may not have acquired the lock or created RUN yet.
+        # Keep markers beside the run root, only for interrupted initialization;
+        # a delayed initializer must never be allowed to reuse its cancelled token.
+        + (
+            "$cancelled=$owned + '.cancelled'\n"
+            "New-Item -ItemType Directory -Force -Path $cancelled | Out-Null\n"
+            "$marker=Join-Path $cancelled (Split-Path -Leaf $target)\n"
+            "[IO.File]::WriteAllText($marker, 'cancelled')\n"
+            if workspace is None
+            else ""
+        )
+        + f"$lock=Enter-StartupLock $owned {max(0, min(45000, int((timeout - 10) * 1000)))}\n"
+        + "try { Remove-OwnedRun $target -KillLive } finally { $lock.Dispose() }\n"
     )
     _run_remote_capture(host, script, timeout=timeout)
 
@@ -930,8 +973,12 @@ def _windows_owner_record(run_expression: str) -> str:
     return (
         f"$owner=Join-Path {run_expression} 'phase-owner'\n"
         "$wrapper=Get-Process -Id $PID\n"
-        "Set-Content -LiteralPath $owner -Encoding Ascii -Value "
-        "($PID.ToString() + '|' + $wrapper.StartTime.ToFileTimeUtc().ToString())\n"
+        "$pending=$owner + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'\n"
+        "try {\n"
+        "  $record=$PID.ToString() + '|' + $wrapper.StartTime.ToFileTimeUtc().ToString()\n"
+        "  [IO.File]::WriteAllText($pending, $record, [Text.Encoding]::ASCII)\n"
+        "  [IO.File]::Move($pending, $owner)\n"
+        "} finally { Remove-Item -LiteralPath $pending -Force -ErrorAction SilentlyContinue }\n"
     )
 
 
@@ -941,11 +988,11 @@ def _windows_setup_script(workspace: WindowsWorkspace, commit: str, remaining: f
         + "\n"
         + _windows_owner_record(_powershell_literal(workspace.run))
         + f"$deadline=[DateTime]::UtcNow.AddMilliseconds({max(1, int(remaining * 1000))})\n"
-        + _windows_watchdog_type()
+        + _windows_temporary_environment(workspace)
+        + _windows_process_guard()
         + "$watchdog=[CiLocalDeadline]::new((Get-Process -Id $PID), "
         + "[Math]::Max(1, [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds))\n"
         + "try {\n"
-        + _windows_temporary_environment(workspace)
         + f"$archive={_powershell_literal(workspace.archive)}\n"
         + f"$bundle={_powershell_literal(workspace.bundle)}\n"
         + f"$checkout={_powershell_literal(workspace.checkout)}\n"
@@ -1029,35 +1076,23 @@ def _windows_phase_script(
         + f"$process.StartInfo.WorkingDirectory={_powershell_literal(workspace.checkout)}\n"
         + "$process.StartInfo.UseShellExecute=$false\n"
         + "$process.StartInfo.CreateNoWindow=$true\n"
-        + "$process.StartInfo.RedirectStandardOutput=$true\n"
-        + "$process.StartInfo.RedirectStandardError=$true\n"
-        + "$process.StartInfo.StandardOutputEncoding=[Text.UTF8Encoding]::new($false)\n"
-        + "$process.StartInfo.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)\n"
-        + _windows_watchdog_type()
+        # Redirecting stdin makes .NET Framework populate STARTF_USESTDHANDLES
+        # even with CREATE_NO_WINDOW, so stdout/stderr inherit SSH's handles.
+        # Close it immediately after start: CI commands receive EOF, not a prompt.
+        + "$process.StartInfo.RedirectStandardInput=$true\n"
+        # Inherit the SSH streams directly. Reading redirected pipes to EOF
+        # before observing the leader's exit can hang on a leaked descendant
+        # that inherited those pipes. The wrapper's private job kills any such
+        # descendants when it exits, after preserving the leader's real code.
+        + "$process.StartInfo.RedirectStandardOutput=$false\n"
+        + "$process.StartInfo.RedirectStandardError=$false\n"
+        + _windows_process_guard()
         + "if (-not $process.Start()) { throw 'could not start Windows phase' }\n"
+        + "$process.StandardInput.Close()\n"
         + "$watchdog=[CiLocalDeadline]::new($process, "
         + "[Math]::Max(1, [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds))\n"
         + "$code=1\n"
         + "try {\n"
-        + "  $stdout=$process.StandardOutput.ReadLineAsync()\n"
-        + "  $stderr=$process.StandardError.ReadLineAsync()\n"
-        + "  while ($null -ne $stdout -or $null -ne $stderr) {\n"
-        + "    if ($null -ne $stdout -and $stdout.IsCompleted) {\n"
-        + "      $line=$stdout.GetAwaiter().GetResult()\n"
-        + "      if ($null -eq $line) { $stdout=$null } else {\n"
-        + "        [Console]::Out.WriteLine($line)\n"
-        + "        $stdout=$process.StandardOutput.ReadLineAsync()\n"
-        + "      }\n"
-        + "    }\n"
-        + "    if ($null -ne $stderr -and $stderr.IsCompleted) {\n"
-        + "      $line=$stderr.GetAwaiter().GetResult()\n"
-        + "      if ($null -eq $line) { $stderr=$null } else {\n"
-        + "        [Console]::Error.WriteLine($line)\n"
-        + "        $stderr=$process.StandardError.ReadLineAsync()\n"
-        + "      }\n"
-        + "    }\n"
-        + "    [Threading.Thread]::Sleep(10)\n"
-        + "  }\n"
         + "  $process.WaitForExit()\n"
         + "  $code=$process.ExitCode\n"
         + "  if ($watchdog.TimedOut) { $code=124 }\n"
@@ -1104,13 +1139,76 @@ def _windows_temporary_environment(workspace: WindowsWorkspace) -> str:
     )
 
 
-def _windows_watchdog_type() -> str:
-    # A native timer keeps working while PowerShell drains quiet child pipes,
-    # including when the Linux controller dies but its SSH connection survives.
+def _windows_process_guard() -> str:
+    # The wrapper alone owns a non-inheritable, unnamed job handle. Assigning
+    # itself before launching a phase also assigns all ordinary descendants.
+    # Windows closes this handle on normal exit or abrupt termination, killing
+    # remaining descendants without finding them by reusable PIDs. Retain the
+    # raw handle until process exit: disposing it early would kill the wrapper.
+    # Nested jobs are supported on the qualified modern Windows profile; refuse
+    # a failed assignment rather than silently losing process ownership.
     return """Add-Type -TypeDefinition @'
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
+public static class CiLocalProcessJob {
+    static IntPtr ownedJob;
+    [StructLayout(LayoutKind.Sequential)]
+    struct BasicLimits {
+        public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass, SchedulingClass;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct IoCounters {
+        public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount;
+        public ulong ReadTransferCount, WriteTransferCount, OtherTransferCount;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct ExtendedLimits {
+        public BasicLimits BasicLimitInformation;
+        public IoCounters IoInfo;
+        public UIntPtr ProcessMemoryLimit, JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed, PeakJobMemoryUsed;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, ExactSpelling=true, SetLastError=true)]
+    static extern IntPtr CreateJobObjectW(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool SetInformationJobObject(IntPtr job, int informationClass,
+        ref ExtendedLimits information, uint length);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool CloseHandle(IntPtr handle);
+    public static void Attach() {
+        if (ownedJob != IntPtr.Zero) throw new InvalidOperationException("job already attached");
+        // NULL security attributes make the handle non-inheritable; NULL name
+        // prevents a second process opening it by name and extending its life.
+        IntPtr job = CreateJobObjectW(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            var limits = new ExtendedLimits();
+            limits.BasicLimitInformation.LimitFlags = 0x00002000; // KILL_ON_JOB_CLOSE
+            if (!SetInformationJobObject(job, 9, ref limits,
+                    (uint)Marshal.SizeOf(typeof(ExtendedLimits))))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (!AssignProcessToJobObject(job, GetCurrentProcess()))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            ownedJob = job;
+            job = IntPtr.Zero;
+        } finally { if (job != IntPtr.Zero) CloseHandle(job); }
+    }
+}
 public sealed class CiLocalDeadline : IDisposable {
     readonly Process child;
     readonly Timer timer;
@@ -1136,6 +1234,7 @@ public sealed class CiLocalDeadline : IDisposable {
     } }
 }
 '@
+[CiLocalProcessJob]::Attach()
 """
 
 

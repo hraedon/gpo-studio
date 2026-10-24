@@ -520,7 +520,7 @@ directories and the previously crash-left archive/bundle directory were absent;
 no source `refs/ci-local/` remained. No other project's processes or directories
 were cleaned. Final follow-up edits are records/documentation only.
 
-### Recovery review, 2026-10-22
+### Recovery review, 2026-10-22 (implementation `48b5e6ee`)
 
 The follow-up independent executing review (`ollama-cloud/deepseek-v4.1-flash`)
 passed on implementation `48b5e6ee` and records commit `754c8fce`. It checked
@@ -529,10 +529,27 @@ private bundle staging and the retained Windows logs. No remote run was needed
 for this review; the full Windows qualification above still names the exact
 implementation tested.
 
-One operational recovery limit remains: if the remote PowerShell wrapper itself
+That implementation has an operational recovery limit: if the remote PowerShell wrapper itself
 is terminated, its in-process watchdog ends too. The owner record identifies the
 wrapper, not a separately recorded phase-child PID. A surviving child may then
 keep files open and make later cleanup fail closed. The controller's death while
 SSH and the wrapper remain alive is covered by the watchdog; abrupt wrapper death
 is not. A separately authenticated child record or detached watcher needs its own
 implementation and Windows qualification. WI-084 remains open.
+
+### Recovery follow-up, 2026-10-24 — qualification pending
+
+The follow-up adds durable cancellation of interrupted startup, shared locking
+between initialization and cleanup, atomic owner publication, and private Windows
+jobs that reap descendants on normal exit and abrupt wrapper termination.
+Phases inherit SSH output handles with stdin closed; this avoids waiting for
+EOF on pipes held by background children. The real Windows process probes pass
+for success, failure, wrapper termination and live cleanup, as do both startup
+cancellation orderings. The first stream-inheritance prototype lost output under
+`CREATE_NO_WINDOW`; redirecting/closing stdin makes .NET Framework populate all
+standard handles, preserving the original UTF-8 stdout/stderr handles. The
+existing exit-code and UTF-8 probes pass with that correction.
+
+These are new remote script bytes. The earlier full qualification remains tied
+to `48b5e6ee`; it does not qualify this follow-up. A fresh full Windows run and
+two independent reviews are pending. No product/oracle qualification is claimed.

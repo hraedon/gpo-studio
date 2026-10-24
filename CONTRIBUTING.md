@@ -52,8 +52,11 @@ uv run --extra dev python scripts/ci-local.py --windows --windows-python 3.14
 
 Choose `3.13` or `3.14`; `--windows-host` defaults to
 `cw-admin@mvmcitest01`. The controller needs key-authenticated SSH access to
-that host. The leg copies a `git archive` plus a Git metadata bundle so the
-tests see full history, origin branches and tags, not private local refs. It verifies uv.exe
+that host. SSH uses batch mode: missing keys or host-key trust fail without an
+interactive prompt. The leg copies a `git archive` plus a Git metadata bundle.
+Tests see full history, origin branch commits restored under `ci-local/*`, and
+tags; local branches and probe refs are excluded. The checkout has no configured
+network remote. It verifies uv.exe
 and the MinGit `cmd\git.exe` launcher's SHA-256 digests before use, prepends MinGit's `cmd`
 directory to `PATH` for each remote command only, sets
 `UV_PYTHON_DOWNLOADS=never`, and runs exactly the
@@ -78,8 +81,26 @@ run. Startup holds an OS file lock during inspection/creation, refuses a sibling
 whose recorded PID and start time are live, and only removes a dead-owner run or
 an unowned run older than the 90-minute maximum job budget plus 10 minutes.
 Recent unowned, malformed, linked, unknown or unremovable entries are refused.
-Setup records ownership before archive extraction; only cleanup of the current
-token may terminate its wrapper and descendants. TEMP/TMP and caches are run-local.
+Cleanup acquires the same lock with a bounded wait. If initialization did not
+return a workspace, cleanup first records cancellation of that token beside the
+run root, in `gpo-studio-ci-local.cancelled`. A delayed initializer refuses that
+token even if cleanup ran before it acquired the startup lock. These rare
+cancellation files are deliberately retained: a deferred initializer must not
+recreate a run after cleanup succeeds. Normal workspace cleanup creates none.
+
+Owner records are published by an atomic rename before extraction or phase
+launch. An existing malformed record is refused with an explicit diagnostic;
+confirm that its exact run has stopped before manually removing that one token
+directory. Do not delete the shared run root to recover a single run.
+
+Each setup/phase wrapper joins a private Windows job before launching commands.
+Its sole job handle is non-inheritable. Normal exit or abrupt wrapper termination
+closes that handle and Windows terminates remaining ordinary descendants,
+including background processes holding output pipes or files. A failed job
+assignment is refused. Phases inherit the SSH stdout/stderr handles and receive
+EOF on stdin; they preserve the leader's exit code without waiting for leaked
+descendants to close redirected pipes. Cleanup may terminate only the current
+token's wrapper and descendants. TEMP/TMP and caches are run-local.
 TEMP uses that directory's existing DOS short-name alias (at most 60 characters)
 so the MAX_PATH-sensitive release-artifact tests still fit; missing/too-long
 aliases are refused. The tool creates no drive mapping or short-name configuration.
@@ -99,7 +120,9 @@ now refuses instead of deleting the first run. The qualified absolute tool paths
 are for `cw-admin`; `--windows-host` changes transport, not that account profile.
 The default selects only 3.14: request 3.13 separately to exercise the whole matrix.
 To check SSH, executable pins, checkout bytes, live-sibling refusal, quoted arguments,
-UTF-8 output, real process exits and the watchdog without running the full suite:
+UTF-8 output, real process exits, the watchdog, startup cancellation and descendant
+cleanup after success/failure, wrapper termination and live cleanup without running
+the full suite:
 
 ```bash
 GPO_STUDIO_WINDOWS_INTEGRATION=1 uv run pytest -q tests/test_ci_local.py -k opt_in
