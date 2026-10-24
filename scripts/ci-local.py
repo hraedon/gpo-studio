@@ -1255,7 +1255,8 @@ def _windows_workflow_contract(
         yaml.YAMLError,
         ValueError,
         TypeError,
-        KeyError,
+        LookupError,
+        ArithmeticError,
         AttributeError,
         RecursionError,
     ) as error:

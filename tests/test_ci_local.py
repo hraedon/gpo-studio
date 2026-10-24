@@ -685,6 +685,10 @@ def test_windows_workflow_requires_the_qualified_setup_prefix(
         "yaml-int-tag",
         "yaml-timestamp-tag",
         "yaml-nesting",
+        "yaml-empty-int",
+        "yaml-empty-float",
+        "yaml-float-overflow",
+        "yaml-float-boundary",
         "steps-null",
         "steps-string",
         "steps-mapping",
@@ -743,6 +747,10 @@ def test_windows_malformed_workflow_is_refused_before_ref_or_remote_access(
         "yaml-int-tag": "!!int not-an-integer",
         "yaml-timestamp-tag": "!!timestamp not-a-date",
         "yaml-nesting": "[" * 2048 + "0" + "]" * 2048,
+        "yaml-empty-int": '!!int ""',
+        "yaml-empty-float": '!!float ""',
+        "yaml-float-overflow": '!!float "' + ":".join(["1"] * 175) + '"',
+        "yaml-float-boundary": '!!float "' + ":".join(["1"] * 174) + '"',
     }.get(mutation, yaml.safe_dump(document))
     monkeypatch.setattr(ci_local, "_run_git", lambda *_args, **_kwargs: payload)
     side_effects: list[str] = []
@@ -755,7 +763,7 @@ def test_windows_malformed_workflow_is_refused_before_ref_or_remote_access(
         pytest.fail("malformed workflow reached remote preflight")
 
     monkeypatch.setattr(ci_local, "windows_preflight", refuse_remote)
-    with pytest.raises(ValueError, match="Windows|YAML"):
+    with pytest.raises(ValueError, match="(?i)windows|yaml"):
         ci_local.run_windows_job(
             source=ROOT,
             commit="a" * 40,
@@ -768,7 +776,17 @@ def test_windows_malformed_workflow_is_refused_before_ref_or_remote_access(
 
 
 @pytest.mark.parametrize(
-    "mutation", ["yaml-syntax", "yaml-bool-tag", "yaml-int-tag", "yaml-timestamp-tag", "steps-null"]
+    "mutation",
+    [
+        "yaml-syntax",
+        "yaml-bool-tag",
+        "yaml-int-tag",
+        "yaml-timestamp-tag",
+        "yaml-empty-int",
+        "yaml-empty-float",
+        "yaml-float-overflow",
+        "steps-null",
+    ],
 )
 def test_windows_malformed_workflow_cli_reports_an_error_without_traceback(
     ci_local: ModuleType, tmp_path: Path, mutation: str
@@ -782,6 +800,9 @@ def test_windows_malformed_workflow_cli_reports_an_error_without_traceback(
         "yaml-bool-tag": "!!bool maybe",
         "yaml-int-tag": "!!int not-an-integer",
         "yaml-timestamp-tag": "!!timestamp not-a-date",
+        "yaml-empty-int": '!!int ""',
+        "yaml-empty-float": '!!float ""',
+        "yaml-float-overflow": '!!float "' + ":".join(["1"] * 175) + '"',
     }.get(mutation, yaml.safe_dump(document))
     source = tmp_path / "source"
     workflow = source / ".github" / "workflows" / "ci.yml"
