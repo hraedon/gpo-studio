@@ -9,6 +9,12 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Roll back workspace writes when a Python exception or cancellation interrupts
+  creation, editing, baseline import, or recovery deletion. Previously, some
+  failures left partial rows visible on the connection and prevented the next
+  write. The original exception is preserved; baseline items committed before
+  a later item fails remain imported (WI-089).
+
 - Keep raw ADMX rows visible as unresolved when their stored side or hive no
   longer matches their structured editor identity. Preserve native state
   observations and prevent those rows from supplying decoded child values.
