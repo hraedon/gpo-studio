@@ -4087,9 +4087,11 @@ WI-084 remains open.
 **Deadline follow-up:** review of `a6fc6f74` exposed a pre-existing wait after
 failed phase termination. The deadline and terminating phase-error paths now
 exit through private-job teardown. Portable before/after controls and a real
-Windows phase-error control pass with the change; normal integration and two
-independent final reviews of these new bytes remain pending. Prior qualification
-commits are retained in the exit record above.
+Windows phase-error control pass with the change. Implementation `1933aa4c`
+passes all 13 normal Windows integration cases (346.72s, exit 0), 231 focused
+portable checks and the fresh namespace/lock/profile postcheck. Two independent
+final reviews remain pending. Prior full qualification commits keep their
+original scopes in the exit record above; WI-084 remains open.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
