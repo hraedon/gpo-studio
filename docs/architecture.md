@@ -75,6 +75,11 @@ Child-only policies retain the existing inference heuristic unless an unclaimed
 possible historical policy-level record exposes uncertainty. Actual stored state
 frames outside current pattern addresses cannot prove a current state, regardless
 of today's identity family; unclaimed rows remain visible as unresolved evidence.
+Structured rows whose stored side or hive disagrees with their editor identity
+remain visible as unresolved records and cannot supply decoded child values.
+A side move keeps state writes observable at their actual native addresses;
+a row with a hive inconsistent with its side cannot establish a current state.
+Reads do not repair the identity or change reconfiguration ownership.
 Decoded child values remain available. Observations do not alter export
 eligibility, write records, or introduce an Indeterminate mutation target.
 Explicit Enable/Disable/Not configured actions retain their existing validation,

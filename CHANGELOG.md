@@ -9,6 +9,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+- Keep raw ADMX rows visible as unresolved when their stored side or hive no
+  longer matches their structured editor identity. Preserve native state
+  observations and prevent those rows from supplying decoded child values.
+
 - Observe complete native scalar-marker patterns as well as policy lists; expose
   uncertainty and unresolved historical state records at moved addresses while
   preserving child values, raw history and independent export eligibility.

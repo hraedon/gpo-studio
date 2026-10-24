@@ -115,6 +115,14 @@ def _hive_for(side: Side) -> Literal["HKLM", "HKCU"]:
     return "HKLM" if side == "computer" else "HKCU"
 
 
+def _structured_location_mismatch(
+    setting: RegistrySetting, identity: PolicySettingIdentity | None
+) -> bool:
+    return identity is not None and (
+        identity.side != setting.side or setting.hive != _hive_for(identity.side)
+    )
+
+
 def _hives_for_class(
     class_: Literal["Machine", "User", "Both"]
 ) -> tuple[Literal["HKLM", "HKCU"], ...]:
@@ -568,9 +576,13 @@ def _setting_belongs_to_element(
     element = binding.element
     structured = row.structured
     if structured is not None:
+        # Normal edits keep side/hive consistent. Historical invalid rows must
+        # also satisfy the complete location contract before child decoding.
         return (
             structured.policy_id == plan.policy_id
             and structured.side == plan.side
+            and row.setting.side == plan.side
+            and row.setting.hive == plan.hive
             and structured.kind in ("element", "element-list", "disabled-element")
             and structured.component == element.id
         )
@@ -730,6 +742,16 @@ def build_settings_browser(
     unresolved: list[UnresolvedSetting] = []
 
     for setting in settings:
+        location_mismatch = _structured_location_mismatch(
+            setting, parse_structured_setting_id(setting.id)
+        )
+        if location_mismatch:
+            # Raw edits preserve the historical editor ID. Keep the native
+            # write available for state observation, and expose its uncertain
+            # authoring identity once, independently of address-based groups.
+            unresolved.append(UnresolvedSetting(
+                setting, "structured policy identity does not match registry location"
+            ))
         owners = setting_policy_owners(setting, catalogue)
         if len(owners) > 1:
             unresolved.append(UnresolvedSetting(setting, "ambiguous legacy policy ownership"))
@@ -738,15 +760,17 @@ def build_settings_browser(
         if parsed is not None:
             qualified_id, _side, _suffix = parsed
             if qualified_id not in policy_map:
-                unresolved.append(
-                    UnresolvedSetting(setting=setting, reason="template not loaded")
-                )
+                if not location_mismatch:
+                    unresolved.append(
+                        UnresolvedSetting(setting=setting, reason="template not loaded")
+                    )
                 continue
         mappings = _resolve_setting_mappings(setting, index, policy_map, catalogue)
         if not mappings:
-            unresolved.append(
-                UnresolvedSetting(setting=setting, reason="no matching policy")
-            )
+            if not location_mismatch:
+                unresolved.append(
+                    UnresolvedSetting(setting=setting, reason="no matching policy")
+                )
             continue
         matches.append((setting, tuple(mappings)))
 
@@ -786,6 +810,8 @@ def build_settings_browser(
         # Diagnose each row once within this group. Component decoding has its own
         # stronger explanation; a successfully decoded child remains available.
         for row_index, row in enumerate(bound_rows):
+            if _structured_location_mismatch(row.setting, row.structured):
+                continue
             reason = None
             if row_index in unsupported:
                 reason = "unsupported legacy list ordinal"
