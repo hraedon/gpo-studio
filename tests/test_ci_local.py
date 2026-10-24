@@ -763,7 +763,12 @@ def test_windows_malformed_workflow_is_refused_before_ref_or_remote_access(
         pytest.fail("malformed workflow reached remote preflight")
 
     monkeypatch.setattr(ci_local, "windows_preflight", refuse_remote)
-    with pytest.raises(ValueError, match="(?i)windows|yaml"):
+    expected = (
+        "malformed or unsupported YAML"
+        if mutation.startswith("yaml-") and mutation != "yaml-float-boundary"
+        else "(?i)windows|yaml"
+    )
+    with pytest.raises(ValueError, match=expected):
         ci_local.run_windows_job(
             source=ROOT,
             commit="a" * 40,
@@ -793,12 +798,13 @@ def test_windows_malformed_workflow_cli_reports_an_error_without_traceback(
 ) -> None:
     import yaml
 
+    sentinel = "synthetic-parser-value-731"
     document = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     document["jobs"]["test-windows"]["steps"] = None
     payload = {
         "yaml-syntax": "jobs: [",
         "yaml-bool-tag": "!!bool maybe",
-        "yaml-int-tag": "!!int not-an-integer",
+        "yaml-int-tag": "!!int " + sentinel,
         "yaml-timestamp-tag": "!!timestamp not-a-date",
         "yaml-empty-int": '!!int ""',
         "yaml-empty-float": '!!float ""',
@@ -835,6 +841,7 @@ def test_windows_malformed_workflow_cli_reports_an_error_without_traceback(
     if mutation == "yaml-syntax":
         assert "line 1, column 8" in completed.stderr
     assert "Traceback" not in completed.stderr
+    assert sentinel not in completed.stdout + completed.stderr
     assert not attempted.exists()
 
 
