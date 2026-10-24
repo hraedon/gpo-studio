@@ -155,6 +155,11 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   invocation directory could signal before its final stop check under load,
   making the test exercise a different cancellation path (WI-085).
 
+- Installed-package smoke tests use an ephemeral port announced by their own
+  server, and CI reuses the same release smoke script. An application already
+  using port 8799 can no longer receive the
+  smoke test's synthetic GPO writes when its server fails to bind.
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the
