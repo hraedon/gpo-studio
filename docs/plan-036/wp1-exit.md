@@ -565,9 +565,10 @@ the recovery implementation. The candidate is retained on the review branch
   coverage **92.11%**, against the 84% floor.
 - Reported cumulative job time **2,660.6s of 5,400s** (44m20.6s; 49.27%),
   leaving **2,739.4s**. This is the runner's reported job duration, not a
-  separately measured wall time including cleanup. CLI exit **0** confirms that
-  cleanup succeeded too. Log: `studio-windows-recovery-full-314.log` in the
-  controller's external log directory.
+  separately measured wall time including cleanup. The raw log records phase
+  completion but does not capture the controller exit code; the fresh SSH and
+  local checks below record cleanup state. Log:
+  `studio-windows-recovery-full-314.log` in the controller's external log directory.
 - The same combined candidate's full Linux suite passed **13,750 tests**,
   with 152 skips, one expected failure, 67 subtests and two warnings in
   **972.81s**. All module floors pass; total branch coverage **91.25%**.
@@ -581,8 +582,8 @@ the recovery implementation. The candidate is retained on the review branch
   their real codes. The live-cleanup case passes on both implementations.
 - Fresh SSH found **zero run entries and zero cancellation markers**, no
   `GIT_CONFIG_COUNT`, no pinned Git directory in PATH, and the original profile
-  TEMP. The controller's archive/bundle directory was removed. Only the closed
-  startup-lock file and empty cancellation directory remain beside the run root.
+  TEMP. The controller's archive/bundle directory was removed. The startup-lock
+  file and cancellation directory are retained for reuse.
 
 The hosted Linux CI run exposed a ten-second timeout in the first PowerShell
 fixture. Test-only polish `3c481ce861543bba6303ac208b1880c64ec464d2` gives
@@ -732,3 +733,43 @@ the real missing-PID query. Logs: `studio-owner-query-native-faults.log`,
 the per-case result JSON and cleanup checks are retained with them.
 These later probes qualify their stated tooling paths, not a new full job on
 the latest guards and not a new product oracle lane. WI-084 remains open.
+
+### Deadline and phase-error job teardown follow-up
+
+The final review of `a6fc6f74` identified a pre-existing liveness gap: both the
+deadline callback and phase-error cleanup relied on `taskkill`, and the latter
+waited for the child without a bound after disabling the watchdog. A portable
+control whose termination executable returns 7 leaves the old wrapper alive;
+the already-completed-child control still passes. A real Windows phase-error
+control, with a simulated failed termination command, also waits beyond its
+five-second supervisor guard. The SSH supervisor stays alive and rescues only
+its authenticated fixture processes, so SSH teardown cannot provide cleanup.
+
+The deadline now exits the wrapper with code 124, closing its private job's sole
+handle and reaping remaining descendants. Phase-error cleanup lets the wrapper
+exit through the same job boundary, removing the duplicate native-stop/wait
+path. The two portable deadline controls pass, and the Windows phase-error
+control exits with its error and reaps the fixture descendants without invoking
+the simulated failing command.
+
+Implementation `1933aa4c42aec5aaaeb0d9c3b6afe9257d6c2a57` then passed all
+**13 normal Windows integration cases** on the same qualified host in
+**346.72s** inside pytest, exit **0**. This includes the new phase-error case
+and the prior descendant, deadline, startup, owner and release-artifact checks.
+The portable focused suite passed **231 tests**, with 13 native opt-ins skipped,
+in **58.82s**. Ruff, changed-file formatting, strict mypy (72 source files),
+the safety gate and diff checks passed. The before-control logs record the
+old deadline firing while its wrapper survived (one failed, one passed,
+12.31s), and the old phase-error path exceeding the supervisor guard (one
+failed, 14.10s). Their after-controls pass (two in 8.02s and one in 9.04s).
+
+A fresh SSH postcheck found zero owned run entries and cancellation markers,
+reopened and closed the startup lock exclusively, and confirmed the profile
+environment unchanged. It again recorded Windows PowerShell 5.1.26100.33438
+and the real missing-process error ID. Logs: `studio-deadline-focused.log`,
+`studio-deadline-before.log`, `studio-deadline-after.log`,
+`studio-phase-error-before.log`, `studio-phase-error-after.log` and
+`studio-deadline-all-native.log`; the postcheck JSON is retained with the
+review artifacts. Two independent final reviews remain pending. The earlier
+full jobs and probes above retain their original commit scopes; this is
+focused tooling qualification, not a new full job or product oracle lane.

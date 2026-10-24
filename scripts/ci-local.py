@@ -1155,10 +1155,9 @@ def _windows_phase_script(
         + "  if ($null -eq $code) { throw 'Windows phase exit code is unavailable' }\n"
         + "} finally {\n"
         + "  $watchdog.Dispose()\n"
-        + "  if (-not $process.HasExited) {\n"
-        + "    & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null\n"
-        + "    $process.WaitForExit()\n"
-        + "  }\n"
+        # On a terminating error, leave live children to the private job when
+        # this wrapper exits. A failed native stop followed by an unbounded
+        # wait would keep that job handle open and defeat its cleanup.
         + "  if ($process.HasExited) {\n"
         + "    Remove-Item -LiteralPath $owner -Force -ErrorAction SilentlyContinue\n"
         + "  }\n"
@@ -1276,14 +1275,11 @@ public sealed class CiLocalDeadline : IDisposable {
     void Expire(object state) {
         try {
             if (child.HasExited) return;
-            TimedOut = true;
-            var info = new ProcessStartInfo("taskkill.exe", "/PID " + child.Id + " /T /F");
-            info.UseShellExecute = false;
-            info.CreateNoWindow = true;
-            info.RedirectStandardOutput = true;
-            info.RedirectStandardError = true;
-            using (var killer = Process.Start(info)) { killer.WaitForExit(); }
         } catch (InvalidOperationException) { }
+        TimedOut = true;
+        // The wrapper owns the job's sole, non-inheritable handle. Exiting
+        // closes it and Windows reaps the descendants even if taskkill fails.
+        Environment.Exit(124);
     }
     public void Dispose() { using (var done = new ManualResetEvent(false)) {
         if (timer.Dispose(done)) done.WaitOne();

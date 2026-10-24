@@ -11,6 +11,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Fixed
 
+- End the Windows CI wrapper on deadline and let its private job reap remaining
+  descendants. A failed termination command can no longer keep an errored phase
+  waiting with its job handle open.
+
 - Refuse directory-shaped, linked or numerically malformed Windows CI owner
   records before considering a sibling stale, preserving the run and its files
   for explicit recovery. Hold the authenticated process handle through tree

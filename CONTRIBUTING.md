@@ -112,6 +112,10 @@ confirm that its exact run has stopped before manually removing that one token
 directory. Do not delete the shared run root to recover a single run.
 
 Each setup/phase wrapper joins a private Windows job before launching Git or uv.
+The deadline exits that wrapper with code 124; closing its job handle reaps the
+remaining descendants without depending on a native termination command.
+Terminating phase errors also exit through job teardown, preserving the owner
+record for cleanup when the leader was still alive.
 Its sole job handle is non-inheritable. Normal exit or abrupt wrapper termination
 closes that handle and Windows terminates remaining ordinary descendants,
 including background processes holding output pipes or files. A failed job
