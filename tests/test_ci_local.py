@@ -393,8 +393,9 @@ function Remove-Item {
     assert not target.exists()
 
 
+@pytest.mark.parametrize("termination", ["success", "failure-live", "failure-exited"])
 def test_windows_cleanup_pins_process_identity_until_tree_stop(
-    ci_local: ModuleType, tmp_path: Path
+    ci_local: ModuleType, tmp_path: Path, termination: str
 ) -> None:
     pwsh = shutil.which("pwsh")
     if pwsh is None:
@@ -408,9 +409,9 @@ def test_windows_cleanup_pins_process_identity_until_tree_stop(
     script += """Add-Type -TypeDefinition @'
 using System;
 public sealed class IdentityFixture {
-    public bool Held, Reassigned, Disposed;
+    public bool Held, Reassigned, Disposed, Exited;
     public int Id { get { return 12345; } }
-    public bool HasExited { get { return false; } }
+    public bool HasExited { get { return Exited; } }
     public IntPtr Handle { get { Held = true; return new IntPtr(1); } }
     public DateTime StartTime { get {
         if (!Held) Reassigned = true;
@@ -427,13 +428,35 @@ function taskkill.exe {
         throw 'TEST: PID identity was not pinned through the tree stop'
     }
     $script:stopped=$true
+    TERMINATE
 }
 """
+    terminate = (
+        "$global:LASTEXITCODE=0"
+        if termination == "success"
+        else f"& {ci_local._powershell_literal(sys.executable)} -c 'import sys; sys.exit(7)'"
+    )
+    if termination == "failure-exited":
+        terminate += "\n    $script:fixture.Exited=$true"
+    script = script.replace("TERMINATE", terminate)
     script += f"$target={ci_local._powershell_literal(str(target))}\n"
     script += (
         "$stamp=[DateTime]::new(2026,1,1,0,0,0,[DateTimeKind]::Utc).ToFileTimeUtc()\n"
         "[IO.File]::WriteAllText((Join-Path $target 'phase-owner'), ('12345|' + $stamp))\n"
-        "Remove-OwnedRun $target -KillLive\n"
+    )
+    if termination == "failure-live":
+        script += (
+            "$refused=$false\n"
+            "try { Remove-OwnedRun $target -KillLive } catch {\n"
+            "  if ($_.Exception.Message -ne 'cannot terminate phase-owner process tree') "
+            "{ throw }\n"
+            "  $refused=$true\n"
+            "}\n"
+            "if(-not $refused) { throw 'TEST: failed termination was accepted' }\n"
+        )
+    else:
+        script += "Remove-OwnedRun $target -KillLive\n"
+    script += (
         "if(-not $script:stopped -or -not $script:fixture.Disposed) {\n"
         "  throw 'TEST: stop or handle release was omitted'\n"
         "}\nWrite-Output 'PINNED_THROUGH_STOP'\n"
@@ -446,7 +469,69 @@ function taskkill.exe {
     )
     assert completed.returncode == 0, completed.stderr
     assert "PINNED_THROUGH_STOP" in completed.stdout
-    assert not target.exists()
+    assert target.exists() == (termination == "failure-live")
+
+
+@pytest.mark.parametrize("handle", ["zero", "throws"])
+def test_windows_cleanup_refuses_an_unavailable_process_handle(
+    ci_local: ModuleType, tmp_path: Path, handle: str
+) -> None:
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell is required for the process-handle failure control")
+    target = tmp_path / "run"
+    target.mkdir()
+    sentinel = target / "sentinel"
+    sentinel.write_text("preserve", encoding="ascii")
+    getter = (
+        "return IntPtr.Zero;"
+        if handle == "zero"
+        else 'throw new InvalidOperationException("unavailable process handle");'
+    )
+    script = ci_local._powershell_prelude() + "\n" + ci_local._windows_remove_owned_run_function()
+    # PowerShell can silently return null from a throwing .NET property getter,
+    # even with ErrorActionPreference=Stop. Require an actual handle before any
+    # identity read or termination; the zero-handle case must refuse too.
+    script += """Add-Type -TypeDefinition @'
+using System;
+public sealed class UnavailableHandleFixture {
+    public bool Inspected, Stopped, Disposed;
+    public int Id { get { return 12345; } }
+    public IntPtr Handle { get { GETTER } }
+    public bool HasExited { get { Inspected=true; return false; } }
+    public DateTime StartTime { get {
+        Inspected=true;
+        return new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    } }
+    public void Dispose() { Disposed=true; }
+}
+'@
+$script:fixture=[UnavailableHandleFixture]::new()
+function Get-Process { param($Id, $ErrorAction) return $script:fixture }
+function taskkill.exe { $script:fixture.Stopped=$true }
+""".replace("GETTER", getter)
+    script += f"$target={ci_local._powershell_literal(str(target))}\n"
+    script += (
+        "$stamp=[DateTime]::new(2026,1,1,0,0,0,[DateTimeKind]::Utc).ToFileTimeUtc()\n"
+        "[IO.File]::WriteAllText((Join-Path $target 'phase-owner'), ('12345|' + $stamp))\n"
+        "$refused=$false\n"
+        "try { Remove-OwnedRun $target -KillLive } catch {\n"
+        "  if ($_.Exception.Message -ne 'cannot retain phase-owner process handle') { throw }\n"
+        "  $refused=$true\n"
+        "}\n"
+        "if (-not $refused -or $script:fixture.Inspected -or $script:fixture.Stopped -or\n"
+        "    -not $script:fixture.Disposed) { throw 'TEST: cleanup continued without a handle' }\n"
+        "Write-Output 'HANDLE_REFUSED'\n"
+    )
+    completed = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "HANDLE_REFUSED" in completed.stdout
+    assert sentinel.read_text(encoding="ascii") == "preserve"
 
 
 def test_windows_startup_lock_refuses_a_racing_initializer(

@@ -814,7 +814,10 @@ def _windows_remove_owned_run_function() -> str:
         "      try {\n"
         # Holding the kernel process object reserves its PID until Dispose, even
         # if it exits between identity validation and taskkill's PID lookup.
-        "        $null=$process.Handle\n"
+        "        $pin=$process.Handle\n"
+        "        if ($null -eq $pin -or $pin -eq [IntPtr]::Zero) {\n"
+        "          throw 'cannot retain phase-owner process handle'\n"
+        "        }\n"
         "        if (-not $process.HasExited -and "
         "$process.StartTime.ToFileTimeUtc() -eq $started) {\n"
         "          $retain=$true; return $process\n"
@@ -842,6 +845,9 @@ def _windows_remove_owned_run_function() -> str:
         "      if (-not $KillLive) { throw ('refusing live sibling: ' + $target) }\n"
         "      $processId=$process.Id\n"
         "      & taskkill.exe /PID $processId /T /F 2>$null | Out-Null\n"
+        "      if ($LASTEXITCODE -ne 0 -and -not $process.HasExited) {\n"
+        "        throw 'cannot terminate phase-owner process tree'\n"
+        "      }\n"
         "    } finally { $process.Dispose() }\n"
         "  }\n"
         "  if (Test-Path -LiteralPath $target) {\n"

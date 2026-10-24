@@ -633,6 +633,22 @@ A discriminating portable race fixture fails with the prior helper and passes
 with the handle retained through the tree stop. This keeps descendant cleanup
 available during bootstrap, before the wrapper has joined its private job.
 
+Executing review of `0064f5f4` found that PowerShell can silently return null
+from a throwing .NET property getter despite `ErrorActionPreference=Stop`.
+Cleanup now checks the returned handle explicitly, refusing null or zero before
+any identity reads or tree termination and still disposing the process object.
+Both throwing-getter and zero-handle regressions fail against `0064f5f4` and
+pass with the guard. The full Windows 3.13 run of combined `3cca0180` began
+before this additional guard; its eventual result is scoped to that candidate.
+
+The same executing review reproduced a pre-existing status gap using a native
+command that silently returns a failure code in place of `taskkill`. Cleanup
+now checks that status and refuses to remove the run while its authenticated
+process remains alive. A concurrent process exit still permits cleanup. Both
+status cases use a real native failure code in portable PowerShell tests; the
+still-live case fails before the check and passes afterward. They model the
+failure contract, rather than claiming a real `taskkill` failure on the host.
+
 The atomic writer also avoids removing a temporary file that was successfully
 renamed, preserving a successful standalone PowerShell status. Its new executing
 regression fails before and passes after the change. A local `ssh -G` check pins

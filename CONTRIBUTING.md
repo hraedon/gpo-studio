@@ -95,6 +95,10 @@ only decimal digits, with a positive process ID and a positive, valid Windows
 file time. Numeric expressions and other coercible text are refused. Cleanup
 holds a process handle from identity validation through tree termination,
 preventing the authenticated PID from being reassigned during that operation.
+An unavailable or zero process handle is refused before inspecting identity or
+terminating a process tree.
+If tree termination fails while the authenticated process remains alive, cleanup
+refuses and preserves the run for a later retry.
 An existing malformed record is refused with an explicit diagnostic;
 confirm that its exact run has stopped before manually removing that one token
 directory. Do not delete the shared run root to recover a single run.
