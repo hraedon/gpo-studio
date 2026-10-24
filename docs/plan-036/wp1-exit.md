@@ -520,7 +520,7 @@ directories and the previously crash-left archive/bundle directory were absent;
 no source `refs/ci-local/` remained. No other project's processes or directories
 were cleaned. Final follow-up edits are records/documentation only.
 
-### Recovery review, 2026-10-22
+### Recovery review, 2026-10-22 (implementation `48b5e6ee`)
 
 The follow-up independent executing review (`ollama-cloud/deepseek-v4.1-flash`)
 passed on implementation `48b5e6ee` and records commit `754c8fce`. It checked
@@ -529,10 +529,72 @@ private bundle staging and the retained Windows logs. No remote run was needed
 for this review; the full Windows qualification above still names the exact
 implementation tested.
 
-One operational recovery limit remains: if the remote PowerShell wrapper itself
+That implementation has an operational recovery limit: if the remote PowerShell wrapper itself
 is terminated, its in-process watchdog ends too. The owner record identifies the
 wrapper, not a separately recorded phase-child PID. A surviving child may then
 keep files open and make later cleanup fail closed. The controller's death while
 SSH and the wrapper remain alive is covered by the watchdog; abrupt wrapper death
 is not. A separately authenticated child record or detached watcher needs its own
 implementation and Windows qualification. WI-084 remains open.
+
+### Recovery follow-up, 2026-10-24
+
+The follow-up adds durable cancellation of interrupted startup, shared locking
+between initialization and cleanup, atomic owner publication, and private Windows
+jobs that reap descendants on normal exit and abrupt wrapper termination.
+Phases inherit SSH output handles with stdin closed; this avoids waiting for
+EOF on pipes held by background children. The real Windows process probes pass
+for success, failure, wrapper termination and live cleanup, as do both startup
+cancellation orderings. The first stream-inheritance prototype lost output under
+`CREATE_NO_WINDOW`; redirecting/closing stdin makes .NET Framework populate all
+standard handles, preserving the original UTF-8 stdout/stderr handles. The
+existing exit-code and UTF-8 probes pass with that correction.
+
+The recovery implementation `498e19d7ed1b88310026c633cd574a1a558de0fc`
+completed a fresh full Windows 3.14 job against combined candidate
+`77f4fe4149127ae4c8a16de7a239489dcac3c1c7` on mvmcitest01, with installed
+CPython 3.14.5. The candidate includes the earlier reviewed Studio fixes; its
+runner/test files and Windows job commands, matrix and budget are identical to
+the recovery implementation. The candidate is retained on the review branch
+`review/windows-recovery-qualified-tree-20261024`; it is not merged or released.
+
+- All five workflow-derived phases passed: install **14.1s**, Ruff **6.6s**,
+  mypy **13.8s**, pytest **2,518.3s**, coverage floors **3.2s**.
+- Pytest: **13,385 passed, 426 skipped, 1 xfailed, 55 subtests**, two warnings;
+  internal duration **2,511.77s**. All eleven module floors pass; total branch
+  coverage **92.11%**, against the 84% floor.
+- Reported cumulative job time **2,660.6s of 5,400s** (44m20.6s; 49.27%),
+  leaving **2,739.4s**. This is the runner's reported job duration, not a
+  separately measured wall time including cleanup. CLI exit **0** confirms that
+  cleanup succeeded too. Log: `studio-windows-recovery-full-314.log` in the
+  controller's external log directory.
+- The same combined candidate's full Linux suite passed **13,750 tests**,
+  with 152 skips, one expected failure, 67 subtests and two warnings in
+  **972.81s**. All module floors pass; total branch coverage **91.25%**.
+- All **nine real Windows opt-ins** passed at `498e19d7` in **279.72s**. They
+  include the ten release-artifact regressions, large UTF-8 stdout/stderr without
+  final newlines, stdin EOF, real exits/timeouts, both startup cancellation
+  orderings and descendant cleanup. The wrapper-termination probe keeps its SSH
+  supervisor alive: the old phase fails it and the private-job phase passes, so
+  SSH session teardown cannot supply a false positive. The old normal-success
+  and failure phases also hang on leaked child pipes; the new ones complete with
+  their real codes. The live-cleanup case passes on both implementations.
+- Fresh SSH found **zero run entries and zero cancellation markers**, no
+  `GIT_CONFIG_COUNT`, no pinned Git directory in PATH, and the original profile
+  TEMP. The controller's archive/bundle directory was removed. Only the closed
+  startup-lock file and empty cancellation directory remain beside the run root.
+
+The hosted Linux CI run exposed a ten-second timeout in the first PowerShell
+fixture. Test-only polish `3c481ce861543bba6303ac208b1880c64ec464d2` gives
+portable PowerShell fixtures a bounded 30-second allowance, with a longer
+fixture-release deadline; production budgets and ownership assertions are
+unchanged. An injected twelve-second launch delay fails the old guard at
+10.28s and passes the new one at 12.89s. The polished runner/register/whole-value
+and plan-status batch passes **197 tests**, with nine host opt-ins skipped.
+The runner source and every remote script byte remain identical to `498e19d7`.
+
+This full recovery qualification reruns **3.14 only**. The 3.13 exit/Unicode/
+watchdog smoke passes are retained, but the earlier full 3.13 result belongs to
+the prior implementation and is not recounted here. Independent review evidence
+is tracked with the recovery PR. These are CI-tooling measurements, not new
+product wire-format or oracle qualifications; WI-084 remains open.

@@ -4056,6 +4056,18 @@ fresh SSH environment check confirmed no run-directory, PATH or Git-config
 leak. Earlier main/matrix and historical-reproduction evidence is retained;
 WI-084 remains open for the other work packages.
 
+**2026-10-24 recovery follow-up:** startup cancellation is durable even when
+cleanup wins the lock race; owner records are published atomically; private
+Windows jobs reap background descendants after success/failure or wrapper
+termination. All nine real Windows opt-ins pass. Controller `498e19d7` completed
+all five Windows 3.14 phases against combined candidate `77f4fe41` in 2,660.6s
+of 5,400s: 13,385 tests pass and every coverage floor passes (92.11% total).
+The candidate's full Linux suite passes 13,750 tests and every floor (91.25%).
+Test-only cold-start polish `3c481ce8` retains the same runner/remote bytes and
+passes 197 focused checks. The full recovery run is 3.14 only; the older full
+3.13 evidence remains scoped to its original implementation. Review evidence is
+tracked with the recovery PR; WI-084 stays open for the wider programme.
+
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
 restarts from branch `wp0/live-closure` at `432c751` (pushed), with these

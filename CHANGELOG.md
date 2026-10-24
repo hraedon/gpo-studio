@@ -16,6 +16,11 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   being silently omitted from a local qualification. It also requires checkout
   followed by setup-uv exactly once before the test phases, refusing workflows
   whose setup no longer matches the local runner.
+- Windows local-CI cleanup cancels interrupted initialization durably, preventing
+  a delayed initializer from recreating an already cleaned run. Owner records
+  are published atomically. Private Windows jobs reap background descendants on
+  normal phase completion and abrupt wrapper termination, while preserving
+  output and real exit codes. Key-authenticated SSH fails without prompting.
 
 ## [1.1.0] - 2026-10-20
 
