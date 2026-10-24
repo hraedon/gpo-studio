@@ -9,6 +9,13 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Return an actionable HTTP 422 actor-field error for whitespace-only claimed
+  actors, including estate-import query parameters, instead of an internal
+  server error. Invalid requests leave workspace data unchanged; valid actor
+  trimming and the identity library's argument errors are preserved (WI-090).
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

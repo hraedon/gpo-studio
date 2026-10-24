@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**5 open.**
+**6 open.**
 
+- [WI-090](#wi-090--a-blank-claimed-actor-escapes-as-an-http-500) - translate identity-factory argument errors into a request-field refusal before a workspace write.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
@@ -4084,3 +4085,28 @@ changed as part of WP-1.
 reached the final-check/pre-launch pause before SIGTERM is sent, and repeated
 full-suite runs no longer reproduce the race while still proving that the lane
 command never launches.
+
+## WI-090 — a blank claimed actor escapes as an HTTP 500
+
+**Opened:** 2026-10-24 (ordinary API input review).
+**Status:** open.
+
+Request models enforce actor length but accept whitespace-only text. The shared
+identity factory already rejects those labels with `ValueError`; the API let
+that argument error escape as a 500. This affects ordinary JSON-body mutations
+and the estate import's query parameter. A synthetic HTTP reproduction left no
+rows or open transaction, and a valid follow-up succeeded; this is an error
+response defect rather than a partial-write or authentication claim.
+
+The API identity boundary now translates the factory's `ValueError` into a
+validation issue at `actor`, with code `invalid_actor` and HTTP 422. The core
+identity factory keeps its existing exception contract and valid label trimming;
+unrelated internal `ValueError` exceptions remain internal failures.
+
+**Closes when:** actual HTTP requests with ASCII and Unicode whitespace actors
+receive an actor-field refusal across creation, editing, forking, starter
+creation/derivation/deletion and estate import, without changing database rows
+or history. Correcting only the actor must allow the operation and record the
+factory's normalized actor and supplied reason. Preserve the identity library
+contract, complete the required checks including the available Windows leg,
+and bank two independent Tier-2 reviews.
