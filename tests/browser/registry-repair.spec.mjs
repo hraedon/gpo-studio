@@ -66,6 +66,20 @@ function gate() {
   return { promise, release };
 }
 
+async function finishReleasedResponse(page, responsePromise) {
+  await (await responsePromise).finished();
+  // Let the response body and UI continuations run before asserting absence
+  // of a stale paint. An immediately true negative assertion is insufficient.
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        globalThis.requestAnimationFrame(() =>
+          globalThis.requestAnimationFrame(resolve),
+        );
+      }),
+  );
+}
+
 test("creates a reviewed raw draft with exact QWORDs and leaves source/history intact @smoke", async ({
   page,
   request,
@@ -171,7 +185,11 @@ test("a retired source response cannot overwrite a reopened recovery dialog", as
     "2 registry rows",
   );
   await dialog.locator('[name="name"]').fill("Newer unsaved recovery");
+  const oldResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/gpos/${gpo.guid}/registry-repair`),
+  );
   held.release();
+  await finishReleasedResponse(page, oldResponse);
   await expect(dialog.locator("#registry-repair-source")).not.toContainText(
     "Retired source response",
   );
@@ -213,7 +231,11 @@ test("a retired semantic POST cannot enable creation in a newer editor or clear 
       "Newer independent error",
     ),
   );
+  const oldResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/gpos/${gpo.guid}/registry-repair/preview`),
+  );
   held.release();
+  await finishReleasedResponse(page, oldResponse);
   await expect(dialog.locator("#registry-repair-apply")).toBeDisabled();
   await expect(dialog.locator("#registry-repair-preview")).toBeHidden();
   await expect(page.locator("#error-message")).toContainText(

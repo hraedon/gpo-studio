@@ -322,6 +322,10 @@ def test_api_requires_explicit_scope_and_keeps_warnings_separate_from_exports(
                 request["registry_only"] = acknowledgement
             assert client.post(base + "/registry-repair/preview", json=request).status_code == 422
         body["registry_only"] = True
+        for field in ("name", "actor", "reason"):
+            invalid = {**body, field: " \t "}
+            response = client.post(base + "/registry-repair/preview", json=invalid)
+            assert response.status_code == 422, response.text
         preview = client.post(base + "/registry-repair/preview", json=body)
         assert preview.status_code == 200, preview.text
         assert tuple(store._connection.iterdump()) == before

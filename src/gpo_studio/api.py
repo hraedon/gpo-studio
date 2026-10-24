@@ -379,6 +379,13 @@ class RegistryRepairRequest(Audit):
             raise ValueError("Enter a name for the fresh draft.")
         return value.strip()
 
+    @field_validator("actor", "reason")
+    @classmethod
+    def _nonblank_review_audit(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Enter a nonblank actor and change reason.")
+        return value
+
 
 class RegistryRepairApplyRequest(RegistryRepairRequest):
     review_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
