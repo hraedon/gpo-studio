@@ -4065,8 +4065,8 @@ all five Windows 3.14 phases against combined candidate `77f4fe41` in 2,660.6s
 of 5,400s: 13,385 tests pass and every coverage floor passes (92.11% total).
 The candidate's full Linux suite passes 13,750 tests and every floor (91.25%).
 Test-only cold-start polish `3c481ce8` retains the same runner/remote bytes and
-passes 197 focused checks. The full recovery run is 3.14 only; the older full
-3.13 evidence remains scoped to its original implementation. Review evidence is
+passes 197 focused checks. That recovery run is 3.14 only; the later full 3.13
+run is recorded separately below. Review evidence is
 tracked with the recovery PR; WI-084 stays open for the wider programme.
 A subsequent review correction rejects directory-shaped and linked owner records
 before stale inference; five portable cases and real Windows directory/junction
@@ -4075,9 +4075,15 @@ before/after probes preserve the run. That guard is later than the full
 Further executing review tightened numeric parsing, process-handle retention,
 property/termination result checks and query-error handling. Owner and run-age
 metadata now share a missing-item boundary; process lookup accepts only the
-specific missing-ID error. These later guards await final native verification.
-The running full Windows 3.13 job is pinned to combined `3cca0180`, before the
-latest guards, and cannot qualify their bytes. WI-084 remains open.
+specific missing-ID error. Full Windows 3.13 completed at combined `3cca0180`:
+13,385 tests pass, every floor passes (92.11%), CLI exit 0 and 4,707.275s wall
+time including cleanup. That candidate precedes the latest guards. Separate
+Windows PowerShell 5.1 probes at `a067dc82` pass all 17 fault/adapter cases and
+both real file-link cases. All 12 normal integration probes also pass against
+combined `8895ec30` (338.519s wall including cleanup), with unchanged product and
+oracle source. The final fresh-SSH namespace, lock and profile checks pass too.
+Full-run and later-guard evidence remain separately scoped in the exit record.
+WI-084 remains open.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
