@@ -301,6 +301,45 @@ def resolve_policy(
             assert_never(config.state)
 
 
+def require_no_policy_setting_conflicts(
+    settings: Sequence[RegistrySetting],
+    selected_positions: frozenset[int],
+    replacements: Sequence[RegistrySetting],
+) -> None:
+    """Refuse new address collisions without inferring ownership or deleting rows.
+
+    Use the same address identity as native duplicate validation. Existing
+    unrelated conflicts remain independently reviewable; selected rows will be
+    removed atomically by the caller's revision-checked replacement.
+    """
+    addresses: set[tuple[str, str, str, str]] = set()
+    issues: list[ValidationIssue] = []
+    for index, setting in enumerate(replacements):
+        address = setting.identity()
+        if address in addresses:
+            issues.append(ValidationIssue(
+                "error", "conflicting_policy_settings",
+                "This ADMX change produces multiple writes to the same registry address. "
+                "Review the selected policies and their registry mappings before applying.",
+                f"replacements/{index}",
+            ))
+        addresses.add(address)
+    issues.extend(
+        ValidationIssue(
+            "error",
+            "conflicting_retained_setting",
+            "This ADMX change would target a registry address occupied by a retained "
+            "setting. Review the raw registry rows and explicitly resolve the conflict "
+            "before reconfiguring; matching addresses do not establish ADMX ownership.",
+            f"settings/{index}",
+        )
+        for index, setting in enumerate(settings)
+        if index not in selected_positions and setting.identity() in addresses
+    )
+    if issues:
+        raise ValidationError(issues)
+
+
 def _hive_for(side: Side) -> Literal["HKLM", "HKCU"]:
     return "HKLM" if side == "computer" else "HKCU"
 

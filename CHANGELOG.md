@@ -13,6 +13,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   longer matches their structured editor identity. Preserve native state
   observations and prevent those rows from supplying decoded child values.
 
+- Refuse ADMX configuration that introduces duplicate native registry addresses,
+  including conflicts with retained forked/imported/raw rows and overlapping
+  writes in a single or bulk policy operation, before committing a revision.
+
 - Observe complete native scalar-marker patterns as well as policy lists; expose
   uncertainty and unresolved historical state records at moved addresses while
   preserving child values, raw history and independent export eligibility.

@@ -4137,8 +4137,10 @@ Tests cover historical catalogue changes, raw side edits, ambiguous owners, repe
 IDs, multiple malformed families, stale revisions and failed-write rollback. Nothing
 rewrites historical revisions or silently infers a winner. The repair
 workflow must also preview fork-prefixed/imported ADMX rows that owner-based
-reconfiguration does not select: enabling can leave duplicate native addresses
-and block exports, while Not configured can leave copied rows. Current address
+reconfiguration does not select: configuration now refuses new writes that
+overlap retained rows, rather than committing duplicate native addresses and
+blocking exports. Overlapping newly generated single/bulk writes are also
+refused before a revision. Not configured can still leave copied rows. Current address
 matches must not silently assign ownership or authorize deletion. The warnings
 and repair workflow are future work, not implemented by the ownership refusal.
 Native Windows policy qualification remains separate.
