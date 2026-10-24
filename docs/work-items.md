@@ -4072,6 +4072,12 @@ A subsequent review correction rejects directory-shaped and linked owner records
 before stale inference; five portable cases and real Windows directory/junction
 before/after probes preserve the run. That guard is later than the full
 `498e19d7` qualification and is recorded separately in the exit evidence.
+Further executing review tightened numeric parsing, process-handle retention,
+property/termination result checks and query-error handling. Owner and run-age
+metadata now share a missing-item boundary; process lookup accepts only the
+specific missing-ID error. These later guards await final native verification.
+The running full Windows 3.13 job is pinned to combined `3cca0180`, before the
+latest guards, and cannot qualify their bytes. WI-084 remains open.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It

@@ -631,7 +631,42 @@ looks the ID up again, as described in Microsoft's
 [process-ID lifetime explanation](https://devblogs.microsoft.com/oldnewthing/20110107-00/?p=11803).
 A discriminating portable race fixture fails with the prior helper and passes
 with the handle retained through the tree stop. This keeps descendant cleanup
-available during bootstrap, before the wrapper has joined its private job.
+available while the bootstrap wrapper is alive, before it has joined its private job.
+
+Executing review of `0064f5f4` found that PowerShell can silently return null
+from a throwing .NET property getter despite `ErrorActionPreference=Stop`.
+Cleanup now checks the returned handle explicitly, refusing null or zero before
+any identity reads or tree termination and still disposing the process object.
+Both throwing-getter and zero-handle regressions fail against `0064f5f4` and
+pass with the guard. The full Windows 3.13 run of combined `3cca0180` began
+before this additional guard; its eventual result is scoped to that candidate.
+
+The same executing review reproduced a pre-existing status gap using a native
+command that silently returns a failure code in place of `taskkill`. Cleanup
+now checks that status and refuses to remove the run while its authenticated
+process remains alive. A concurrent process exit still permits cleanup. Both
+status cases use a real native failure code in portable PowerShell tests; the
+still-live case fails before the check and passes afterward. They model the
+failure contract, rather than claiming a real `taskkill` failure on the host.
+
+The required process identity properties are also checked for null, giving an
+explicit refusal for swallowed `HasExited`/`StartTime` getter failures. Owner
+metadata lookup suppresses only a genuine missing-item exception: other access
+errors stop startup instead of being interpreted as a missing record. Executing
+controls preserve the owner and sentinel for the metadata-error case. These are
+portable error-contract probes; a denied Windows ACL is not claimed as tested.
+
+The next executing review found the same suppressed-error pattern in the
+run-age lookup: an unreadable fresh ownerless run could bypass recent-run
+protection. Following the review-round rule in `AGENTS.md`, the correction uses
+a shared query boundary instead of another isolated lookup patch.
+`Get-ExistingItem` handles both owner and run-age metadata, accepting only a
+genuine missing-item exception. `Get-ExistingProcess` accepts only the exact
+missing-ID error and propagates other failures. Six permission/resource-error
+controls cover all three query sites; four fail at `80f31e43`, while its two
+existing owner-query controls already refuse correctly. This later design
+change still requires separate native verification after the running `3cca0180`
+job; that full run must not be attributed to these newer bytes.
 
 The atomic writer also avoids removing a temporary file that was successfully
 renamed, preserving a successful standalone PowerShell status. Its new executing
