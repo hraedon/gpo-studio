@@ -366,7 +366,7 @@ def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
 
 
 @pytest.mark.parametrize("query", ["owner", "run", "process"])
-@pytest.mark.parametrize("category", ["PermissionDenied", "ResourceUnavailable"])
+@pytest.mark.parametrize("category", ["PermissionDenied", "ResourceUnavailable", "ObjectNotFound"])
 def test_windows_startup_refuses_owner_query_errors(
     ci_local: ModuleType, tmp_path: Path, query: str, category: str
 ) -> None:
