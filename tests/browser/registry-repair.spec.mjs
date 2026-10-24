@@ -338,3 +338,46 @@ test("recovery fits a narrow screen and meets the accessibility bar @smoke", asy
     ),
   ).toEqual([]);
 });
+
+for (const kind of ["ascii-limit", "astral-unicode", "existing-suffix"]) {
+  test(`a ${kind} source gets a valid distinct default recovery name @smoke`, async ({
+    page,
+    request,
+  }, testInfo) => {
+    let gpo = await seed(request, testInfo);
+    const prefix = `${testInfo.project.name}${kind}`.padEnd(20, "X");
+    const name =
+      kind === "ascii-limit"
+        ? prefix.padEnd(255, "L")
+        : kind === "existing-suffix"
+          ? prefix.padEnd(235, "L") + " (Registry Recovery)"
+          : prefix + "😀".repeat(128);
+    const renamed = await request.patch(`/api/gpos/${gpo.guid}`, {
+      data: {
+        name,
+        expected_revision: gpo.revision,
+        actor: "browser-test",
+        reason: "Seed valid long Unicode name",
+      },
+    });
+    expect(renamed.status()).toBe(200);
+    gpo = (await renamed.json()).gpo;
+    const dialog = await open(page, gpo);
+    const defaultName = await dialog.locator('[name="name"]').inputValue();
+    await reviewAll(dialog);
+    const saved = page.waitForResponse((r) =>
+      r.url().endsWith(`/api/gpos/${gpo.guid}/registry-repair/apply`),
+    );
+    await dialog.getByRole("button", { name: "Create reviewed draft" }).click();
+    const result = await saved;
+    expect(result.status()).toBe(201);
+    const created = (await result.json()).gpo;
+    expect(created.name).toBe(defaultName);
+    expect(created.name).not.toBe(name);
+    expect(defaultName).toMatch(/ \(registry recovery(?: 2)?\)$/);
+    expect(defaultName.length).toBeLessThanOrEqual(255);
+    expect(
+      (await (await request.get(`/api/gpos/${gpo.guid}`)).json()).gpo.name,
+    ).toBe(name);
+  });
+}

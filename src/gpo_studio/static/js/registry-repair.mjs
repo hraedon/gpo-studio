@@ -40,6 +40,22 @@ function omissionText(data) {
   return `Not copied: ${Object.entries(data.omitted_components).map(([name, count]) => `${name.replaceAll("_", " ")}: ${count}`).join("; ")}. The original description and import provenance are not copied.`;
 }
 
+function defaultRepairName(name) {
+  const candidate = (suffix) => {
+    let prefix = "";
+    for (const character of name) {
+      // Match the input's UTF-16 length ceiling without splitting a pair.
+      if (prefix.length + character.length > 255 - suffix.length) break;
+      prefix += character;
+    }
+    return prefix + suffix;
+  };
+  const proposed = candidate(" (registry recovery)");
+  return proposed.toLowerCase() === name.toLowerCase()
+    ? candidate(" (registry recovery 2)")
+    : proposed;
+}
+
 export async function openRegistryRepair() {
   const form = $("#registry-repair-form"), dialog = $("#registry-repair-dialog");
   invalidatePreview(); resetEditor(form); form.reset(); clearFormErrors(form);
@@ -49,7 +65,7 @@ export async function openRegistryRepair() {
   dialog.showModal();
   const target = dialog.editorTarget;
   if (!target) return;
-  field("name").value = `${target.name} (registry recovery)`.slice(0, 255);
+  field("name").value = defaultRepairName(target.name);
   const read = reads.start({ report: (error) => showFormErrors(form, error) });
   const pending = read.beginPending({
     controls: [...form.querySelectorAll("input,select,button:not([value='cancel'])")],

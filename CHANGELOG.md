@@ -14,6 +14,8 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   and the original policy/history; show omitted policy components and advisory
   editor identity warnings separately from validation and export eligibility
   (WI-087). Native Windows policy qualification remains separate.
+  Default draft names reserve space for the recovery suffix and preserve
+  Unicode characters, including long names that already carry that suffix.
 
 - Roll back workspace writes when a Python exception or cancellation interrupts
   creation, editing, baseline import, or recovery deletion. Previously, some
