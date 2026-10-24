@@ -90,13 +90,15 @@ recreate a run after cleanup succeeds. Normal workspace cleanup creates none.
 
 Owner records are published by an atomic rename before extraction or phase
 launch. Existing records must be ordinary files: directories and reparse points
-are refused before inferring that a sibling is stale. Both fields must contain
+are refused before inferring that a sibling is stale. Metadata access errors are
+refused rather than treated as a missing record. After trimming the record, both
+fields must contain
 only decimal digits, with a positive process ID and a positive, valid Windows
 file time. Numeric expressions and other coercible text are refused. Cleanup
 holds a process handle from identity validation through tree termination,
 preventing the authenticated PID from being reassigned during that operation.
 An unavailable or zero process handle is refused before inspecting identity or
-terminating a process tree.
+terminating a process tree. Unreadable process identity properties are refused too.
 If tree termination fails while the authenticated process remains alive, cleanup
 refuses and preserves the run for a later retry.
 An existing malformed record is refused with an explicit diagnostic;

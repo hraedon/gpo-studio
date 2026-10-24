@@ -631,7 +631,7 @@ looks the ID up again, as described in Microsoft's
 [process-ID lifetime explanation](https://devblogs.microsoft.com/oldnewthing/20110107-00/?p=11803).
 A discriminating portable race fixture fails with the prior helper and passes
 with the handle retained through the tree stop. This keeps descendant cleanup
-available during bootstrap, before the wrapper has joined its private job.
+available while the bootstrap wrapper is alive, before it has joined its private job.
 
 Executing review of `0064f5f4` found that PowerShell can silently return null
 from a throwing .NET property getter despite `ErrorActionPreference=Stop`.
@@ -648,6 +648,13 @@ process remains alive. A concurrent process exit still permits cleanup. Both
 status cases use a real native failure code in portable PowerShell tests; the
 still-live case fails before the check and passes afterward. They model the
 failure contract, rather than claiming a real `taskkill` failure on the host.
+
+The required process identity properties are also checked for null, giving an
+explicit refusal for swallowed `HasExited`/`StartTime` getter failures. Owner
+metadata lookup suppresses only a genuine missing-item exception: other access
+errors stop startup instead of being interpreted as a missing record. Executing
+controls preserve the owner and sentinel for the metadata-error case. These are
+portable error-contract probes; a denied Windows ACL is not claimed as tested.
 
 The atomic writer also avoids removing a temporary file that was successfully
 renamed, preserving a successful standalone PowerShell status. Its new executing
