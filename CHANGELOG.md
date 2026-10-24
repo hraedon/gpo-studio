@@ -150,6 +150,11 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 - Scope the authenticated IIS shared-service profile and its acceptance gates
   in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
 
+- The pre-launch cancellation regression test waits for an explicit pause
+  handshake before sending SIGTERM. Waiting for the driver's temporary
+  invocation directory could signal before its final stop check under load,
+  making the test exercise a different cancellation path (WI-085).
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

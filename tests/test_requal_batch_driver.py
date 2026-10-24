@@ -1377,14 +1377,21 @@ def test_a_progress_record_altered_mid_batch_is_refused(tmp_path: Path) -> None:
 # --- re-check of 42691dd: a stop racing a launch -------------------------------
 
 
-def _start_paused(tmp_path: Path, **extra: str) -> tuple[subprocess.Popen[str], Path]:
+def _start_paused(
+    tmp_path: Path, *, sleep_hook: str | None = None, **extra: str
+) -> tuple[subprocess.Popen[str], Path]:
     scope_env = _scope_env(tmp_path)
     clone = _clone(tmp_path)
+    fake_bin = _scripted_acb(tmp_path, _DETACH_AND_WAIT)
+    if sleep_hook is not None:
+        sleep = fake_bin / "sleep"
+        sleep.write_text(sleep_hook, encoding="utf-8")
+        sleep.chmod(0o755)
     env = {
         **os.environ,
         **scope_env,
         **extra,
-        "PATH": f"{_scripted_acb(tmp_path, _DETACH_AND_WAIT)}{os.pathsep}{os.environ['PATH']}",
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
         "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
         "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
         "FAKE_COUNT": str(tmp_path / "count"),
@@ -1399,6 +1406,7 @@ def _start_paused(tmp_path: Path, **extra: str) -> tuple[subprocess.Popen[str], 
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        preexec_fn=_default_stop_signals,
     )
     return proc, tmp_path / "batch"
 
@@ -1426,16 +1434,44 @@ def test_a_stop_after_the_last_check_but_before_the_launch_prevents_the_lane(
 ) -> None:
     """Re-check of 42691dd: a stop landing between the eligibility check and
     the launch let the lane start. The test pause sits exactly there."""
-    proc, batch = _start_paused(tmp_path, GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_LAUNCH="3")
-    # The invocation's private directory appears just before the pause.
-    _until(lambda: any((batch / "tmp").glob("tmp.*")), "the launch pause")
-    os.kill(proc.pid, signal.SIGTERM)
-    _assert_cancelled_before_start(tmp_path, proc)
-    # The private directory can become visible before the driver arms its
-    # cancel file and checks STOP_SIGNAL. Either that check or the supervisor
-    # gate may therefore handle this stop; both must leave every command unrun.
-    log = (batch / "logs/wp1b.log").read_text()
-    assert "stopped before launch" in log or "lane cancelled before it started" in log
+    paused = tmp_path / "launch-paused"
+    resume = tmp_path / "launch-resume"
+    # Intercept only the driver's existing pause hook, after its last stop
+    # check. Seeing mktemp's directory was too early: the driver could still
+    # be before that check. Hold the pause until the test releases it, so CPU
+    # load cannot run down a fixed sleep before SIGTERM is sent.
+    proc, batch = _start_paused(
+        tmp_path,
+        sleep_hook=(
+            "#!/usr/bin/env python3\n"
+            "import os, pathlib, sys, time\n"
+            "if sys.argv[1:] == ['pre-launch-handshake']:\n"
+            "    pathlib.Path(os.environ['FAKE_LAUNCH_PAUSED']).touch()\n"
+            "    deadline = time.monotonic() + 120\n"
+            "    while not pathlib.Path(os.environ['FAKE_LAUNCH_RESUME']).exists():\n"
+            "        if time.monotonic() >= deadline: raise SystemExit(124)\n"
+            "        time.sleep(0.01)\n"
+            "else:\n"
+            "    os.execv(os.environ['FAKE_REAL_SLEEP'], ['sleep', *sys.argv[1:]])\n"
+        ),
+        GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_LAUNCH="pre-launch-handshake",
+        FAKE_LAUNCH_PAUSED=str(paused),
+        FAKE_LAUNCH_RESUME=str(resume),
+        FAKE_REAL_SLEEP=shutil.which("sleep") or "/bin/sleep",
+    )
+    try:
+        _until(paused.exists, "the driver after its last check, paused before launch")
+        assert not (tmp_path / "count").exists()
+        os.kill(proc.pid, signal.SIGTERM)
+        resume.touch()
+        _assert_cancelled_before_start(tmp_path, proc)
+    finally:
+        resume.touch()
+        if proc.poll() is None:
+            proc.terminate()
+            proc.communicate(timeout=120)
+    assert "start" in (tmp_path / "scope.log").read_text().splitlines()
+    assert "lane cancelled before it started" in (batch / "logs/wp1b.log").read_text()
 
 
 def test_a_stop_after_the_fork_but_before_the_supervisor_is_ready_prevents_the_lane(

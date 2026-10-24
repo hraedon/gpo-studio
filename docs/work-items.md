@@ -32,12 +32,11 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**8 open.**
+**7 open.**
 
 - [WI-088](#wi-088--derive-observed-list-policy-state-without-inventing-intent) - identify complete list-state patterns and show indeterminate observations without changing authoring states or writing on reads.
 - [WI-087](#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities) - preview and apply explicit registry-row identity/ownership repairs while preserving all chosen records and original history.
 - [WI-086](#wi-086--qualify-an-authenticated-iis-hosted-shared-authoring-profile) - prove the shared-service identity boundary, collaborative storage and repeatable IIS deployment under Plan 032.
-- [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
@@ -4073,17 +4072,37 @@ control or a recorded owner acceptance naming the residual risk.
 ## WI-085 — the pre-launch stop test can signal before its intended pause
 
 **Opened:** 2026-10-20 (Plan 036 WP-1 round-3 polish).
-**Status:** open.
+**Status:** closed 2026-10-24.
 
 `tests/test_requal_batch_driver.py::test_a_stop_after_the_last_check_but_before_the_launch_prevents_the_lane`
-can fail under full-suite load because its SIGTERM can arrive before the lane
-supervisor reaches the intended pre-launch pause. The watchdog still prevents
+can fail under full-suite load because its SIGTERM can arrive before the
+driver reaches the intended pre-launch pause. The watchdog still prevents
 the launch and reports `watchdog: stopped before launch (signal 15)`, so this is
 a test synchronization defect rather than evidence that a lane ran after stop.
 The bound `scripts/plan-033` tooling and the flaky test are deliberately not
 changed as part of WP-1.
 
-**Closes when:** the test has a positive handshake proving the supervisor has
+**2026-10-24 — fixed and independently reviewed.** The test intercepts the
+driver's existing pause-only `sleep` call and publishes a positive handshake
+after the last stop check. It holds that pause until SIGTERM has been sent,
+then releases it. It still asserts that no lane command ran and that the
+supervisor reported cancellation before launch. The harness files are
+unchanged. The focused test passed 15 consecutive runs under concurrent suite
+load, and all 73 batch-driver tests passed with a disk-backed temporary root.
+Both complete suite runs passed: 13,172 tests each, with 142 skips, one
+expected failure and 67 subtests per run. Ruff, strict mypy, static safety,
+the work-item register, all 171 frontend unit tests, the installed-wheel smoke
+and the upgrade/rollback rehearsal passed. GPT's independent review passed,
+including controls that move the pause before the final check or launch the
+lane despite the cancellation report: the revised test rejects both. The
+cross-lineage DeepSeek review also passed: a complete suite matched those
+counts, all 73 driver tests passed, 15 loaded repetitions passed, and
+independent controls rejected both an early pause and a launched lane. Final
+review polish adds a structural supervisor-start assertion, resets inherited
+stop-signal dispositions and bounds the shim's orphan lifetime; it does not
+change the production driver or its timing.
+
+**Closes when:** the test has a positive handshake proving the driver has
 reached the final-check/pre-launch pause before SIGTERM is sent, and repeated
 full-suite runs no longer reproduce the race while still proving that the lane
 command never launches.
