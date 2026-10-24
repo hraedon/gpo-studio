@@ -4089,8 +4089,9 @@ failed phase termination. The deadline and terminating phase-error paths now
 exit through private-job teardown. Portable before/after controls and a real
 Windows phase-error control pass with the change. Implementation `1933aa4c`
 passes all 13 normal Windows integration cases (346.72s, exit 0), 231 focused
-portable checks and the fresh namespace/lock/profile postcheck. Two independent
-final reviews remain pending. Prior full qualification commits keep their
+portable checks and the fresh namespace/lock/profile postcheck. Both independent
+final reviews of `69effcac` pass, including executing deadline/finally controls.
+Prior full qualification commits keep their
 original scopes in the exit record above; WI-084 remains open.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's

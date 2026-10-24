@@ -757,8 +757,8 @@ Implementation `1933aa4c42aec5aaaeb0d9c3b6afe9257d6c2a57` then passed all
 **346.72s** inside pytest, exit **0**. This includes the new phase-error case
 and the prior descendant, deadline, startup, owner and release-artifact checks.
 The portable focused suite passed **231 tests**, with 13 native opt-ins skipped,
-in **58.82s**. Ruff, changed-file formatting, strict mypy (72 source files),
-the safety gate and diff checks passed. The before-control logs record the
+in **58.82s**. Ruff, changed-file formatting, strict `mypy src scripts/ci-local.py`
+(72 source files), the safety gate and diff checks passed. The before-control logs record the
 old deadline firing while its wrapper survived (one failed, one passed,
 12.31s), and the old phase-error path exceeding the supervisor guard (one
 failed, 14.10s). Their after-controls pass (two in 8.02s and one in 9.04s).
@@ -770,6 +770,10 @@ and the real missing-process error ID. Logs: `studio-deadline-focused.log`,
 `studio-deadline-before.log`, `studio-deadline-after.log`,
 `studio-phase-error-before.log`, `studio-phase-error-after.log` and
 `studio-deadline-all-native.log`; the postcheck JSON is retained with the
-review artifacts. Two independent final reviews remain pending. The earlier
-full jobs and probes above retain their original commit scopes; this is
-focused tooling qualification, not a new full job or product oracle lane.
+review artifacts. Both independent final reviews of `69effcac` pass. Each
+reviewer executes all 117 portable runner tests; one additionally executes six
+deadline controls and five exact-finally controls, including failure mutants.
+The deadline bypasses PowerShell finally blocks and leaves the setup/phase
+owner record for later authenticated cleanup of the stopped wrapper.
+The earlier full jobs and probes above retain their original commit scopes;
+this is focused tooling qualification, not a new full job or product oracle lane.
