@@ -777,3 +777,36 @@ The deadline bypasses PowerShell finally blocks and leaves the setup/phase
 owner record for later authenticated cleanup of the stopped wrapper.
 The earlier full jobs and probes above retain their original commit scopes;
 this is focused tooling qualification, not a new full job or product oracle lane.
+
+### Full Windows 3.14 with the deadline follow-up
+
+Controller and tested combined candidate
+**`8b55b685eb8567c288fec2cb9874c51f36c3d2bb`** completed all five workflow-derived
+Windows 3.14 phases on the same qualified host, using CPython **3.14.5**.
+It combines the deadline/phase-error fix, final owner-query guards and workflow
+parser with the prior application candidate and the discovery test-wrapper
+connection-close fix. The CI helper except its workflow-contract function is
+AST-identical to reviewed `69effcac`; that parser function is AST-identical to
+reviewed `80095756`. Product/oracle source, workflow and the bound-cost table
+are byte-identical to prior combined `8895ec30`. No live policy lane is added.
+
+- Install **15.8s**, Ruff **5.3s**, mypy **12.7s**, pytest **2,591.4s** and
+  coverage floors **3.2s**: all pass. Pytest reports **13,385 passed, 426 skipped,
+  1 xfailed, 55 subtests passed**, one upstream dependency warning, **2,584.49s**
+  internal duration. The previous discovery-wrapper resource warning is absent.
+- All **11 module coverage floors** pass; total branch coverage is **92.11%**.
+  The runner reports **2,733.3s of 5,400s**, leaving **2,666.7s** before cleanup.
+  Separately measured wall time including cleanup is **2,777.951s (46m17.951s)**.
+  The controller's recorded return code and terminal process exit are both **0**.
+- A fresh SSH postcheck finds **zero run entries and cancellation markers**,
+  reopens and closes the startup lock exclusively, confirms the original profile
+  environment and records Windows PowerShell **5.1.26100.33438**. The controller
+  run directory is removed. The exact missing-process error ID still matches.
+
+The raw log is `studio-deadline-composition-full-windows314.log`; the separate
+result JSON, source-identity/composition manifests and postcheck are retained
+with the review evidence. This full run qualifies its named combined snapshot
+for the local-CI tooling paths; it does not replace the earlier full 3.13 run at
+`3cca0180`, the earlier full 3.14 controller/candidate pair, or any product
+oracle verdict. The narrower native before/after controls above retain their
+own exact sources. WI-084 remains open for the wider Plan 036 programme.

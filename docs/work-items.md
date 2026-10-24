@@ -4092,7 +4092,12 @@ passes all 13 normal Windows integration cases (346.72s, exit 0), 231 focused
 portable checks and the fresh namespace/lock/profile postcheck. Both independent
 final reviews of `69effcac` pass, including executing deadline/finally controls.
 Prior full qualification commits keep their
-original scopes in the exit record above; WI-084 remains open.
+original scopes in the exit record above. A later full Windows 3.14 run at
+controller/tested combined `8b55b685` passes all five phases, 13,385 tests and
+all 11 floors (92.11%), exit 0; measured wall time including cleanup is
+2,777.951s. Fresh namespace/lock/profile and controller-directory postchecks
+pass. Its discovery-wrapper close fix removes that resource warning. This is
+local-CI tooling evidence, not a new product oracle lane; WI-084 remains open.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
