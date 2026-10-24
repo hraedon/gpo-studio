@@ -169,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             for pack, sig_path in zip(packs, args.signature, strict=True):
                 try:
                     sig = parse_signature(sig_path.read_bytes())
-                except ProvenanceError as exc:
+                except (OSError, ProvenanceError) as exc:
                     print(f"ERROR: {exc}", file=sys.stderr)
                     return 1
                 pack_hash = bytes.fromhex(canonical_pack_hash(pack))
