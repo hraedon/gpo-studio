@@ -3245,7 +3245,8 @@ def configured_settings(
       category_path, category_ids, side, state, element_values,
       supported_on, namespace, raw_setting_count, ambiguous,
       ambiguous_with, and state_reason.
-    - unresolved: registry settings that could not be matched to a policy.
+    - unresolved: raw registry settings requiring review of their policy mapping,
+      stored identity, or interpretation.
       Each item includes id, side, hive, key, value_name, registry_type,
       value, action, and reason.
     - resolved_count: total resolved policies before the limit slice.

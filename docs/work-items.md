@@ -34,7 +34,6 @@ Update this list in the same change as any status line;
 
 **7 open.**
 
-- [WI-088](#wi-088--derive-observed-list-policy-state-without-inventing-intent) - identify complete list-state patterns and show indeterminate observations without changing authoring states or writing on reads.
 - [WI-087](#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities) - preview and apply explicit registry-row identity/ownership repairs while preserving all chosen records and original history.
 - [WI-086](#wi-086--qualify-an-authenticated-iis-hosted-shared-authoring-profile) - prove the shared-service identity boundary, collaborative storage and repeatable IIS deployment under Plan 032.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
@@ -4169,7 +4168,7 @@ Native Windows policy qualification remains separate.
 ## WI-088 — derive observed list-policy state without inventing intent
 
 **Opened:** 2026-10-23 (N7 bounded synthetic settings-browser observation).
-**Status:** open.
+**Status:** closed 2026-10-24.
 
 At `2b63c83c`, configuring a list-only policy as Disabled correctly writes its
 `disabledList` set values, but the reverse reader labels it Enabled unless every
@@ -4197,6 +4196,16 @@ level frames independently of today's writer family. Child-only heuristics remai
 unless unclaimed possible historical level evidence exposes uncertainty; child
 values and unresolved raw records stay separate. Tests cover scalar both/neither,
 delete/reversed/default markers, moved addresses and unchanged storage/export
-eligibility. The candidate implementation remains pending its required checks and
-independent review; this item stays open. Native Windows qualification remains
-separate and is not supplied by these local observation corrections.
+eligibility. Native Windows qualification remains separate and is not supplied by these
+local observation corrections.
+
+**Verified 2026-10-24.** The complete reader at `a269528e` and the raw-location
+follow-up at `696b0a5d` pass their exact-head CI, including Python 3.13/3.14 on
+Linux and Windows. The follow-up local suite passed 13,630 tests (142 skips,
+one expected failure, 67 subtests), all coverage floors, 257 frontend tests and
+523 browser cases including Firefox; static checks, installed-wheel smoke and
+upgrade/rollback rehearsal passed. Fresh GPT and DeepSeek reviews of the complete
+reader and the follow-up passed with independent native-pattern, writer/reader,
+read-ownership and storage-preservation probes. These establish the closing
+conditions for the read-only observation correction, not new native policy
+qualification or a reviewed identity-repair workflow.
