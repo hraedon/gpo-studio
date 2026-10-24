@@ -101,6 +101,8 @@ holds a process handle from identity validation through tree termination,
 preventing the authenticated PID from being reassigned during that operation.
 An unavailable or zero process handle is refused before inspecting identity or
 terminating a process tree. Unreadable process identity properties are refused too.
+If a process exits while its handle is being acquired, the runner may refuse
+conservatively; a later invocation can reclaim the stopped run.
 If tree termination fails while the authenticated process remains alive, cleanup
 refuses and preserves the run for a later retry.
 An existing malformed record is refused with an explicit diagnostic;

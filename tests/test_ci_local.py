@@ -385,13 +385,21 @@ def test_windows_startup_refuses_owner_query_errors(
     blocked = sibling if query == "run" else owner
     script += f"$script:blocked={ci_local._powershell_literal(str(blocked))}\n"
     script += f"$script:category='{category}'\n"
+    exception = (
+        "UnauthorizedAccessException" if category == "PermissionDenied" else "IO.IOException"
+    )
+    script += (
+        f"$exception=[System.{exception}]::new('owner query unavailable')\n"
+        "$script:queryError=[System.Management.Automation.ErrorRecord]::new(\n"
+        "    $exception, 'OwnerQueryUnavailable', $script:category, $script:blocked)\n"
+    )
     if query == "process":
         script += r"""
 function Get-Process {
-    param($Id, $ErrorAction)
+    [CmdletBinding()]
+    param($Id)
     if ($Id -eq 2147483647) {
-        Write-Error 'owner query unavailable' -Category $script:category `
-            -ErrorAction $ErrorAction
+        $PSCmdlet.WriteError($script:queryError)
         return
     }
     Microsoft.PowerShell.Management\Get-Process @PSBoundParameters
@@ -400,10 +408,10 @@ function Get-Process {
     else:
         script += r"""
 function Get-Item {
-    param($LiteralPath, [switch]$Force, $ErrorAction)
+    [CmdletBinding()]
+    param($LiteralPath, [switch]$Force)
     if ($LiteralPath -eq $script:blocked) {
-        Write-Error 'owner query unavailable' -Category $script:category `
-            -ErrorAction $ErrorAction
+        $PSCmdlet.WriteError($script:queryError)
         return
     }
     Microsoft.PowerShell.Management\Get-Item @PSBoundParameters
