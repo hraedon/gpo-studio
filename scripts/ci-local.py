@@ -1280,7 +1280,22 @@ def _windows_workflow_contract(
     source: Path, commit: str
 ) -> tuple[int, tuple[str, ...], tuple[tuple[str, tuple[str, ...]], ...]]:
     yaml_text = _run_git(["show", f"{commit}:.github/workflows/ci.yml"], cwd=source)
-    document = yaml.safe_load(yaml_text)
+    try:
+        document = yaml.safe_load(yaml_text)
+    except (
+        yaml.YAMLError,
+        ValueError,
+        TypeError,
+        LookupError,
+        ArithmeticError,
+        AttributeError,
+        RecursionError,
+    ) as error:
+        # SafeLoader's explicit scalar constructors can raise built-in
+        # conversion errors; excessive nesting raises RecursionError.
+        mark = getattr(error, "problem_mark", None)
+        location = "" if mark is None else f" at line {mark.line + 1}, column {mark.column + 1}"
+        raise ValueError("ci.yml contains malformed or unsupported YAML" + location) from error
     # Both settings are inherited by every run step in Actions. Until the
     # remote leg implements them, reject their presence even when empty.
     if isinstance(document, dict) and {"env", "defaults"} & document.keys():
@@ -1297,13 +1312,15 @@ def _windows_workflow_contract(
     if (
         not isinstance(versions, list)
         or not versions
-        or any(v not in WINDOWS_PYTHONS for v in versions)
+        or any(not isinstance(v, str) or v not in WINDOWS_PYTHONS for v in versions)
     ):
         raise ValueError("ci.yml Windows Python matrix has an unqualified interpreter")
     if set(job) - {"runs-on", "timeout-minutes", "strategy", "permissions", "steps"}:
         raise ValueError("unsupported Windows job conditions/environment")
     if set(job["strategy"]) != {"matrix"} or set(job["strategy"]["matrix"]) != {"python-version"}:
         raise ValueError("unsupported Windows matrix strategy")
+    if not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps):
+        raise ValueError("ci.yml Windows steps must be a list of mappings")
     setup_actions: tuple[tuple[str, dict[str, object]], ...] = (
         ("actions/checkout@", {"fetch-depth": 0}),
         (
@@ -1318,13 +1335,27 @@ def _windows_workflow_contract(
     setup_index = 0
     phases: list[tuple[str, tuple[str, ...]]] = []
     for step in steps:
+        if "name" in step and not isinstance(step["name"], str):
+            raise ValueError("unsupported Windows step name")
         if "uses" in step:
             if set(step) - {"uses", "name", "with"}:
                 raise ValueError("unsupported Windows action conditions/environment")
             if setup_index == len(setup_actions) or phases:
                 raise ValueError("unsupported Windows setup action order")
             action, inputs = setup_actions[setup_index]
-            if not step["uses"].startswith(action) or step.get("with") != inputs:
+            actual_inputs = step.get("with")
+            # Python equality aliases False with 0 and 1 with True. These are
+            # distinct action inputs, so match qualified literals by type too.
+            if (
+                not isinstance(step["uses"], str)
+                or not step["uses"].startswith(action)
+                or not isinstance(actual_inputs, dict)
+                or actual_inputs.keys() != inputs.keys()
+                or any(
+                    type(actual_inputs[key]) is not type(value) or actual_inputs[key] != value
+                    for key, value in inputs.items()
+                )
+            ):
                 raise ValueError("unsupported Windows setup action")
             setup_index += 1
             continue

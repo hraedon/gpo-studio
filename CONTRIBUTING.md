@@ -63,8 +63,11 @@ directory to `PATH` for each remote command only, sets
 commands and Python matrix from the **tested commit's** `test-windows` job;
 unsupported shell, action or environment changes are refused, including workflow-wide
 `env` and `defaults` (even empty declarations). Checkout and setup-uv must appear
-exactly once, in that order, before any run step. It applies that job's
-cumulative timeout, with a remote watchdog and SSH connection/keepalive limits.
+exactly once, in that order, before any run step. YAML syntax and step/matrix
+shapes are checked locally before ref recovery or
+remote access; setup inputs must match the qualified literals by type and value.
+It applies that job's cumulative timeout, with a remote watchdog and SSH
+connection/keepalive limits.
 It makes no persistent `PATH` change and installs no system software (Python
 dependencies go into the run's virtual environment). The owner approved the
 user-scoped portable MinGit on 2026-10-21; the

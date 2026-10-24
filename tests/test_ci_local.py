@@ -816,6 +816,174 @@ def test_windows_workflow_requires_the_qualified_setup_prefix(
         ci_local._windows_workflow_contract(ROOT, "a" * 40)
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "yaml-syntax",
+        "yaml-bool-tag",
+        "yaml-int-tag",
+        "yaml-timestamp-tag",
+        "yaml-nesting",
+        "yaml-empty-int",
+        "yaml-empty-float",
+        "yaml-float-overflow",
+        "yaml-float-boundary",
+        "steps-null",
+        "steps-string",
+        "steps-mapping",
+        "steps-number",
+        "step-null",
+        "step-list",
+        "step-number",
+        "step-string",
+        "uses-null",
+        "uses-list",
+        "uses-number",
+        "uses-mapping",
+        "name-null",
+        "name-number",
+        "name-list",
+        "matrix-list-item",
+        "matrix-mapping-item",
+        "checkout-bool-depth",
+        "checkout-float-depth",
+        "cache-number",
+        "cache-float",
+    ],
+)
+def test_windows_malformed_workflow_is_refused_before_ref_or_remote_access(
+    ci_local: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mutation: str
+) -> None:
+    import yaml
+
+    document = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    job = document["jobs"]["test-windows"]
+    if mutation.startswith("steps-"):
+        job["steps"] = {"null": None, "string": "run", "mapping": {"run": "uv sync"}, "number": 1}[
+            mutation.removeprefix("steps-")
+        ]
+    elif mutation.startswith("step-"):
+        job["steps"][-1] = {"null": None, "list": [], "number": 1, "string": "uv sync"}[
+            mutation.removeprefix("step-")
+        ]
+    elif mutation.startswith("uses-"):
+        job["steps"][0]["uses"] = {"null": None, "list": [], "number": 1, "mapping": {}}[
+            mutation.removeprefix("uses-")
+        ]
+    elif mutation.startswith("name-"):
+        job["steps"][-1]["name"] = {"null": None, "number": 1, "list": []}[
+            mutation.removeprefix("name-")
+        ]
+    elif mutation.startswith("matrix-"):
+        job["strategy"]["matrix"]["python-version"] = [[] if mutation == "matrix-list-item" else {}]
+    elif mutation.startswith("checkout-"):
+        job["steps"][0]["with"]["fetch-depth"] = False if mutation == "checkout-bool-depth" else 0.0
+    elif mutation.startswith("cache-"):
+        job["steps"][1]["with"]["enable-cache"] = 1 if mutation == "cache-number" else 1.0
+    payload = {
+        "yaml-syntax": "jobs: [",
+        "yaml-bool-tag": "!!bool maybe",
+        "yaml-int-tag": "!!int not-an-integer",
+        "yaml-timestamp-tag": "!!timestamp not-a-date",
+        "yaml-nesting": "[" * 2048 + "0" + "]" * 2048,
+        "yaml-empty-int": '!!int ""',
+        "yaml-empty-float": '!!float ""',
+        "yaml-float-overflow": '!!float "' + ":".join(["1"] * 175) + '"',
+        "yaml-float-boundary": '!!float "' + ":".join(["1"] * 174) + '"',
+    }.get(mutation, yaml.safe_dump(document))
+    monkeypatch.setattr(ci_local, "_run_git", lambda *_args, **_kwargs: payload)
+    side_effects: list[str] = []
+    monkeypatch.setattr(
+        ci_local, "sweep_legacy_windows_refs", lambda *_args: side_effects.append("refs")
+    )
+
+    def refuse_remote(*_args: object, **_kwargs: object) -> None:
+        side_effects.append("remote")
+        pytest.fail("malformed workflow reached remote preflight")
+
+    monkeypatch.setattr(ci_local, "windows_preflight", refuse_remote)
+    expected = (
+        "malformed or unsupported YAML"
+        if mutation.startswith("yaml-") and mutation != "yaml-float-boundary"
+        else "(?i)windows|yaml"
+    )
+    with pytest.raises(ValueError, match=expected):
+        ci_local.run_windows_job(
+            source=ROOT,
+            commit="a" * 40,
+            host="builder@synthetic",
+            version="3.14",
+            local_root=tmp_path,
+        )
+    assert side_effects == []
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "yaml-syntax",
+        "yaml-bool-tag",
+        "yaml-int-tag",
+        "yaml-timestamp-tag",
+        "yaml-empty-int",
+        "yaml-empty-float",
+        "yaml-float-overflow",
+        "steps-null",
+    ],
+)
+def test_windows_malformed_workflow_cli_reports_an_error_without_traceback(
+    ci_local: ModuleType, tmp_path: Path, mutation: str
+) -> None:
+    import yaml
+
+    sentinel = "synthetic-parser-value-731"
+    document = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    document["jobs"]["test-windows"]["steps"] = None
+    payload = {
+        "yaml-syntax": "jobs: [",
+        "yaml-bool-tag": "!!bool maybe",
+        "yaml-int-tag": "!!int " + sentinel,
+        "yaml-timestamp-tag": "!!timestamp not-a-date",
+        "yaml-empty-int": '!!int ""',
+        "yaml-empty-float": '!!float ""',
+        "yaml-float-overflow": '!!float "' + ":".join(["1"] * 175) + '"',
+    }.get(mutation, yaml.safe_dump(document))
+    source = tmp_path / "source"
+    workflow = source / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(payload)
+    _git(source, "init", "-q")
+    _git(source, "config", "user.name", "Synthetic")
+    _git(source, "config", "user.email", "synthetic@example.test")
+    _git(source, "add", ".")
+    _git(source, "commit", "-qm", "malformed synthetic workflow")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    attempted = tmp_path / "ssh-attempted"
+    _write_executable(
+        fake_bin / "ssh",
+        f"import pathlib\npathlib.Path({str(attempted)!r}).touch()\nraise SystemExit(42)",
+    )
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPT), "--windows"],
+        cwd=source,
+        env={**os.environ, "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert completed.returncode == 2
+    assert "ci-local:" in completed.stderr
+    if mutation.startswith("yaml-"):
+        assert "YAML" in completed.stderr
+    if mutation == "yaml-syntax":
+        assert "line 1, column 8" in completed.stderr
+    assert "Traceback" not in completed.stderr
+    assert sentinel not in completed.stdout + completed.stderr
+    assert not attempted.exists()
+
+
 def test_windows_bundle_excludes_private_refs_and_never_writes_source_refs(
     ci_local: ModuleType, tmp_path: Path
 ) -> None:
