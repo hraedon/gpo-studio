@@ -565,9 +565,10 @@ the recovery implementation. The candidate is retained on the review branch
   coverage **92.11%**, against the 84% floor.
 - Reported cumulative job time **2,660.6s of 5,400s** (44m20.6s; 49.27%),
   leaving **2,739.4s**. This is the runner's reported job duration, not a
-  separately measured wall time including cleanup. CLI exit **0** confirms that
-  cleanup succeeded too. Log: `studio-windows-recovery-full-314.log` in the
-  controller's external log directory.
+  separately measured wall time including cleanup. The raw log records phase
+  completion but does not capture the controller exit code; the fresh SSH and
+  local checks below record cleanup state. Log:
+  `studio-windows-recovery-full-314.log` in the controller's external log directory.
 - The same combined candidate's full Linux suite passed **13,750 tests**,
   with 152 skips, one expected failure, 67 subtests and two warnings in
   **972.81s**. All module floors pass; total branch coverage **91.25%**.
@@ -581,8 +582,8 @@ the recovery implementation. The candidate is retained on the review branch
   their real codes. The live-cleanup case passes on both implementations.
 - Fresh SSH found **zero run entries and zero cancellation markers**, no
   `GIT_CONFIG_COUNT`, no pinned Git directory in PATH, and the original profile
-  TEMP. The controller's archive/bundle directory was removed. Only the closed
-  startup-lock file and empty cancellation directory remain beside the run root.
+  TEMP. The controller's archive/bundle directory was removed. The startup-lock
+  file and cancellation directory are retained for reuse.
 
 The hosted Linux CI run exposed a ten-second timeout in the first PowerShell
 fixture. Test-only polish `3c481ce861543bba6303ac208b1880c64ec464d2` gives
@@ -732,3 +733,23 @@ the real missing-PID query. Logs: `studio-owner-query-native-faults.log`,
 the per-case result JSON and cleanup checks are retained with them.
 These later probes qualify their stated tooling paths, not a new full job on
 the latest guards and not a new product oracle lane. WI-084 remains open.
+
+### Deadline and phase-error job teardown follow-up
+
+The final review of `a6fc6f74` identified a pre-existing liveness gap: both the
+deadline callback and phase-error cleanup relied on `taskkill`, and the latter
+waited for the child without a bound after disabling the watchdog. A portable
+control whose termination executable returns 7 leaves the old wrapper alive;
+the already-completed-child control still passes. A real Windows phase-error
+control, with a simulated failed termination command, also waits beyond its
+five-second supervisor guard. The SSH supervisor stays alive and rescues only
+its authenticated fixture processes, so SSH teardown cannot provide cleanup.
+
+The deadline now exits the wrapper with code 124, closing its private job's sole
+handle and reaping remaining descendants. Phase-error cleanup lets the wrapper
+exit through the same job boundary, removing the duplicate native-stop/wait
+path. The two portable deadline controls pass, and the Windows phase-error
+control exits with its error and reaps the fixture descendants without invoking
+the simulated failing command. Normal integration and final review of these
+new bytes remain pending; the earlier full jobs and probes above retain their
+original commit scopes.

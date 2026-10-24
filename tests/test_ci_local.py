@@ -868,6 +868,52 @@ def test_windows_process_guard_compiles_without_invoking_windows_apis(ci_local: 
     assert completed.returncode == 0, completed.stderr
 
 
+@pytest.mark.parametrize("completed_child", [False, True])
+def test_windows_deadline_does_not_depend_on_native_taskkill(
+    ci_local: ModuleType, tmp_path: Path, completed_child: bool
+) -> None:
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell is required for the deadline failure control")
+    marker = tmp_path / "taskkill-called"
+    killer = tmp_path / "taskkill.exe"
+    killer.write_text(
+        "#!/bin/sh\nprintf called > " + shlex.quote(str(marker)) + "\nexit 7\n",
+        encoding="ascii",
+    )
+    killer.chmod(0o755)
+    script = ci_local._powershell_prelude() + "\n"
+    # Execute the real C# deadline on the Linux controller. The Windows job's
+    # kernel attachment is exercised separately by the opt-in integration tests.
+    script += ci_local._windows_process_guard().removesuffix("[CiLocalProcessJob]::Attach()\n")
+    if completed_child:
+        script += (
+            f"$child=[Diagnostics.Process]::Start({ci_local._powershell_literal(sys.executable)}, "
+            "'-c pass')\n$child.WaitForExit()\n"
+        )
+    else:
+        script += "$child=[Diagnostics.Process]::GetCurrentProcess()\n"
+    script += (
+        "$watchdog=[CiLocalDeadline]::new($child, 200)\n"
+        "try {\n"
+        "  Start-Sleep -Seconds 5\n"
+        "  Write-Output ('DEADLINE_FIRED=' + $watchdog.TimedOut)\n"
+        "  Write-Output 'WRAPPER_SURVIVED'\n"
+        "}\n"
+        "finally { $watchdog.Dispose(); $child.Dispose() }\n"
+    )
+    completed = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
+        env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
+    )
+    assert completed.returncode == (0 if completed_child else 124), completed.stderr
+    assert ("WRAPPER_SURVIVED" in completed.stdout) == completed_child
+    assert not marker.exists(), "deadline invoked a fallible native termination command"
+
+
 def test_windows_commands_and_matrix_come_from_the_tested_workflow(ci_local: ModuleType) -> None:
     import yaml
 
@@ -1765,7 +1811,9 @@ def _windows_background_child_arguments(
     )
 
 
-def _windows_supervised_wrapper_kill(ci_local: ModuleType, run: str) -> str:
+def _windows_supervised_wrapper_kill(
+    ci_local: ModuleType, run: str, *, phase_error: bool = False
+) -> str:
     arguments = subprocess.list2cmdline(
         ("-NoProfile", "-NonInteractive", "-File", run + r"\phase-probe.ps1")
     )
@@ -1773,6 +1821,16 @@ def _windows_supervised_wrapper_kill(ci_local: ModuleType, run: str) -> str:
     # Otherwise OpenSSH's own session teardown could reap the child and make a
     # missing private job appear to work. Retain actual process handles before
     # killing anything, and clean up both fixture children even in the old control.
+    stop = (
+        "  [IO.File]::WriteAllText((Join-Path $run 'release-phase-error'), 'go')\n"
+        "  if(-not $phase.WaitForExit(5000)) {\n"
+        "    $used=Test-Path (Join-Path $run 'taskkill-called')\n"
+        "    throw ('phase cleanup did not finish; KILL_COMMAND_INVOKED=' + $used)\n"
+        "  }\n"
+        "  if($phase.ExitCode -ne 1) { throw 'unexpected phase-error exit code' }\n"
+        if phase_error
+        else "  $phase.Kill(); $phase.WaitForExit()\n"
+    )
     return (
         ci_local._powershell_prelude()
         + f"\n$run={ci_local._powershell_literal(run)}\n"
@@ -1806,7 +1864,7 @@ def _windows_supervised_wrapper_kill(ci_local: ModuleType, run: str) -> str:
         + "([long]$owner[1]) -ne $phase.StartTime.ToFileTimeUtc()) {\n"
         + "    throw 'fixture wrapper identity changed'\n"
         + "  }\n"
-        + "  $phase.Kill(); $phase.WaitForExit()\n"
+        + stop
         + "  $stopped=$held.WaitForExit(5000)\n"
         + "} finally {\n"
         + "  foreach($owned in @($held,$parent,$phase)) {\n"
@@ -1825,7 +1883,9 @@ def _windows_supervised_wrapper_kill(ci_local: ModuleType, run: str) -> str:
     os.environ.get("GPO_STUDIO_WINDOWS_INTEGRATION") != "1",
     reason="set GPO_STUDIO_WINDOWS_INTEGRATION=1 for the owned Windows recovery probes",
 )
-@pytest.mark.parametrize("outcome", ["success", "failure", "wrapper-killed", "cleanup-killed"])
+@pytest.mark.parametrize(
+    "outcome", ["success", "failure", "wrapper-killed", "cleanup-killed", "phase-error"]
+)
 def test_opt_in_windows_job_reaps_background_children(
     ci_local: ModuleType, tmp_path: Path, outcome: str
 ) -> None:
@@ -1849,11 +1909,33 @@ def test_opt_in_windows_job_reaps_background_children(
             workspace,
             ci_local.WINDOWS_PYTHONS["3.14"],
             _windows_background_child_arguments(
-                ci_local, workspace.run, exit_code=code, stay_alive=outcome.endswith("killed")
+                ci_local,
+                workspace.run,
+                exit_code=code,
+                stay_alive=outcome.endswith("killed") or outcome == "phase-error",
             ),
             remaining=45,
         )
-        if outcome == "wrapper-killed":
+        if outcome == "phase-error":
+            trigger = ci_local._powershell_literal(workspace.run + r"\release-phase-error")
+            called = ci_local._powershell_literal(workspace.run + r"\taskkill-called")
+            script = (
+                "function taskkill.exe {\n"
+                f"  [IO.File]::WriteAllText({called}, 'called')\n"
+                "  $global:LASTEXITCODE=7\n"
+                "}\n" + script
+            )
+            barrier = (
+                "  $until=[DateTime]::UtcNow.AddSeconds(20)\n"
+                f"  while(-not (Test-Path -LiteralPath {trigger})) {{\n"
+                "    if([DateTime]::UtcNow -ge $until) { throw 'phase release timed out' }\n"
+                "    Start-Sleep -Milliseconds 20\n"
+                "  }\n"
+                "  throw 'TEST: injected phase failure'\n"
+            )
+            assert script.count("\n  $process.WaitForExit()\n") == 1
+            script = script.replace("\n  $process.WaitForExit()\n", "\n" + barrier, 1)
+        if outcome in {"wrapper-killed", "phase-error"}:
             payload = tmp_path / "phase-probe.ps1"
             payload.write_text(script, encoding="utf-8-sig")
             assert (
@@ -1870,12 +1952,24 @@ def test_opt_in_windows_job_reaps_background_children(
             )
             completed = ci_local._run_captured(
                 ci_local.powershell_ssh_command(
-                    host, _windows_supervised_wrapper_kill(ci_local, workspace.run)
+                    host,
+                    _windows_supervised_wrapper_kill(
+                        ci_local, workspace.run, phase_error=outcome == "phase-error"
+                    ),
                 ),
                 timeout=30,
             )
             assert completed.returncode == 0, completed.stdout + completed.stderr
             assert "CHILD_STOPPED_WITH_SSH_SUPERVISOR_ALIVE" in completed.stdout
+            if outcome == "phase-error":
+                assert "NOT_CALLED" in ci_local._run_remote_capture(
+                    host,
+                    ci_local._powershell_prelude()
+                    + f"\nif(Test-Path -LiteralPath {called}) "
+                    + "{ throw 'native stop was invoked' }\n"
+                    + "Write-Output 'NOT_CALLED'\n",
+                    timeout=15,
+                )
             return
         process = subprocess.Popen(
             ci_local.powershell_ssh_command(host, script),

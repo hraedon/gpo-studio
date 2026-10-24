@@ -4084,6 +4084,13 @@ oracle source. The final fresh-SSH namespace, lock and profile checks pass too.
 Full-run and later-guard evidence remain separately scoped in the exit record.
 WI-084 remains open.
 
+**Deadline follow-up:** review of `a6fc6f74` exposed a pre-existing wait after
+failed phase termination. The deadline and terminating phase-error paths now
+exit through private-job teardown. Portable before/after controls and a real
+Windows phase-error control pass with the change; normal integration and two
+independent final reviews of these new bytes remain pending. Prior qualification
+commits are retained in the exit record above.
+
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
 restarts from branch `wp0/live-closure` at `432c751` (pushed), with these
