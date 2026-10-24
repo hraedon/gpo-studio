@@ -32,9 +32,8 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**6 open.**
+**5 open.**
 
-- [WI-089](#wi-089--a-python-write-failure-can-leave-a-workspace-transaction-open) - roll back partial workspace writes after Python exceptions and cancellation.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
@@ -4089,7 +4088,9 @@ command never launches.
 ## WI-089 — a Python write failure can leave a workspace transaction open
 
 **Opened:** 2026-10-24 (review of draft creation for registry repair).
-**Status:** open.
+**Status:** closed 2026-10-24. All four write transactions roll back Python
+failures and cancellation before commit, preserving the original exception and
+the existing SQLite error mapping.
 
 Creation, baseline import and recovery deletion caught only SQLite exceptions
 inside their transactions. Editing caught ordinary Python exceptions but not
@@ -4110,3 +4111,22 @@ leave the database unchanged and reusable in each transaction path, direct
 unencodable audit text also rolls back, and a later-item import failure can be
 retried without changing the earlier item's immutable revision. Run the
 required local checks and the available Windows leg before review.
+
+**Verified 2026-10-24.** Runtime and regression source at `a882e2e6` passes the
+full Linux suite (13,187 tests, 142 skips, one expected failure, 67 subtests),
+all 11 coverage floors (90.97% total), 171 frontend tests, a 73-case browser
+recheck, static checks, installed-wheel smoke and upgrade/rollback rehearsal.
+The native Windows Python 3.14 job passes all five phases: 12,878 tests,
+425 skips, one expected failure, 55 subtests, all coverage floors (91.85%
+total) and CLI exit 0. Its separately qualified controller is `8b55b685` and
+its tested archive is `a882e2e6`; these are different roles, not interchangeable
+source claims. Fresh postchecks confirm no owned runs/markers, a released
+startup lock, unchanged profile and removal of the controller run directory.
+
+Both independent Tier-2 reviews pass. One executes 226 targeted tests and
+43 additional late-SQL/control cases plus a repeated-import scenario, covering
+shared retained documents, archive-schema rollback, cancellation, immutable
+history, independent readers and connection reuse. The other executes 278
+targeted tests and audits the source and qualification evidence. These results
+qualify workspace transaction cleanup; they claim no native policy/oracle lane
+or undo after an already completed commit.
