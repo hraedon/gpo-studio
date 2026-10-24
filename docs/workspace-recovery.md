@@ -612,9 +612,14 @@ For recovery without guessing or changing the original:
 
 Fork-prefixed ADMX IDs and imported raw IDs do not name an ADMX owner for
 reconfiguration, even when their current native addresses match a template.
-Enabling or disabling that policy can retain the copied rows and add writes at
-the same addresses, producing `duplicate_setting` validation issues and blocked
-native exports. Not configured can leave the copied rows in place. Review the
+Enabling or disabling that policy is refused with `conflicting_retained_setting`
+when its new writes would overlap retained rows. The check uses the same
+case-insensitive registry address identity as duplicate validation, before any
+revision or history is committed. Single and bulk configuration also refuse
+overlapping new writes with `conflicting_policy_settings`. Existing unrelated
+duplicate addresses do not prevent configuring a different address. This does
+not repair existing conflicts or infer ownership. Not configured can still leave
+the copied rows in place because it emits no new writes. Review the
 raw records explicitly; neither an address match nor a settings-browser state
 observation authorizes automatic ownership repair. WI-087 tracks this recovery
 limitation as well as ambiguous and duplicate editor identities.
