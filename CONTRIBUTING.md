@@ -58,7 +58,8 @@ and the MinGit `cmd\git.exe` launcher's SHA-256 digests before use, prepends Min
 directory to `PATH` for each remote command only, sets
 `UV_PYTHON_DOWNLOADS=never`, and runs exactly the
 commands and Python matrix from the **tested commit's** `test-windows` job;
-unsupported shell, action or environment changes are refused. It applies that job's
+unsupported shell, action or environment changes are refused, including workflow-wide
+`env` and `defaults` (even empty declarations). It applies that job's
 cumulative timeout, with a remote watchdog and SSH connection/keepalive limits.
 It makes no persistent `PATH` change and installs no system software (Python
 dependencies go into the run's virtual environment). The owner approved the

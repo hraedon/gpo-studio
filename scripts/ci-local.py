@@ -1151,6 +1151,10 @@ def _windows_workflow_contract(
 ) -> tuple[int, tuple[str, ...], tuple[tuple[str, tuple[str, ...]], ...]]:
     yaml_text = _run_git(["show", f"{commit}:.github/workflows/ci.yml"], cwd=source)
     document = yaml.safe_load(yaml_text)
+    # Both settings are inherited by every run step in Actions. Until the
+    # remote leg implements them, reject their presence even when empty.
+    if isinstance(document, dict) and {"env", "defaults"} & document.keys():
+        raise ValueError("unsupported Windows workflow defaults/environment")
     try:
         job = document["jobs"][WINDOWS_JOB]
         minutes = job["timeout-minutes"]

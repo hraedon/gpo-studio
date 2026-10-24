@@ -9,6 +9,12 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+### Fixed
+
+- The local Windows CI runner refuses workflow-wide environment variables and
+  run defaults before remote access, preventing inherited CI settings from
+  being silently omitted from a local qualification.
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

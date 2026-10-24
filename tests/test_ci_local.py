@@ -389,6 +389,51 @@ def test_windows_workflow_refuses_unsupported_contract_changes(
         ci_local._windows_workflow_contract(ROOT, "a" * 40)
 
 
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("env", {"PYTEST_ADDOPTS": "--ignore=tests"}),
+        ("env", {}),
+        ("defaults", {"run": {"shell": "cmd"}}),
+        ("defaults", {"run": {"working-directory": "nested"}}),
+        ("defaults", {}),
+    ],
+)
+def test_windows_refuses_inherited_workflow_settings_before_remote_access(
+    ci_local: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    key: str,
+    value: dict[str, object],
+) -> None:
+    import yaml
+
+    document = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    document[key] = value
+    monkeypatch.setattr(ci_local, "_run_git", lambda *_args, **_kwargs: yaml.safe_dump(document))
+    remote_calls: list[str] = []
+
+    def refuse_remote(*_args: object, **_kwargs: object) -> None:
+        remote_calls.append("preflight")
+        pytest.fail("unsupported workflow reached remote preflight")
+
+    monkeypatch.setattr(ci_local, "windows_preflight", refuse_remote)
+    monkeypatch.setattr(
+        ci_local, "sweep_legacy_windows_refs", lambda *_a: remote_calls.append("sweep")
+    )
+
+    with pytest.raises(ValueError, match="unsupported Windows workflow defaults/environment"):
+        ci_local.run_windows_job(
+            source=ROOT,
+            commit="a" * 40,
+            host="builder@synthetic",
+            version="3.14",
+            local_root=tmp_path,
+        )
+    assert remote_calls == []
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_windows_bundle_excludes_private_refs_and_never_writes_source_refs(
     ci_local: ModuleType, tmp_path: Path
 ) -> None:
