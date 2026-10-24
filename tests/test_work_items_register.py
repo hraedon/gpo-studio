@@ -101,4 +101,13 @@ def test_the_open_index_matches_the_register() -> None:
         f"the 'Open right now' index lists {sorted(listed)} but the register's "
         f"own status lines say {sorted(actually_open)} are open"
     )
+    counts = [
+        int(match[1])
+        for line in text.splitlines()
+        if (match := re.fullmatch(r"\*\*([0-9]+) open\.\*\*", line))
+    ]
+    assert counts == [len(listed)], (
+        f"The open count must appear once and equal the {len(listed)} indexed items; "
+        f"found {counts}. Update the count with the status and index."
+    )
 
