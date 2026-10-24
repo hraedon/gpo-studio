@@ -594,11 +594,11 @@ and plan-status batch passes **197 tests**, with nine host opt-ins skipped.
 At that test-only polish, the runner source and every remote script byte remain
 identical to `498e19d7`.
 
-This full recovery qualification reruns **3.14 only**. The 3.13 exit/Unicode/
-watchdog smoke passes are retained, but the earlier full 3.13 result belongs to
-the prior implementation and is not recounted here. Independent review evidence
-is tracked with the recovery PR. These are CI-tooling measurements, not new
-product wire-format or oracle qualifications; WI-084 remains open.
+The full recovery qualification at `498e19d7` covers **3.14 only**. Its 3.13
+exit/Unicode/watchdog smoke passes are retained; the later full 3.13 run is
+recorded below with its own controller and candidate commits. These are
+CI-tooling measurements, not new product wire-format or oracle qualifications;
+WI-084 remains open.
 
 
 ### Owner-path review correction
@@ -639,7 +639,7 @@ Cleanup now checks the returned handle explicitly, refusing null or zero before
 any identity reads or tree termination and still disposing the process object.
 Both throwing-getter and zero-handle regressions fail against `0064f5f4` and
 pass with the guard. The full Windows 3.13 run of combined `3cca0180` began
-before this additional guard; its eventual result is scoped to that candidate.
+before this additional guard; its completed result below is scoped to that candidate.
 
 The same executing review reproduced a pre-existing status gap using a native
 command that silently returns a failure code in place of `taskkill`. Cleanup
@@ -665,10 +665,70 @@ genuine missing-item exception. `Get-ExistingProcess` accepts only the exact
 missing-ID error and propagates other failures. Six permission/resource-error
 controls cover all three query sites; four fail at `80f31e43`, while its two
 existing owner-query controls already refuse correctly. This later design
-change still requires separate native verification after the running `3cca0180`
-job; that full run must not be attributed to these newer bytes.
+change has separate native evidence below; the full `3cca0180` run must not be
+attributed to these newer bytes.
 
 The atomic writer also avoids removing a temporary file that was successfully
 renamed, preserving a successful standalone PowerShell status. Its new executing
 regression fails before and passes after the change. A local `ssh -G` check pins
 effective batch mode without contacting a host or loading user SSH configuration.
+
+### Full 3.13 run and owner-query native evidence
+
+Controller and tested candidate
+`3cca0180d0f85b6f9dcc83f1ab9012f78f70838a` completed all five Windows
+phases on mvmcitest01 with installed CPython **3.13.14**:
+
+- Install **14.7s**, Ruff **4.6s**, mypy **10.9s**, pytest **4,514.6s**,
+  coverage floors **2.4s**.
+- **13,385 passed, 426 skipped, 1 xfailed, 55 subtests**, two warnings;
+  pytest's internal duration **4,500.57s**. All eleven module floors pass;
+  total branch coverage **92.11%**.
+- Reported cumulative job time **4,658.8s of 5,400s**. An external monotonic
+  measurement records **4,707.275s including cleanup**, CLI exit **0**, from
+  **2026-10-24 16:20:48 UTC** to **17:39:15 UTC**. The report and wall
+  measurement have different cleanup scopes; the remaining reported budget is
+  **741.2s**.
+- A fresh SSH check found zero run entries and cancellation markers, reopened
+  and closed the startup lock exclusively, and confirmed the original profile
+  TEMP, no process Git configuration and no pinned Git directory in PATH.
+  The controller's temporary directory was removed too.
+
+The full run includes the earlier owner correction `0064f5f4` and the separately
+reviewed parser changes. It precedes the later explicit property/status guards
+and shared query adapters. Its two warnings are the upstream AnyIO alias
+deprecation and the discovery test-wrapper connection warning addressed
+separately in PR #131; that test-only fix is not part of this candidate.
+Log: `studio-owner-parser-full-windows313.log`, with the external result JSON
+retained alongside the qualification artifacts.
+
+The later owner implementation
+`a067dc821f0a6527f0f9027686ee0718f9505a03` has separate Windows PowerShell
+**5.1** evidence. All **17 fault/adapter probes** pass, including the real
+missing-process error ID, real missing/existing items, null/throwing process
+properties, native failure status with a live or concurrently exited fixture,
+and typed permission, I/O and non-missing `ObjectNotFound` errors at all three
+query sites. Each refusal preserves its owned fixture; cleanup passes.
+These use actual native error records and synthetic process fixtures, not a
+claim that a real `taskkill` failure or denied Windows ACL was induced.
+
+Real file-symlink and dangling-file-symlink owner probes also both refuse and
+preserve their sentinels on that host. Their own links are explicitly unlinked
+before normal token cleanup; no host privilege or configuration was changed.
+All **12 normal Windows integration probes** also pass against combined
+`8895ec30dd793ed5fc587e82d38a9fcad506b58e`: **337.83s** inside pytest,
+**338.519s** measured wall time including cleanup, CLI exit **0**. They retain
+the descendant/exit/UTF-8/watchdog, both startup orderings, malformed owner and
+ten release-artifact checks. Its runner/test files are byte-identical to the
+prepared parser child, and its owner helper and remaining remote generators
+match `a067dc82`.
+Product/oracle source and the bound-cost table are byte-identical to `3cca0180`.
+The final fresh-SSH check again found zero run entries and cancellation markers,
+reopened the startup lock exclusively and confirmed the original profile
+environment. It directly recorded Windows PowerShell **5.1.26100.33438** and
+`NoProcessFoundForGivenId,Microsoft.PowerShell.Commands.GetProcessCommand` for
+the real missing-PID query. Logs: `studio-owner-query-native-faults.log`,
+`studio-owner-query-native-links.log` and `studio-owner-query-final-native.log`;
+the per-case result JSON and cleanup checks are retained with them.
+These later probes qualify their stated tooling paths, not a new full job on
+the latest guards and not a new product oracle lane. WI-084 remains open.
