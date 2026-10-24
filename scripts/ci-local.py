@@ -785,6 +785,11 @@ def _windows_remove_owned_run_function() -> str:
     return (
         "function Get-RunOwner([string]$target) {\n"
         "  $owner=Join-Path $target 'phase-owner'\n"
+        "  $entry=Get-Item -LiteralPath $owner -Force -ErrorAction SilentlyContinue\n"
+        "  if ($entry -and ($entry.PSIsContainer -or "
+        "($entry.Attributes -band [IO.FileAttributes]::ReparsePoint))) {\n"
+        "    throw 'invalid phase-owner record: expected an ordinary file'\n"
+        "  }\n"
         "  if (Test-Path -LiteralPath $owner -PathType Leaf) {\n"
         "    try {\n"
         "      $record=Get-Content -LiteralPath $owner -Raw\n"

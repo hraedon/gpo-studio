@@ -26,6 +26,9 @@ if sys.platform == "win32":
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci-local.py"
+# The first PowerShell fixture exceeded 10s on a hosted runner. This bounds
+# fixture execution, not a production deadline or a behaviour assertion.
+POWERSHELL_FIXTURE_TIMEOUT = 30
 
 
 def _load() -> ModuleType:
@@ -53,8 +56,8 @@ def _git(repository: Path, *arguments: str) -> str:
     return completed.stdout.strip()
 
 
-def _wait_for_file(path: Path, process: subprocess.Popen[str]) -> None:
-    deadline = time.monotonic() + 10
+def _wait_for_file(path: Path, process: subprocess.Popen[str], *, timeout: float = 10) -> None:
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if path.is_file():
             return
@@ -249,6 +252,11 @@ def test_clixml_errors_are_decoded(ci_local: ModuleType) -> None:
         ("zero-pid", 7000, "invalid phase-owner"),
         ("negative-pid", 7000, "invalid phase-owner"),
         ("zero-start", 7000, "invalid phase-owner"),
+        ("directory", 0, "invalid phase-owner"),
+        ("directory", 7000, "invalid phase-owner"),
+        ("link-file", 0, "invalid phase-owner"),
+        ("link-directory", 0, "invalid phase-owner"),
+        ("link-dangling", 0, "invalid phase-owner"),
     ],
 )
 def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
@@ -269,7 +277,22 @@ def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
     sentinel.write_text("original", encoding="ascii")
     target = ci_local._powershell_literal(str(sibling))
     fixture = f"$sibling={target}\n"
-    if record != "missing":
+    if record == "directory":
+        fixture += "New-Item -ItemType Directory (Join-Path $sibling 'phase-owner') | Out-Null\n"
+    elif record.startswith("link-"):
+        fixture += "$target=Join-Path $sibling 'owner-target'\n"
+        if record == "link-file":
+            fixture += (
+                "Set-Content -LiteralPath $target -Value "
+                "($PID.ToString() + '|' + (Get-Process -Id $PID).StartTime.ToFileTimeUtc())\n"
+            )
+        elif record == "link-directory":
+            fixture += "New-Item -ItemType Directory $target | Out-Null\n"
+        fixture += (
+            "New-Item -ItemType SymbolicLink -Path (Join-Path $sibling 'phase-owner') "
+            "-Value $target -Force | Out-Null\n"
+        )
+    elif record != "missing":
         value = {
             "live": "$PID.ToString() + '|' + (Get-Process -Id $PID).StartTime.ToFileTimeUtc()",
             "dead": "'2147483647|1'",
@@ -292,7 +315,7 @@ def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
         [pwsh, "-NoProfile", "-NonInteractive", "-Command", fixture + script],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     if refused:
         assert completed.returncode != 0
@@ -327,7 +350,7 @@ function Remove-Item {
         [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert completed.returncode == 0, completed.stderr
     assert not target.exists()
@@ -352,7 +375,7 @@ def test_windows_startup_lock_refuses_a_racing_initializer(
         [pwsh, "-NoProfile", "-NonInteractive", "-Command", fixture + script],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert completed.returncode != 0
     assert "refusing concurrent startup" in completed.stderr
@@ -398,7 +421,7 @@ def test_windows_cancelled_initialization_cannot_recreate_a_cleaned_run(
     )
     barrier = (
         f"[IO.File]::WriteAllText({ci_local._powershell_literal(str(ready))}, 'ready')\n"
-        "$until=[DateTime]::UtcNow.AddSeconds(15)\n"
+        "$until=[DateTime]::UtcNow.AddSeconds(60)\n"
         f"while (-not (Test-Path -LiteralPath {ci_local._powershell_literal(str(release))})) {{\n"
         "  if ([DateTime]::UtcNow -ge $until) { throw 'TEST: barrier expired' }\n"
         "  Start-Sleep -Milliseconds 20\n"
@@ -414,7 +437,7 @@ def test_windows_cancelled_initialization_cannot_recreate_a_cleaned_run(
     )
     cleanup = None
     try:
-        _wait_for_file(ready, process)
+        _wait_for_file(ready, process, timeout=POWERSHELL_FIXTURE_TIMEOUT)
         cleanup = subprocess.Popen(
             [
                 pwsh,
@@ -428,20 +451,20 @@ def test_windows_cancelled_initialization_cannot_recreate_a_cleaned_run(
             text=True,
         )
         cancellation = Path(str(root) + ".cancelled") / token
-        _wait_for_file(cancellation, cleanup)
+        _wait_for_file(cancellation, cleanup, timeout=POWERSHELL_FIXTURE_TIMEOUT)
         if pause == "before-lock":
-            stdout, stderr = cleanup.communicate(timeout=10)
+            stdout, stderr = cleanup.communicate(timeout=POWERSHELL_FIXTURE_TIMEOUT)
             assert cleanup.returncode == 0, stdout + stderr
         else:
             assert cleanup.poll() is None  # startup still owns the lock
         release.touch()
-        stdout, stderr = process.communicate(timeout=10)
+        stdout, stderr = process.communicate(timeout=POWERSHELL_FIXTURE_TIMEOUT)
         if pause == "before-lock":
             assert process.returncode != 0
             assert "cancelled Windows run token" in stderr
         else:
             assert process.returncode == 0, stdout + stderr
-        stdout, stderr = cleanup.communicate(timeout=10)
+        stdout, stderr = cleanup.communicate(timeout=POWERSHELL_FIXTURE_TIMEOUT)
         assert cleanup.returncode == 0, stdout + stderr
         assert not (root / token).exists()
         assert cancellation.read_text() == "cancelled"
@@ -460,7 +483,7 @@ def test_windows_cancelled_initialization_cannot_recreate_a_cleaned_run(
                 ],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=POWERSHELL_FIXTURE_TIMEOUT,
             )
             assert (result.returncode == 0) is succeeds, result.stderr
     finally:
@@ -468,7 +491,7 @@ def test_windows_cancelled_initialization_cannot_recreate_a_cleaned_run(
         for owned in (process, cleanup):
             if owned is not None and owned.poll() is None:
                 owned.kill()
-                owned.communicate(timeout=10)
+                owned.communicate(timeout=POWERSHELL_FIXTURE_TIMEOUT)
 
 
 def test_windows_cancelled_cleanup_reports_a_held_lock(
@@ -498,7 +521,7 @@ def test_windows_cancelled_cleanup_reports_a_held_lock(
         ],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert result.returncode != 0
     assert "refusing concurrent startup" in result.stderr
@@ -527,7 +550,7 @@ def test_windows_owner_record_failure_never_publishes_partial_or_overwrites_exis
         [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert result.returncode != 0
     if existing:
@@ -549,7 +572,7 @@ def test_windows_process_guard_compiles_without_invoking_windows_apis(ci_local: 
         [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,
         text=True,
-        timeout=20,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert completed.returncode == 0, completed.stderr
 
@@ -1732,6 +1755,64 @@ def test_opt_in_windows_cancelled_startup_stays_cancelled(ci_local: ModuleType, 
             f"Remove-Item -LiteralPath {stage} -Recurse -Force\n"
             f"Remove-Item -LiteralPath {cancelled} -Force\n"
         )
+
+
+@pytest.mark.skipif(
+    os.environ.get("GPO_STUDIO_WINDOWS_INTEGRATION") != "1",
+    reason="set GPO_STUDIO_WINDOWS_INTEGRATION=1 for the malformed owner-path probe",
+)
+@pytest.mark.parametrize("kind", ["directory", "junction"])
+def test_opt_in_windows_malformed_owner_directory_is_preserved(
+    ci_local: ModuleType, kind: str
+) -> None:
+    host = "cw-admin@mvmcitest01"
+    workspace = ci_local.windows_initialize(host, secrets.token_hex(12), timeout=30)
+    second = None
+    target = ci_local._powershell_literal(workspace.run)
+    try:
+        create = (
+            "New-Item -ItemType Directory (Join-Path $target 'phase-owner') | Out-Null\n"
+            if kind == "directory"
+            else "New-Item -ItemType Directory (Join-Path $target 'owner-target') | Out-Null\n"
+            "New-Item -ItemType Junction -Path (Join-Path $target 'phase-owner') "
+            "-Value (Join-Path $target 'owner-target') | Out-Null\n"
+        )
+        ci_local._run_remote_capture(
+            host,
+            ci_local._powershell_prelude()
+            + f"\n$target={target}\n"
+            + create
+            + "[IO.File]::WriteAllText((Join-Path $target 'sentinel'), 'preserve')\n",
+            timeout=30,
+        )
+        with pytest.raises(RuntimeError, match="invalid phase-owner"):
+            second = ci_local.windows_initialize(host, secrets.token_hex(12), timeout=30)
+        preserved = ci_local._run_remote_capture(
+            host,
+            ci_local._powershell_prelude()
+            + f"\n$target={target}\n"
+            + "if(-not (Test-Path -LiteralPath (Join-Path $target 'phase-owner') "
+            + "-PathType Container)) "
+            + "{ throw 'malformed owner directory was removed' }\n"
+            + "Get-Content -LiteralPath (Join-Path $target 'sentinel') -Raw\n",
+            timeout=30,
+        )
+        assert preserved.strip() == "preserve"
+    finally:
+        # This is the test's own empty directory, created above; a production
+        # malformed record is deliberately never removed by automated cleanup.
+        ci_local._run_remote_capture(
+            host,
+            ci_local._powershell_prelude()
+            + f"\n$owner=Join-Path {target} 'phase-owner'\n"
+            + "try { [IO.Directory]::Delete($owner) }\n"
+            + "catch [IO.DirectoryNotFoundException] { }\n"
+            + "Write-Output 'OWNED_FIXTURE_RESTORED'\n",
+            timeout=30,
+        )
+        ci_local.windows_cleanup(host, workspace)
+        if second is not None:
+            ci_local.windows_cleanup(host, second)
 
 
 @pytest.mark.skipif(
