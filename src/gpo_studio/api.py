@@ -1867,7 +1867,19 @@ def _wmi_catalogue(request: Request) -> WmiCatalogue:
 
 
 def _identity(actor: str) -> ClaimedIdentity:
-    return claimed_identity(actor)
+    try:
+        return claimed_identity(actor)
+    except ValueError as error:
+        # Request models enforce length, but a whitespace-only label still
+        # reaches the identity factory. Its argument error is a field refusal.
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="invalid_actor",
+                message="Actor must contain a non-whitespace character.",
+                path="actor",
+            )
+        ]) from error
 
 
 def _ilt_edits(data: IltFilterData | None) -> list[PredicateEdit] | None:
