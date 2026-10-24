@@ -805,8 +805,9 @@ are byte-identical to prior combined `8895ec30`. No live policy lane is added.
 
 The raw log is `studio-deadline-composition-full-windows314.log`; the separate
 result JSON, source-identity/composition manifests and postcheck are retained
-with the review evidence. This full run qualifies its named combined snapshot
-for the local-CI tooling paths; it does not replace the earlier full 3.13 run at
+with the review evidence, including an artifact hash index and exact commands.
+This full run verifies normal Windows execution of its named combined snapshot;
+it does not replace the earlier full 3.13 run at
 `3cca0180`, the earlier full 3.14 controller/candidate pair, or any product
 oracle verdict. The narrower native before/after controls above retain their
 own exact sources. WI-084 remains open for the wider Plan 036 programme.
