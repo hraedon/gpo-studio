@@ -32,9 +32,8 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**6 open.**
+**5 open.**
 
-- [WI-090](#wi-090--a-blank-claimed-actor-escapes-as-an-http-500) - translate identity-factory argument errors into a request-field refusal before a workspace write.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
@@ -4089,7 +4088,9 @@ command never launches.
 ## WI-090 — a blank claimed actor escapes as an HTTP 500
 
 **Opened:** 2026-10-24 (ordinary API input review).
-**Status:** open.
+**Status:** closed 2026-10-24. The HTTP boundary preserves the identity library
+contract, refuses blank actors before writes, and passes qualification plus two
+independent Tier-2 reviews.
 
 Request models enforce actor length but accept whitespace-only text. The shared
 identity factory already rejects those labels with `ValueError`; the API let
@@ -4110,3 +4111,35 @@ or history. Correcting only the actor must allow the operation and record the
 factory's normalized actor and supplied reason. Preserve the identity library
 contract, complete the required checks including the available Windows leg,
 and bank two independent Tier-2 reviews.
+
+**Closure evidence:** runtime/test commit `347aeea65ed9c9f60b1f52c68a56dc9d30204b42`.
+The actual HTTP baseline has 28 failing whitespace cases and one passing
+unrelated-error control; the patched HTTP/library selection passes 37 tests.
+All four whitespace forms across seven operation families leave complete SQL
+state/history unchanged on refusal, leave no transaction open, and succeed
+after correcting only the actor with the normalized immutable audit.
+
+The full Linux suite passes 13,201 tests (142 skips, one xfail and 67 subtests)
+in 933.27 seconds, with all 11 coverage floors met and 90.96% total branch
+coverage. Frontend checks pass 171 tests. The browser recheck passes all 73;
+the first run's old-main initial-selection race is retained separately and
+is addressed by PR120, outside this patch. Installed-wheel smoke and the
+upgrade/rollback rehearsal pass.
+
+The available hosted Windows leg uses Python 3.14.9 on Windows Server 2025:
+12,892 tests pass (425 skips, one xfail and 55 subtests) in 1,984.00 seconds,
+with all 11 coverage floors met and 91.84% total branch coverage. Run
+`40136756895`, job `120999776724`, tests PR merge
+`57e563025828d4e9ce80cacec594b5474a584bf1`; its complete tree and the frozen
+runtime/test head both equal `9c5a983d1e5ca2d975518962b534333b6d6110a4`.
+This is application/runtime evidence, not a native policy/oracle verdict.
+
+Both independent Tier-2 reviews pass. One executes 832 targeted tests and
+58 additional HTTP whitespace requests, including the six JSON control cases
+that retain the earlier XML-text refusal. The other executes 227 targeted
+tests and 13 additional probe cases, and restores the old helper in memory
+to reproduce the 28 intended failures and passing internal-error control.
+Both independently check the hosted Windows log, source hashes and merge-tree
+equivalence. Extra probes preserve the existing claimed/untrusted identity,
+normalization and unrelated exception behavior; they establish no trusted
+authentication or broader crash-recovery guarantee.
