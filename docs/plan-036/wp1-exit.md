@@ -656,6 +656,18 @@ errors stop startup instead of being interpreted as a missing record. Executing
 controls preserve the owner and sentinel for the metadata-error case. These are
 portable error-contract probes; a denied Windows ACL is not claimed as tested.
 
+The next executing review found the same suppressed-error pattern in the
+run-age lookup: an unreadable fresh ownerless run could bypass recent-run
+protection. Following the review-round rule in `AGENTS.md`, the correction uses
+a shared query boundary instead of another isolated lookup patch.
+`Get-ExistingItem` handles both owner and run-age metadata, accepting only a
+genuine missing-item exception. `Get-ExistingProcess` accepts only the exact
+missing-ID error and propagates other failures. Six permission/resource-error
+controls cover all three query sites; four fail at `80f31e43`, while its two
+existing owner-query controls already refuse correctly. This later design
+change still requires separate native verification after the running `3cca0180`
+job; that full run must not be attributed to these newer bytes.
+
 The atomic writer also avoids removing a temporary file that was successfully
 renamed, preserving a successful standalone PowerShell status. Its new executing
 regression fails before and passes after the change. A local `ssh -G` check pins

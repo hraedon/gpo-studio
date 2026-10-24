@@ -365,8 +365,10 @@ def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
         assert (root / ("b" * 24)).is_dir()
 
 
-def test_windows_startup_refuses_owner_metadata_access_errors(
-    ci_local: ModuleType, tmp_path: Path
+@pytest.mark.parametrize("query", ["owner", "run", "process"])
+@pytest.mark.parametrize("category", ["PermissionDenied", "ResourceUnavailable"])
+def test_windows_startup_refuses_owner_query_errors(
+    ci_local: ModuleType, tmp_path: Path, query: str, category: str
 ) -> None:
     pwsh = shutil.which("pwsh")
     if pwsh is None:
@@ -377,14 +379,30 @@ def test_windows_startup_refuses_owner_metadata_access_errors(
     sentinel = sibling / "sentinel"
     sentinel.write_text("preserve", encoding="ascii")
     owner = sibling / "phase-owner"
-    owner.write_text("2147483647|1", encoding="ascii")
+    if query != "run":
+        owner.write_text("2147483647|1", encoding="ascii")
     script = ci_local._powershell_prelude() + "\n"
-    script += f"$script:blocked={ci_local._powershell_literal(str(owner))}\n"
-    script += r"""
+    blocked = sibling if query == "run" else owner
+    script += f"$script:blocked={ci_local._powershell_literal(str(blocked))}\n"
+    script += f"$script:category='{category}'\n"
+    if query == "process":
+        script += r"""
+function Get-Process {
+    param($Id, $ErrorAction)
+    if ($Id -eq 2147483647) {
+        Write-Error 'owner query unavailable' -Category $script:category `
+            -ErrorAction $ErrorAction
+        return
+    }
+    Microsoft.PowerShell.Management\Get-Process @PSBoundParameters
+}
+"""
+    else:
+        script += r"""
 function Get-Item {
     param($LiteralPath, [switch]$Force, $ErrorAction)
     if ($LiteralPath -eq $script:blocked) {
-        Write-Error 'owner metadata unavailable' -Category PermissionDenied `
+        Write-Error 'owner query unavailable' -Category $script:category `
             -ErrorAction $ErrorAction
         return
     }
@@ -401,9 +419,10 @@ function Get-Item {
         timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert completed.returncode != 0
-    assert "owner metadata unavailable" in completed.stderr
+    assert "owner query unavailable" in completed.stderr
     assert sentinel.read_text(encoding="ascii") == "preserve"
-    assert owner.read_text(encoding="ascii") == "2147483647|1"
+    if query != "run":
+        assert owner.read_text(encoding="ascii") == "2147483647|1"
     assert not (root / ("b" * 24)).exists()
 
 

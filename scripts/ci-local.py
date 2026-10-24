@@ -783,10 +783,23 @@ def _validate_remote_path(value: str) -> str:
 
 def _windows_remove_owned_run_function() -> str:
     return (
+        # Query adapters distinguish genuine absence from an unreadable state.
+        # Both owner and run-age metadata must use the same missing-item rule.
+        "function Get-ExistingItem([string]$path) {\n"
+        "  try { return Get-Item -LiteralPath $path -Force -ErrorAction Stop }\n"
+        "  catch [System.Management.Automation.ItemNotFoundException] { return $null }\n"
+        "}\n"
+        "function Get-ExistingProcess([int]$processId) {\n"
+        "  try { return Get-Process -Id $processId -ErrorAction Stop }\n"
+        "  catch {\n"
+        "    if ($_.FullyQualifiedErrorId -ne "
+        "'NoProcessFoundForGivenId,Microsoft.PowerShell.Commands.GetProcessCommand') { throw }\n"
+        "    return $null\n"
+        "  }\n"
+        "}\n"
         "function Get-RunOwner([string]$target) {\n"
         "  $owner=Join-Path $target 'phase-owner'\n"
-        "  try { $entry=Get-Item -LiteralPath $owner -Force -ErrorAction Stop }\n"
-        "  catch [System.Management.Automation.ItemNotFoundException] { $entry=$null }\n"
+        "  $entry=Get-ExistingItem $owner\n"
         "  if ($entry -and ($entry.PSIsContainer -or "
         "($entry.Attributes -band [IO.FileAttributes]::ReparsePoint))) {\n"
         "    throw 'invalid phase-owner record: expected an ordinary file'\n"
@@ -809,7 +822,7 @@ def _windows_remove_owned_run_function() -> str:
         "    } "
         "catch { throw 'invalid phase-owner record' }\n"
         "    if ($processId -le 0 -or $started -le 0) { throw 'invalid phase-owner record' }\n"
-        "    $process=Get-Process -Id $processId -ErrorAction SilentlyContinue\n"
+        "    $process=Get-ExistingProcess $processId\n"
         "    if ($process) {\n"
         "      $retain=$false\n"
         "      try {\n"
@@ -839,7 +852,7 @@ def _windows_remove_owned_run_function() -> str:
         "    throw ('refusing live sibling: ' + $target)\n"
         "  }\n"
         "  if (-not (Test-Path -LiteralPath (Join-Path $target 'phase-owner'))) {\n"
-        "    $item=Get-Item -LiteralPath $target -ErrorAction SilentlyContinue\n"
+        "    $item=Get-ExistingItem $target\n"
         "    if ($item -and ([DateTime]::UtcNow - $item.LastWriteTimeUtc).TotalSeconds "
         "-le $staleAfter) { throw ('refusing recent unowned sibling: ' + $target) }\n"
         "  }\n"

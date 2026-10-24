@@ -90,8 +90,10 @@ recreate a run after cleanup succeeds. Normal workspace cleanup creates none.
 
 Owner records are published by an atomic rename before extraction or phase
 launch. Existing records must be ordinary files: directories and reparse points
-are refused before inferring that a sibling is stale. Metadata access errors are
-refused rather than treated as a missing record. After trimming the record, both
+are refused before inferring that a sibling is stale. Owner and run-age metadata
+use one lookup that accepts only a genuine missing item; process lookup accepts
+only the specific missing-ID error. Other query errors are refused rather than
+treated as absence. After trimming the record, both
 fields must contain
 only decimal digits, with a positive process ID and a positive, valid Windows
 file time. Numeric expressions and other coercible text are refused. Cleanup
