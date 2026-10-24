@@ -619,3 +619,26 @@ class TestServicesConformance:
             assert attrs == expected["properties_attrs"]
             assert not set(expected["omitted_attrs"]) & attrs.keys()
             assert not set(expected["must_not_contain_attrs"]) & attrs.keys()
+
+
+@pytest.mark.parametrize("payload", [b"\xff", b"\xef\xbb\xbf\xff"])
+def test_platform_registry_reports_invalid_encoding(tmp_path: Path, payload: bytes) -> None:
+    path = tmp_path / "platforms.json"
+    path.write_bytes(payload)
+    with pytest.raises(RemediationCorpusError, match="unreadable or invalid JSON"):
+        load_platform_registry(path)
+
+
+@pytest.mark.parametrize("payload", [b"\xff", b"\xef\xbb\xbf\xff"])
+def test_scenario_reports_invalid_encoding(tmp_path: Path, payload: bytes) -> None:
+    registry = load_platform_registry(PLATFORM_REGISTRY_PATH)
+    path = tmp_path / "scenario.json"
+    path.write_bytes(payload)
+    with pytest.raises(RemediationCorpusError, match="unreadable or invalid JSON"):
+        load_scenario(path, registry)
+
+
+def test_platform_registry_accepts_utf8_bom(tmp_path: Path) -> None:
+    path = tmp_path / "platforms.json"
+    path.write_bytes(b"\xef\xbb\xbf" + PLATFORM_REGISTRY_PATH.read_bytes())
+    assert load_platform_registry(path) == load_platform_registry(PLATFORM_REGISTRY_PATH)

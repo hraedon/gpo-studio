@@ -9,6 +9,14 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Evidence-pack, trust-anchor, fixture-recipe and remediation-corpus JSON file
+  loaders accept a UTF-8 byte-order mark and report invalid UTF-8 through their
+  normal validation errors. Canonical evidence hashes and signature checks
+  retain their existing meaning. Missing or unreadable matrix signature files
+  also produce a normal error without overwriting an existing output.
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the
