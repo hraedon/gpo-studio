@@ -61,13 +61,17 @@ def _calls() -> Iterator[list[str]]:
 _AUDIT = {"actor": "t", "reason": "r17"}
 
 #: Routes answering with a GPO payload that cannot carry refused stored
-#: content: each makes a new GPO from the request or a starter's settings
-#: (a starter's preferences are not derived), never from a stored one's
-#: preferences. A clean payload builds, as `test_the_spy_sees_a_build` shows.
+#: content: each makes a new GPO from the request, a starter's settings or
+#: explicitly selected registry rows, never a stored one's preferences.
+#: A clean payload builds, as `test_the_spy_sees_a_build` shows.
 _EXCUSED = {
     ("POST", "/api/gpos"): "an empty new GPO",
     ("POST", "/api/starter-gpos"): "an empty new starter GPO",
     ("POST", "/api/starter-gpos/{guid}/derive"): "a new GPO of a starter's settings only",
+    ("POST", "/api/gpos/{guid}/registry-repair/apply"): (
+        "a new GPO of explicitly selected registry rows only; acknowledged omission "
+        "of preferences is tested below for every refused-content shape"
+    ),
     ("POST", "/api/backups/import"): (
         "a GPO read from backup bytes: a new one, or (replace_guid) an existing one's "
         "content replaced whole by the fresh import"
@@ -465,6 +469,91 @@ def _plant_collection(store: Any, target: str, source: str) -> None:
     )
     connection.commit()
     assert store.get_gpo(target).gpp_collections[0].load_problems
+
+
+@pytest.mark.parametrize("shape", sorted(SHAPES))
+def test_registry_recovery_never_copies_or_builds_the_omitted_refused_preferences(
+    planted: Any,  # noqa: F811
+    shape: str,
+) -> None:
+    from test_refused_content_routes import MARKER
+
+    client, store, guid = planted(shape)
+    base = f"/api/gpos/{guid}"
+    added = _mutate(
+        client,
+        shape,
+        guid,
+        "POST",
+        f"{base}/settings",
+        {
+            "setting": {
+                "side": "computer",
+                "hive": "HKLM",
+                "key": r"Software\Policies\SyntheticRecovery",
+                "value_name": "Value",
+                "registry_type": "REG_SZ",
+                "value": "Exact raw value ",
+                "comment": "Chosen record; preferences omitted",
+            }
+        },
+    )
+    original_setting = added["gpo"]["settings"][0]
+    connection = store._connection
+
+    def source_rows() -> tuple[object, ...]:
+        return (
+            tuple(
+                connection.execute(
+                    "SELECT snapshot_json FROM gpos WHERE guid=?", (guid,)
+                ).fetchone()
+            ),
+            tuple(
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT * FROM revisions WHERE gpo_guid=? ORDER BY revision", (guid,)
+                )
+            ),
+            tuple(
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT * FROM snapshot_documents WHERE gpo_guid=? ORDER BY revision, digest",
+                    (guid,),
+                )
+            ),
+        )
+
+    before = source_rows()
+    source = _step(client, shape, "GET", f"{base}/registry-repair").json()
+    assert source["omitted_components"]["preference_collections"] == 1
+    body = {
+        **_AUDIT,
+        "name": "Synthetic recovered registry",
+        "registry_only": True,
+        "expected_revision": source["source_revision"],
+        "choices": [{"row": row["row"], "action": "keep_raw"} for row in source["rows"]],
+    }
+    preview = _step(client, shape, "POST", f"{base}/registry-repair/preview", body)
+    assert MARKER not in preview.text
+    # Applying creates a clean registry-only draft. It may build that draft's
+    # artifacts, but no preference writer may receive the omitted content.
+    with _calls() as seen:
+        result = client.post(
+            f"{base}/registry-repair/apply",
+            json={
+                **body,
+                "review_sha256": preview.json()["review_sha256"],
+            },
+        )
+    assert result.status_code == 201, result.text
+    assert MARKER not in result.text
+    assert not [name for name in seen if name.startswith("gpp.")], seen
+    recovered = result.json()["gpo"]
+    assert recovered["guid"] != guid and recovered["gpp_collections"] == []
+    assert len(recovered["settings"]) == 1
+    assert {**recovered["settings"][0], "id": original_setting["id"]} == original_setting
+    assert source_rows() == before
+    assert store.get_gpo(guid).gpp_collections[0].load_problems
 
 
 def test_the_spy_sees_a_build(planted: Any) -> None:  # noqa: F811

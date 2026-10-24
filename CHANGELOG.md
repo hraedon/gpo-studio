@@ -33,6 +33,19 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   are published atomically. Private Windows jobs reap background descendants on
   normal phase completion and abrupt wrapper termination, while preserving
   output and real exit codes. Key-authenticated SSH fails without prompting.
+- Preview an explicit keep/omit choice for every source registry row and create
+  a separate registry-only draft with fresh UUIDs. Preserve chosen native fields
+  and the original policy/history; show omitted policy components and advisory
+  editor identity warnings separately from validation and export eligibility
+  (WI-087). Native Windows policy qualification remains separate.
+  Default draft names reserve space for the recovery suffix and preserve
+  Unicode characters, including long names that already carry that suffix.
+
+- Roll back workspace writes when a Python exception or cancellation interrupts
+  creation, editing, baseline import, or recovery deletion. Previously, some
+  failures left partial rows visible on the connection and prevented the next
+  write. The original exception is preserved; baseline items committed before
+  a later item fails remain imported (WI-089).
 
 - Keep raw ADMX rows visible as unresolved when their stored side or hive no
   longer matches their structured editor identity. Preserve native state

@@ -588,7 +588,55 @@ require explicit recovery rather than automatic ADMX reconfiguration. A strict
 complete-head identity check may also prevent a partial repair which would leave
 a different duplicated family in the same head.
 
-For recovery without guessing or changing the original:
+For reviewed registry-only recovery in the browser:
+
+1. Back up the workspace and inspect the original policy and history first.
+   Recovery cannot reconstruct records overwritten by earlier edits.
+2. Open **Recover registry rows** in the policy details. Review the source
+   revision, domain, side enablement, exact raw registry records and stored
+   owner claims. Multiple possible historical owners stay uncertain regardless
+   of the current catalogue or address. Very complex IDs are shown raw without
+   an ownership guess. Values are displayed as exact JSON text, including
+   QWORDs larger than JavaScript can represent as numbers.
+3. Choose **Keep as a raw row with a new ID** or **Omit** for every source row.
+   Shared IDs are distinguished by their source row numbers. Keep-all and
+   omit-all are explicit choices; no row or owner wins automatically.
+4. Review the components that will not be copied: links, security filters,
+   WMI filter, preferences, preserved CSE entries, backup inventory and Folder
+   Redirection. The original description and import provenance are also not
+   copied. Acknowledge this registry-only scope, enter a new draft name and
+   audit actor/reason, then select **Preview choices**.
+5. Review the complete choices and audit details before **Create reviewed
+   draft**. Any input change requires another preview. A changed source revision
+   requires closing and reopening recovery, with new choices for that source;
+   old row numbers are never silently remapped. If a connection failure leaves
+   creation unconfirmed, check the policy list before retrying.
+6. Compare the new draft before exporting. Each kept record retains its side,
+   hive, key, value name, type, value, action and comment in original order, but
+   receives a fresh UUID. It has no reconstructed ADMX ownership; reconfiguration
+   at an overlapping address can still be refused. Its revision-1 description
+   identifies the original GUID/revision, and its immutable audit records the
+   supplied actor/reason. The original head and history are unchanged.
+
+The read-only API inspection is `GET /api/gpos/{guid}/registry-repair`.
+`POST /api/gpos/{guid}/registry-repair/preview` accepts `expected_revision`,
+`name`, `actor`, `reason`, `registry_only: true`, and a complete `choices` array
+of `{ "row": 0, "action": "keep_raw" }` or `"omit"` decisions. Row ordinals
+are zero-based. Preview writes nothing and returns `review_sha256` over the
+reviewed facts. Submit the same request plus that digest to
+`POST /api/gpos/{guid}/registry-repair/apply`. Apply rechecks the source and
+review before creating one draft; it never repairs the source in place. A
+source whose stored values were replaced/defaulted during tolerant loading is
+refused rather than copying guessed data. Conflicting native registry writes
+are not resolved by assigning new editor IDs.
+
+Advisory **Editing needs review** warnings explain duplicate IDs, ambiguous
+owners and copied/unresolved ownership before an unrelated edit fails. They do
+not add validation errors or disable independently eligible native exports.
+Existing clean restores remain available. This workspace workflow does not
+claim a new native Windows policy qualification.
+
+For manual recovery without guessing or changing the original:
 
 1. Create and verify a workspace backup using the commands above. Preserve the
    original GPO and its history. Inspect its complete raw settings and relevant

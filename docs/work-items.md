@@ -4225,9 +4225,17 @@ reconfiguration does not select: configuration now refuses new writes that
 overlap retained rows, rather than committing duplicate native addresses and
 blocking exports. Overlapping newly generated single/bulk writes are also
 refused before a revision. Not configured can still leave copied rows. Current address
-matches must not silently assign ownership or authorize deletion. The warnings
-and repair workflow are future work, not implemented by the ownership refusal.
+matches must not silently assign ownership or authorize deletion. The ownership
+refusal alone does not implement warnings or recovery.
 Native Windows policy qualification remains separate.
+
+**Candidate 2026-10-24:** the inspection/preview/apply API and **Recover registry
+rows** dialog now provide explicit keep/omit choices for every row, exact JSON
+value review, a required registry-only acknowledgement and a source/review
+digest checked before creating a fresh audited draft. Pre-edit warnings stay
+separate from validation/export eligibility. Local API and Chromium/Firefox
+probes pass; complete required checks, Windows workflow qualification and
+independent review remain pending, so this item stays open.
 
 
 ## WI-088 — derive observed list-policy state without inventing intent
@@ -4274,3 +4282,49 @@ reader and the follow-up passed with independent native-pattern, writer/reader,
 read-ownership and storage-preservation probes. These establish the closing
 conditions for the read-only observation correction, not new native policy
 qualification or a reviewed identity-repair workflow.
+
+## WI-089 — a Python write failure can leave a workspace transaction open
+
+**Opened:** 2026-10-24 (review of draft creation for registry repair).
+**Status:** closed 2026-10-24. All four write transactions roll back Python
+failures and cancellation before commit, preserving the original exception and
+the existing SQLite error mapping.
+
+Creation, baseline import and recovery deletion caught only SQLite exceptions
+inside their transactions. Editing caught ordinary Python exceptions but not
+cancellation derived from `BaseException`. A failure after a SQL write could
+therefore leave a live transaction, partial rows visible on that connection,
+and no corresponding audit revision. A subsequent valid write then failed.
+This was reproduced with unencodable audit text in direct store calls; the
+HTTP request models already reject that text. No durable partial commit was
+demonstrated.
+
+All four transaction handlers now roll back on `BaseException` and preserve
+the original non-SQLite exception. SQLite error mapping stays unchanged.
+Baseline import still commits each successful item separately: a later failed
+item rolls back without undoing earlier imports, and retry skips those items.
+
+**Closes when:** injected ordinary exceptions and cancellation after SQL writes
+leave the database unchanged and reusable in each transaction path, direct
+unencodable audit text also rolls back, and a later-item import failure can be
+retried without changing the earlier item's immutable revision. Run the
+required local checks and the available Windows leg before review.
+
+**Verified 2026-10-24.** Runtime and regression source at `a882e2e6` passes the
+full Linux suite (13,187 tests, 142 skips, one expected failure, 67 subtests),
+all 11 coverage floors (90.97% total), 171 frontend tests, a 73-case browser
+recheck, static checks, installed-wheel smoke and upgrade/rollback rehearsal.
+The native Windows Python 3.14 job passes all five phases: 12,878 tests,
+425 skips, one expected failure, 55 subtests, all coverage floors (91.85%
+total) and CLI exit 0. Its separately qualified controller is `8b55b685` and
+its tested archive is `a882e2e6`; these are different roles, not interchangeable
+source claims. Fresh postchecks confirm no owned runs/markers, a released
+startup lock, unchanged profile and removal of the controller run directory.
+
+Both independent Tier-2 reviews pass. One executes 226 targeted tests and
+43 additional late-SQL/control cases plus a repeated-import scenario, covering
+shared retained documents, archive-schema rollback, cancellation, immutable
+history, independent readers and connection reuse. The other executes 278
+targeted tests and audits the source and qualification evidence. These results
+qualify workspace transaction cleanup; they claim no native policy/oracle lane
+or undo after an already completed commit.

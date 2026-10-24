@@ -54,6 +54,14 @@ from .model import (
     WmiFilter,
     WorkspaceError,
 )
+from .registry_repair import (
+    RegistryRepairPreview,
+    RegistryRepairSource,
+    RepairChoice,
+    repair_preview,
+    repair_source,
+    repaired_settings,
+)
 from .snapshot_documents import (
     RetainedDocument,
     SnapshotDocumentError,
@@ -1148,10 +1156,14 @@ class WorkspaceStore:
                     (gpo.guid, 1, actor, reason, timestamp, payload),
                 )
                 self._connection.execute("COMMIT")
-            except sqlite3.Error as error:
+            except BaseException as error:
+                # Audit-string encoding and cancellation can fail after SQL
+                # wrote rows too; they must not leave a live transaction.
                 with contextlib.suppress(sqlite3.Error):
                     self._connection.execute("ROLLBACK")
-                self._map_sqlite_error(error)
+                if isinstance(error, sqlite3.Error):
+                    self._map_sqlite_error(error)
+                raise
         _after_commit(gpo, answers)
         return gpo
 
@@ -1340,10 +1352,11 @@ class WorkspaceStore:
                     "(SELECT digest FROM snapshot_documents)"
                 )
                 self._connection.execute("COMMIT")
-            except sqlite3.Error as exc:
+            except BaseException as exc:
                 with contextlib.suppress(sqlite3.Error):
                     self._connection.execute("ROLLBACK")
-                self._map_sqlite_error(exc)
+                if isinstance(exc, sqlite3.Error):
+                    self._map_sqlite_error(exc)
                 raise
 
     def _archive_rows(self, guid: str, deleted_at: str) -> None:
@@ -1489,12 +1502,14 @@ class WorkspaceStore:
                             (normalized.guid, 1, actor, reason, timestamp, payload),
                         )
                         self._connection.execute("COMMIT")
-                    except sqlite3.Error as error:
+                    except BaseException as error:
                         with contextlib.suppress(sqlite3.Error):
                             self._connection.execute("ROLLBACK")
-                        if isinstance(error, sqlite3.IntegrityError):
-                            raise
-                        self._map_sqlite_error(error)
+                        if isinstance(error, sqlite3.Error):
+                            if isinstance(error, sqlite3.IntegrityError):
+                                raise
+                            self._map_sqlite_error(error)
+                        raise
             except sqlite3.IntegrityError:
                 conflicts += 1
                 continue
@@ -1506,6 +1521,51 @@ class WorkspaceStore:
             "rejected": rejected,
             "total": imported + skipped + conflicts + rejected,
         }
+
+    def _registry_repair_source(self, guid: str, expected_revision: int | None) -> GPO:
+        """Call with the workspace lock held; never recover defaulted values."""
+        source = self.get_gpo(guid)
+        if expected_revision is not None and source.revision != expected_revision:
+            raise ConflictError(
+                f"Expected revision {expected_revision} but current is {source.revision}",
+                expected_revision=expected_revision,
+                current_revision=source.revision,
+            )
+        require_unreplaced(source)
+        return source
+
+    def inspect_registry_repair(self, guid: str) -> RegistryRepairSource:
+        with self._lock:
+            return repair_source(self._registry_repair_source(guid, None))
+
+    def preview_registry_repair(
+        self, guid: str, expected_revision: int, choices: tuple[RepairChoice, ...], *,
+        name: str, identity: Identity | str, reason: str,
+    ) -> RegistryRepairPreview:
+        with self._lock:
+            source = self._registry_repair_source(guid, expected_revision)
+            return repair_preview(
+                source, choices, name=name, actor=_resolve_actor(identity), reason=reason
+            )
+
+    def apply_registry_repair(
+        self, guid: str, expected_revision: int, choices: tuple[RepairChoice, ...], *,
+        name: str, identity: Identity | str, reason: str, review_sha256: str,
+    ) -> GPO:
+        with self._lock:
+            source = self._registry_repair_source(guid, expected_revision)
+            preview = repair_preview(
+                source, choices, name=name, actor=_resolve_actor(identity), reason=reason
+            )
+            if preview.review_sha256 != review_sha256:
+                raise ConflictError("Registry repair choices changed. Review a fresh preview.")
+            # The exclusive workspace lock binds the source check and creation.
+            # create_gpo owns its transaction; do not nest BEGIN statements.
+            return self.create_gpo(
+                preview.name, preview.description, identity=preview.actor, reason=preview.reason,
+                settings=repaired_settings(source, choices), domain=source.domain,
+                computer_enabled=source.computer_enabled, user_enabled=source.user_enabled,
+            )
 
     def fork_gpo(
         self,
@@ -1632,7 +1692,7 @@ class WorkspaceStore:
                     (current.guid, updated.revision, actor, reason, timestamp, payload),
                 )
                 self._connection.execute("COMMIT")
-            except Exception as exc:
+            except BaseException as exc:
                 with contextlib.suppress(sqlite3.Error):
                     self._connection.execute("ROLLBACK")
                 if isinstance(exc, sqlite3.Error):

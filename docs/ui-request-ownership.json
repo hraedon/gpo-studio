@@ -690,5 +690,46 @@
     "class": "transport",
     "policy": "Explicit write adapter delegates to pure api and resolves only its prior persistent error after success, including primitive/204 responses; no HTTP-method inference.",
     "adapter": "tests/frontend/api.test.mjs"
+  },
+  {
+    "id": "registry-repair.source",
+    "file": "registry-repair.mjs",
+    "owner": "openRegistryRepair",
+    "channel": "api",
+    "method": "GET",
+    "path": "`/api/gpos/${target.guid}/registry-repair`",
+    "class": "read",
+    "policy": "Explicit per-row decisions and a reviewed source revision bind registry-only recovery; dialog sessions and pending leases guard presentation, while committed creation updates membership without taking newer editors.",
+    "adapter": "tests/browser/registry-repair.spec.mjs",
+    "ownerScope": "Registry recovery dialog session, selected policy and source revision; preview also binds all form inputs",
+    "errorSink": "Leased inline form errors",
+    "retirement": "Close/reopen, policy/editor intent, any preview input change or successor request",
+    "cacheAdmission": "No shared cache; exact registry JSON strings retained only in this source inspection"
+  },
+  {
+    "id": "registry-repair.preview",
+    "file": "registry-repair.mjs",
+    "owner": "previewChoices",
+    "channel": "api",
+    "method": "POST",
+    "path": "`/api/gpos/${originalSource.source_guid}/registry-repair/preview`",
+    "class": "preview",
+    "policy": "Explicit per-row decisions and a reviewed source revision bind registry-only recovery; dialog sessions and pending leases guard presentation, while committed creation updates membership without taking newer editors.",
+    "adapter": "tests/browser/registry-repair.spec.mjs",
+    "ownerScope": "Registry recovery dialog session, selected policy and source revision; preview also binds all form inputs",
+    "errorSink": "Leased inline form errors",
+    "retirement": "Close/reopen, policy/editor intent, any preview input change or successor request",
+    "cacheAdmission": "No shared cache; exact registry JSON strings retained only in this source inspection"
+  },
+  {
+    "id": "registry-repair.apply",
+    "file": "registry-repair.mjs",
+    "owner": "applyReviewed",
+    "channel": "actionApi",
+    "method": "POST",
+    "path": "`/api/gpos/${review.guid}/registry-repair/apply`",
+    "class": "mutation",
+    "policy": "Explicit per-row decisions and a reviewed source revision bind registry-only recovery; dialog sessions and pending leases guard presentation, while committed creation updates membership without taking newer editors.",
+    "adapter": "tests/browser/registry-repair.spec.mjs"
   }
 ]

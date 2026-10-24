@@ -75,6 +75,9 @@ export function renderAll({refreshBrowser=true}={}){
   if(g.cse_metadata&&g.cse_metadata.length)metaParts.push(`<dt>CSE extensions</dt><dd>${g.cse_metadata.length} extension${g.cse_metadata.length===1?'':'s'}</dd>`);
   metaParts.push(`<dt>Policy semantic hash</dt><dd class="mono" title="${escapeHtml(state.policyHash)}">${escapeHtml(state.policyHash.slice(0,16))}…</dd><dt>Review model hash</dt><dd class="mono" title="${escapeHtml(state.reviewHash)}">${escapeHtml(state.reviewHash.slice(0,16))}…</dd><dt>Updated</dt><dd>${new Date(g.updated_at).toLocaleString()}</dd>`);
   $("#metadata").innerHTML=metaParts.join("");
+  const editingWarnings=state.editingWarnings||[];
+  $("#editing-warnings").hidden=!editingWarnings.length;
+  $("#editing-warning-list").innerHTML=editingWarnings.map(item=>`<li>${escapeHtml(item.message)} <span class="form-hint">Source rows ${item.rows.map(index=>index+1).join(", ")}.</span></li>`).join("");
   renderValidation();renderSettings();renderLinks();renderFilters();renderWmi();renderGpp();
   const readOnly=g.status==="archived";
   ["edit-metadata","add-setting","add-link","add-filter","copy-settings","edit-wmi","add-gpp-group","add-gpp-registry"].forEach(id=>{const control=$("#"+id);if(!control)return;control.disabled=readOnly;control.title=readOnly?"Archived policies are read-only. Fork this policy to edit it.":""});
