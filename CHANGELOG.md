@@ -9,6 +9,11 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Close the SQLite connection behind the discovery fallback test wrapper,
+  avoiding an unclosed-database warning during later tests.
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

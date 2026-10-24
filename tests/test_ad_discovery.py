@@ -707,6 +707,9 @@ def test_store_search_principals_domain_filter_fallback(tmp_path) -> None:
                 raise sqlite3.OperationalError("no such function: json_extract")
             return self._conn.execute(sql, params)
 
+        def close(self) -> None:
+            self._conn.close()
+
     store = WorkspaceStore(tmp_path / "discovery.db")
     _cache_principal(store, _PRINCIPAL_AD)
     _cache_principal(store, _PRINCIPAL_OTHER)
