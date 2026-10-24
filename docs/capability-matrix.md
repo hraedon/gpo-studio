@@ -1067,16 +1067,21 @@ writes per checkbox is R12's question (WI-066).
 
 ---
 
-## Post-1.0 domain layers — landed but not surfaced
+## Post-1.0 workspace recovery
 
-**Workspace recovery under qualification (WI-087).** `registry_repair.py` is
-reachable through **Recover registry rows** and the inspection/preview/apply
-routes described in [workspace recovery](workspace-recovery.md#legacy-registry-editor-ids-and-ambiguous-admx-ownership).
-It previews explicit choices for every row and creates a separate registry-only
-draft with fresh raw identities, preserving selected native fields and the
-original history. Local API and Chromium/Firefox probes pass; the complete
-workflow's Windows checks and independent review are pending. This entry does
-not claim a native policy format, deployment or Windows policy qualification.
+**Reviewed registry-only recovery (WI-087 closed).** The candidate exposes
+**Recover registry rows** and the inspection/preview/apply routes described in
+[workspace recovery](workspace-recovery.md#legacy-registry-editor-ids-and-ambiguous-admx-ownership).
+Operators explicitly keep or omit every row, acknowledge omitted components,
+review exact values and create a separate audited draft with fresh identities.
+Selected native fields and the original history are preserved; advisory owner
+warnings stay separate from validation/export eligibility. Linux, Chromium and
+Firefox checks, hosted and lab Windows application checks, and two independent
+Tier-2 code reviews pass at `433684d9`. The [work-item closure](work-items.md#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities)
+records the source identities and qualification scope. Native policy format,
+deployment and Plan 033 oracle qualification remain separate.
+
+## Post-1.0 domain layers — landed but not surfaced
 
 > **Not part of the 1.0 capability contract.** Unless the Surfaced column says
 > otherwise, nothing listed here is reachable by an operator. It is documented

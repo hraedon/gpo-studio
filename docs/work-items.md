@@ -32,9 +32,8 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**7 open.**
+**6 open.**
 
-- [WI-087](#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities) - preview and apply explicit registry-row identity/ownership repairs while preserving all chosen records and original history.
 - [WI-086](#wi-086--qualify-an-authenticated-iis-hosted-shared-authoring-profile) - prove the shared-service identity boundary, collaborative storage and repeatable IIS deployment under Plan 032.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
@@ -4111,7 +4110,9 @@ this item's closing condition.
 ## WI-087 — provide a reviewed repair workflow for legacy registry identities
 
 **Opened:** 2026-10-23 (bulk/ADMX setting identity investigation).
-**Status:** open.
+**Status:** closed 2026-10-24. The surfaced registry-only recovery workflow
+preserves explicit choices and source history, passes Linux/browser/Windows
+application checks, and has two independent Tier-2 code reviews.
 
 The authoring fix refuses duplicate editor IDs and ambiguous legacy ownership
 before a write can choose or erase the wrong registry record. Existing heads and
@@ -4145,14 +4146,52 @@ matches must not silently assign ownership or authorize deletion. The ownership
 refusal alone does not implement warnings or recovery.
 Native Windows policy qualification remains separate.
 
-**Candidate 2026-10-24:** the inspection/preview/apply API and **Recover registry
-rows** dialog now provide explicit keep/omit choices for every row, exact JSON
-value review, a required registry-only acknowledgement and a source/review
-digest checked before creating a fresh audited draft. Pre-edit warnings stay
-separate from validation/export eligibility. Local API and Chromium/Firefox
-probes pass; complete required checks, Windows workflow qualification and
-independent review remain pending, so this item stays open.
+**Closure evidence:** runtime/test commit
+`433684d9f05863c51f82d09cef8c0de16a6fcd4a`. Inspection, preview and the
+**Recover registry rows** dialog require explicit keep/omit decisions for every
+row, display exact JSON and stored owner claims, and require the registry-only
+scope acknowledgement. Apply rechecks the source revision and reviewed digest
+under the workspace lock, then creates a fresh audited draft with unique IDs.
+Selected native fields, order and comments stay exact; source SQL head,
+history and retained document references remain untouched. Known replaced or
+defaulted source values are refused. The original description, private import
+provenance and other policy components are not copied; disclosed omission
+counts remain part of the review. Advisory warnings do not become validation
+errors or a blanket export ban. New identities do not resolve native-address
+conflicts or reconstruct historical ADMX intent.
 
+The full Linux suite passes 13,710 tests (142 skips, one xfail and 67 subtests)
+in 1,100.68 seconds; all 11 branch-coverage floors pass (91.30% total, 90.90%
+store). Frontend checks pass 257 tests and the complete Chromium/Firefox suite
+passes 538 cases in 15.4 minutes. Installed-wheel smoke and upgrade/rollback
+checks pass. Long default names reserve suffix space and preserve complete
+Unicode characters; the two original failures and the passing 15-case focused
+browser selection are retained.
+
+Hosted Windows Python 3.14.9 passes 13,401 tests (425 skips, one xfail and
+55 subtests) in 1,481.39 seconds, with all 11 floors and 92.16% total branch
+coverage. Run `40138646882`, job `121005522825`, tests merge
+`95ea51190bc753c608445c14280a484c1e6314ea`; its complete tree and the frozen
+runtime head both equal `cf01c9972b46b0d2da6dccc10f77fa855e03b789`.
+
+A separate lab Windows 3.14 run uses qualified controller
+`8b55b685eb8567c288fec2cb9874c51f36c3d2bb` to test the exact `433684d9`
+archive. It passes the same 13,401 tests in 2,592.34 seconds and all five job
+phases, including all 11 floors (92.16% total). Actual wall time including
+cleanup is 2,788.085 seconds. Fresh postchecks confirm zero owned runs and
+cancellation markers, a released startup lock, unchanged profile environment
+and removal of the controller run directory. Controller qualification and
+product-archive qualification retain their separate identities.
+
+Both independent Tier-2 code reviews pass. One executes 208 targeted backend
+tests, 22 independent synthetic controls, 122 register/cost checks and all
+15 focused browser cases. Its controls cover all six native types, changed
+reviewed facts, post-revision-SQL cancellation/rollback/reuse and a real-lock
+versus unlocked concurrency control. The other executes five primary targeted
+selections totalling 412 passes, a 36-case conflict recheck, frontend tests and
+independent API/digest/exact-value probes. These qualify the offline workspace
+workflow; native policy format, deployment, shared-service authentication and
+Plan 033 oracle qualification remain separate.
 
 ## WI-088 — derive observed list-policy state without inventing intent
 
