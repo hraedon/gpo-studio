@@ -1562,7 +1562,7 @@ class WorkspaceStore:
             # The exclusive workspace lock binds the source check and creation.
             # create_gpo owns its transaction; do not nest BEGIN statements.
             return self.create_gpo(
-                preview.name, preview.description, identity=identity, reason=reason,
+                preview.name, preview.description, identity=preview.actor, reason=preview.reason,
                 settings=repaired_settings(source, choices), domain=source.domain,
                 computer_enabled=source.computer_enabled, user_enabled=source.user_enabled,
             )

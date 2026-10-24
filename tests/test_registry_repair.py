@@ -401,3 +401,39 @@ def test_identity_warnings_do_not_prevent_a_clean_historical_restore(tmp_path, m
         assert result.json()["gpo"]["revision"] == 3
         assert result.json()["editing_warnings"] == []
         assert store.get_revision(clean.guid, 2) == old_revision
+
+
+def test_creation_uses_the_actor_value_bound_by_the_review(tmp_path):
+    class ChangingIdentity:
+        def __init__(self):
+            self.reads = 0
+
+        @property
+        def actor(self):
+            self.reads += 1
+            return "synthetic-reviewer" if self.reads == 1 else "different-actor"
+
+        @property
+        def is_trusted(self):
+            return False
+
+        @property
+        def source(self):
+            return "synthetic-identity-provider"
+
+    with closing(WorkspaceStore(tmp_path / "workspace.db")) as store:
+        source = historical_source(store)
+        choices = keep_all(source)
+        preview = store.preview_registry_repair(source.guid, 1, choices, name="Recovered", **AUDIT)
+        identity = ChangingIdentity()
+        created = store.apply_registry_repair(
+            source.guid,
+            1,
+            choices,
+            name="Recovered",
+            identity=identity,
+            reason=AUDIT["reason"],
+            review_sha256=preview.review_sha256,
+        )
+        assert store.revisions(created.guid)[0].actor == preview.actor
+        assert identity.reads == 1

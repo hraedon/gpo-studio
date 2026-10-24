@@ -12,7 +12,7 @@ import json
 import re
 from collections import defaultdict
 from dataclasses import asdict, dataclass, replace
-from typing import Literal
+from typing import Literal, assert_never
 from uuid import uuid4
 
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
@@ -42,6 +42,16 @@ class RowIdentity:
 class RepairChoice:
     row: int
     action: Literal["keep_raw", "omit"]
+
+
+def _keeps_row(action: Literal["keep_raw", "omit"]) -> bool:
+    match action:
+        case "keep_raw":
+            return True
+        case "omit":
+            return False
+        case _:
+            assert_never(action)
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +229,7 @@ def repair_preview(
         actor,
         reason,
         decisions,
-        sum(choice.action == "keep_raw" for choice in decisions),
+        sum(_keeps_row(choice.action) for choice in decisions),
         "",
     )
     # Only the public facts actually reviewed here enter this digest. In
@@ -245,5 +255,5 @@ def repaired_settings(
             value=list(setting.value) if isinstance(setting.value, list) else setting.value,
         )
         for setting, choice in zip(source.settings, ordered_choices(source, choices), strict=True)
-        if choice.action == "keep_raw"
+        if _keeps_row(choice.action)
     )
