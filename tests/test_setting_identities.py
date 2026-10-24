@@ -27,7 +27,7 @@ from gpo_studio.admx import (
 from gpo_studio.api import app
 from gpo_studio.canonical import policy_semantic_dict
 from gpo_studio.export import _gpmc_preg_bytes
-from gpo_studio.model import GPO, RegistrySetting, ValidationError
+from gpo_studio.model import GPO, RegistrySetting, Side, ValidationError
 from gpo_studio.policy_config import (
     PolicyConfiguration,
     legacy_setting_parts,
@@ -1024,3 +1024,117 @@ def test_explicit_empty_id_updates_exact_row_and_only_omitted_ids_mint_uuids(har
         minted.add(new_id)
     assert len(minted) == 2
     assert len(current.settings) == 4
+
+
+@pytest.mark.parametrize("original_side", ["computer", "user"])
+def test_side_edited_structured_child_remains_visible_as_unresolved(original_side: Side) -> None:
+    definition = replace(
+        policy("SideEdited", value_name="State", elements=(text("state"),)), class_="Both"
+    )
+    rows = resolve_policy(definition, PolicyConfiguration(original_side, {"state": "retained"}))
+    target_side = "user" if original_side == "computer" else "computer"
+    edited = tuple(
+        replace(row, side=target_side, hive="HKCU" if target_side == "user" else "HKLM")
+        if row.value_name == "Option" else row for row in rows
+    )
+    child = next(row for row in edited if row.value_name == "Option")
+    assert child.id.startswith("admx2:")
+    result = build_settings_browser(AdmxCatalogue(policies=(definition,)), edited)
+    assert len(result.unresolved) == 1
+    assert result.unresolved[0].setting == child
+    assert result.unresolved[0].reason == (
+        "structured policy identity does not match registry location"
+    )
+    assert all(not group.element_values for group in result.resolved)
+    original = next(group for group in result.resolved if group.side == original_side)
+    assert original.state == "enabled"
+    assert result.filter_by_side(target_side).unresolved[0].setting == child
+
+
+@pytest.mark.parametrize("original_side", ["computer", "user"])
+def test_structured_child_with_changed_hive_is_not_decoded(original_side: Side) -> None:
+    # The current Store rejects hive-only edits; retain visibility for legacy
+    # or externally injected invalid rows without treating them as child values.
+    definition = replace(
+        policy("HiveEdited", value_name="State", elements=(text("state"),)), class_="Both"
+    )
+    rows = resolve_policy(definition, PolicyConfiguration(original_side, {"state": "retained"}))
+    edited = tuple(
+        replace(row, hive="HKCU" if original_side == "computer" else "HKLM")
+        if row.value_name == "Option" else row for row in rows
+    )
+    child = next(row for row in edited if row.value_name == "Option")
+    result = build_settings_browser(AdmxCatalogue(policies=(definition,)), edited)
+    assert len(result.unresolved) == 1
+    assert result.unresolved[0].setting == child
+    assert result.unresolved[0].reason == (
+        "structured policy identity does not match registry location"
+    )
+    assert all(not group.element_values for group in result.resolved)
+
+
+@pytest.mark.parametrize("original_side", ["computer", "user"])
+def test_side_edited_state_still_observes_actual_native_writes(original_side: Side) -> None:
+    definition = replace(
+        policy("NativeSide", value_name="State", elements=(text("state"),)), class_="Both"
+    )
+    state = resolve_policy(definition, PolicyConfiguration(original_side, {}, "disabled"))[0]
+    target_side = "user" if original_side == "computer" else "computer"
+    moved = replace(state, side=target_side, hive="HKCU" if target_side == "user" else "HKLM")
+    result = build_settings_browser(AdmxCatalogue(policies=(definition,)), (moved,))
+    assert len(result.unresolved) == 1
+    assert result.unresolved[0].setting == moved
+    target = next(group for group in result.resolved if group.side == target_side)
+    assert target.state == "disabled"
+    assert target.raw_settings == (moved,)
+
+
+@pytest.mark.parametrize("loaded", [False, True])
+def test_structured_location_problem_is_reported_once_without_address_match(loaded: bool) -> None:
+    definition = policy("OrphanSide", value_name="State", elements=(text("state"),))
+    child = next(
+        row for row in resolve_policy(definition, PolicyConfiguration("computer", {"state": "raw"}))
+        if row.value_name == "Option"
+    )
+    moved = replace(child, side="user", hive="HKCU", key=KEY + r"\Unknown")
+    catalogue = AdmxCatalogue(policies=(definition,) if loaded else ())
+    result = build_settings_browser(catalogue, (moved,))
+    assert len(result.unresolved) == 1
+    assert result.unresolved[0].setting == moved
+    assert result.unresolved[0].reason == (
+        "structured policy identity does not match registry location"
+    )
+
+
+def test_api_side_edit_keeps_value_visible_without_rewriting_history(harness: Any) -> None:
+    client, store = harness
+    definition = schemas()[2]
+    rows = tuple(resolve_policy(definition, PolicyConfiguration("computer", {"state": "retained"})))
+    child = next(row for row in rows if row.value_name == "ZZZOption")
+    gpo = store.create_gpo(
+        "Synthetic side-edit diagnostic", settings=rows,
+        identity="test", reason="Seed current structured editor identity",
+    )
+    body = asdict(child)
+    body.update(side="user", hive="HKCU")
+    edited = client.put(
+        f"/api/gpos/{gpo.guid}/settings/{quote(child.id, safe='')}",
+        json={
+            "expected_revision": gpo.revision, "setting": body,
+            "actor": "side-editor", "reason": "Move reviewed raw registry record",
+        },
+    )
+    assert edited.status_code == 200, edited.text
+    before = storage(store)
+    read = client.get(f"/api/gpos/{gpo.guid}/configured-settings")
+    assert read.status_code == 200, read.text
+    unresolved = read.json()["unresolved"]
+    assert len(unresolved) == 1
+    assert unresolved[0]["id"] == child.id
+    assert unresolved[0]["value"] == "retained"
+    assert unresolved[0]["side"] == "user"
+    assert read.json()["unresolved_count"] == 1
+    # Reads and exports preserve both the edited native record and old revision.
+    assert client.get(f"/api/gpos/{gpo.guid}/export.zip").status_code == 200
+    assert store.get_revision(gpo.guid, 1).snapshot["settings"] == [asdict(row) for row in rows]
+    assert storage(store) == before

@@ -343,6 +343,9 @@ def test_wrong_hive_marker_is_not_current_evidence(side: Side) -> None:
     result = observed(p, (row,))
     assert result.resolved[0].state == "indeterminate"
     assert result.unresolved[0].setting == row
+    assert result.unresolved[0].reason == (
+        "structured policy identity does not match registry location"
+    )
 
 
 def test_actual_old_duplicate_frame_head_remains_readable_and_native_exportable(
