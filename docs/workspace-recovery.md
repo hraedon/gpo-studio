@@ -676,8 +676,10 @@ Copy retains editor IDs and Fork prefixes them; both preserve a duplicate pair
 and therefore do **not** repair a malformed source with duplicate IDs. Restoring
 a clean historical revision is another recovery path; restoring a duplicated
 revision is refused without
-rewriting that historical snapshot. A dedicated reviewed repair workflow remains
-open as [WI-087](work-items.md#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities).
+rewriting that historical snapshot. The **Recover registry rows** dialog above
+provides reviewed registry-only recovery into a fresh draft;
+[WI-087](work-items.md#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities)
+records its qualification and limits.
 
 Policy-state observations compare complete native scalar-marker/list patterns.
 An old state row at a moved address is not evidence of either current state;
