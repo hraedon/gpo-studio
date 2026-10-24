@@ -15,6 +15,7 @@ import {initFolderRedirection} from './folder-redirection.mjs';
 import {initScripts} from './scripts.mjs';
 import {initPublication} from './publication.mjs';
 import {initTemplates} from './templates.mjs';
+import {initRegistryRepair} from './registry-repair.mjs';
 import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,updateMutationList,mutationFailed,endMutation} from './mutation-context.mjs';
 import {captureDialogFocus,restoreDialogFocus} from './dialog-focus.mjs';
 
@@ -331,6 +332,7 @@ initFolderRedirection();
 initScripts();
 initPublication();
 initTemplates();
+initRegistryRepair();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
 const initialRead=tabReads.capture();

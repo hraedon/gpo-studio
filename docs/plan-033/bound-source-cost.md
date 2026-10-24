@@ -158,6 +158,7 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/provenance_migration.py`
 - `src/gpo_studio/ps_plan_validator.py`
 - `src/gpo_studio/publisher.py`
+- `src/gpo_studio/registry_repair.py`
 - `src/gpo_studio/remediation_corpus.py`
 - `src/gpo_studio/report.py`
 - `src/gpo_studio/rsop.py`

@@ -37,7 +37,7 @@ function check(sites, records) {
       .sort((a, b) => a.id.localeCompare(b.id)),
   );
 }
-test("every transport call has a semantic policy; all 30 reads/previews/artifacts remain classified", () => {
+test("every transport call has a semantic policy; all 32 reads/previews/artifacts remain classified", () => {
   const sites = readdirSync(directory)
     .filter((file) => /\.m?js$/.test(file))
     .flatMap((file) =>
@@ -49,7 +49,7 @@ test("every transport call has a semantic policy; all 30 reads/previews/artifact
     registry.filter((record) =>
       ["read", "preview", "artifact", "silent-monitor"].includes(record.class),
     ),
-  ).toHaveLength(30);
+  ).toHaveLength(32);
   expect(
     registry
       .filter((record) => record.class === "mutation")
@@ -71,6 +71,7 @@ test("every transport call has a semantic policy; all 30 reads/previews/artifact
     "gpp.restore.commit",
     "history.restore",
     "import.backup",
+    "registry-repair.apply",
     "settings.bulk",
     "starter.create",
     "starter.delete",

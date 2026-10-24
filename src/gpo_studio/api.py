@@ -222,6 +222,7 @@ from .publication import (
     validate_publication_plan,
 )
 from .registry_pol import RegistryPolError
+from .registry_repair import RepairChoice, editing_warnings
 from .report import policy_report
 from .rsop import (
     RsopQuery,
@@ -348,6 +349,39 @@ class CreateGPO(BaseModel):
     description: str = Field(default="", max_length=2000)
     actor: str = Field(default="local-operator", min_length=1, max_length=120)
     reason: str = Field(default="Create draft", min_length=1, max_length=500)
+
+
+class RegistryRepairChoiceData(BaseModel):
+    row: StrictInt = Field(ge=0)
+    action: Literal["keep_raw", "omit"]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RegistryRepairRequest(Audit):
+    name: str = Field(min_length=1, max_length=255)
+    registry_only: StrictBool
+    choices: list[RegistryRepairChoiceData]
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("registry_only")
+    @classmethod
+    def _acknowledge_registry_only(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("Acknowledge that only selected registry rows are copied.")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def _nonblank_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Enter a name for the fresh draft.")
+        return value.strip()
+
+
+class RegistryRepairApplyRequest(RegistryRepairRequest):
+    review_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class MetadataMutation(Audit):
@@ -1305,9 +1339,16 @@ class ConfiguredSettingsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class EditingWarningResponse(BaseModel):
+    code: str
+    message: str
+    rows: list[int]
+
+
 class GpoPayloadResponse(BaseModel):
     gpo: GpoResponse
     validation: list[ValidationIssueResponse]
+    editing_warnings: list[EditingWarningResponse]
     policy_semantic_sha256: str
     review_model_sha256: str
     artifact_capabilities: dict[str, Any]
@@ -2098,6 +2139,7 @@ def _build_gpo_payload(gpo: Any) -> dict[str, Any]:
     return {
         "gpo": _gpo_to_api_dict(gpo),
         "validation": [asdict(item) for item in validation],
+        "editing_warnings": [asdict(item) for item in editing_warnings(gpo)],
         "policy_semantic_sha256": None if unwritable else digests[0],
         "review_model_sha256": None if unwritable else digests[1],
         "artifact_capabilities": {
@@ -2647,6 +2689,9 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/templates/lock/validate"): _JSON,
     ("GET", "/api/gpos"): _JSON,
     ("POST", "/api/gpos"): _GPO_PAYLOAD,
+    ("GET", "/api/gpos/{guid}/registry-repair"): _JSON,
+    ("POST", "/api/gpos/{guid}/registry-repair/preview"): _JSON,
+    ("POST", "/api/gpos/{guid}/registry-repair/apply"): _GPO_PAYLOAD,
     ("GET", "/api/starter-gpos"): _JSON,
     ("POST", "/api/starter-gpos"): _GPO_PAYLOAD,
     ("POST", "/api/starter-gpos/{guid}/derive"): _GPO_PAYLOAD,
@@ -3464,6 +3509,36 @@ def list_gpos(request: Request) -> dict[str, Any]:
 def create_gpo(request: Request, body: CreateGPO) -> dict[str, Any]:
     gpo = _store(request).create_gpo(
         body.name, body.description, identity=_identity(body.actor), reason=body.reason
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.get("/api/gpos/{guid}/registry-repair")
+def inspect_registry_repair(request: Request, guid: str) -> dict[str, Any]:
+    return asdict(_store(request).inspect_registry_repair(guid))
+
+
+@app.post("/api/gpos/{guid}/registry-repair/preview")
+def preview_registry_repair(
+    request: Request, guid: str, body: RegistryRepairRequest
+) -> dict[str, Any]:
+    preview = _store(request).preview_registry_repair(
+        guid, body.expected_revision,
+        tuple(RepairChoice(choice.row, choice.action) for choice in body.choices),
+        name=body.name, identity=_identity(body.actor), reason=body.reason,
+    )
+    return asdict(preview)
+
+
+@app.post("/api/gpos/{guid}/registry-repair/apply", status_code=201)
+def apply_registry_repair(
+    request: Request, guid: str, body: RegistryRepairApplyRequest
+) -> dict[str, Any]:
+    gpo = _store(request).apply_registry_repair(
+        guid, body.expected_revision,
+        tuple(RepairChoice(choice.row, choice.action) for choice in body.choices),
+        name=body.name, identity=_identity(body.actor), reason=body.reason,
+        review_sha256=body.review_sha256,
     )
     return _gpo_payload(gpo, request)
 

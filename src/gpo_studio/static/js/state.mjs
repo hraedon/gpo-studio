@@ -1,4 +1,4 @@
-export const state={gpos:[],current:null,editorGeneration:0,validation:[],policyHash:"",reviewHash:"",artifactCapabilities:{},pendingConflict:null,side:"all",gppScope:"computer",editingSetting:null,editingLink:null,editingFilter:null,editingGppGroup:null,editingGppRegistry:null};
+export const state={gpos:[],current:null,editorGeneration:0,validation:[],editingWarnings:[],policyHash:"",reviewHash:"",artifactCapabilities:{},pendingConflict:null,side:"all",gppScope:"computer",editingSetting:null,editingLink:null,editingFilter:null,editingGppGroup:null,editingGppRegistry:null};
 export const $=selector=>document.querySelector(selector);
 export const $$=selector=>[...document.querySelectorAll(selector)];
 export const escapeHtml=value=>String(value??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
@@ -22,7 +22,7 @@ export function observeGpoDeleted(guid){
   summaryVersions.delete(guid);
   state.gpos=state.gpos.filter(gpo=>gpo.guid!==guid);
   if(state.current?.guid!==guid)return false;
-  state.current=null;state.validation=[];state.policyHash="";state.reviewHash="";state.artifactCapabilities={};state.pendingConflict=null;
+  state.current=null;state.validation=[];state.editingWarnings=[];state.policyHash="";state.reviewHash="";state.artifactCapabilities={};state.pendingConflict=null;
   return true;
 }
 export function getGpoSummaryVersion(){return summaryVersion}
@@ -51,6 +51,7 @@ export function applyPayload(payload){
   if(!updateGpoSummary(payload.gpo))return false;
   state.current=payload.gpo;
   state.validation=payload.validation||[];
+  state.editingWarnings=payload.editing_warnings||[];
   state.policyHash=payload.policy_semantic_sha256||"";
   state.reviewHash=payload.review_model_sha256||"";
   state.artifactCapabilities=payload.artifact_capabilities||{};

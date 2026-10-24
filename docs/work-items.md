@@ -4142,9 +4142,17 @@ reconfiguration does not select: configuration now refuses new writes that
 overlap retained rows, rather than committing duplicate native addresses and
 blocking exports. Overlapping newly generated single/bulk writes are also
 refused before a revision. Not configured can still leave copied rows. Current address
-matches must not silently assign ownership or authorize deletion. The warnings
-and repair workflow are future work, not implemented by the ownership refusal.
+matches must not silently assign ownership or authorize deletion. The ownership
+refusal alone does not implement warnings or recovery.
 Native Windows policy qualification remains separate.
+
+**Candidate 2026-10-24:** the inspection/preview/apply API and **Recover registry
+rows** dialog now provide explicit keep/omit choices for every row, exact JSON
+value review, a required registry-only acknowledgement and a source/review
+digest checked before creating a fresh audited draft. Pre-edit warnings stay
+separate from validation/export eligibility. Local API and Chromium/Firefox
+probes pass; complete required checks, Windows workflow qualification and
+independent review remain pending, so this item stays open.
 
 
 ## WI-088 — derive observed list-policy state without inventing intent
