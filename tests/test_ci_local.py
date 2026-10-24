@@ -252,6 +252,11 @@ def test_clixml_errors_are_decoded(ci_local: ModuleType) -> None:
         ("zero-pid", 7000, "invalid phase-owner"),
         ("negative-pid", 7000, "invalid phase-owner"),
         ("zero-start", 7000, "invalid phase-owner"),
+        ("directory", 0, "invalid phase-owner"),
+        ("directory", 7000, "invalid phase-owner"),
+        ("link-file", 0, "invalid phase-owner"),
+        ("link-directory", 0, "invalid phase-owner"),
+        ("link-dangling", 0, "invalid phase-owner"),
     ],
 )
 def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
@@ -272,7 +277,22 @@ def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
     sentinel.write_text("original", encoding="ascii")
     target = ci_local._powershell_literal(str(sibling))
     fixture = f"$sibling={target}\n"
-    if record != "missing":
+    if record == "directory":
+        fixture += "New-Item -ItemType Directory (Join-Path $sibling 'phase-owner') | Out-Null\n"
+    elif record.startswith("link-"):
+        fixture += "$target=Join-Path $sibling 'owner-target'\n"
+        if record == "link-file":
+            fixture += (
+                "Set-Content -LiteralPath $target -Value "
+                "($PID.ToString() + '|' + (Get-Process -Id $PID).StartTime.ToFileTimeUtc())\n"
+            )
+        elif record == "link-directory":
+            fixture += "New-Item -ItemType Directory $target | Out-Null\n"
+        fixture += (
+            "New-Item -ItemType SymbolicLink -Path (Join-Path $sibling 'phase-owner') "
+            "-Value $target -Force | Out-Null\n"
+        )
+    elif record != "missing":
         value = {
             "live": "$PID.ToString() + '|' + (Get-Process -Id $PID).StartTime.ToFileTimeUtc()",
             "dead": "'2147483647|1'",
@@ -1735,6 +1755,64 @@ def test_opt_in_windows_cancelled_startup_stays_cancelled(ci_local: ModuleType, 
             f"Remove-Item -LiteralPath {stage} -Recurse -Force\n"
             f"Remove-Item -LiteralPath {cancelled} -Force\n"
         )
+
+
+@pytest.mark.skipif(
+    os.environ.get("GPO_STUDIO_WINDOWS_INTEGRATION") != "1",
+    reason="set GPO_STUDIO_WINDOWS_INTEGRATION=1 for the malformed owner-path probe",
+)
+@pytest.mark.parametrize("kind", ["directory", "junction"])
+def test_opt_in_windows_malformed_owner_directory_is_preserved(
+    ci_local: ModuleType, kind: str
+) -> None:
+    host = "cw-admin@mvmcitest01"
+    workspace = ci_local.windows_initialize(host, secrets.token_hex(12), timeout=30)
+    second = None
+    target = ci_local._powershell_literal(workspace.run)
+    try:
+        create = (
+            "New-Item -ItemType Directory (Join-Path $target 'phase-owner') | Out-Null\n"
+            if kind == "directory"
+            else "New-Item -ItemType Directory (Join-Path $target 'owner-target') | Out-Null\n"
+            "New-Item -ItemType Junction -Path (Join-Path $target 'phase-owner') "
+            "-Value (Join-Path $target 'owner-target') | Out-Null\n"
+        )
+        ci_local._run_remote_capture(
+            host,
+            ci_local._powershell_prelude()
+            + f"\n$target={target}\n"
+            + create
+            + "[IO.File]::WriteAllText((Join-Path $target 'sentinel'), 'preserve')\n",
+            timeout=30,
+        )
+        with pytest.raises(RuntimeError, match="invalid phase-owner"):
+            second = ci_local.windows_initialize(host, secrets.token_hex(12), timeout=30)
+        preserved = ci_local._run_remote_capture(
+            host,
+            ci_local._powershell_prelude()
+            + f"\n$target={target}\n"
+            + "if(-not (Test-Path -LiteralPath (Join-Path $target 'phase-owner') "
+            + "-PathType Container)) "
+            + "{ throw 'malformed owner directory was removed' }\n"
+            + "Get-Content -LiteralPath (Join-Path $target 'sentinel') -Raw\n",
+            timeout=30,
+        )
+        assert preserved.strip() == "preserve"
+    finally:
+        # This is the test's own empty directory, created above; a production
+        # malformed record is deliberately never removed by automated cleanup.
+        ci_local._run_remote_capture(
+            host,
+            ci_local._powershell_prelude()
+            + f"\n$owner=Join-Path {target} 'phase-owner'\n"
+            + "try { [IO.Directory]::Delete($owner) }\n"
+            + "catch [IO.DirectoryNotFoundException] { }\n"
+            + "Write-Output 'OWNED_FIXTURE_RESTORED'\n",
+            timeout=30,
+        )
+        ci_local.windows_cleanup(host, workspace)
+        if second is not None:
+            ci_local.windows_cleanup(host, second)
 
 
 @pytest.mark.skipif(

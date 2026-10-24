@@ -4067,6 +4067,10 @@ Test-only cold-start polish `3c481ce8` retains the same runner/remote bytes and
 passes 197 focused checks. The full recovery run is 3.14 only; the older full
 3.13 evidence remains scoped to its original implementation. Review evidence is
 tracked with the recovery PR; WI-084 stays open for the wider programme.
+A subsequent review correction rejects directory-shaped and linked owner records
+before stale inference; five portable cases and real Windows directory/junction
+before/after probes preserve the run. That guard is later than the full
+`498e19d7` qualification and is recorded separately in the exit evidence.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It

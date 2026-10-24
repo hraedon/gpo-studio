@@ -591,10 +591,28 @@ fixture-release deadline; production budgets and ownership assertions are
 unchanged. An injected twelve-second launch delay fails the old guard at
 10.28s and passes the new one at 12.89s. The polished runner/register/whole-value
 and plan-status batch passes **197 tests**, with nine host opt-ins skipped.
-The runner source and every remote script byte remain identical to `498e19d7`.
+At that test-only polish, the runner source and every remote script byte remain
+identical to `498e19d7`.
 
 This full recovery qualification reruns **3.14 only**. The 3.13 exit/Unicode/
 watchdog smoke passes are retained, but the earlier full 3.13 result belongs to
 the prior implementation and is not recounted here. Independent review evidence
 is tracked with the recovery PR. These are CI-tooling measurements, not new
 product wire-format or oracle qualifications; WI-084 remains open.
+
+
+### Owner-path review correction
+
+Review of `e9f09982` found a pre-existing malformed-state gap: a directory named
+`phase-owner` could be mistaken for an existing dead-owner record. A fresh run
+and its sentinel were then deleted by startup; directory-shaped and linked
+records now produce an explicit refusal before stale-state inference. The record
+must be an ordinary file. Both fresh and old directories, file/directory links
+and dangling links are covered by five executing portable before/after cases.
+
+The real Windows directory and junction probes fail with the prior owner helper
+and pass with the corrected helper, preserving the malformed entry and sentinel.
+Fixture recovery removes only the test's own empty directory or junction before
+normal token cleanup. A production malformed record stays refused for explicit
+recovery. The full Windows 3.14 measurement above remains scoped to `498e19d7`;
+this later owner-path guard has separate probe evidence.

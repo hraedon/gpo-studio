@@ -89,7 +89,9 @@ cancellation files are deliberately retained: a deferred initializer must not
 recreate a run after cleanup succeeds. Normal workspace cleanup creates none.
 
 Owner records are published by an atomic rename before extraction or phase
-launch. An existing malformed record is refused with an explicit diagnostic;
+launch. Existing records must be ordinary files: directories and reparse points
+are refused before inferring that a sibling is stale. An existing malformed
+record is refused with an explicit diagnostic;
 confirm that its exact run has stopped before manually removing that one token
 directory. Do not delete the shared run root to recover a single run.
 

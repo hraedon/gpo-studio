@@ -11,6 +11,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Fixed
 
+- Refuse directory-shaped or linked Windows CI owner records before considering
+  a sibling stale, preserving the run and its files for explicit recovery.
+
 - The local Windows CI runner refuses workflow-wide environment variables and
   run defaults before remote access, preventing inherited CI settings from
   being silently omitted from a local qualification. It also requires checkout
