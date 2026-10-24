@@ -200,6 +200,7 @@ from .policy_config import (
     PolicyConfiguration,
     PolicyState,
     policy_setting_positions,
+    require_no_policy_setting_conflicts,
     resolve_policy,
 )
 from .policy_families import (
@@ -3079,6 +3080,7 @@ def configure_policy(
         positions = policy_setting_positions(
             current.settings, snapshot.catalogue, {(policy.qualified_id, body.side)}
         )
+        require_no_policy_setting_conflicts(current.settings, positions, settings)
         gpo = _store(request).replace_selected_settings(
             body.gpo_guid,
             body.expected_revision,
@@ -3175,6 +3177,7 @@ def bulk_policy_state(
                 expected_revision=body.expected_revision, current_revision=current.revision,
             )
         positions = policy_setting_positions(current.settings, snapshot.catalogue, owners)
+        require_no_policy_setting_conflicts(current.settings, positions, replacements)
         gpo = _store(request).replace_selected_settings(
             guid,
             body.expected_revision,
