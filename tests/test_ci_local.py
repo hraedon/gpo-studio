@@ -26,6 +26,9 @@ if sys.platform == "win32":
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci-local.py"
+# The first PowerShell fixture exceeded 10s on a hosted runner. This bounds
+# fixture execution, not a production deadline or a behaviour assertion.
+POWERSHELL_FIXTURE_TIMEOUT = 30
 
 
 def _load() -> ModuleType:
@@ -53,8 +56,8 @@ def _git(repository: Path, *arguments: str) -> str:
     return completed.stdout.strip()
 
 
-def _wait_for_file(path: Path, process: subprocess.Popen[str]) -> None:
-    deadline = time.monotonic() + 10
+def _wait_for_file(path: Path, process: subprocess.Popen[str], *, timeout: float = 10) -> None:
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if path.is_file():
             return
@@ -292,7 +295,7 @@ def test_windows_startup_behaviour_never_touches_a_live_or_recent_sibling(
         [pwsh, "-NoProfile", "-NonInteractive", "-Command", fixture + script],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     if refused:
         assert completed.returncode != 0
@@ -327,7 +330,7 @@ function Remove-Item {
         [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert completed.returncode == 0, completed.stderr
     assert not target.exists()
@@ -352,7 +355,7 @@ def test_windows_startup_lock_refuses_a_racing_initializer(
         [pwsh, "-NoProfile", "-NonInteractive", "-Command", fixture + script],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert completed.returncode != 0
     assert "refusing concurrent startup" in completed.stderr
@@ -398,7 +401,7 @@ def test_windows_cancelled_initialization_cannot_recreate_a_cleaned_run(
     )
     barrier = (
         f"[IO.File]::WriteAllText({ci_local._powershell_literal(str(ready))}, 'ready')\n"
-        "$until=[DateTime]::UtcNow.AddSeconds(15)\n"
+        "$until=[DateTime]::UtcNow.AddSeconds(60)\n"
         f"while (-not (Test-Path -LiteralPath {ci_local._powershell_literal(str(release))})) {{\n"
         "  if ([DateTime]::UtcNow -ge $until) { throw 'TEST: barrier expired' }\n"
         "  Start-Sleep -Milliseconds 20\n"
@@ -414,7 +417,7 @@ def test_windows_cancelled_initialization_cannot_recreate_a_cleaned_run(
     )
     cleanup = None
     try:
-        _wait_for_file(ready, process)
+        _wait_for_file(ready, process, timeout=POWERSHELL_FIXTURE_TIMEOUT)
         cleanup = subprocess.Popen(
             [
                 pwsh,
@@ -428,20 +431,20 @@ def test_windows_cancelled_initialization_cannot_recreate_a_cleaned_run(
             text=True,
         )
         cancellation = Path(str(root) + ".cancelled") / token
-        _wait_for_file(cancellation, cleanup)
+        _wait_for_file(cancellation, cleanup, timeout=POWERSHELL_FIXTURE_TIMEOUT)
         if pause == "before-lock":
-            stdout, stderr = cleanup.communicate(timeout=10)
+            stdout, stderr = cleanup.communicate(timeout=POWERSHELL_FIXTURE_TIMEOUT)
             assert cleanup.returncode == 0, stdout + stderr
         else:
             assert cleanup.poll() is None  # startup still owns the lock
         release.touch()
-        stdout, stderr = process.communicate(timeout=10)
+        stdout, stderr = process.communicate(timeout=POWERSHELL_FIXTURE_TIMEOUT)
         if pause == "before-lock":
             assert process.returncode != 0
             assert "cancelled Windows run token" in stderr
         else:
             assert process.returncode == 0, stdout + stderr
-        stdout, stderr = cleanup.communicate(timeout=10)
+        stdout, stderr = cleanup.communicate(timeout=POWERSHELL_FIXTURE_TIMEOUT)
         assert cleanup.returncode == 0, stdout + stderr
         assert not (root / token).exists()
         assert cancellation.read_text() == "cancelled"
@@ -460,7 +463,7 @@ def test_windows_cancelled_initialization_cannot_recreate_a_cleaned_run(
                 ],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=POWERSHELL_FIXTURE_TIMEOUT,
             )
             assert (result.returncode == 0) is succeeds, result.stderr
     finally:
@@ -468,7 +471,7 @@ def test_windows_cancelled_initialization_cannot_recreate_a_cleaned_run(
         for owned in (process, cleanup):
             if owned is not None and owned.poll() is None:
                 owned.kill()
-                owned.communicate(timeout=10)
+                owned.communicate(timeout=POWERSHELL_FIXTURE_TIMEOUT)
 
 
 def test_windows_cancelled_cleanup_reports_a_held_lock(
@@ -498,7 +501,7 @@ def test_windows_cancelled_cleanup_reports_a_held_lock(
         ],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert result.returncode != 0
     assert "refusing concurrent startup" in result.stderr
@@ -527,7 +530,7 @@ def test_windows_owner_record_failure_never_publishes_partial_or_overwrites_exis
         [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert result.returncode != 0
     if existing:
@@ -549,7 +552,7 @@ def test_windows_process_guard_compiles_without_invoking_windows_apis(ci_local: 
         [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,
         text=True,
-        timeout=20,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
     )
     assert completed.returncode == 0, completed.stderr
 
