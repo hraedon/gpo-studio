@@ -1081,6 +1081,14 @@ Tier-2 code reviews pass at `433684d9`. The [work-item closure](work-items.md#wi
 records the source identities and qualification scope. Native policy format,
 deployment and Plan 033 oracle qualification remain separate.
 
+The [WI-091 follow-up](work-items.md#wi-091--bind-recovery-review-to-the-inspected-source-and-retire-refused-previews)
+qualifies source matching between inspection and preview, retirement of a
+current refused review, and protection of newer editors at `43c7d153`.
+Its closure records Linux and Chromium/Firefox checks, hosted Windows
+application checks and two independent Tier-2 reviews. Changed source facts
+require fresh inspection; a revision change requires reloading the policy
+before reopening recovery. No new native policy/oracle verdict is claimed.
+
 ## Post-1.0 domain layers — landed but not surfaced
 
 > **Not part of the 1.0 capability contract.** Unless the Surfaced column says

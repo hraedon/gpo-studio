@@ -32,9 +32,8 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**7 open.**
+**6 open.**
 
-- [WI-091](#wi-091--bind-recovery-review-to-the-inspected-source-and-retire-refused-previews) - reject changed preview source facts and retire the current preview after a creation conflict while preserving newer editors.
 - [WI-086](#wi-086--qualify-an-authenticated-iis-hosted-shared-authoring-profile) - prove the shared-service identity boundary, collaborative storage and repeatable IIS deployment under Plan 032.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
@@ -4288,10 +4287,13 @@ or undo after an already completed commit.
 ## WI-091 — bind recovery review to the inspected source and retire refused previews
 
 **Opened:** 2026-10-24 (recovery UI review-state follow-up).
-**Status:** open.
+**Status:** closed 2026-10-24. Preview binds the inspected source, creation
+conflicts retire their current review after pending cleanup, and qualification
+plus two independent Tier-2 reviews pass. The recovery guide includes the
+required policy reload before reopening.
 
-The browser displays rows from inspection but accepts preview's digest without
-checking that its returned source still matches those inspected facts. In a
+Before the fix, the browser displayed rows from inspection but accepted preview's
+digest without checking that its returned source still matched those facts. In a
 private synthetic browser/server probe at `310d2c14`, an out-of-band head edit
 that keeps the revision unchanged causes preview to bind a different value;
 the dialog still displays the old value, enables creation, and creates the
@@ -4299,8 +4301,8 @@ new draft with the uninspected value. Ordinary API edits advance revision and
 remain covered by revision refusal. This observation does not establish a
 normal API race or expand support for arbitrary external SQLite writers.
 
-A refused creation also leaves its old preview actionable: pending-control
-cleanup restores the enabled Apply button after a 409. The operator should
+A refused creation also left its old preview actionable: pending-control
+cleanup restored the enabled Apply button after a 409. The operator should
 retain choices for reference, retire that refused review, and explicitly
 review again; a changed source requires a fresh inspection. A retired response
 must not invalidate a newer editor's review, and a transient refusal must not
@@ -4317,3 +4319,45 @@ refusals retain a valid retry. Tests exercise both browsers and the actual
 synthetic same-revision boundary, required local/available Windows checks pass,
 and two independent Tier-2 reviews are banked. No native policy qualification
 or new backend concurrency guarantee is claimed.
+
+**Closure evidence:** runtime/test commit
+`43c7d15368487229d53b4c0465861564ccbd0edc`. The complete preview source must
+match inspection: object-key order is ignored, while arrays and opaque raw
+JSON strings remain exact. A current 409 retires only its captured review
+after restoring pending controls; newer reviews and transient retries retain
+their authority. Correcting a name collision permits a fresh preview, and a
+source revision change requires closing recovery, selecting the policy again
+to reload it, and reopening with fresh decisions.
+
+The original before-browser specification has 16 failures and six passing
+controls at `310d2c14`. It is retained separately from the final specification,
+which strengthens the reload/reinspect/create roundtrip and helper/guidance.
+The actual private browser/server probe also refuses the previously unseen
+same-revision value and permits creation only after fresh inspection. This
+remains an out-of-band synthetic head-edit observation, not an ordinary API
+race or support for arbitrary external writers.
+
+The full Linux suite passes 13,710 tests (142 skips, one xfail, 67 subtests and
+two warnings) in 1123.99 seconds. All eleven module coverage floors and the
+overall floor pass (91.30% total). Frontend checks pass 257 tests; the seven-file
+record selection passes 138. Installed-wheel smoke and upgrade/rollback pass.
+All 560 local browser cases pass in 15.7 minutes with an explicit 60-second
+per-case budget. The initial default-budget run's 559 passes and one existing
+accessibility deadline failure are retained, not counted as a pass; five scans
+on an owned 639-policy later-superset fixture pass in 35.36 seconds. Hosted
+default-settings frontend checks independently pass all 560 in 10.4 minutes.
+
+Hosted Windows Python 3.14.9 passes 13,401 tests (425 skips, one xfail, 55 subtests
+and two warnings) in 1662.44 seconds, with all module and overall floors met
+(92.16% total). Run `40145947288`, job `121027194923`, checks out
+`ff7ce2ef7e5033d02f5009cc563db3105cc2753b`; its complete tree is identical to
+the runtime head. This closure changes documentation only: product, tests,
+scripts and workflows remain identical to that qualified head.
+
+Both independent Tier-2 reviews pass. One executes 37 Chromium/Firefox recovery
+cases, 3,076 comparator assertions and 138 record gates. The other executes
+68 frontend contracts, 27 backend/register tests, an actual API QWORD boundary
+probe and 15 cases using the actual frontend/read/mutation modules; disabling
+either guard makes its private controls fail. Both audit source and primary
+qualification bindings. These results qualify the offline application review
+workflow, not native policy/oracle behavior.
