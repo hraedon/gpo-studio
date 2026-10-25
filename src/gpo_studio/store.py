@@ -2779,6 +2779,8 @@ class WorkspaceStore:
     def get_revision(self, guid: str, revision: int) -> Revision:
         with self._lock:
             self._require_healthy()
+            if not -(2**63) <= revision < 2**63:
+                raise NotFoundError("Revision was not found")
             try:
                 row = self._connection.execute(
                     """SELECT revision, actor, reason, created_at, snapshot_json FROM revisions

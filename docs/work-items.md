@@ -4504,3 +4504,50 @@ probe and 15 cases using the actual frontend/read/mutation modules; disabling
 either guard makes its private controls fail. Both audit source and primary
 qualification bindings. These results qualify the offline application review
 workflow, not native policy/oracle behavior.
+
+## WI-092 — out-of-range revision selectors escape as HTTP 500
+
+**Opened:** 2026-10-25.
+**Status:** closed 2026-10-25. The shared reader refuses non-native integers
+before SQL binding, preserving the existing not-found outcome and workspace
+health precedence.
+
+`get_revision` binds unrestricted Python integers to SQLite. A selector such
+as `9223372036854775808` raises `OverflowError`, so historical reads, both
+comparison routes and restore return HTTP 500 instead of the missing-revision
+response. The same defect exists at current `main` and in the qualified
+authoring composition. Synthetic private-workspace probes reproduced all four
+HTTP paths; ordinary revision 1 still returned 200.
+
+`store.py` is listed as unbound in `docs/plan-033/bound-source-cost.md`.
+Changing this reader does not expire an estate lane. Restore reaches the
+reader before its mutation, so verification must preserve workspace health,
+optimistic concurrency, immutable history and audit identity. Treat the
+change as Tier 2: two independent reviewers, including executing probes, and
+the available Windows test leg.
+
+**Closes when:** non-native integers produce the existing not-found outcome
+without SQL binding or workspace changes; representable revision identifiers
+remain exact without clamping; health guards, comparison and a valid restore
+retry still work; regression tests demonstrate failure before the fix; and
+required local checks, Windows checks and two independent reviews pass.
+
+**Closure evidence.** Runtime commit `bdc9b6ef` changes two lines in
+`WorkspaceStore.get_revision`. The regression suite failed 20 cases with nine
+controls before the fix, then passed all 29. It covers exact native MIN/MAX
+lookups, no boundary aliasing, health guards, both comparison routes and
+failed restores followed by a valid audited retry. The Linux suite passed
+13,201 cases (142 skips, one xfail and 67 subtests), with 90.97% overall
+coverage and every module floor met; all 73 browser cases, 171 frontend
+tests, installed-package smoke and upgrade/rollback rehearsal passed.
+
+All 17 hosted checks passed on that runtime. Both Windows legs passed 12,892
+cases (425 skips, one xfail and 55 subtests): Python 3.14 at 91.85% overall
+coverage and Python 3.13 at 91.84%, with every module floor met. The hosted
+merge tree was measured identical to the tested runtime tree. Two independent
+executing reviews passed; their final private probes passed 35 and 21 cases,
+and each reviewer independently ran all 29 committed regressions. Their
+preserved addenda correct private-harness retry counts and the scope of
+database-state comparisons; no product defect remained. All 86 positive-cost
+estate-bound paths stayed byte-identical. This closes the input-handling
+defect; it does not claim a new estate capability or a release/deployment.

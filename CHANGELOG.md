@@ -11,6 +11,11 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Fixed
 
+- Revision selectors outside SQLite's integer range return the existing
+  missing-revision response instead of HTTP 500 when reading, comparing or
+  restoring history. Failed restores leave the workspace and audit history
+  unchanged (WI-092).
+
 - End the Windows CI wrapper on deadline and let its private job reap remaining
   descendants. A failed termination command can no longer keep an errored phase
   waiting with its job handle open.
