@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**5 open.**
+**6 open.**
 
+- [WI-091](#wi-091--bind-recovery-review-to-the-inspected-source-and-retire-refused-previews) - reject changed preview source facts and retire the current preview after a creation conflict while preserving newer editors.
 - [WI-086](#wi-086--qualify-an-authenticated-iis-hosted-shared-authoring-profile) - prove the shared-service identity boundary, collaborative storage and repeatable IIS deployment under Plan 032.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
@@ -4426,3 +4427,36 @@ Both independently check the hosted Windows log, source hashes and merge-tree
 equivalence. Extra probes preserve the existing claimed/untrusted identity,
 normalization and unrelated exception behavior; they establish no trusted
 authentication or broader crash-recovery guarantee.
+
+## WI-091 — bind recovery review to the inspected source and retire refused previews
+
+**Opened:** 2026-10-24 (recovery UI review-state follow-up).
+**Status:** open.
+
+The browser displays rows from inspection but accepts preview's digest without
+checking that its returned source still matches those inspected facts. In a
+private synthetic browser/server probe at `310d2c14`, an out-of-band head edit
+that keeps the revision unchanged causes preview to bind a different value;
+the dialog still displays the old value, enables creation, and creates the
+new draft with the uninspected value. Ordinary API edits advance revision and
+remain covered by revision refusal. This observation does not establish a
+normal API race or expand support for arbitrary external SQLite writers.
+
+A refused creation also leaves its old preview actionable: pending-control
+cleanup restores the enabled Apply button after a 409. The operator should
+retain choices for reference, retire that refused review, and explicitly
+review again; a changed source requires a fresh inspection. A retired response
+must not invalidate a newer editor's review, and a transient refusal must not
+unnecessarily discard a still-valid review.
+
+**Closes when:** preview is accepted only when its complete source matches the
+inspection, ignoring object-key ordering while retaining row order and exact
+raw JSON strings. Changed native values/order/owner claims/omission counts or
+source metadata require reopening for inspection without creation. Current
+409 responses retire the preview after pending cleanup, retain operator
+inputs and explain revision refresh; a name collision can be corrected and
+reviewed again. Retired conflicts preserve newer reviews and transient
+refusals retain a valid retry. Tests exercise both browsers and the actual
+synthetic same-revision boundary, required local/available Windows checks pass,
+and two independent Tier-2 reviews are banked. No native policy qualification
+or new backend concurrency guarantee is claimed.

@@ -33,6 +33,12 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   are published atomically. Private Windows jobs reap background descendants on
   normal phase completion and abrupt wrapper termination, while preserving
   output and real exit codes. Key-authenticated SSH fails without prompting.
+
+- Require registry-recovery previews to match the inspected source, preserving
+  exact row facts and order. A creation conflict retires its current review
+  while retaining operator inputs; revision changes explain fresh inspection,
+  and retired responses leave newer reviews alone (WI-091).
+
 - Preview an explicit keep/omit choice for every source registry row and create
   a separate registry-only draft with fresh UUIDs. Preserve chosen native fields
   and the original policy/history; show omitted policy components and advisory
