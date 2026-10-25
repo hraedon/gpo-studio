@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**5 open.**
+**6 open.**
 
+- [WI-092](#wi-092--out-of-range-revision-selectors-escape-as-http-500) - handle history selectors outside SQLite's integer range without changing workspace state.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
@@ -4084,3 +4085,28 @@ changed as part of WP-1.
 reached the final-check/pre-launch pause before SIGTERM is sent, and repeated
 full-suite runs no longer reproduce the race while still proving that the lane
 command never launches.
+
+## WI-092 — out-of-range revision selectors escape as HTTP 500
+
+**Opened:** 2026-10-25.
+**Status:** open.
+
+`get_revision` binds unrestricted Python integers to SQLite. A selector such
+as `9223372036854775808` raises `OverflowError`, so historical reads, both
+comparison routes and restore return HTTP 500 instead of the missing-revision
+response. The same defect exists at current `main` and in the qualified
+authoring composition. Synthetic private-workspace probes reproduced all four
+HTTP paths; ordinary revision 1 still returned 200.
+
+`store.py` is listed as unbound in `docs/plan-033/bound-source-cost.md`.
+Changing this reader does not expire an estate lane. Restore reaches the
+reader before its mutation, so verification must preserve workspace health,
+optimistic concurrency, immutable history and audit identity. Treat the
+change as Tier 2: two independent reviewers, including executing probes, and
+the available Windows test leg.
+
+**Closes when:** non-native integers produce the existing not-found outcome
+without SQL binding or workspace changes; representable revision identifiers
+remain exact without clamping; health guards, comparison and a valid restore
+retry still work; regression tests demonstrate failure before the fix; and
+required local checks, Windows checks and two independent reviews pass.

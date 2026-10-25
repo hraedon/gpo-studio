@@ -9,6 +9,13 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Revision selectors outside SQLite's integer range return the existing
+  missing-revision response instead of HTTP 500 when reading, comparing or
+  restoring history. Failed restores leave the workspace and audit history
+  unchanged (WI-092).
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the
