@@ -32,9 +32,8 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**6 open.**
+**5 open.**
 
-- [WI-092](#wi-092--out-of-range-revision-selectors-escape-as-http-500) - handle history selectors outside SQLite's integer range without changing workspace state.
 - [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
@@ -4089,7 +4088,9 @@ command never launches.
 ## WI-092 — out-of-range revision selectors escape as HTTP 500
 
 **Opened:** 2026-10-25.
-**Status:** open.
+**Status:** closed 2026-10-25. The shared reader refuses non-native integers
+before SQL binding, preserving the existing not-found outcome and workspace
+health precedence.
 
 `get_revision` binds unrestricted Python integers to SQLite. A selector such
 as `9223372036854775808` raises `OverflowError`, so historical reads, both
@@ -4110,3 +4111,23 @@ without SQL binding or workspace changes; representable revision identifiers
 remain exact without clamping; health guards, comparison and a valid restore
 retry still work; regression tests demonstrate failure before the fix; and
 required local checks, Windows checks and two independent reviews pass.
+
+**Closure evidence.** Runtime commit `bdc9b6ef` changes two lines in
+`WorkspaceStore.get_revision`. The regression suite failed 20 cases with nine
+controls before the fix, then passed all 29. It covers exact native MIN/MAX
+lookups, no boundary aliasing, health guards, both comparison routes and
+failed restores followed by a valid audited retry. The Linux suite passed
+13,201 cases (142 skips, one xfail and 67 subtests), with 90.97% overall
+coverage and every module floor met; all 73 browser cases, 171 frontend
+tests, installed-package smoke and upgrade/rollback rehearsal passed.
+
+All 17 hosted checks passed on that runtime. Both Windows legs passed 12,892
+cases (425 skips, one xfail and 55 subtests): Python 3.14 at 91.85% overall
+coverage and Python 3.13 at 91.84%, with every module floor met. The hosted
+merge tree was measured identical to the tested runtime tree. Two independent
+executing reviews passed; their final private probes passed 35 and 21 cases,
+and each reviewer independently ran all 29 committed regressions. Their
+preserved addenda correct private-harness retry counts and the scope of
+database-state comparisons; no product defect remained. All 86 positive-cost
+estate-bound paths stayed byte-identical. This closes the input-handling
+defect; it does not claim a new estate capability or a release/deployment.
