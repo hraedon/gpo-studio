@@ -608,9 +608,13 @@ For reviewed registry-only recovery in the browser:
    audit actor/reason, then select **Preview choices**.
 5. Review the complete choices and audit details before **Create reviewed
    draft**. Any input change requires another preview. A changed source revision
-   requires closing and reopening recovery, with new choices for that source;
+   requires closing recovery, selecting the policy again to reload it, and
+   reopening recovery with new choices for that source;
    old row numbers are never silently remapped. If a connection failure leaves
    creation unconfirmed, check the policy list before retrying.
+   Preview also refuses source facts that differ from inspection. A creation
+   conflict retires the preview but retains the inputs: correct a conflicting
+   name and preview again, or reload and inspect a changed source first.
 6. Compare the new draft before exporting. Each kept record retains its side,
    hive, key, value name, type, value, action and comment in original order, but
    receives a fresh UUID. It has no reconstructed ADMX ownership; reconfiguration
