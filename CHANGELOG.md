@@ -11,6 +11,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Fixed
 
+- Invalid numeric request fields return structured validation errors when their
+  values are non-finite, instead of HTTP 500. Rejected requests leave the
+  workspace unchanged, and existing sensitive-input filtering is preserved.
+
 - Revision selectors outside SQLite's integer range return the existing
   missing-revision response instead of HTTP 500 when reading, comparing or
   restoring history. Failed restores leave the workspace and audit history

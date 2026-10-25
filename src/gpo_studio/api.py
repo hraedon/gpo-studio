@@ -2957,7 +2957,10 @@ def _json_default(value: object) -> str:
 
 def _json_safe(value: Any) -> Any:
     try:
-        return json.loads(json.dumps(value, default=_json_default))
+        # Invalid numeric inputs can reach validation issues as NaN/infinity,
+        # including valid JSON exponents outside float's range. Preserve the
+        # issue's structure while making those diagnostic values JSON strings.
+        return json.loads(json.dumps(value, default=_json_default), parse_constant=str)
     except (TypeError, ValueError):
         return str(value)
 
