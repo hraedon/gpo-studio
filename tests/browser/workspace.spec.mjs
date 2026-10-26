@@ -15,6 +15,21 @@ async function seedPolicy(request, testInfo) {
   return { name, payload: await response.json() };
 }
 
+async function selectPolicyForAccessibility(page, seeded) {
+  // Other journeys share this workspace. Keep their accumulated sidebar rows
+  // out of this fixture while retaining whole-page accessibility scans.
+  await page
+    .getByRole("searchbox", { name: "Filter policies" })
+    .fill(seeded.name);
+  const policy = page.locator(".gpo-item");
+  await expect(policy).toHaveCount(1);
+  await expect(policy).toContainText(seeded.name);
+  await policy.click();
+  await expect(
+    page.getByRole("heading", { level: 1, name: seeded.name }),
+  ).toBeVisible();
+}
+
 test("loads a synthetic policy from a real workspace @smoke", async ({
   page,
   request,
@@ -225,7 +240,7 @@ test("has no serious or critical automated accessibility violations", async ({
 }, testInfo) => {
   const seeded = await seedPolicy(request, testInfo);
   await page.goto("/");
-  await page.locator(".gpo-item", { hasText: seeded.name }).click();
+  await selectPolicyForAccessibility(page, seeded);
 
   for (const tab of ["Overview", "Policy settings", "Security", "Diff"]) {
     await page.getByRole("tab", { name: new RegExp(tab) }).click();
@@ -254,7 +269,7 @@ test("the dark theme toggles, persists, and passes the same accessibility bar", 
 }, testInfo) => {
   const seeded = await seedPolicy(request, testInfo);
   await page.goto("/");
-  await page.locator(".gpo-item", { hasText: seeded.name }).click();
+  await selectPolicyForAccessibility(page, seeded);
 
   // Auto → Dark. The resolved theme lands on <html data-theme> so the
   // stylesheet needs no media query, and the choice survives a reload.
@@ -267,7 +282,7 @@ test("the dark theme toggles, persists, and passes the same accessibility bar", 
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
   // The dark palette is held to the bar the light one already meets.
-  await page.locator(".gpo-item", { hasText: seeded.name }).click();
+  await selectPolicyForAccessibility(page, seeded);
   for (const tab of ["Overview", "Policy settings", "Security"]) {
     await page.getByRole("tab", { name: new RegExp(tab) }).click();
     const results = await new AxeBuilder({ page }).analyze();

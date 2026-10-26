@@ -11,6 +11,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Fixed
 
+- Keep workspace accessibility checks within their existing time limit as
+  other browser tests add policies, by filtering the sidebar to their own fixture.
+
 - Invalid numeric request fields return structured validation errors when their
   values are non-finite, instead of HTTP 500. Rejected requests leave the
   workspace unchanged, and existing sensitive-input filtering is preserved.
