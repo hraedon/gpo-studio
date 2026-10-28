@@ -163,10 +163,10 @@ def parse_recipe(raw: object) -> FixtureRecipe:
 def load_recipe(path: Path) -> FixtureRecipe:
     """Load and validate a fixture recipe from a JSON file."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except OSError as exc:
         raise RecipeError(f"cannot read recipe {path}: {exc}") from exc
-    except json.JSONDecodeError as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RecipeError(f"invalid JSON in recipe {path}: {exc}") from exc
     return parse_recipe(raw)
 

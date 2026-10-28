@@ -31,9 +31,44 @@ class FakeElement {
   querySelector() {
     return null;
   }
-  replaceChildren() {
+  get ownerDocument() {
+    return globalThis.document;
+  }
+  get textContent() {
+    return this.children?.length
+      ? this.children.map((node) => node.textContent).join("")
+      : this._textContent;
+  }
+  set textContent(value) {
+    this.detachChildren();
+    this._textContent = value;
+  }
+  get innerHTML() {
+    return this._innerHTML;
+  }
+  set innerHTML(value) {
+    this.detachChildren();
+    this._innerHTML = value;
+  }
+  detachChildren() {
+    for (const node of this.children || []) node.parentNode = null;
+    this.children = [];
+  }
+  replaceChildren(...nodes) {
     this.innerHTML = "";
     this.textContent = "";
+    this.children = nodes;
+    for (const node of nodes) node.parentNode = this;
+  }
+  remove() {
+    const parent = this.parentNode;
+    if (parent) {
+      parent.children = parent.children.filter((node) => node !== this);
+      this.parentNode = null;
+    }
+  }
+  getAttribute(name) {
+    return this.attributes[name] ?? null;
   }
   setAttribute(name, value) {
     this.attributes[name] = value;
@@ -117,6 +152,12 @@ beforeEach(async () => {
   vi.stubGlobal("document", {
     querySelector: (selector) => el(selector),
     querySelectorAll: () => [],
+    createTextNode: (text) => {
+      const node = new FakeElement("#text");
+      node.textContent = text;
+      return node;
+    },
+    createElement: (tag) => new FakeElement(tag),
   });
   scripts = await import("../../src/gpo_studio/static/js/scripts.mjs");
   ({ state } = await import("../../src/gpo_studio/static/js/state.mjs"));

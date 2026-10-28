@@ -220,7 +220,9 @@ test("authors a GPP registry with REG_MULTI_SZ value", async ({
   const valueRow = dialog.locator("#gpp-values-list .gpp-row");
   await valueRow.locator('[data-field="name"]').fill("AllowedHosts");
   await valueRow.locator('[data-field="type"]').selectOption("REG_MULTI_SZ");
-  await valueRow.locator('[data-field="value"]').fill("host-a;host-b;host-c");
+  await valueRow
+    .locator('[data-field="value"]')
+    .fill('["host-a","host-b","host-c"]');
 
   await dialog.getByRole("button", { name: "Save registry" }).click();
 

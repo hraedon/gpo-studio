@@ -145,11 +145,11 @@ def _body(method: str, path: str, client: TestClient, guid: str, inbox: Path) ->
     bodies: dict[tuple[str, str], Any] = {
         ("PATCH", "/api/gpos/{guid}"): {**audit, "name": "Renamed"},
         ("POST", "/api/gpos/{guid}/settings"): {**audit, "setting": setting},
-        ("PUT", "/api/gpos/{guid}/settings/{setting_id}"): {
+        ("PUT", "/api/gpos/{guid}/settings/{setting_id:path}"): {
             **audit,
             "setting": {**setting, "value": "2"},
         },
-        ("PATCH", "/api/gpos/{guid}/settings/{setting_id}/comment"): {**audit, "comment": "c"},
+        ("PATCH", "/api/gpos/{guid}/settings/{setting_id:path}/comment"): {**audit, "comment": "c"},
         ("POST", "/api/gpos/{guid}/copy-settings"): {**audit, "source_guid": guid},
         ("POST", "/api/gpos/{guid}/links"): {
             **audit,
@@ -252,7 +252,7 @@ QUERIES: dict[str, str] = {
 
 
 def _target(path: str, ids: dict[str, str]) -> str:
-    return re.sub(r"{(\w+)}", lambda match: ids.get(match.group(1), "x"), path)
+    return re.sub(r"{(\w+)(?::path)?}", lambda match: ids.get(match.group(1), "x"), path)
 
 
 def _routes() -> list[tuple[str, str]]:

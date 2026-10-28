@@ -183,8 +183,12 @@ exported: `REG_SZ`, `REG_EXPAND_SZ`, `REG_BINARY`, `REG_DWORD`,
 
 ### ADMX-backed registry policy — preview
 
-ADMX/ADML catalogues are loaded at startup from `GPO_STUDIO_ADMX_DIR`. In the
-browser you can search policies, browse categories, read explain text and
+ADMX/ADML catalogues load at startup from `--admx-dir` (or
+`GPO_STUDIO_ADMX_DIR`, default `./admx`). The **ADMX folder** sidebar action
+can replace the default source for the current server session, with load counts
+and per-file diagnostics; it does not persist a startup setting. These folder
+controls are surfaced but have no Windows/IIS qualification. In the browser
+you can search policies, browse categories, read explain text and
 configure elements. Supported element kinds: boolean, decimal, text, multitext,
 list, enum. Configuring a policy resolves it to concrete `RegistrySetting`
 objects, and from then on every registry-policy guarantee applies.
@@ -1062,6 +1066,28 @@ builds are unmeasured. **No writer exists**, and none is certified: what GPMC
 writes per checkbox is R12's question (WI-066).
 
 ---
+
+## Post-1.0 workspace recovery
+
+**Reviewed registry-only recovery (WI-087 closed).** The candidate exposes
+**Recover registry rows** and the inspection/preview/apply routes described in
+[workspace recovery](workspace-recovery.md#legacy-registry-editor-ids-and-ambiguous-admx-ownership).
+Operators explicitly keep or omit every row, acknowledge omitted components,
+review exact values and create a separate audited draft with fresh identities.
+Selected native fields and the original history are preserved; advisory owner
+warnings stay separate from validation/export eligibility. Linux, Chromium and
+Firefox checks, hosted and lab Windows application checks, and two independent
+Tier-2 code reviews pass at `433684d9`. The [work-item closure](work-items.md#wi-087--provide-a-reviewed-repair-workflow-for-legacy-registry-identities)
+records the source identities and qualification scope. Native policy format,
+deployment and Plan 033 oracle qualification remain separate.
+
+The [WI-091 follow-up](work-items.md#wi-091--bind-recovery-review-to-the-inspected-source-and-retire-refused-previews)
+qualifies source matching between inspection and preview, retirement of a
+current refused review, and protection of newer editors at `43c7d153`.
+Its closure records Linux and Chromium/Firefox checks, hosted Windows
+application checks and two independent Tier-2 reviews. Changed source facts
+require fresh inspection; a revision change requires reloading the policy
+before reopening recovery. No new native policy/oracle verdict is claimed.
 
 ## Post-1.0 domain layers — landed but not surfaced
 

@@ -1,4 +1,5 @@
-import { state, $, escapeHtml } from "./state.mjs";
+import { createReadScope } from "./read-context.mjs";
+import { state, $, escapeHtml, getGpoGeneration } from "./state.mjs";
 import { api, ApiError } from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
 import { renderLimitations } from "./rsop.mjs";
@@ -147,8 +148,17 @@ let rows = emptyRows();
 // response describes rows that are gone, and showing it would put one set of
 // contents and digest beside a Download that builds from another.
 let generation = 0;
+const reads=createReadScope({element:()=>$("#scripts-dialog")});
+function scriptRead(form,label){
+  const mine=generation,guid=state.current?.guid,revision=state.current?.revision,targetGeneration=getGpoGeneration(guid);
+  return reads.start({isCurrent:()=>mine===generation&&state.current?.guid===guid&&state.current?.revision===revision&&targetGeneration===getGpoGeneration(guid),report:error=>{
+    $("#scripts-results").replaceChildren();
+    $("#scripts-status").textContent=label;showFormErrors(form,error);
+  }});
+}
 
 function cancelPendingPreview() {
+  reads.invalidate();
   generation += 1;
 }
 
@@ -168,6 +178,7 @@ function redraw(focusSelector) {
 
 function invalidateResults() {
   cancelPendingPreview();
+  $("#scripts-download").disabled=Boolean(availability());
   $("#scripts-results").replaceChildren();
   $("#scripts-status").textContent = "";
 }
@@ -205,37 +216,32 @@ export function openScripts() {
 }
 
 async function preview(form) {
-  const body = buildScriptsRequest(rows);
   cancelPendingPreview();
-  const mine = generation;
-  $("#scripts-status").textContent = "Building preview…";
-  let result;
+  $("#scripts-download").disabled=Boolean(availability());
+  const read=scriptRead(form,"Preview refused.");
+  let pending;
   try {
-    result = await api(`${rowsPath()}/preview`, {
-      method: "POST",
-      body: JSON.stringify(body),
+    const body=buildScriptsRequest(rows);
+    pending=read.beginPending({loading:[{element:$("#scripts-status"),message:"Building preview…",recovery:"Build the preview again to review the current rows."}]});
+    const result=await /* request: scripts.preview */ api(`${rowsPath()}/preview`,{
+      method:"POST",body:JSON.stringify(body),
     });
-  } catch (error) {
-    // A refusal of rows that have since changed is no more current than a
-    // preview of them would be.
-    if (mine !== generation) return;
-    throw error;
-  }
-  if (mine !== generation) return;
-  $("#scripts-results").innerHTML = renderScriptsPreview(result);
-  $("#scripts-status").textContent =
-    "Preview ready. Review the limits above the file contents.";
-  clearFormErrors(form);
+    if(!read.isCurrent())return;
+    $("#scripts-results").innerHTML=renderScriptsPreview(result);
+    $("#scripts-status").textContent="Preview ready. Review the limits above the file contents.";
+    clearFormErrors(form);
+  } catch(error) { read.reportError(error); } finally {pending?.finish()}
 }
 
-async function download() {
+async function download(read) {
   const body = buildScriptsRequest(rows);
-  $("#scripts-status").textContent = "Preparing download…";
-  const response = await fetch(rowsPath(), {
+  let response;
+  try { response = await /* request: scripts.download */ fetch(rowsPath(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  } catch(error) { const unavailable=new ApiError("The local GPO Studio server is unavailable. Keep this dialog open and try again."); unavailable.cause=error; throw unavailable; }
   if (!response.ok) {
     const payload = (response.headers.get("content-type") || "").includes("json")
       ? await response.json()
@@ -246,6 +252,7 @@ async function download() {
     );
   }
   const blob = await response.blob();
+  if (!read.isCurrent()) return;
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -316,24 +323,19 @@ export function initScripts() {
   });
   form.onsubmit = async (event) => {
     event.preventDefault();
-    try {
-      await preview(form);
-    } catch (error) {
-      $("#scripts-results").replaceChildren();
-      $("#scripts-status").textContent = "Preview refused.";
-      showFormErrors(form, error);
-    }
+    await preview(form);
   };
   $("#scripts-download").onclick = async () => {
     const button = $("#scripts-download");
-    button.disabled = true;
+    if(button.disabled)return;
+    const read=scriptRead(form,"Download refused.");
+    const pending=read.beginPending({controls:[button],loading:[{element:$("#scripts-status"),message:"Preparing download…",recovery:"Prepare the download again to review the current rows."}],onFinish:()=>{button.disabled=Boolean(availability())}});
     try {
-      await download();
+      await download(read);
     } catch (error) {
-      $("#scripts-status").textContent = "Download refused.";
-      showFormErrors(form, error);
+      read.reportError(error);
     } finally {
-      button.disabled = Boolean(availability());
+      pending.finish();
     }
   };
 }

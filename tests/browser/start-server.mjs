@@ -84,6 +84,8 @@ const server = spawn(command, args, {
     ...process.env,
     PYTHONUNBUFFERED: "1",
     GPO_STUDIO_ADMX_DIR: admxDirectory,
+    // Existing import journeys create backups under the checkout output directory.
+    GPO_STUDIO_INBOX_DIR: process.cwd(),
   },
 });
 

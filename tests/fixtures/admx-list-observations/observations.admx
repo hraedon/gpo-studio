@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces><target prefix="synthetic" namespace="Synthetic.Observations"/></policyNamespaces>
+  <policies>
+    <policy name="SetOnly" class="Both" key="Software\Policies\Synthetic\Observations\SetOnly" displayName="Synthetic set-only state">
+      <enabledList><item valueName="Flag"><value><decimal value="1"/></value></item></enabledList>
+      <disabledList><item valueName="Flag"><value><decimal value="0"/></value></item></disabledList>
+    </policy>
+    <policy name="Mixed" class="Both" key="Software\Policies\Synthetic\Observations\Mixed" displayName="Synthetic mixed actions">
+      <enabledList><item valueName="Flag"><value><decimal value="1"/></value></item><item valueName="Legacy"><value><string>on</string></value></item></enabledList>
+      <disabledList><item valueName="Flag"><value><decimal value="0"/></value></item><item valueName="Legacy"><value><delete/></value></item></disabledList>
+    </policy>
+    <policy name="AllDelete" class="Both" key="Software\Policies\Synthetic\Observations\AllDelete" displayName="Synthetic deletion state">
+      <enabledList><item valueName="Flag"><value><decimal value="1"/></value></item></enabledList>
+      <disabledList><item valueName="Flag"><value><delete/></value></item></disabledList>
+    </policy>
+    <policy name="Identical" class="Both" key="Software\Policies\Synthetic\Observations\Identical" displayName="Synthetic identical states">
+      <enabledList><item valueName="Flag"><value><decimal value="07"/></value></item></enabledList>
+      <disabledList><item valueName="Flag"><value><decimal value="7"/></value></item></disabledList>
+    </policy>
+    <policy name="Partial" class="Both" key="Software\Policies\Synthetic\Observations\Partial" displayName="Synthetic incomplete state">
+      <enabledList><item valueName="One"><value><decimal value="1"/></value></item><item valueName="Two"><value><decimal value="1"/></value></item></enabledList>
+      <disabledList><item valueName="One"><value><decimal value="0"/></value></item><item valueName="Two"><value><decimal value="0"/></value></item></disabledList>
+    </policy>
+    <policy name="Subset" class="Both" key="Software\Policies\Synthetic\Observations\Subset" displayName="Synthetic subset states">
+      <enabledList><item valueName="One"><value><decimal value="1"/></value></item></enabledList>
+      <disabledList><item valueName="One"><value><decimal value="1"/></value></item><item valueName="Two"><value><decimal value="2"/></value></item></disabledList>
+    </policy>
+    <policy name="Empty" class="Both" key="Software\Policies\Synthetic\Observations\Empty" displayName="Synthetic empty states">
+      <enabledList/><disabledList/>
+    </policy>
+    <policy name="EmptyWithChild" class="Both" key="Software\Policies\Synthetic\Observations\EmptyWithChild" displayName="Synthetic empty state with child">
+      <enabledList/><disabledList/><elements><text id="Child" valueName="Child"/></elements>
+    </policy>
+    <policy name="OneEmpty" class="Both" key="Software\Policies\Synthetic\Observations\OneEmpty" displayName="Synthetic empty disabled state">
+      <enabledList><item valueName="Flag"><value><decimal value="1"/></value></item></enabledList><disabledList/>
+    </policy>
+    <policy name="Composite" class="Both" key="Software\Policies\Synthetic\Observations\Composite" valueName="Marker" displayName="Synthetic marker and list">
+      <enabledValue><decimal value="1"/></enabledValue><disabledValue><decimal value="0"/></disabledValue>
+      <enabledList defaultKey="Software\Policies\Synthetic\Observations\Composite\Default"><item valueName="Default"><value><string>on</string></value></item><item key="Software\Policies\Synthetic\Observations\Composite\Override" valueName="Override"><value><longDecimal value="18446744073709551615"/></value></item></enabledList>
+      <disabledList defaultKey="Software\Policies\Synthetic\Observations\Composite\Default"><item valueName="Default"><value><delete/></value></item><item key="Software\Policies\Synthetic\Observations\Composite\Override" valueName="Override"><value><longDecimal value="0"/></value></item></disabledList>
+      <elements><text id="RequiredChild" valueName="Child"/></elements>
+    </policy>
+    <policy name="Scalar" class="Both" key="Software\Policies\Synthetic\Observations\Scalar" valueName="Flag" displayName="Synthetic scalar control"><enabledValue><decimal value="1"/></enabledValue><disabledValue><decimal value="0"/></disabledValue></policy>
+  </policies>
+</policyDefinitions>
