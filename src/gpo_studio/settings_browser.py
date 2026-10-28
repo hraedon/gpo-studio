@@ -735,7 +735,7 @@ def _list_sort_key(suffix: str, element_id: str) -> tuple[int, str] | None:
     return (len(digits), digits)
 
 
-_EnumRepairKind = Literal["wrong_type", "no_match", "no_items"]
+_EnumRepairKind = Literal["wrong_type", "no_match", "no_items", "indeterminate_delete"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -748,7 +748,9 @@ class _EnumDelete:
     """An element-level delete, read once the policy's state is observed.
 
     In an enabled policy it selects the enum's ``<delete/>`` item, or needs
-    repair when the enum has none; otherwise it selects nothing.
+    repair when the enum has none. In a disabled policy it is the expected
+    removal and selects nothing. When the state is indeterminate neither
+    reading can be chosen, so the row is reported.
     """
 
     item_id: str | None
@@ -813,6 +815,11 @@ def _enum_repair_reason(kind: _EnumRepairKind, owned: bool) -> str:
             return "enum value matches no template item"
         case "no_items":
             return "enum template has no readable items"
+        case "indeterminate_delete":
+            return (
+                "enum value is deleted, but the policy state is indeterminate, so "
+                "this cannot be read as a choice or as a disabled policy"
+            )
         case _:
             assert_never(kind)
 
@@ -897,13 +904,16 @@ def build_settings_browser(
             else:
                 observed_state = _derive_state(policy, side, raw, structured_ids=structured_ids)
                 state_reason = None
-        if observed_state == "enabled":
-            for row_index, (element_id, pending) in enum_deletes.items():
+        for row_index, (element_id, pending) in enum_deletes.items():
+            if observed_state == "enabled":
                 if pending.item_id is not None:
                     element_values[element_id] = pending.item_id
                 else:
                     # A stray delete in an enabled policy selects nothing valid.
                     enum_repairs[row_index] = pending.repair
+            elif observed_state == "indeterminate":
+                # Claimed by its element, so it must not silently disappear.
+                enum_repairs[row_index] = "indeterminate_delete"
         # Diagnose each row once within this group. Component decoding has its own
         # stronger explanation; a successfully decoded child remains available.
         for row_index, row in enumerate(bound_rows):

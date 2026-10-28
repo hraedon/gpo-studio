@@ -1168,3 +1168,95 @@ def test_api_delete_item_and_foreign_mistyped_row(tmp_path, monkeypatch) -> None
         )
         assert retry.status_code == 422
         assert retry.json()["error"]["issues"][0]["code"] == "conflicting_retained_setting"
+
+
+def _with_state(policy: PolicyDefinition) -> PolicyDefinition:
+    return replace(
+        policy,
+        value_name="State",
+        enabled_value=PolicyValue("decimal", "1", "REG_DWORD"),
+        disabled_value=PolicyValue("decimal", "0", "REG_DWORD"),
+    )
+
+
+def _state_row(policy: PolicyDefinition, value: int) -> RegistrySetting:
+    row = _setting(id=_admx_id(policy.qualified_id, "computer", "state"), value=value)
+    return replace(row, value_name="State")
+
+
+@pytest.mark.parametrize("has_delete_item", [True, False])
+def test_enum_delete_beside_an_indeterminate_state_is_reported(has_delete_item: bool) -> None:
+    # Issue #142 review: the delete was claimed by its element, staged, and
+    # then dropped because only an enabled state resolved staged deletes.
+    policy = _with_state(_delete_item_enum() if has_delete_item else _dword_enum_policy())
+    delete = _setting(
+        id=_admx_id(policy.qualified_id, "computer", "Mode"),
+        action="delete", registry_type="REG_SZ", value="",
+    )
+    result = build_settings_browser(
+        _catalogue(policies=(policy,)), [_state_row(policy, 7), delete]
+    )
+    assert [(group.state, group.element_values) for group in result.resolved] == [
+        ("indeterminate", {})
+    ]
+    assert (
+        delete,
+        "enum value is deleted, but the policy state is indeterminate, so "
+        "this cannot be read as a choice or as a disabled policy",
+    ) in [(u.setting, u.reason) for u in result.unresolved]
+
+
+def test_disabled_element_delete_is_never_read_as_the_delete_item() -> None:
+    # Pins the disabled-element guard in _decode_enum on its own: this
+    # child-only policy is (wrongly, #147) observed as enabled, so only that
+    # guard keeps the disable's delete from reading as the "None" choice.
+    policy = _delete_item_enum()
+    rows = resolve_policy(policy, PolicyConfiguration("computer", {}, state="disabled"))
+    (row,) = rows
+    assert row.action == "delete" and "disabled-element" in row.id
+    result = build_settings_browser(_catalogue(policies=(policy,)), rows)
+    assert [group.element_values for group in result.resolved] == [{}]
+    assert result.unresolved == ()
+
+
+@pytest.mark.parametrize("has_delete_item", [True, False])
+def test_imported_delete_in_a_disabled_policy_selects_nothing(has_delete_item: bool) -> None:
+    # Pins the enabled-state guard on its own: an imported **del. row has no
+    # disabled-element identity, so only the observed disabled state keeps it
+    # from reading as the delete item (or from being flagged as stray).
+    policy = _with_state(_delete_item_enum() if has_delete_item else _dword_enum_policy())
+    imported = _setting(id="imported-del", action="delete", registry_type="REG_SZ", value="")
+    result = build_settings_browser(
+        _catalogue(policies=(policy,)), [_state_row(policy, 0), imported]
+    )
+    assert [(group.state, group.element_values) for group in result.resolved] == [
+        ("disabled", {})
+    ]
+    assert result.unresolved == ()
+
+
+@pytest.mark.parametrize(
+    ("registry_type", "value", "reason"),
+    [
+        pytest.param(
+            "REG_QWORD", 1,
+            "enum value has the wrong registry type; reconfigure the policy to repair it",
+            id="qword-against-dword-item",
+        ),
+        pytest.param(
+            "REG_DWORD", True, "enum value matches no template item", id="bool-against-int-item"
+        ),
+    ],
+)
+def test_enum_match_needs_registry_and_python_types(
+    registry_type: str, value: object, reason: str
+) -> None:
+    # Issue #142 review: removing either type check left every test green.
+    policy = _dword_enum_policy()
+    row = _setting(
+        id=_admx_id(policy.qualified_id, "computer", "Mode"),
+        registry_type=registry_type, value=value,  # type: ignore[arg-type]
+    )
+    result = build_settings_browser(_catalogue(policies=(policy,)), [row])
+    assert result.resolved[0].element_values == {}
+    assert [(u.setting, u.reason) for u in result.unresolved] == [(row, reason)]

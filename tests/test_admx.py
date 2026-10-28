@@ -657,6 +657,10 @@ _ITEM = b'<item displayName="$(string.SyntheticPolicy)">'
         pytest.param(
             _ITEM + b'<value><string value="a">b</string></value></item>', id="attr-and-text"
         ),
+        pytest.param(
+            _ITEM + b'<value><string value="a"> </string></value></item>',
+            id="attr-and-whitespace-text",
+        ),
     ],
 )
 def test_enum_with_an_unreadable_item_reports_no_items(unreadable: bytes) -> None:
@@ -796,12 +800,6 @@ def test_enum_numeric_fallback_ids_are_canonical() -> None:
             id="empty-and-literal-placeholder",
         ),
         pytest.param(
-            b'<item id="2" displayName="$(string.SyntheticPolicy)"><decimal value="1" /></item>'
-            + _ITEM + b'<value><decimal value="2" /></value></item>',
-            [("2", "REG_DWORD", 1), ("decimal:2", "REG_DWORD", 2)],
-            id="explicit-keeps-its-id",
-        ),
-        pytest.param(
             _ITEM + b'<value><decimal value="1" /></value></item>'
             + _ITEM + b"<value><string>1</string></value></item>"
             + _ITEM + b"<value><string>decimal:1</string></value></item>",
@@ -875,3 +873,43 @@ def test_enum_long_decimal_is_unsigned_64_bit(spelling: str, kept: bool) -> None
         + _ITEM + b'<value><longDecimal value="3" /></value></item>'
     )
     assert [i.value for i in items] == ([int(spelling)] if kept else []) + [3]
+
+
+_EXPLICIT_ONE = b'<item id="1" displayName="$(string.SyntheticPolicy)">'
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        pytest.param(
+            _ITEM + b'<value><decimal value="1" /></value></item>'
+            + _EXPLICIT_ONE + b"<value><string>other</string></value></item>",
+            id="fallback-first",
+        ),
+        pytest.param(
+            _EXPLICIT_ONE + b"<value><string>other</string></value></item>"
+            + _ITEM + b'<value><decimal value="1" /></value></item>',
+            id="explicit-first",
+        ),
+        pytest.param(
+            _ITEM + b'<value><decimal value="1" /></value></item>'
+            + _ITEM + b"<value><string>1</string></value></item>"
+            + b'<item id="decimal:1" displayName="$(string.SyntheticPolicy)">'
+            + b"<value><string>other</string></value></item>",
+            id="explicit-equals-qualified-fallback",
+        ),
+    ],
+)
+def test_explicit_id_equal_to_a_fallback_id_reports_no_items(xml: bytes) -> None:
+    # Issue #142 review: on main the first item with id "1" won, so submitting
+    # "1" wrote REG_DWORD 1 (fallback first) or REG_SZ "other" (explicit
+    # first). Renaming the fallback would move "1" to another write; refuse.
+    assert _enum_with_items(xml) == ()
+
+
+def test_explicit_ids_distinct_from_every_fallback_are_kept() -> None:
+    items = _enum_with_items(
+        b'<item id="a" displayName="$(string.SyntheticPolicy)"><decimal value="1" /></item>'
+        + _ITEM + b'<value><decimal value="2" /></value></item>'
+    )
+    assert [(i.id, i.value) for i in items] == [("a", 1), ("2", 2)]

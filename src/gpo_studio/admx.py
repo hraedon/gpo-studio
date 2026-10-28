@@ -395,12 +395,13 @@ def _enum_string_value(child: ET.Element) -> str:
 
     Schema form is ``<string>text</string>``; the attribute form is what the
     synthetic fixtures use. ADMX strings are ``xs:string``, so surrounding
-    whitespace is value data and is kept. Both forms at once, or nested
-    markup, leave the value ambiguous and are refused.
+    whitespace is value data and is kept. Both forms at once (even with
+    whitespace-only text), or nested markup, leave the value ambiguous and
+    are refused.
     """
     attribute = child.get("value")
     text = child.text or ""
-    if len(child) or (attribute is not None and text.strip()):
+    if len(child) or (attribute is not None and text):
         raise _UnreadableEnum
     return attribute if attribute is not None else text
 
@@ -437,28 +438,34 @@ def _unique_enum_ids(parsed: list[_ParsedEnumItem]) -> tuple[EnumItem, ...]:
     """Give every item a distinct id, keeping each unique fallback id unchanged.
 
     Fallback ids derive from the value, so items that differ only in registry
-    type (decimal ``1`` and string ``"1"``) collide. Only colliding fallback
-    ids are qualified with the value kind (``decimal:1``, ``string:1``); the
-    kind and the exact value together identify a write. Two items that write
-    the same thing, or explicit ids that collide, are refused: the first match
-    would silently win both when resolving a submitted id and when decoding a
-    stored value.
+    type (decimal ``1`` and string ``"1"``) collide. Only fallback ids that
+    collide with each other are qualified with the value kind (``decimal:1``,
+    ``string:1``); the kind and the exact value together identify a write.
+
+    Refused: two items that write the same thing, two equal explicit ids, and
+    an explicit id equal to any fallback id, bare or qualified. Renaming a
+    fallback there would hand its id to a different item, so a submitted id
+    could write another value than it did before; with no rename the first
+    match would silently win.
     """
     writes = [_enum_write(entry.item) for entry in parsed]
     if len(set(writes)) != len(writes):
         raise _UnreadableEnum
+    explicit = [entry.item.id for entry in parsed if entry.explicit]
+    if len(set(explicit)) != len(explicit):
+        raise _UnreadableEnum
+    fallback = [index for index, entry in enumerate(parsed) if not entry.explicit]
     ids = [entry.item.id for entry in parsed]
+    bare = {ids[index] for index in fallback}
     qualified = [False] * len(parsed)
     while True:
         counts: dict[str, int] = {}
-        for item_id in ids:
-            counts[item_id] = counts.get(item_id, 0) + 1
-        colliding = [index for index, item_id in enumerate(ids) if counts[item_id] > 1]
+        for index in fallback:
+            counts[ids[index]] = counts.get(ids[index], 0) + 1
+        colliding = [index for index in fallback if counts[ids[index]] > 1]
         if not colliding:
             break
-        renamable = [
-            index for index in colliding if not parsed[index].explicit and not qualified[index]
-        ]
+        renamable = [index for index in colliding if not qualified[index]]
         if not renamable:
             raise _UnreadableEnum
         for index in renamable:
@@ -466,6 +473,8 @@ def _unique_enum_ids(parsed: list[_ParsedEnumItem]) -> tuple[EnumItem, ...]:
             value = "" if entry.item.action == "delete" else str(entry.item.value)
             ids[index] = f"{entry.kind}:{value}"
             qualified[index] = True
+    if set(explicit) & (bare | {ids[index] for index in fallback}):
+        raise _UnreadableEnum
     return tuple(
         replace(entry.item, id=item_id) for entry, item_id in zip(parsed, ids, strict=True)
     )

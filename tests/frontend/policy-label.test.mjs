@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { policyDisplayLabel } from "../../src/gpo_studio/static/js/policy-label.mjs";
+import {
+  enumItemLabel,
+  policyDisplayLabel,
+} from "../../src/gpo_studio/static/js/policy-label.mjs";
 
 test("supplied nonblank display text stays exact, independent of identity", () => {
   expect(
@@ -47,3 +50,16 @@ for (const policy of [
   test(`unavailable display/identity metadata has a meaningful generic label ${JSON.stringify(policy)}`, () => {
     expect(policyDisplayLabel(policy)).toBe("Unnamed policy");
   });
+
+for (const display_name of [undefined, null, "", " \t\n "])
+  test(`enum item with blank label ${JSON.stringify(display_name)} shows its id, not a blank option`, () => {
+    // InetRes.adml defines NeedEdgeBrowserChoice_None as an empty string.
+    expect(enumItemLabel({ id: "item-0", display_name })).toBe(
+      "(no label: item-0)",
+    );
+  });
+test("enum item labels keep supplied text exactly", () => {
+  expect(enumItemLabel({ id: "1", display_name: " Stable channel " })).toBe(
+    " Stable channel ",
+  );
+});

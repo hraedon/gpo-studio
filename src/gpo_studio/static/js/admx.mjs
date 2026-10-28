@@ -1,4 +1,4 @@
-import { policyDisplayLabel } from "./policy-label.mjs";
+import { enumItemLabel, policyDisplayLabel } from "./policy-label.mjs";
 import { createReadScope } from "./read-context.mjs";
 import {state,$,$$,escapeHtml,applyPayload,getGpoGeneration} from './state.mjs';
 import {api,toast,showPersistentError,actionApi} from './api.mjs';
@@ -92,7 +92,7 @@ async function loadAdmxDetail(id,options={}){
       if(e.kind==="list")return `<label class="config-field">${label}<textarea rows="3" data-elem-id="${escapeHtml(e.id)}" data-kind="list" placeholder="One item per line"></textarea></label>`;
       if(e.kind==="enum"){
         if(e.enum_items&&e.enum_items.length){
-          const opts=e.enum_items.map(it=>`<option value="${escapeHtml(it.id)}">${escapeHtml(it.display_name)}</option>`).join("");
+          const opts=e.enum_items.map(it=>`<option value="${escapeHtml(it.id)}">${escapeHtml(enumItemLabel(it))}</option>`).join("");
           return `<label class="config-field">${label}<select data-elem-id="${escapeHtml(e.id)}" data-kind="enum"><option value="">— Select —</option>${opts}</select></label>`;
         }
         // Configure refuses an itemless enum (unsupported_element_kind): free
