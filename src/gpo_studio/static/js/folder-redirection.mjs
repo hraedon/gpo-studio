@@ -1,3 +1,4 @@
+import { createReadScope } from "./read-context.mjs";
 import { $, escapeHtml } from "./state.mjs";
 import { api } from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
@@ -126,8 +127,10 @@ export function initFolderRedirection() {
   // Closing or changing either file invalidates every pending read/request.
   // An old completion must never relabel its results as the new selection.
   let generation = 0;
+  const reads=createReadScope({element:()=>dialog});
 
   function invalidate() {
+    reads.invalidate();
     generation += 1;
     submit.disabled = false;
     results.setAttribute("aria-busy", "false");
@@ -149,7 +152,7 @@ export function initFolderRedirection() {
 
   async function parseFile(content, file, label) {
     try {
-      return await api(PARSE_PATH, {
+      return await /* request: redirection.parse */ api(PARSE_PATH, {
         method: "POST",
         body: JSON.stringify({ content_base64: content }),
       });
@@ -165,22 +168,24 @@ export function initFolderRedirection() {
     if (submit.disabled) return;
     invalidate();
     const requestGeneration = generation;
-    const isCurrent = () => generation === requestGeneration && dialog.open;
+    const read=reads.capture({isCurrent:()=>generation===requestGeneration,report:error=>{
+      results.replaceChildren();status.textContent="Review failed.";showFormErrors(form,error);
+    }});
+    const isCurrent=read.isCurrent;
     const current = form.elements.current_file.files[0];
     const earlier = form.elements.earlier_file.files[0];
+    let pending;
     try {
       // Check both sizes before either file is read or sent to the server.
       validateFile(current);
       if (earlier) validateFile(earlier);
-      submit.disabled = true;
-      results.setAttribute("aria-busy", "true");
-      status.textContent = "Reading files…";
+      pending=read.beginPending({controls:[submit],busy:[results],loading:[{element:status,message:"Reading files…",recovery:"Run the file review again to review the current selection."}]});
       const [currentBytes, earlierBytes] = await Promise.all([
         readNativeFile(current),
         earlier ? readNativeFile(earlier) : Promise.resolve(null),
       ]);
       if (!isCurrent()) return;
-      status.textContent = "Reviewing files…";
+      pending.message(status,"Reviewing files…");
       const [currentBody, earlierBody] = await Promise.all([
         parseFile(currentBytes, current, "Current file"),
         earlier
@@ -190,7 +195,7 @@ export function initFolderRedirection() {
       if (!isCurrent()) return;
       let comparison = "";
       if (earlier) {
-        const diff = await api(`${PARSE_PATH}/diff`, {
+        const diff = await /* request: redirection.diff */ api(`${PARSE_PATH}/diff`, {
           method: "POST",
           body: JSON.stringify({
             old_base64: earlierBytes,
@@ -212,15 +217,9 @@ export function initFolderRedirection() {
         ? "Comparison ready. Review the limits and both files' warnings below."
         : "File review ready. Review the limits and warnings below.";
     } catch (error) {
-      if (!isCurrent()) return;
-      results.replaceChildren();
-      status.textContent = "Review failed.";
-      showFormErrors(form, error);
+      read.reportError(error);
     } finally {
-      if (isCurrent()) {
-        submit.disabled = false;
-        results.setAttribute("aria-busy", "false");
-      }
+      pending?.finish();
     }
   };
 }

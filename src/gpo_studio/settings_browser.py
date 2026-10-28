@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal, assert_never
@@ -16,11 +16,23 @@ from .admx import (
     effective_disabled_value,
     effective_enabled_value,
 )
-from .model import RegistrySetting, Side
-from .policy_config import PolicyState
+from .model import RegistrySetting, Side, ValidationError
+from .policy_config import (
+    PolicySettingIdentity,
+    legacy_setting_parts,
+    parse_structured_setting_id,
+    policy_value_write,
+    setting_policy_owners,
+    structured_policy_ids,
+)
 
-_ADMX_PREFIX = "admx-"
-_SIDE_PATTERN = re.compile(r"-(computer|user)-")
+ObservedPolicyState = Literal["enabled", "disabled", "indeterminate"]
+ObservedStateReason = Literal[
+    "both_patterns_match", "no_complete_pattern", "no_state_evidence", "unsupported_state_pattern"
+]
+_NativeAddress = tuple[str, str, str, str]
+_NativeWrite = tuple[str, str, int | str]
+_StatePattern = dict[_NativeAddress, _NativeWrite]
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +43,7 @@ class ConfiguredSetting:
     category_path: list[str]
     category_ids: list[str]
     side: Side
-    state: PolicyState
+    state: ObservedPolicyState
     element_values: dict[str, bool | int | str | list[str]]
     raw_settings: tuple[RegistrySetting, ...]
     supported_on: str
@@ -39,6 +51,7 @@ class ConfiguredSetting:
     source_admx: str = ""
     ambiguous: bool = False
     ambiguous_with: list[str] = field(default_factory=list)
+    state_reason: ObservedStateReason | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,32 +91,36 @@ class _PolicyRegistryMapping:
     element_id: str = ""
 
 
-def _parse_setting_id(
-    setting_id: str,
-) -> tuple[str, Side, str] | None:
-    if not setting_id.startswith(_ADMX_PREFIX):
-        return None
-    remainder = setting_id[len(_ADMX_PREFIX) :]
-    matches = list(_SIDE_PATTERN.finditer(remainder))
-    if not matches:
-        return None
-    match = matches[-1]
-    qualified_id = remainder[: match.start()]
-    side_str = match.group(1)
-    suffix = remainder[match.end() :]
-    side: Side = "computer" if side_str == "computer" else "user"
-    return qualified_id, side, suffix
+def _parse_setting_id(setting_id: str) -> tuple[str, Side, str] | None:
+    structured = parse_structured_setting_id(setting_id)
+    if structured is not None:
+        return structured.policy_id, structured.side, ""
+    parts = legacy_setting_parts(setting_id)
+    return parts[0] if len(parts) == 1 else None
 
 
 def _setting_suffix(setting_id: str) -> str | None:
-    parsed = _parse_setting_id(setting_id)
-    if parsed is None:
+    structured = parse_structured_setting_id(setting_id)
+    if structured is not None:
+        if structured.kind == "state":
+            return "state"
+        if structured.kind == "state-list":
+            return f"listitem-{structured.ordinal}"
         return None
-    return parsed[2]
+    parsed = _parse_setting_id(setting_id)
+    return parsed[2] if parsed is not None else None
 
 
 def _hive_for(side: Side) -> Literal["HKLM", "HKCU"]:
     return "HKLM" if side == "computer" else "HKCU"
+
+
+def _structured_location_mismatch(
+    setting: RegistrySetting, identity: PolicySettingIdentity | None
+) -> bool:
+    return identity is not None and (
+        identity.side != setting.side or setting.hive != _hive_for(identity.side)
+    )
 
 
 def _hives_for_class(
@@ -202,6 +219,7 @@ def _resolve_setting_mappings(
         tuple[Literal["HKLM", "HKCU"], str, str], list[_PolicyRegistryMapping]
     ],
     policy_map: dict[str, PolicyDefinition],
+    catalogue: AdmxCatalogue,
 ) -> tuple[_PolicyRegistryMapping, ...]:
     matches: list[_PolicyRegistryMapping] = []
     seen: set[tuple[str, Side]] = set()
@@ -216,9 +234,7 @@ def _resolve_setting_mappings(
         matches.append(mapping)
         seen.add(identity)
 
-    parsed = _parse_setting_id(setting.id)
-    if parsed is not None:
-        qualified_id, side, _suffix = parsed
+    for qualified_id, side in setting_policy_owners(setting, catalogue):
         identity = (qualified_id, side)
         if identity not in seen:
             policy = policy_map.get(qualified_id)
@@ -262,11 +278,131 @@ def _policy_value_matches(policy_value: PolicyValue, setting: RegistrySetting) -
     return str(setting.value) == policy_value.data
 
 
+def _native_write(
+    registry_type: str, value: int | str | list[str], action: str
+) -> _NativeWrite | None:
+    if action == "delete":
+        # Delete has no Set payload; historical placeholders are immaterial.
+        return ("delete", "", "")
+    if action != "set":
+        return None
+    if registry_type in ("REG_DWORD", "REG_QWORD") and type(value) is int:
+        bits = 32 if registry_type == "REG_DWORD" else 64
+        return ("set", registry_type, value) if 0 <= value < 1 << bits else None
+    if registry_type in ("REG_SZ", "REG_EXPAND_SZ") and isinstance(value, str):
+        return ("set", registry_type, value)
+    return None
+
+
+def _state_pattern(
+    policy: PolicyDefinition,
+    side: Side,
+    value: PolicyValue | None,
+    value_list: PolicyValueList | None,
+) -> _StatePattern | None:
+    """Policy-level writes only; no editor IDs or required element resolution."""
+    if _hive_for(side) not in _hives_for_class(policy.class_):
+        return None
+    writes: list[tuple[str, str, PolicyValue]] = []
+    if policy.value_name and value is not None:
+        writes.append((policy.key, policy.value_name, value))
+    if value_list is not None:
+        writes.extend(
+            (item.key or value_list.default_key or policy.key, item.value_name, item.value)
+            for item in value_list.items
+        )
+    pattern: _StatePattern = {}
+    for key, name, policy_value in writes:
+        try:
+            registry_type, data, action = policy_value_write(policy_value)
+        except (ValidationError, ValueError, TypeError):
+            return None
+        signature = _native_write(registry_type, data, action)
+        address = (side, _hive_for(side), key.casefold(), name.casefold())
+        if signature is None or address in pattern:
+            return None
+        pattern[address] = signature
+    return pattern
+
+
+def _may_be_policy_state_record(row: _StoredReadBinding, plan: _PolicyReadPlan) -> bool:
+    """Outside a native pattern, preserve uncertainty from actual stored framing.
+
+    A structured child is distinct from a state writer. A canonical legacy state
+    spelling can be a stale state writer OR an overlapping child: it cannot
+    establish certainty about the current pattern. Noncanonical child ordinals
+    (zero, leading zero, non-ASCII) are not emitted by the policy-list writer.
+    Today's writer-family choice says nothing about a historical row's encoding.
+    """
+    identity = row.structured
+    if identity is not None:
+        return (
+            identity.policy_id == plan.policy_id and identity.side == plan.side
+            and identity.kind in ("state", "state-list")
+        )
+    suffix = row.legacy_suffix
+    if suffix is None:
+        return False
+    if suffix == "state":
+        return True
+    prefix, separator, ordinal = suffix.rpartition("-")
+    return bool(
+        separator and prefix == "listitem" and ordinal.isascii()
+        and ordinal.isdigit() and not ordinal.startswith("0")
+    )
+
+
+def _observe_policy_state(
+    policy: PolicyDefinition,
+    side: Side,
+    rows: tuple[_StoredReadBinding, ...],
+    plan: _PolicyReadPlan,
+) -> tuple[ObservedPolicyState, ObservedStateReason | None, frozenset[int]]:
+    """Observe declared policy-level writes; do not infer historical intent."""
+    enabled = _state_pattern(policy, side, effective_enabled_value(policy), policy.enabled_list)
+    disabled = _state_pattern(policy, side, effective_disabled_value(policy), policy.disabled_list)
+    if enabled is None or disabled is None:
+        return "indeterminate", "unsupported_state_pattern", frozenset()
+    addresses = enabled.keys() | disabled.keys()
+    unmatched = frozenset(
+        index for index, row in enumerate(rows)
+        if row.setting.identity() not in addresses and _may_be_policy_state_record(row, plan)
+    )
+    if unmatched:
+        return "indeterminate", "no_complete_pattern", unmatched
+    state_keys = {address[:3] for address in addresses}
+    actual: _StatePattern = {}
+    for row in rows:
+        setting = row.setting
+        address = setting.identity()
+        if setting.action == "delete_all_values" and address[:3] in state_keys:
+            return "indeterminate", "unsupported_state_pattern", unmatched
+        if address not in addresses:
+            continue
+        signature = _native_write(setting.registry_type, setting.value, setting.action)
+        if signature is None or address in actual:
+            return "indeterminate", "no_complete_pattern", unmatched
+        actual[address] = signature
+    if not actual:
+        return "indeterminate", "no_state_evidence", unmatched
+    matches_enabled = bool(enabled) and actual == enabled
+    matches_disabled = bool(disabled) and actual == disabled
+    if matches_enabled and matches_disabled:
+        return "indeterminate", "both_patterns_match", unmatched
+    if matches_enabled:
+        return "enabled", None, unmatched
+    if matches_disabled:
+        return "disabled", None, unmatched
+    return "indeterminate", "no_complete_pattern", unmatched
+
+
 def _derive_state(
     policy: PolicyDefinition,
     side: Side,
     settings: tuple[RegistrySetting, ...],
-) -> PolicyState:
+    *,
+    structured_ids: bool,
+) -> Literal["enabled", "disabled"]:
     hive = _hive_for(side)
     state_settings = [
         s
@@ -277,6 +413,7 @@ def _derive_state(
     ]
     synthetic_state_settings = [
         s for s in settings if _setting_suffix(s.id) == "state"
+        and (parse_structured_setting_id(s.id) is not None or not structured_ids)
     ]
     state_settings = list(
         {s.identity(): s for s in state_settings + synthetic_state_settings}.values()
@@ -304,37 +441,211 @@ def _derive_state(
     return "enabled"
 
 
-def _setting_belongs_to_element(
-    setting: RegistrySetting,
-    element: PolicyElement,
-    policy: PolicyDefinition,
-    side: Side,
-) -> bool:
-    parsed = _parse_setting_id(setting.id)
-    if parsed is not None:
-        suffix = parsed[2]
-        if suffix == element.id or suffix.startswith(f"{element.id}-"):
-            return True
-    element_key = element.registry_key or policy.key
-    if not element.registry_value_name:
-        return False
-    return (
-        setting.hive == _hive_for(side)
-        and setting.key.casefold() == element_key.casefold()
-        and setting.value_name.casefold() == element.registry_value_name.casefold()
+@dataclass(frozen=True, slots=True)
+class _ElementReadBinding:
+    element: PolicyElement
+    key: str
+    value_name: str
+    value_prefix: str | None
+    legacy_suffix_unambiguous: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _PolicyReadPlan:
+    policy_id: str
+    side: Side
+    hive: Literal["HKLM", "HKCU"]
+    elements: tuple[_ElementReadBinding, ...]
+    list_ids: frozenset[str]
+    scalar_suffixes: frozenset[str]
+    disabled_suffixes: frozenset[str]
+    non_list_addresses: frozenset[tuple[Literal["HKLM", "HKCU"], str, str]]
+    has_fixed_list: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _StoredReadBinding:
+    setting: RegistrySetting
+    address: tuple[Literal["HKLM", "HKCU"], str, str]
+    structured: PolicySettingIdentity | None
+    legacy_suffix: str | None
+    legacy_list_component: str | None
+    legacy_list_conflict: bool
+    legacy_level: bool
+
+
+def _legacy_list_components(suffix: str, list_ids: frozenset[str]) -> frozenset[str]:
+    candidates = {suffix} if suffix in list_ids else set()
+    prefix, separator, ordinal = suffix.rpartition("-")
+    if separator and ordinal.isdigit() and prefix in list_ids:
+        candidates.add(prefix)
+    return frozenset(candidates)
+
+
+def _legacy_level_suffix(suffix: str, has_fixed_list: bool) -> bool:
+    if suffix == "state":
+        return True
+    prefix, separator, ordinal = suffix.rpartition("-")
+    return bool(has_fixed_list and separator and prefix == "listitem" and ordinal.isdigit())
+
+
+def _build_policy_read_plan(policy: PolicyDefinition, side: Side) -> _PolicyReadPlan:
+    # Snapshot source bindings/exclusions once. No membership check traverses
+    # policy.elements or recomputes the family's new-writer choice.
+    elements = tuple(policy.elements)
+    hive = _hive_for(side)
+    list_ids = frozenset(element.id for element in elements if element.kind == "list")
+    has_fixed_list = policy.enabled_list is not None or policy.disabled_list is not None
+    suffix_counts: dict[str, int] = {}
+    for element in elements:
+        if element.kind != "list":
+            for suffix in (element.id, "disabled-element-" + element.id):
+                suffix_counts[suffix] = suffix_counts.get(suffix, 0) + 1
+    addresses = set()
+    if policy.value_name:
+        addresses.add(_index_key(hive, policy.key, policy.value_name))
+    for value_list in (policy.enabled_list, policy.disabled_list):
+        if value_list is not None:
+            for item in value_list.items:
+                addresses.add(
+                    _index_key(
+                        hive, item.key or value_list.default_key or policy.key, item.value_name
+                    )
+                )
+    bindings = []
+    for element in elements:
+        key = (element.registry_key or policy.key).casefold()
+        name = element.registry_value_name.casefold()
+        if element.kind != "list" and name:
+            addresses.add((hive, key, name))
+        unambiguous = all(
+            suffix_counts.get(suffix, 0) == 1
+            and not _legacy_level_suffix(suffix, has_fixed_list)
+            and not _legacy_list_components(suffix, list_ids)
+            for suffix in (element.id, "disabled-element-" + element.id)
+        )
+        bindings.append(
+            _ElementReadBinding(
+                element, key, name, dict(element.attributes).get("valuePrefix"), unambiguous
+            )
+        )
+    return _PolicyReadPlan(
+        policy.qualified_id,
+        side,
+        hive,
+        tuple(bindings),
+        list_ids,
+        frozenset(element.id for element in elements if element.kind != "list"),
+        frozenset(
+            "disabled-element-" + element.id for element in elements if element.kind != "list"
+        ),
+        frozenset(addresses),
+        has_fixed_list,
     )
 
 
+def _bind_stored_setting(plan: _PolicyReadPlan, setting: RegistrySetting) -> _StoredReadBinding:
+    structured = parse_structured_setting_id(setting.id)
+    parsed = None if structured is not None else _parse_setting_id(setting.id)
+    suffix = parsed[2] if parsed is not None and parsed[:2] == (plan.policy_id, plan.side) else None
+    components = (
+        _legacy_list_components(suffix, plan.list_ids) if suffix is not None else frozenset()
+    )
+    level = suffix is not None and _legacy_level_suffix(suffix, plan.has_fixed_list)
+    non_list_role = suffix in plan.scalar_suffixes or (
+        setting.action == "delete" and suffix in plan.disabled_suffixes
+    )
+    conflict = bool(components and (len(components) != 1 or level or non_list_role))
+    component = next(iter(components)) if len(components) == 1 else None
+    return _StoredReadBinding(
+        setting,
+        _index_key(setting.hive, setting.key, setting.value_name),
+        structured,
+        suffix,
+        component,
+        conflict,
+        level,
+    )
+
+
+def _setting_belongs_to_element(
+    row: _StoredReadBinding,
+    binding: _ElementReadBinding,
+    plan: _PolicyReadPlan,
+) -> bool:
+    element = binding.element
+    structured = row.structured
+    if structured is not None:
+        # Normal edits keep side/hive consistent. Historical invalid rows must
+        # also satisfy the complete location contract before child decoding.
+        return (
+            structured.policy_id == plan.policy_id
+            and structured.side == plan.side
+            and row.setting.side == plan.side
+            and row.setting.hive == plan.hive
+            and structured.kind in ("element", "element-list", "disabled-element")
+            and structured.component == element.id
+        )
+    # Interpret the actual stored frame, independently of today's writer family.
+    suffix = row.legacy_suffix
+    if suffix is not None:
+        if element.kind == "list":
+            if (
+                row.setting.action == "delete"
+                or row.legacy_level
+                or suffix in plan.scalar_suffixes
+                or row.legacy_list_conflict
+            ):
+                return False
+            if row.legacy_list_component is not None:
+                return row.legacy_list_component == element.id
+        elif (
+            binding.legacy_suffix_unambiguous and suffix == element.id
+            and not suffix.startswith("disabled-element-")
+            and not _legacy_level_suffix(suffix, True)
+        ):
+            return True
+    if row.address[:2] != (plan.hive, binding.key):
+        return False
+    if element.kind == "list":
+        if row.setting.action == "delete" or row.address in plan.non_list_addresses:
+            return False
+        prefix = binding.value_prefix
+        if prefix is not None:
+            remainder = row.setting.value_name[len(prefix) :]
+            return row.setting.value_name.startswith(prefix) and remainder.isdigit()
+        return True
+    return bool(binding.value_name) and row.address[2] == binding.value_name
+
+
 def _decode_element_values(
-    policy: PolicyDefinition,
-    side: Side,
-    settings: tuple[RegistrySetting, ...],
-) -> dict[str, bool | int | str | list[str]]:
+    plan: _PolicyReadPlan,
+    rows: tuple[_StoredReadBinding, ...],
+) -> tuple[dict[str, bool | int | str | list[str]], frozenset[int], frozenset[int]]:
+    # Keep source/ownership binding unchanged. Only rows whose existing list
+    # binding would make int() fail are excluded from values and shown unresolved.
+    unsupported = frozenset(
+        index
+        for binding in plan.elements if binding.element.kind == "list"
+        for index, row in enumerate(rows)
+        if row.structured is None and row.legacy_suffix is not None
+        and _setting_belongs_to_element(row, binding, plan)
+        and _list_sort_key(row.legacy_suffix, binding.element.id) is None
+    )
     result: dict[str, bool | int | str | list[str]] = {}
-    for element in policy.elements:
-        element_settings = [
-            s for s in settings if _setting_belongs_to_element(s, element, policy, side)
+    claimed: set[int] = set()
+    for binding in plan.elements:
+        element = binding.element
+        matching = [
+            (index, row)
+            for index, row in enumerate(rows)
+            if not (element.kind == "list" and index in unsupported)
+            and _setting_belongs_to_element(row, binding, plan)
         ]
+        bound_rows = [row for _index, row in matching]
+        if element.kind != "unknown":
+            claimed.update(index for index, _row in matching)
+        element_settings = [row.setting for row in bound_rows]
         if not element_settings:
             continue
         if element.kind == "boolean":
@@ -360,44 +671,53 @@ def _decode_element_values(
             else:
                 result[element.id] = [str(s.value)]
         elif element.kind == "list":
-            items = _collect_list_items(element, element_settings)
+            items = _collect_list_items(element, bound_rows)
             result[element.id] = [str(s.value) for s in items]
         elif element.kind == "enum":
             result[element.id] = _decode_enum(element, element_settings[0])
         elif element.kind == "unknown":
             continue
-    return result
+    return result, frozenset(claimed), unsupported
 
 
 def _collect_list_items(
-    element: PolicyElement, settings: list[RegistrySetting]
+    element: PolicyElement, rows: list[_StoredReadBinding]
 ) -> list[RegistrySetting]:
-    synthetic_items: list[tuple[int, RegistrySetting]] = []
+    synthetic_items: list[tuple[tuple[int, str], RegistrySetting]] = []
     fallback_items: list[RegistrySetting] = []
-    for s in settings:
-        parsed = _parse_setting_id(s.id)
-        if parsed is not None:
-            suffix = parsed[2]
-            sort = _list_sort_key(suffix, element.id)
-            if sort >= 0:
-                synthetic_items.append((sort, s))
-            else:
-                fallback_items.append(s)
+    for row in rows:
+        structured = row.structured
+        if structured is not None and structured.kind == "element-list":
+            digits = str(structured.ordinal)
+            synthetic_items.append(((len(digits), digits), row.setting))
+            continue
+        if row.legacy_suffix is not None:
+            ordinal = _list_sort_key(row.legacy_suffix, element.id)
+            # The decoding prepass retains unorderable rows as unresolved.
+            if ordinal is not None:
+                synthetic_items.append((ordinal, row.setting))
         else:
-            fallback_items.append(s)
+            fallback_items.append(row.setting)
     if synthetic_items:
         synthetic_items.sort(key=lambda x: x[0])
         return [s for _, s in synthetic_items]
     return fallback_items
 
 
-def _list_sort_key(suffix: str, element_id: str) -> int:
-    if suffix == element_id:
-        return 0
+def _list_sort_key(suffix: str, element_id: str) -> tuple[int, str] | None:
     remainder = suffix[len(element_id) :]
-    if remainder.startswith("-") and remainder[1:].isdigit():
-        return int(remainder[1:])
-    return 0
+    if suffix == element_id or not (remainder.startswith("-") and remainder[1:].isdigit()):
+        return (1, "0")
+    ordinal = remainder[1:]
+    if not ordinal.isdecimal():
+        return None
+    # Match int()'s successful decimal ordering, including zero/leading zeros
+    # and Unicode Nd digits, without whole-string conversion or a size limit.
+    digits = ordinal if ordinal.isascii() else "".join(
+        str(unicodedata.decimal(character)) for character in ordinal
+    )
+    digits = digits.lstrip("0") or "0"
+    return (len(digits), digits)
 
 
 def _decode_enum(
@@ -422,19 +742,35 @@ def build_settings_browser(
     unresolved: list[UnresolvedSetting] = []
 
     for setting in settings:
+        location_mismatch = _structured_location_mismatch(
+            setting, parse_structured_setting_id(setting.id)
+        )
+        if location_mismatch:
+            # Raw edits preserve the historical editor ID. Keep the native
+            # write available for state observation, and expose its uncertain
+            # authoring identity once, independently of address-based groups.
+            unresolved.append(UnresolvedSetting(
+                setting, "structured policy identity does not match registry location"
+            ))
+        owners = setting_policy_owners(setting, catalogue)
+        if len(owners) > 1:
+            unresolved.append(UnresolvedSetting(setting, "ambiguous legacy policy ownership"))
+            continue
         parsed = _parse_setting_id(setting.id)
         if parsed is not None:
             qualified_id, _side, _suffix = parsed
             if qualified_id not in policy_map:
-                unresolved.append(
-                    UnresolvedSetting(setting=setting, reason="template not loaded")
-                )
+                if not location_mismatch:
+                    unresolved.append(
+                        UnresolvedSetting(setting=setting, reason="template not loaded")
+                    )
                 continue
-        mappings = _resolve_setting_mappings(setting, index, policy_map)
+        mappings = _resolve_setting_mappings(setting, index, policy_map, catalogue)
         if not mappings:
-            unresolved.append(
-                UnresolvedSetting(setting=setting, reason="no matching policy")
-            )
+            if not location_mismatch:
+                unresolved.append(
+                    UnresolvedSetting(setting=setting, reason="no matching policy")
+                )
             continue
         matches.append((setting, tuple(mappings)))
 
@@ -449,8 +785,47 @@ def build_settings_browser(
     for (qualified_id, side), group_settings in sorted(groups.items()):
         policy = policy_map[qualified_id]
         raw = tuple(group_settings)
-        state = _derive_state(policy, side, raw)
-        element_values = _decode_element_values(policy, side, raw)
+        # Family selection scans the source schema. Keep it outside the
+        # element×setting loop (and avoid hashing the whole policy as a cache key).
+        structured_ids = structured_policy_ids(policy)
+        plan = _build_policy_read_plan(policy, side)
+        bound_rows = tuple(_bind_stored_setting(plan, setting) for setting in raw)
+        element_values, claimed, unsupported = _decode_element_values(plan, bound_rows)
+        if policy.value_name or policy.enabled_list is not None or policy.disabled_list is not None:
+            observed_state, state_reason, unmatched_state = _observe_policy_state(
+                policy, side, bound_rows, plan
+            )
+        else:
+            # Child-only schemas retain their heuristic unless unclaimed stored
+            # level framing supplies uncertainty about a historical state writer.
+            unmatched_state = frozenset(
+                index for index, row in enumerate(bound_rows)
+                if index not in claimed and _may_be_policy_state_record(row, plan)
+            )
+            if unmatched_state:
+                observed_state, state_reason = "indeterminate", "no_complete_pattern"
+            else:
+                observed_state = _derive_state(policy, side, raw, structured_ids=structured_ids)
+                state_reason = None
+        # Diagnose each row once within this group. Component decoding has its own
+        # stronger explanation; a successfully decoded child remains available.
+        for row_index, row in enumerate(bound_rows):
+            if _structured_location_mismatch(row.setting, row.structured):
+                continue
+            reason = None
+            if row_index in unsupported:
+                reason = "unsupported legacy list ordinal"
+            elif row_index not in claimed and row.address not in plan.non_list_addresses and (
+                row.legacy_list_conflict or (
+                    row.legacy_suffix is not None
+                    and row.legacy_suffix.startswith("disabled-element-")
+                )
+            ):
+                reason = "ambiguous legacy policy component"
+            elif row_index in unmatched_state and row_index not in claimed:
+                reason = "unmatched policy state evidence"
+            if reason is not None:
+                unresolved.append(UnresolvedSetting(row.setting, reason))
         supported_on_display = _resolve_supported_on(catalogue, policy)
         cat_names, cat_ids = _category_path(catalogue, policy)
 
@@ -473,7 +848,8 @@ def build_settings_browser(
                 category_path=cat_names,
                 category_ids=cat_ids,
                 side=side,
-                state=state,
+                state=observed_state,
+                state_reason=state_reason,
                 element_values=element_values,
                 raw_settings=raw,
                 supported_on=supported_on_display,
@@ -546,7 +922,7 @@ def _propagate_counts(nodes: list[CategoryNode], visited: set[str] | None = None
 def search_configured_settings(
     result: SettingsBrowserResult,
     query: str | None,
-    state: PolicyState | None,
+    state: ObservedPolicyState | None,
     category_id: str | None,
 ) -> SettingsBrowserResult:
     filtered: list[ConfiguredSetting] = []

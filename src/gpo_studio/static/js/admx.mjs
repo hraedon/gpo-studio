@@ -1,20 +1,87 @@
-import {state,$,$$,escapeHtml} from './state.mjs';
-import {api,toast} from './api.mjs';
-import {loadList} from './render.mjs';
+import { policyDisplayLabel } from "./policy-label.mjs";
+import { createReadScope } from "./read-context.mjs";
+import {state,$,$$,escapeHtml,applyPayload,getGpoGeneration} from './state.mjs';
+import {api,toast,showPersistentError,actionApi} from './api.mjs';
+import {clearFormErrors,handleFormFailure,showFormErrors} from './errors.mjs';
+import {loadList,renderList,renderAll} from './render.mjs';
+import {resetEditor,beginMutation,isCurrentEditor,isSameEditor,mutationFailed,endMutation,updateMutationList} from './mutation-context.mjs';
 
-let admxLoaded=null,admxTimer=null,admxCatsLoaded=false;
-export async function checkAdmx(){
-  if(admxLoaded===null){try{const h=await api("/api/health");admxLoaded=h.admx_loaded===true}catch{admxLoaded=false}$("#admx-empty").hidden=admxLoaded;$("#admx-content").hidden=!admxLoaded}
-  if(admxLoaded){if(!admxCatsLoaded){admxCatsLoaded=true;loadAdmxCategories()}loadAdmxResults($("#admx-search").value)}
+import {catalogueEpoch as revisionEpoch,currentCatalogueRevision,observeCatalogue,observeCatalogueConflict,reviewedCatalogueIsCurrent,onCatalogueChange,initCatalogueMonitoring,CATALOGUE_REVIEW_MESSAGE} from './catalogue-context.mjs';
+
+// Each option represents the revision shown when this editor opened. Sidebar
+// refreshes and older saves may update live summaries, but cannot consent to a
+// newer target revision on behalf of this form.
+const configureTargets=new WeakMap();
+function targetSnapshot(gpo){return Object.freeze({guid:gpo.guid,name:gpo.name,revision:gpo.revision,generation:getGpoGeneration(gpo.guid)})}
+
+function markConfigureStale(){
+  const form=$("#configure-form");
+  form.dataset.catalogueStale="true";
+  showFormErrors(form,{message:CATALOGUE_REVIEW_MESSAGE});
+  form.querySelector('button[value="default"]').disabled=true;
 }
-async function loadAdmxResults(q){
-  try{const data=await api(`/api/admx/search?q=${encodeURIComponent(q)}`);$("#admx-results").hidden=false;$("#admx-detail").hidden=true;
-    $("#admx-results").innerHTML=data.items.length?data.items.map(p=>`<button class="admx-result" data-id="${escapeHtml(p.qualified_id||p.id)}"><div><strong>${escapeHtml(p.display_name)}</strong><span class="side ${p.class_==='Machine'?'computer':'user'}">${escapeHtml(p.class_)}</span></div><small class="mono">${escapeHtml(p.key)}</small><p>${escapeHtml((p.explain_text||"").slice(0,120))}${(p.explain_text||"").length>120?'…':''}</p></button>`).join(""):'<div class="table-empty">No policies found.</div>';
+
+let admxLoaded=null,admxTimer=null,admxCatsLoaded=false,admxRequest=0,catalogueEpoch=0,admxView=0;
+// Catalogue caches belong to their epoch. Reporting additionally belongs to
+// this view/editor, and search/detail outcomes to their latest request.
+const admxReads=createReadScope({element:()=>$("#panel-admx"),reactivate:options=>checkAdmx(options)});
+let admxIntent={type:"search",value:""};
+function captureAdmxRead(request=null,options={}){
+  const epoch=catalogueEpoch,view=admxView,guid=state.current?.guid,
+    catalogue=currentCatalogueRevision();
+  const isCurrent=()=>view===admxView&&epoch===catalogueEpoch&&
+    (!catalogue||catalogue===currentCatalogueRevision())&&
+    Boolean(guid)&&state.current?.guid===guid&&
+    !$("#panel-admx").hidden;
+  const read=admxReads.capture({...options,isCurrent:()=>isCurrent()&&(request===null||request===admxRequest),report:error=>showPersistentError(error)});
+  return{epoch,started:revisionEpoch(),...read};
+}
+export function resetAdmxCatalogue(){catalogueEpoch++;admxLoaded=null;admxCatsLoaded=false;admxRequest++;clearTimeout(admxTimer);$("#admx-detail").hidden=true;$("#admx-detail").replaceChildren();$("#admx-results").replaceChildren();$("#admx-categories").replaceChildren()}
+function cataloguePending(read,message){
+  const status=$("#admx-load-status");status.hidden=false;
+  if(admxLoaded===null){$("#admx-empty").hidden=true;$("#admx-content").hidden=true}
+  return read.beginPending({busy:[status],loading:[{element:status,message,recovery:"Reload ADMX to review the current catalogue.",retry:()=>checkAdmx({resume:true}),retryLabel:"Reload ADMX",className:"table-empty"}]});
+}
+function finishCatalogueRead(read,pending,success){
+  if(success&&read.isCurrent()&&pending?.isCurrent()){$("#admx-load-status").replaceChildren();$("#admx-load-status").hidden=true}
+  pending?.finish();read.complete();
+}
+export async function checkAdmx(options={}){
+  if(!options.resume)admxIntent={type:"search",value:$("#admx-search").value};
+  const intent=admxIntent;
+  admxReads.invalidate();admxView++;
+  const read=captureAdmxRead(null,options),{epoch,started}=read;
+  const pending=cataloguePending(read,"Loading ADMX catalogue…");let success=false;
+  try{
+    if(admxLoaded===null){
+      try{const h=await /* request: admx.health */ api("/api/health");if(!observeCatalogue(h,started)||epoch!==catalogueEpoch)return;admxLoaded=h.admx_loaded===true}
+      catch(error){read.reportError(error.message);return}
+    }
+    // Cache admission stays separate from view publication and error authority.
+    if(!read.isCurrent())return;
+    $("#admx-empty").hidden=admxLoaded;$("#admx-content").hidden=!admxLoaded;
+    if(!admxLoaded){success=true;return}
+    const chain={errorAuthority:read.errorAuthority,recoveryBudget:read.recoveryBudget,managed:true};
+    const results=await Promise.all([admxCatsLoaded?true:loadAdmxCategories(chain),intent.type==="detail"?loadAdmxDetail(intent.value,chain):loadAdmxResults(intent.value,chain)]);
+    success=results.every(Boolean);
+  }finally{finishCatalogueRead(read,pending,success)}
+}
+async function loadAdmxResults(q,options={}){
+  admxIntent={type:"search",value:q};
+  const request=++admxRequest,read=captureAdmxRead(request,options),{started}=read;
+  const pending=options.managed?null:cataloguePending(read,"Searching ADMX policies…");let success=false;
+  try{const data=await /* request: admx.search */ api(`/api/admx/search?q=${encodeURIComponent(q)}`);if(!observeCatalogue(data,started)||request!==admxRequest||!read.isCurrent())return;$("#admx-results").hidden=false;$("#admx-detail").hidden=true;
+    $("#admx-results").innerHTML=data.items.length?data.items.map(p=>`<button class="admx-result" data-id="${escapeHtml(p.qualified_id||p.id)}"><div><strong>${escapeHtml(policyDisplayLabel(p))}</strong><span class="side ${p.class_==='Machine'?'computer':'user'}">${escapeHtml(p.class_)}</span></div><small class="mono">${escapeHtml(p.key)}</small><p>${escapeHtml((p.explain_text||"").slice(0,120))}${(p.explain_text||"").length>120?'…':''}</p></button>`).join(""):'<div class="table-empty">No policies found.</div>';
     $$(".admx-result").forEach(el=>el.onclick=()=>loadAdmxDetail(el.dataset.id));
-  }catch(e){toast(e.message)}
+    success=true;return true;
+  }catch(error){read.reportError(error.message);return false}finally{finishCatalogueRead(read,pending,success)}
 }
-async function loadAdmxDetail(id){
-  try{const p=await api(`/api/admx/policies/${encodeURIComponent(id)}`);$("#admx-results").hidden=true;$("#admx-detail").hidden=false;
+async function loadAdmxDetail(id,options={}){
+  admxIntent={type:"detail",value:id};
+  clearTimeout(admxTimer);
+  const request=++admxRequest,read=captureAdmxRead(request,options),{started}=read;
+  const pending=options.managed?null:cataloguePending(read,"Loading ADMX policy…");let success=false;
+  try{const p=await /* request: admx.detail */ api(`/api/admx/policies/${encodeURIComponent(id)}`);if(!observeCatalogue(p,started)||request!==admxRequest||!read.isCurrent())return;$("#admx-results").hidden=true;$("#admx-detail").hidden=false;
     const fields=(p.elements||[]).map(e=>{
       const pres=(p.presentation||[]).find(pr=>pr.ref_id===e.id)||{};
       const label=escapeHtml(pres.label||e.id);
@@ -32,18 +99,20 @@ async function loadAdmxDetail(id){
       }
       return `<div class="config-field"><small>Unsupported element kind: ${escapeHtml(e.kind)}</small></div>`;
     }).join("");
-    $("#admx-detail").innerHTML=`<div class="admx-detail-head"><button class="quiet" id="admx-back">← Back</button><h3>${escapeHtml(p.display_name)}</h3></div><dl class="details"><dt>ID</dt><dd class="mono">${escapeHtml(p.id)}</dd>${p.namespace?`<dt>Namespace</dt><dd class="mono">${escapeHtml(p.namespace)}</dd>`:""}<dt>Class</dt><dd>${escapeHtml(p.class_)}</dd><dt>Key</dt><dd class="mono">${escapeHtml(p.key)}</dd><dt>Category</dt><dd>${escapeHtml(p.parent_category)||"—"}</dd><dt>Supported on</dt><dd>${escapeHtml(p.supported_on)||"—"}</dd><dt>Explanation</dt><dd>${escapeHtml(p.explain_text)||"—"}</dd>${p.elements&&p.elements.length?`<dt>Elements</dt><dd>${p.elements.map(e=>`<div class="mono">${escapeHtml(e.kind)}: ${escapeHtml(e.id)}</div>`).join("")}</dd>`:""}${p.presentation&&p.presentation.length?`<dt>Presentation</dt><dd>${p.presentation.map(e=>`<div>${escapeHtml(e.kind)}: ${escapeHtml(e.label||e.id)}</div>`).join("")}</dd>`:""}</dl>`;
+    $("#admx-detail").innerHTML=`<div class="admx-detail-head"><button class="quiet" id="admx-back">← Back</button><h3>${escapeHtml(policyDisplayLabel(p))}</h3></div><dl class="details"><dt>ID</dt><dd class="mono">${escapeHtml(p.id)}</dd>${p.namespace?`<dt>Namespace</dt><dd class="mono">${escapeHtml(p.namespace)}</dd>`:""}<dt>Class</dt><dd>${escapeHtml(p.class_)}</dd><dt>Key</dt><dd class="mono">${escapeHtml(p.key)}</dd><dt>Category</dt><dd>${escapeHtml(p.parent_category)||"—"}</dd><dt>Supported on</dt><dd>${escapeHtml(p.supported_on)||"—"}</dd><dt>Explanation</dt><dd>${escapeHtml(p.explain_text)||"—"}</dd>${p.elements&&p.elements.length?`<dt>Elements</dt><dd>${p.elements.map(e=>`<div class="mono">${escapeHtml(e.kind)}: ${escapeHtml(e.id)}</div>`).join("")}</dd>`:""}${p.presentation&&p.presentation.length?`<dt>Presentation</dt><dd>${p.presentation.map(e=>`<div>${escapeHtml(e.kind)}: ${escapeHtml(e.label||e.id)}</div>`).join("")}</dd>`:""}</dl>`;
     // Always offered, including for policies with no elements: a plain on/off
     // policy is the most common kind, and Enabled/Disabled/Not configured is
     // exactly what it needs. Previously the button only rendered when the
     // policy had element fields, so such policies could not be configured.
-    {const btn=document.createElement("button");btn.className="primary";btn.textContent="Configure policy";btn.id="admx-configure-btn";$("#admx-detail").appendChild(btn);btn.onclick=()=>openConfigureDialog(p.qualified_id||p.id,p.display_name,p.class_,fields)}
-    $("#admx-back").onclick=()=>{$("#admx-detail").hidden=true;$("#admx-results").hidden=false};
-  }catch(e){toast(e.message)}
+    {const btn=document.createElement("button");btn.className="primary";btn.textContent="Configure policy";btn.id="admx-configure-btn";$("#admx-detail").appendChild(btn);btn.onclick=()=>openConfigureDialog(p.qualified_id||p.id,policyDisplayLabel(p),p.class_,fields,p.catalogue_revision)}
+    $("#admx-back").onclick=()=>{admxRequest++;admxReads.cancelReactivation();admxIntent={type:"search",value:$("#admx-search").value};$("#admx-load-status").replaceChildren();$("#admx-load-status").hidden=true;$("#admx-detail").hidden=true;$("#admx-results").hidden=false};
+    success=true;return true;
+  }catch(error){read.reportError(error.message);return false}finally{finishCatalogueRead(read,pending,success)}
 }
-async function loadAdmxCategories(){
-  try{const data=await api("/api/admx/categories");$("#admx-categories").innerHTML=data.items.length?data.items.map(c=>`<div class="admx-cat">${escapeHtml(c.display_name)}<small class="mono">${escapeHtml(c.id)}</small></div>`).join(""):'<div class="table-empty">No categories.</div>';
-  }catch(error){toast(error.message)}
+async function loadAdmxCategories(options={}){
+  const read=captureAdmxRead(null,options),{epoch,started}=read;
+  try{const data=await /* request: admx.categories */ api("/api/admx/categories");if(!observeCatalogue(data,started)||epoch!==catalogueEpoch)return;if(!read.isCurrent())return;admxCatsLoaded=true;$("#admx-categories").innerHTML=data.items.length?data.items.map(c=>`<div class="admx-cat">${escapeHtml(c.display_name)}<small class="mono">${escapeHtml(c.id)}</small></div>`).join(""):'<div class="table-empty">No categories.</div>';return true;
+  }catch(error){read.reportError(error.message);return false}finally{read.complete()}
 }
 // Element options only apply when the policy is Enabled: GPMC greys out the
 // options panel for Disabled and Not Configured, and the API rejects element
@@ -55,28 +124,43 @@ function syncConfigureState(){
   options.hidden=!enabled;
   $$("[data-elem-id]",options).forEach(el=>{el.disabled=!enabled});
 }
-function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml){
-  const form=$("#configure-form");form.reset();
+function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml,reviewedRevision){
+  if(!reviewedCatalogueIsCurrent(reviewedRevision)){showPersistentError(CATALOGUE_REVIEW_MESSAGE);return}
+  const form=$("#configure-form");resetEditor(form);form.reset();clearFormErrors(form);
   $("#configure-title").textContent=`Configure: ${policyName}`;
   const gpoSelect=$("#configure-target-gpo");
-  gpoSelect.innerHTML=state.gpos.map(g=>`<option value="${escapeHtml(g.guid)}">${escapeHtml(g.name)} (r${g.revision})</option>`).join("");
+  const targets=state.gpos.filter(g=>g.status!=="archived");
+  configureTargets.set(form,new Map(targets.map(g=>[g.guid,targetSnapshot(g)])));
+  gpoSelect.innerHTML=targets.map(g=>`<option value="${escapeHtml(g.guid)}">${escapeHtml(g.name)} (r${g.revision})</option>`).join("");
+  if(targets.some(g=>g.guid===state.current?.guid))gpoSelect.value=state.current.guid;
+  else gpoSelect.value="";
+  $("#configure-target-note").textContent=targets.length?"Choose the draft to change. Archived policies are read-only.":"Create a draft or fork an archived policy before applying settings.";
+  form.querySelector('button[value="default"]').disabled=!targets.length;
   const sideHtml=policyClass==="Both"?`<label class="config-field">Configuration side<select id="configure-side"><option value="computer">Computer</option><option value="user">User</option></select></label>`:"";
   const stateHtml=`<label class="config-field">Policy state<select id="configure-state"><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="not_configured">Not configured</option></select></label>`;
   const optionsHtml=fieldsHtml?`<div id="configure-options">${fieldsHtml}</div>`:"";
   $("#configure-fields").innerHTML=stateHtml+sideHtml+optionsHtml;
   $("#configure-state").onchange=syncConfigureState;
   syncConfigureState();
+  form.dataset.catalogueRevision=reviewedRevision;delete form.dataset.catalogueStale;
   form.dataset.policyId=policyId;
   form.dataset.policyClass=policyClass;
   $("#configure-dialog").showModal();
 }
 export function initAdmx(){
-$("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;const policyId=f.dataset.policyId;const policyClass=f.dataset.policyClass;
+initCatalogueMonitoring();
+onCatalogueChange(()=>{
+  resetAdmxCatalogue();
+  if($("#configure-dialog").open)markConfigureStale();
+  if(!$("#panel-admx").hidden)queueMicrotask(()=>checkAdmx());
+});
+$("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;if(f.dataset.catalogueStale||!reviewedCatalogueIsCurrent(f.dataset.catalogueRevision)){markConfigureStale();return}clearFormErrors(f);const policyId=f.dataset.policyId;const policyClass=f.dataset.policyClass;
   const targetGuid=$("#configure-target-gpo").value;if(!targetGuid){toast("Select a target GPO");return}
-  const targetGpo=state.gpos.find(g=>g.guid===targetGuid);if(!targetGpo){toast("Target GPO not found");return}
+  const targetSnapshots=configureTargets.get(f);
+  const targetGpo=targetSnapshots?.get(targetGuid);if(!targetGpo){toast("Close and reopen this editor to review the target GPO");return}
   let side=policyClass==="Machine"?"computer":policyClass==="User"?"user":$("#configure-side").value;
   const policyState=$("#configure-state").value;
-  const values={};
+  const values=Object.create(null);
   let ok=true;
   // Only Enabled carries element values; sending them in another state is a
   // 422 by design, so don't collect them.
@@ -88,10 +172,35 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
     else if(kind==="multitext"||kind==="list"){values[id]=el.value.split(/\r?\n/).filter(Boolean)}
   });
   if(!ok)return;
-  try{await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,state:policyState,actor:"local-operator",reason:f.reason.value,expected_revision:targetGpo.revision})});
-    $("#configure-dialog").close();await loadList(targetGuid);
+  const context=beginMutation(f,{target:targetGpo});if(!context)return;
+  const reviewedRevision=f.dataset.catalogueRevision,started=revisionEpoch();
+  try{const data=await /* request: admx.configure */ actionApi(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,state:policyState,actor:"local-operator",reason:f.reason.value,expected_revision:context.revision,expected_catalogue_revision:reviewedRevision})});
+    updateMutationList(data,renderList);
+    const selectTarget=isSameEditor(context);if(isCurrentEditor(context))context.dialog.close();if(selectTarget)await loadList(targetGuid)
     toast(policyState==="not_configured"?"Policy set to Not configured":"Policy settings applied to GPO")}
-  catch(error){toast(error.message)}
+  catch(error){
+    if(error.code==="catalogue_conflict"||!reviewedCatalogueIsCurrent(reviewedRevision)){
+      observeCatalogueConflict(error,started);
+      if(isCurrentEditor(context))markConfigureStale();else showPersistentError(CATALOGUE_REVIEW_MESSAGE);
+    }else await mutationFailed(context,error,(form,err)=>handleFormFailure(form,err,{fieldNames:context.fieldNames,targetGuid:context.guid,targetGeneration:context.generation,preserveEditorTarget:true,isActive:()=>isSameEditor(context),onCurrent:(latest,{discardForm})=>{
+      updateMutationList(latest,renderList);
+      if(discardForm){if(!applyPayload(latest))return false;renderAll();renderList();return}
+      const option=[...$("#configure-target-gpo").options].find(item=>item.value===latest.gpo.guid);
+      if(latest.gpo.status==="archived"){
+        if(option)option.disabled=true;
+        $("#configure-target-gpo").value="";
+        showFormErrors(form,{message:"The target policy is archived. Choose another draft or fork it before applying settings."});
+        return false;
+      }
+      // Only explicit Review and reapply advances this target's snapshot.
+      targetSnapshots.set(latest.gpo.guid,targetSnapshot(latest.gpo));
+      if(option)option.textContent=`${latest.gpo.name} (r${latest.gpo.revision})`;
+    }}));
+  }finally{
+    endMutation(context);
+    if(isCurrentEditor(context)&&(f.dataset.catalogueStale||!reviewedCatalogueIsCurrent(reviewedRevision)))markConfigureStale();
+  }
 };
-$("#admx-search").oninput=e=>{clearTimeout(admxTimer);admxTimer=setTimeout(()=>loadAdmxResults(e.target.value),250)};
+// New text retires the old request immediately; dispatch remains debounced.
+$("#admx-search").oninput=e=>{admxRequest++;admxReads.cancelReactivation();admxIntent={type:"search",value:$("#admx-search").value};$("#admx-load-status").replaceChildren();$("#admx-load-status").hidden=true;clearTimeout(admxTimer);admxTimer=setTimeout(()=>loadAdmxResults(e.target.value),250)};
 }

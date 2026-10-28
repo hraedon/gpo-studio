@@ -215,8 +215,8 @@ def _require_str_list(data: dict[str, object], key: str, context: str) -> tuple[
 
 def _load_json(path: Path) -> dict[str, object]:
     try:
-        raw: object = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        raw: object = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise _err(str(path), f"unreadable or invalid JSON: {error}") from error
     if not isinstance(raw, dict):
         raise _err(str(path), "top level must be a JSON object")

@@ -43,9 +43,114 @@ uv run --extra dev python scripts/ci-local.py --python python3.14
 ```
 
 Use `--commit REF` to check another commit and `--keep` to retain the temporary
-clone and caches. `--windows` currently refuses because D-7's approval to
-install uv on mvmcitest01 is still open. This pre-R1 mode does not reproduce
-inline workflow shell or Windows-only failures.
+clone and caches. To run one Python version of the Windows `test-windows` job,
+use the SSH-backed leg:
+
+```bash
+uv run --extra dev python scripts/ci-local.py --windows --windows-python 3.14
+```
+
+Choose `3.13` or `3.14`; `--windows-host` defaults to
+`cw-admin@mvmcitest01`. The controller needs key-authenticated SSH access to
+that host. SSH uses batch mode: missing keys or host-key trust fail without an
+interactive prompt. The leg copies a `git archive` plus a Git metadata bundle.
+Tests see full history, origin branch commits restored under `ci-local/*`, and
+tags; local branches and probe refs are excluded. The checkout has no configured
+network remote. It verifies uv.exe
+and the MinGit `cmd\git.exe` launcher's SHA-256 digests before use, prepends MinGit's `cmd`
+directory to `PATH` for each remote command only, sets
+`UV_PYTHON_DOWNLOADS=never`, and runs exactly the
+commands and Python matrix from the **tested commit's** `test-windows` job;
+unsupported shell, action or environment changes are refused, including workflow-wide
+`env` and `defaults` (even empty declarations). Checkout and setup-uv must appear
+exactly once, in that order, before any run step. YAML syntax and step/matrix
+shapes are checked locally before ref recovery or
+remote access; setup inputs must match the qualified literals by type and value.
+It applies that job's cumulative timeout, with a remote watchdog and SSH
+connection/keepalive limits.
+It makes no persistent `PATH` change and installs no system software (Python
+dependencies go into the run's virtual environment). The owner approved the
+user-scoped portable MinGit on 2026-10-21; the
+approved executable is
+`C:\Users\cw-admin\.ci-local\git\2.56.0.2\cmd\git.exe` from
+MinGit 2.56.0.2. The digest covers the launcher only, **not** MinGit's implementation,
+DLLs or configuration. Those remain trusted user-scoped installation files;
+neither digest check prevents a privileged account replacing files between hash and launch.
+A missing or mismatched pinned executable is refused. Node and npm
+are absent but irrelevant: `test-windows` does not run frontend checks. The
+runner attempts remote cleanup on every exit, including interrupted
+initialization; cleanup failures are reported and fail an otherwise successful
+run. Startup holds an OS file lock during inspection/creation, refuses a sibling
+whose recorded PID and start time are live, and only removes a dead-owner run or
+an unowned run older than the 90-minute maximum job budget plus 10 minutes.
+Recent unowned, malformed, linked, unknown or unremovable entries are refused.
+Cleanup acquires the same lock with a bounded wait. If initialization did not
+return a workspace, cleanup first records cancellation of that token beside the
+run root, in `gpo-studio-ci-local.cancelled`. A delayed initializer refuses that
+token even if cleanup ran before it acquired the startup lock. These rare
+cancellation files are deliberately retained: a deferred initializer must not
+recreate a run after cleanup succeeds. Normal workspace cleanup creates none.
+
+Owner records are published by an atomic rename before extraction or phase
+launch. Existing records must be ordinary files: directories and reparse points
+are refused before inferring that a sibling is stale. Owner and run-age metadata
+use one lookup that accepts only a genuine missing item; process lookup accepts
+only the specific missing-ID error. Other query errors are refused rather than
+treated as absence. After trimming the record, both fields must contain only
+decimal digits, with a positive process ID and a positive, valid Windows
+file time. Numeric expressions and other coercible text are refused. Cleanup
+holds a process handle from identity validation through tree termination,
+preventing the authenticated PID from being reassigned during that operation.
+An unavailable or zero process handle is refused before inspecting identity or
+terminating a process tree. Unreadable process identity properties are refused too.
+If a process exits while its handle is being acquired, the runner may refuse
+conservatively; a later invocation can reclaim the stopped run.
+If tree termination fails while the authenticated process remains alive, cleanup
+refuses and preserves the run for a later retry.
+An existing malformed record is refused with an explicit diagnostic;
+confirm that its exact run has stopped before manually removing that one token
+directory. Do not delete the shared run root to recover a single run.
+
+Each setup/phase wrapper joins a private Windows job before launching Git or uv.
+The deadline exits that wrapper with code 124; closing its job handle reaps the
+remaining descendants without depending on a native termination command.
+A deadline bypasses PowerShell finally blocks, retaining the setup/phase owner
+record until later cleanup authenticates that the wrapper has stopped.
+Terminating phase errors also exit through job teardown, preserving the owner
+record for cleanup when the leader was still alive.
+Its sole job handle is non-inheritable. Normal exit or abrupt wrapper termination
+closes that handle and Windows terminates remaining ordinary descendants,
+including background processes holding output pipes or files. A failed job
+assignment is refused. Phases inherit the SSH stdout/stderr handles and receive
+EOF on stdin; they preserve the leader's exit code without waiting for leaked
+descendants to close redirected pipes. Cleanup may terminate only the current
+token's wrapper and descendants. TEMP/TMP and caches are run-local.
+TEMP uses that directory's existing DOS short-name alias (at most 60 characters)
+so the MAX_PATH-sensitive release-artifact tests still fit; missing/too-long
+aliases are refused. The tool creates no drive mapping or short-name configuration.
+The checkout's `core.longpaths=true` setting is repository-local. Test children
+also receive that setting through process-only Git configuration, covering
+temporary repositories after pytest expands DOS aliases. The runner does not
+alter the host's Git configuration.
+The installed MinGit system configuration has `core.autocrlf=true`: the forced
+checkout rewrites ordinary text to CRLF (verified from post-setup bytes), while
+`.gitattributes` protects LF/byte-exact evidence. Archive transport does not make
+this checkout LF-only. The installed Python patches (currently 3.13.14/3.14.5)
+and cold uv cache differ from CI's setup-uv interpreter provisioning and warm cache.
+Pre-R1 mode still does not reproduce inline workflow shell.
+
+Run Windows legs and opt-in probes serially on the shared box; a second invocation
+now refuses instead of deleting the first run. The qualified absolute tool paths
+are for `cw-admin`; `--windows-host` changes transport, not that account profile.
+The default selects only 3.14: request 3.13 separately to exercise the whole matrix.
+To check SSH, executable pins, checkout bytes, live-sibling refusal, quoted arguments,
+UTF-8 output, real process exits, the watchdog, startup cancellation and descendant
+cleanup after success/failure, wrapper termination and live cleanup without running
+the full suite:
+
+```bash
+GPO_STUDIO_WINDOWS_INTEGRATION=1 uv run pytest -q tests/test_ci_local.py -k opt_in
+```
 
 The runner requests no elevation and installs browser binaries without
 Playwright's `--with-deps`. When util-linux `setpriv` is available, every step

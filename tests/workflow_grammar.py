@@ -1011,22 +1011,12 @@ TEMPLATES: tuple[Template, ...] = (
         requires=("venv:@VENV@",),
     ),
     _t(
-        "@VENV@/bin/python -I scripts/check_health_version.py /tmp/health.json",
-        _VENV_RUN,
-        requires=("venv:@VENV@",),
-    ),
-    _t(
         "@VENV@/bin/python -I scripts/rehearse_upgrade_rollback.py",
         _VENV_RUN,
         requires=("venv:@VENV@",),
     ),
     _t(
         "@VENV@/bin/gpo-studio --help",
-        _VENV_RUN,
-        requires=("venv:@VENV@",),
-    ),
-    _t(
-        "@VENV@/bin/gpo-studio run --database /tmp/smoke.db --port 8799",
         _VENV_RUN,
         requires=("venv:@VENV@",),
     ),
@@ -1142,67 +1132,16 @@ TEMPLATES: tuple[Template, ...] = (
         requires=("dist", "var:WHEEL", "lock:requirements-lock.txt"),
     ),
     _t(
+        ('PYTHON=python GPO_STUDIO_WHEEL="$WHEEL" '
+         'GPO_STUDIO_REQUIREMENTS="$RUNNER_TEMP/locked/requirements-lock.txt" '
+         'bash scripts/installed_package_smoke.sh'),
+        "the owned-server smoke script, on CI's wheel and exported locked runtime",
+        requires=("dist", "var:WHEEL", "lock:$RUNNER_TEMP/locked/requirements-lock.txt"),
+    ),
+    _t(
         "SERVER_PID=$!",
         _ASSIGN,
         scope="smoke workflow",
-    ),
-    _t(
-        "trap 'kill \"$SERVER_PID\" 2>/dev/null || true' EXIT",
-        "stops the server on exit",
-    ),
-    _t(
-        "trap - EXIT",
-        _SHELL,
-    ),
-    _t(
-        "for attempt in $(seq 1 20)",
-        _SHELL,
-    ),
-    _t(
-        "seq 1 20",
-        _SHELL,
-    ),
-    _t(
-        "curl -sf http://127.0.0.1:8799/api/health",
-        _LOCAL,
-        writes=("/tmp/health.json",),
-    ),
-    _t(
-        "curl -sf http://127.0.0.1:8799/api/gpos",
-        _LOCAL,
-    ),
-    _t(
-        "curl -sf http://127.0.0.1:8799/",
-        _LOCAL,
-    ),
-    _t(
-        (
-            'curl -sf -X POST http://127.0.0.1:8799/api/gpos -H "Content-Type: '
-            'application/json" -d \'{"name":"Smoke '
-            'Test","domain":"test.local","actor":"ci","reason":"installed-package smoke '
-            "test\"}'"
-        ),
-        _LOCAL,
-    ),
-    _t(
-        "kill $SERVER_PID",
-        _SHELL,
-    ),
-    _t(
-        "wait $SERVER_PID",
-        _SHELL,
-    ),
-    _t(
-        "sleep 0.25",
-        _SHELL,
-    ),
-    _t(
-        "break",
-        _SHELL,
-    ),
-    _t(
-        "true",
-        _SHELL,
     ),
     _t(
         "[ ! -s sbom.cdx.json ]",
@@ -1387,11 +1326,6 @@ TEMPLATES: tuple[Template, ...] = (
         scope="smoke",
     ),
     _t(
-        "PORT=8799",
-        _ASSIGN,
-        scope="smoke",
-    ),
-    _t(
         'DB="$TMPDIR/smoke.db"',
         _ASSIGN,
         scope="smoke",
@@ -1534,9 +1468,10 @@ TEMPLATES: tuple[Template, ...] = (
         scope="smoke",
     ),
     _t(
-        '"$TMPDIR/venv/bin/gpo-studio" run --database "$DB" --port "$PORT"',
+        '"$TMPDIR/venv/bin/gpo-studio" run --database "$DB" --port 0',
         _VENV_RUN,
         scope="smoke",
+        writes=frozenset({"$TMPDIR/server.log"}),
     ),
     _t(
         '"$TMPDIR/venv/bin/gpo-studio" workspace check --database "$DB"',
@@ -1544,8 +1479,15 @@ TEMPLATES: tuple[Template, ...] = (
         scope="smoke",
     ),
     _t(
-        "sleep 2",
-        _SHELL,
+        ('PORT=$("$TMPDIR/venv/bin/python" -I scripts/wait_smoke_server.py '
+         '"$SERVER_PID" "$TMPDIR/server.log")'),
+        _ASSIGN,
+        scope="smoke",
+    ),
+    _t(
+        ('"$TMPDIR/venv/bin/python" -I scripts/wait_smoke_server.py '
+         '"$SERVER_PID" "$TMPDIR/server.log"'),
+        "reads only the private CLI child's readiness announcement",
         scope="smoke",
     ),
     _t(

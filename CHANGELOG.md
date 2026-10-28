@@ -21,6 +21,225 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   User-side scripts remain refused at the API (`scripts_user_side_unmeasured`)
   until WI-071's logon/shutdown lane banks a verdict.
 
+### Fixed
+
+- Keep workspace accessibility checks within their existing time limit as
+  other browser tests add policies, by filtering the sidebar to their own fixture.
+
+- Invalid numeric request fields return structured validation errors when their
+  values are non-finite, instead of HTTP 500. Rejected requests leave the
+  workspace unchanged, and existing sensitive-input filtering is preserved.
+
+- Revision selectors outside SQLite's integer range return the existing
+  missing-revision response instead of HTTP 500 when reading, comparing or
+  restoring history. Failed restores leave the workspace and audit history
+  unchanged (WI-092).
+
+- End the Windows CI wrapper on deadline and let its private job reap remaining
+  descendants. A failed termination command can no longer keep an errored phase
+  waiting with its job handle open.
+
+- Refuse directory-shaped, linked or numerically malformed Windows CI owner
+  records before considering a sibling stale, preserving the run and its files
+  for explicit recovery. Hold the authenticated process handle through tree
+  termination and preserve successful shell status after owner publication.
+
+- Malformed Windows local-CI workflow syntax and step/matrix shapes produce a
+  normal diagnostic before remote access or ref recovery. Qualified setup
+  inputs are compared by type and value, avoiding boolean/numeric aliases.
+- The local Windows CI runner refuses workflow-wide environment variables and
+  run defaults before remote access, preventing inherited CI settings from
+  being silently omitted from a local qualification. It also requires checkout
+  followed by setup-uv exactly once before the test phases, refusing workflows
+  whose setup no longer matches the local runner.
+- Windows local-CI cleanup cancels interrupted initialization durably, preventing
+  a delayed initializer from recreating an already cleaned run. Owner records
+  are published atomically. Private Windows jobs reap background descendants on
+  normal phase completion and abrupt wrapper termination, while preserving
+  output and real exit codes. Key-authenticated SSH fails without prompting.
+
+- Require registry-recovery previews to match the inspected source, preserving
+  exact row facts and order. A creation conflict retires its current review
+  while retaining operator inputs; revision changes explain fresh inspection,
+  and retired responses leave newer reviews alone (WI-091).
+
+- Preview an explicit keep/omit choice for every source registry row and create
+  a separate registry-only draft with fresh UUIDs. Preserve chosen native fields
+  and the original policy/history; show omitted policy components and advisory
+  editor identity warnings separately from validation and export eligibility
+  (WI-087). Native Windows policy qualification remains separate.
+  Default draft names reserve space for the recovery suffix and preserve
+  Unicode characters, including long names that already carry that suffix.
+
+- Roll back workspace writes when a Python exception or cancellation interrupts
+  creation, editing, baseline import, or recovery deletion. Previously, some
+  failures left partial rows visible on the connection and prevented the next
+  write. The original exception is preserved; baseline items committed before
+  a later item fails remain imported (WI-089).
+
+- Keep raw ADMX rows visible as unresolved when their stored side or hive no
+  longer matches their structured editor identity. Preserve native state
+  observations and prevent those rows from supplying decoded child values.
+
+- Refuse ADMX configuration that introduces duplicate native registry addresses,
+  including conflicts with retained forked/imported/raw rows and overlapping
+  writes in a single or bulk policy operation, before committing a revision.
+
+- Observe complete native scalar-marker patterns as well as policy lists; expose
+  uncertainty and unresolved historical state records at moved addresses while
+  preserving child values, raw history and independent export eligibility.
+- Document that fork-prefixed/imported ADMX rows are not automatically selected
+  by reconfiguration and require explicitly reviewed recovery.
+
+- Read raw legacy list ordinals without integer-conversion failures and keep
+  unorderable digit-like ordinals visible as unresolved records, while preserving
+  previously successful decimal spellings, source names and historical list order.
+- Show policy identities when accepted ADMX display names are missing or blank,
+  keeping configured-policy controls and catalogue review visibly labelled.
+
+- Preserve uncertainty from historical state records outside current list-policy
+  patterns, regardless of the current writer's identity family; keep ordinary
+  legacy child ordinals separate from policy-state evidence.
+
+- Observe complete Enabled and Disabled list-policy patterns in the settings browser;
+  show Indeterminate for identical, incomplete or unobservable patterns without changing
+  legal authoring states, exports or stored policy records.
+- Admit legacy ADMX IDs only after checking complete writer languages and fully
+  assembled owner frames, including side boundaries and arbitrary list ordinals;
+  retain canonical empty policy owners accepted by the parser and writer.
+- Plan configured-setting element bindings once per policy/side, keeping historical
+  state/fixed-list writes out of editable lists and requiring address evidence for
+  legacy disabled-element records. Preserve uncertain records visibly and keep
+  list-heavy historical reads from repeatedly scanning the source schema.
+- Address legacy registry setting IDs exactly in edit, comment and delete actions,
+  including URL delimiters, percent escapes and slashes.
+
+- Keep multiply parseable legacy ADMX identities unresolved and refuse automatic
+  reconfiguration even when current catalogue addresses or edited sides appear unique;
+  preserve raw records/history and document explicitly reviewed recovery.
+
+- Compute the ADMX identity family once per configured policy/side group so large
+  policies avoid repeated schema scans in the settings browser.
+
+- Keep fixed policy-list values separate from editable lists when their generated
+  setting names would overlap, including empty editable lists.
+- Reject duplicate resolved policy/side operations in bulk authoring. Preserve
+  distinct ADMX writes with source-stable structured IDs where legacy names
+  collide, and replace exactly reviewed policy rows rather than overlapping
+  textual prefixes. Fully qualified URI policy IDs work through the existing
+  detail/configure routes.
+- Refuse duplicate registry editor identities before commits and ambiguous
+  ID-targeted edits, comments or deletions. Keep legacy heads/history readable;
+  document explicit recovery without silently dropping another registry record.
+
+- Resolve prior warnings only after explicitly classified committed writes; keep
+  semantic POST previews free of transport-level UI side effects.
+- Release pending read controls independently of retired result publication, and
+  resume uncovered read-only views once with their original error authority.
+  Keep newer drafts, warnings, requests and dialog sessions in control.
+- Preserve intentional focus moves during a dialog's initial focus frame.
+
+- Preserve every ADMX source element ID, including `__proto__`, when collecting
+  Enabled field values for submission.
+- Keep workspace header actions and long policy titles inside the viewport at desktop
+  and narrow widths, while retaining scrolling tabs and registry tables.
+- Restore keyboard focus to the same row action after an owned save redraws the
+  table. Newer editors, policy changes and intentional focus moves retire an old
+  dialog's scheduled focus return.
+- Share read ownership across views and previews so retired responses cannot replace
+  current warnings, draft values, reviewed selections or pending download controls.
+  Keep useful background cache admission and dispatched mutation outcomes intact.
+- Retire ADMX lookups when search text changes; keep obsolete lookup and catalogue-read
+  failures out of newer views, warnings and drafts while retaining active failure messages.
+- Refresh reopened Starter libraries after committed changes and keep the ordinary
+  policy sidebar consistent with server membership without changing unrelated editors.
+- Retire deleted policy views and older responses; preserve unsaved editor values
+  and require a renewed review before saving to a recreated policy identity.
+- Report request failures through the current view or editor, preserving newer
+  warnings and separating completed imports from later list-refresh failures.
+- Bind reviewed downloads to the policy revision and review hash, retaining inline
+  export errors without affecting reopened reviews.
+- Replace the conflict comparison's loading message after an initial read fails,
+  while preserving an already reviewed comparison if a later refresh fails.
+- Keep retired policy-read errors out of newer editors and announce pending saves
+  outside busy forms; distinguish policy changes from catalogue reloads in bulk guidance.
+- Refresh stale conflict comparisons and require renewed reapply consent; load the
+  current revision without rewinding newer policy data or replacing reopened editors.
+- Preserve confirmed policy revisions when older reads finish; refresh lists after
+  cancelled estate imports without selecting beneath a newer editor.
+- Preserve reopened Starter GPO and GPMC import drafts after older saves finish;
+  freeze pending controls and support Enter in the backup import form.
+- Keep automatic list/detail refreshes from changing a newer editor's policy, and
+  retain summaries learned after a list request without pinning deleted entries.
+- Fix Cancel and Close across dialogs with invalid required fields, and make Enter
+  submit creation instead of silently dismissing it.
+- Add an ADMX folder dialog with source counts, load diagnostics and refreshed policy
+  browsers; add `--admx-dir` for repeatable startup without environment variables.
+- Keep ADMX configuration on the selected editable GPO, show persistent save errors,
+  and prevent duplicate pending configuration requests.
+- Discard obsolete estate-file selections and late policy navigation/diff responses;
+  refresh revision comparisons when switching policies.
+- Prevent duplicate pending draft creation and keep retry values intact.
+- Keep bulk policy selections scoped to the current GPO and configuration side,
+  including selections hidden by filters.
+- Use a compact two-column tool layout on narrow screens.
+- Keep dialog headers and actions outside the scrolling form body, so keyboard
+  focus stays visible on narrow screens; label configuration checkboxes and retain
+  field help through validation errors.
+- Keep exact multi-string registry values in the workspace using JSON array editors,
+  including spaces, semicolons and empty members; reject malformed input before
+  saving and explain Registry.pol's existing single-empty-string limitation.
+- Bind History restore actions and pending edits to their original GPO/revision and
+  editor session, so late responses preserve a newer selection or reopened form.
+- Freeze pending editor controls while keeping Close/Cancel usable; reopened
+  editors can start independent requests without older completions unlocking them.
+- Keep workspace creation/import usable during background navigation, close only
+  the completed editor, and prevent old list responses from hiding newer drafts.
+- Show duplicate-name conflicts inline instead of opening revision recovery.
+- Refresh all loaded ADMX sources after reloads, including background completion
+  after reopening the folder dialog, while preserving the next chosen path.
+- Keep archived policies read-only in the settings browser, including bulk actions.
+- Report unreadable ADMX folders with actionable JSON errors while retaining the
+  previous catalogue; reject empty or whitespace-only `--admx-dir` values.
+- Bind policy configuration and bulk changes to the reviewed ADMX catalogue,
+  so a folder reload in another tab cannot silently change the policy mapping.
+  Keep unsaved configuration values on a catalogue conflict and require review.
+- Keep persistent errors visible through background reads and older request
+  completions; provide an explicit Dismiss action that returns keyboard focus.
+- Keep each ADMX target bound to the revision displayed when its editor opened;
+  late sidebar updates cannot silently advance it. Explicit conflict review
+  updates that target's revision, and archived targets require another draft.
+- Show a visible saving message in pending editors and explain that closing the
+  dialog keeps the save running.
+- Keep visible captions on preference members, registry values and targeting
+  fields after they are filled, with keyboard-friendly layouts on narrow screens.
+- Preserve significant whitespace in ADMX folder paths so the UI loads the exact
+  chosen folder; reject whitespace-only paths before sending a load request.
+- Scope the authenticated IIS shared-service profile and its acceptance gates
+  in `docs/iis-shared-service-assessment.md` (WI-086); no hosted mode is enabled.
+
+- The pre-launch cancellation regression test waits for an explicit pause
+  handshake before sending SIGTERM. Waiting for the driver's temporary
+  invocation directory could signal before its final stop check under load,
+  making the test exercise a different cancellation path (WI-085).
+
+- Installed-package smoke tests use an ephemeral port announced by their own
+  server, and CI reuses the same release smoke script. An application already
+  using port 8799 can no longer receive the
+  smoke test's synthetic GPO writes when its server fails to bind.
+
+- Evidence-pack, trust-anchor, fixture-recipe and remediation-corpus JSON file
+  loaders accept a UTF-8 byte-order mark and report invalid UTF-8 through their
+  normal validation errors. Canonical evidence hashes and signature checks
+  retain their existing meaning. Missing or unreadable matrix signature files
+  also produce a normal error without overwriting an existing output.
+- Close the SQLite connection behind the discovery fallback test wrapper,
+  avoiding an unclosed-database warning during later tests.
+- Return an actionable HTTP 422 actor-field error for whitespace-only claimed
+  actors, including estate-import query parameters, instead of an internal
+  server error. Invalid requests leave workspace data unchanged; valid actor
+  trimming and the identity library's argument errors are preserved (WI-090).
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

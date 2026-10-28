@@ -1,13 +1,30 @@
-import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
-import {api} from './api.mjs';
+import {createReadScope,invalidateReadViews} from "./read-context.mjs";
+import {state,$,$$,escapeHtml,applyPayload,getGpoSummaryVersion,replaceGpoSummaries,getKnownGpoRevision,isGpoObservationCurrent,getGpoGeneration} from './state.mjs';
+import {api,captureErrorReporter} from './api.mjs';
 import {openSetting,deleteSetting,openComment,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
 import {renderGpp} from './gpp.mjs';
 import {loadBrowser} from './browser.mjs';
+import {loadDiffSelectors} from './diff.mjs';
 
-export async function loadList(selectGuid){
-  const data=await api("/api/gpos");state.gpos=data.items;renderList();
-  const guid=selectGuid||state.current?.guid||state.gpos[0]?.guid;
-  if(guid)await selectGpo(guid);else showEmpty();
+let selectionRequest=0,historyRequest=0,listRequest=0;
+
+export async function loadList(selectGuid,{select=true,reportErrors=true}={}){
+  const selection=selectionRequest,request=++listRequest,editorGeneration=state.editorGeneration,summaryVersion=getGpoSummaryVersion();
+  const reportError=captureErrorReporter(()=>reportErrors&&selection===selectionRequest&&request===listRequest&&editorGeneration===state.editorGeneration);
+  let data;
+  try{data=await /* request: policy.list */ api("/api/gpos")}
+  catch(error){
+    // A failed refresh is separate from an already committed mutation. Retired
+    // origins can refresh the sidebar without owning another editor's errors.
+    reportError(`Could not refresh policies: ${error.message}`);return;
+  }
+  if(request!==listRequest)return;
+  replaceGpoSummaries(data.items,summaryVersion);
+  renderList();
+  if(!select||selection!==selectionRequest||editorGeneration!==state.editorGeneration)return;
+  const available=guid=>state.gpos.some(gpo=>gpo.guid===guid);
+  const guid=[selectGuid,state.current?.guid,state.gpos[0]?.guid].find(available);
+  if(guid)await selectGpo(guid,{editorGeneration});else{state.current=null;showEmpty()}
 }
 export function renderList(){
   const query=$("#search").value.toLowerCase();
@@ -15,12 +32,38 @@ export function renderList(){
   $$(".gpo-item").forEach(el=>el.onclick=()=>selectGpo(el.dataset.guid));
 }
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
-export async function selectGpo(guid){
-  const data=await api(`/api/gpos/${guid}`);applyPayload(data);
-  $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
-  renderAll();renderList();
+export async function selectGpo(guid,{editorGeneration}={}){
+  if(editorGeneration!==undefined&&editorGeneration!==state.editorGeneration)return;
+  // Navigation intent retires panel reads before the selected payload arrives.
+  invalidateReadViews();
+  const request=++selectionRequest,originalEditorGeneration=state.editorGeneration,generation=getGpoGeneration(guid);
+  const ownsSelection=()=>request===selectionRequest&&generation===getGpoGeneration(guid)&&(editorGeneration===undefined||editorGeneration===state.editorGeneration);
+  const ownsRecovery=()=>ownsSelection()&&originalEditorGeneration===state.editorGeneration;
+  let recovering=false;
+  const reportError=captureErrorReporter(()=>originalEditorGeneration===state.editorGeneration&&ownsSelection()&&(!recovering||ownsRecovery()));
+  try{
+    let data=await /* request: policy.detail */ api(`/api/gpos/${guid}`);
+    if(!ownsSelection()||!isGpoObservationCurrent(data.gpo))return;
+    if(data.gpo.revision<getKnownGpoRevision(guid)){
+      if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
+      // Repair a stale detail once, without taking a newer editor or selection.
+      if(!ownsRecovery())return;
+      recovering=true;
+      data=await /* request: policy.recovery */ api(`/api/gpos/${guid}`,{cache:"no-store"});
+      if(!ownsRecovery()||!isGpoObservationCurrent(data.gpo))return;
+      if(data.gpo.revision<getKnownGpoRevision(guid)){
+        if(state.current?.guid===guid&&state.current.revision>=getKnownGpoRevision(guid))return;
+        reportError("The policy changed again while it was loading. Select it again to review its current revision.");return;
+      }
+    }
+    if(!applyPayload(data))return;
+    $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
+    renderAll();renderList();
+  }catch(error){
+    reportError(`Could not load policy: ${error.message}`);
+  }
 }
-export function renderAll(){
+export function renderAll({refreshBrowser=true}={}){
   const g=state.current;$("#title").textContent=g.name;$("#revision").textContent=`Revision ${g.revision}`;
   $$("form").forEach(form=>{form.dataset.gpoGuid=g.guid});
   $("#fork-gpo").hidden=!(g.source_guid||g.status==="archived");$("#copy-settings").hidden=g.status==="archived";
@@ -32,13 +75,17 @@ export function renderAll(){
   if(g.cse_metadata&&g.cse_metadata.length)metaParts.push(`<dt>CSE extensions</dt><dd>${g.cse_metadata.length} extension${g.cse_metadata.length===1?'':'s'}</dd>`);
   metaParts.push(`<dt>Policy semantic hash</dt><dd class="mono" title="${escapeHtml(state.policyHash)}">${escapeHtml(state.policyHash.slice(0,16))}…</dd><dt>Review model hash</dt><dd class="mono" title="${escapeHtml(state.reviewHash)}">${escapeHtml(state.reviewHash.slice(0,16))}…</dd><dt>Updated</dt><dd>${new Date(g.updated_at).toLocaleString()}</dd>`);
   $("#metadata").innerHTML=metaParts.join("");
+  const editingWarnings=state.editingWarnings||[];
+  $("#editing-warnings").hidden=!editingWarnings.length;
+  $("#editing-warning-list").innerHTML=editingWarnings.map(item=>`<li>${escapeHtml(item.message)} <span class="form-hint">Source rows ${item.rows.map(index=>index+1).join(", ")}.</span></li>`).join("");
   renderValidation();renderSettings();renderLinks();renderFilters();renderWmi();renderGpp();
   const readOnly=g.status==="archived";
   ["edit-metadata","add-setting","add-link","add-filter","copy-settings","edit-wmi","add-gpp-group","add-gpp-registry"].forEach(id=>{const control=$("#"+id);if(!control)return;control.disabled=readOnly;control.title=readOnly?"Archived policies are read-only. Fork this policy to edit it.":""});
   $$('[data-edit-setting],[data-delete-setting],[data-comment-setting],[data-edit-link],[data-delete-link],[data-edit-filter],[data-delete-filter],[data-edit-gpp-group],[data-delete-gpp-group],[data-edit-gpp-registry],[data-delete-gpp-registry],[data-clone-gpp-group],[data-clone-gpp-registry],[data-move-gpp-group],[data-move-gpp-registry],[data-restore-gpp-group],[data-restore-gpp-registry]').forEach(control=>{if(readOnly){control.disabled=true;control.title="Archived policies are read-only. Fork this policy to edit it."}});
   $$('[data-export-kind]').forEach(link=>{const capability=state.artifactCapabilities[link.dataset.exportKind]||{};const blocked=capability.enabled===false;link.setAttribute("aria-disabled",String(blocked));link.classList.toggle("disabled",blocked);link.title=blocked?(capability.reason||"Validation errors block this artifact. Open export review for details."):"Review this artifact before downloading."});
   if($("#panel-history").classList.contains("active"))loadHistory();
-  if($("#panel-browser").classList.contains("active"))loadBrowser();
+  if(refreshBrowser&&$("#panel-browser").classList.contains("active"))loadBrowser();
+  if($("#panel-diff").classList.contains("active"))loadDiffSelectors();
 }
 export function renderValidation(){
   const errors=state.validation.filter(i=>i.severity==="error"),warnings=state.validation.filter(i=>i.severity==="warning");
@@ -72,7 +119,20 @@ export function renderWmi(){
   if(!w){$("#wmi-display").innerHTML='<div class="table-empty">No WMI filter set.</div>';return}
   $("#wmi-display").innerHTML=`<dl class="details"><dt>Name</dt><dd>${escapeHtml(w.name)}</dd><dt>Language</dt><dd>${escapeHtml(w.language)}</dd><dt>Query</dt><dd class="mono">${escapeHtml(w.query)}</dd>${w.description?`<dt>Description</dt><dd>${escapeHtml(w.description)}</dd>`:""}</dl>`;
 }
-export async function loadHistory(){
-  const data=await api(`/api/gpos/${state.current.guid}/revisions`);$("#history-list").innerHTML=data.items.map((r,index)=>`<div class="revision-item"><div><p><strong>Revision ${r.revision}</strong> · ${escapeHtml(r.reason)}</p><small>${escapeHtml(r.actor)} · ${new Date(r.created_at).toLocaleString()}</small></div>${index?`<button data-restore="${r.revision}">Restore</button>`:'<span class="pill ok">Current</span>'}</div>`).join("");
-  $$('[data-restore]').forEach(el=>el.onclick=()=>restoreRevision(Number(el.dataset.restore)));
+const historyReads=createReadScope({element:()=>$("#panel-history"),reactivate:options=>loadHistory(options)});
+export async function loadHistory(options={}){
+  if(!state.current)return;
+  const {guid,revision,name}=state.current;
+  const generation=getGpoGeneration(guid);
+  const request=++historyRequest;
+  const read=historyReads.start({...options,isCurrent:()=>request===historyRequest&&generation===getGpoGeneration(guid)&&state.current?.guid===guid&&state.current.revision===revision,report:error=>{$("#history-list").textContent=`Could not load revision history: ${error.message}`}});
+  const pending=read.beginPending({busy:[$("#history-list")],loading:[{element:$("#history-list"),message:"Loading revision history…",recovery:"Reload history to review current revisions.",retry:()=>loadHistory(),retryLabel:"Reload history",className:"table-empty"}]});
+  try{
+    const data=await /* request: policy.history */ api(`/api/gpos/${guid}/revisions`);
+    if(!read.isCurrent())return;
+    $("#history-list").innerHTML=data.items.map((r,index)=>`<div class="revision-item"><div><p><strong>Revision ${r.revision}</strong> · ${escapeHtml(r.reason)}</p><small>${escapeHtml(r.actor)} · ${new Date(r.created_at).toLocaleString()}</small></div>${index?`<button data-restore="${r.revision}">Restore</button>`:'<span class="pill ok">Current</span>'}</div>`).join("");
+    $$('[data-restore]').forEach(el=>el.onclick=()=>restoreRevision(Number(el.dataset.restore),{guid,revision,name}));
+  }catch(error){
+    read.reportError(error);
+  }finally{pending.finish();read.complete()}
 }

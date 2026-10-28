@@ -262,28 +262,10 @@ jobs:
           test "$VENV_VERSION" = "$SDIST_VERSION"
       - name: Verify CLI entry point
         run: /tmp/smoke-venv/bin/gpo-studio --help
-      - name: Start server and smoke-test API
+      - name: Smoke-test the installed wheel
         run: |
-          set -euo pipefail
-          /tmp/smoke-venv/bin/gpo-studio run --database /tmp/smoke.db --port 8799 &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 20); do
-            curl -sf http://127.0.0.1:8799/api/health > /tmp/health.json && break
-            sleep 0.25
-          done
-          /tmp/smoke-venv/bin/python -I scripts/check_health_version.py /tmp/health.json
-          # Create a GPO
-          curl -sf -X POST http://127.0.0.1:8799/api/gpos \
-            -H "Content-Type: application/json" \
-            -d '{"name":"Smoke Test","domain":"test.local","actor":"ci","reason":"installed-package smoke test"}' > /dev/null
-          # List GPOs (verify 200)
-          curl -sf http://127.0.0.1:8799/api/gpos > /dev/null
-          # Static UI
-          curl -sf http://127.0.0.1:8799/ > /dev/null
-          kill $SERVER_PID
-          wait $SERVER_PID || true
-          trap - EXIT
+          WHEEL=$(find dist -maxdepth 1 -name 'gpo_studio-*.whl' -print -quit)
+          PYTHON=python GPO_STUDIO_WHEEL="$WHEEL" GPO_STUDIO_REQUIREMENTS="$RUNNER_TEMP/locked/requirements-lock.txt" bash scripts/installed_package_smoke.sh
       - name: Verify sdist excludes
         run: |
           SDIST=$(ls dist/gpo_studio-*.tar.gz)

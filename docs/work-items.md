@@ -34,7 +34,7 @@ Update this list in the same change as any status line;
 
 **5 open.**
 
-- [WI-085](#wi-085--the-pre-launch-stop-test-can-signal-before-its-intended-pause) - remove the full-suite timing race from the requalification batch driver's pre-launch stop test.
+- [WI-086](#wi-086--qualify-an-authenticated-iis-hosted-shared-authoring-profile) - prove the shared-service identity boundary, collaborative storage and repeatable IIS deployment under Plan 032.
 - [WI-084](#wi-084--a-bound-file-change-costs-more-than-it-needs-to) - Plan 036 (accepted by the owner 2026-10-13): make bound-file and workflow changes cheap and honest after 1.1.0; since 2026-10-17 also WP-0, from `wp0/live-closure` 432c751 with its round-7 findings open.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
@@ -4029,8 +4029,79 @@ which is WI-084's (WP-0 and R4b).
 **Status:** open. An accepted programme: the owner accepted Plan 036 and all of
 its recommendations on 2026-10-13. WP-1's Linux local-CI runner and exit
 evidence and WP-7's risk-tiered review policy are complete as of 2026-10-20;
-the Windows leg remains open under D-7, and the other Plan 036 work packages
-remain open, so WI-084 stays open.
+the owner allowed uv and portable MinGit on mvmcitest01 on 2026-10-21. WP-1's
+Windows exit is now complete: the corrected runner passed pinned `main` on
+3.14 in 2,758.2s and 3.13 in 4,644.9s of each job's 90-minute budget, and caught
+both historical Windows-only
+failures on local scratch branches (`SIGHUP` on 3.13; provenance path separators
+on 3.14). Real exit-status and stale-directory recovery probes passed; see
+[the exit evidence](plan-036/wp1-exit.md). The other Plan 036 work packages
+remain open; WI-084 stays open.
+
+**2026-10-22, WP-1 Windows review round 1:** corrected the shared-root cleanup
+that could terminate another live run. Startup now locks inspection/creation,
+refuses live or recent unowned siblings, and sweeps only proven-stale token
+directories; setup records ownership before extraction. Workflow commands and
+matrix come from the tested commit. Remaining-budget remote watchdogs,
+run-local TEMP/TMP, scoped bundles and legacy-ref recovery are implemented.
+The launcher-only MinGit digest trust boundary is explicit. Round-1 validation
+and post-setup CRLF byte observations are recorded in the exit evidence below;
+the prior two historical reproductions remain valid. No product capability or
+estate qualification is claimed by these tooling checks.
+
+**Round-1 delivery validation:** final implementation `48b5e6e` passed the
+complete Windows 3.14 job in **2,697.9s of 5,400s** (44m57.9s; 50.0%),
+2,745.87s including cleanup/controller overhead, with 12,863 passed and
+91.84% coverage. Run-owned short TEMP aliases and process-only Git long-path
+configuration fixed the ten environment-induced release-test failures;
+all ten and the three opt-ins passed serially. The final local suite passed
+13,205 tests (146 skipped, 1 xfailed, 67 subtests) in 894.84s. Cleanup and a
+fresh SSH environment check confirmed no run-directory, PATH or Git-config
+leak. Earlier main/matrix and historical-reproduction evidence is retained;
+WI-084 remains open for the other work packages.
+
+**2026-10-24 recovery follow-up:** startup cancellation is durable even when
+cleanup wins the lock race; owner records are published atomically; private
+Windows jobs reap background descendants after success/failure or wrapper
+termination. All nine real Windows opt-ins pass. Controller `498e19d7` completed
+all five Windows 3.14 phases against combined candidate `77f4fe41` in 2,660.6s
+of 5,400s: 13,385 tests pass and every coverage floor passes (92.11% total).
+The candidate's full Linux suite passes 13,750 tests and every floor (91.25%).
+Test-only cold-start polish `3c481ce8` retains the same runner/remote bytes and
+passes 197 focused checks. That recovery run is 3.14 only; the later full 3.13
+run is recorded separately below. Review evidence is
+tracked with the recovery PR; WI-084 stays open for the wider programme.
+A subsequent review correction rejects directory-shaped and linked owner records
+before stale inference; five portable cases and real Windows directory/junction
+before/after probes preserve the run. That guard is later than the full
+`498e19d7` qualification and is recorded separately in the exit evidence.
+Further executing review tightened numeric parsing, process-handle retention,
+property/termination result checks and query-error handling. Owner and run-age
+metadata now share a missing-item boundary; process lookup accepts only the
+specific missing-ID error. Full Windows 3.13 completed at combined `3cca0180`:
+13,385 tests pass, every floor passes (92.11%), CLI exit 0 and 4,707.275s wall
+time including cleanup. That candidate precedes the latest guards. Separate
+Windows PowerShell 5.1 probes at `a067dc82` pass all 17 fault/adapter cases and
+both real file-link cases. All 12 normal integration probes also pass against
+combined `8895ec30` (338.519s wall including cleanup), with unchanged product and
+oracle source. The final fresh-SSH namespace, lock and profile checks pass too.
+Full-run and later-guard evidence remain separately scoped in the exit record.
+WI-084 remains open.
+
+**Deadline follow-up:** review of `a6fc6f74` exposed a pre-existing wait after
+failed phase termination. The deadline and terminating phase-error paths now
+exit through private-job teardown. Portable before/after controls and a real
+Windows phase-error control pass with the change. Implementation `1933aa4c`
+passes all 13 normal Windows integration cases (346.72s, exit 0), 231 focused
+portable checks and the fresh namespace/lock/profile postcheck. Both independent
+final reviews of `69effcac` pass, including executing deadline/finally controls.
+Prior full qualification commits keep their
+original scopes in the exit record above. A later full Windows 3.14 run at
+controller/tested combined `8b55b685` passes all five phases, 13,385 tests and
+all 11 floors (92.11%), exit 0; measured wall time including cleanup is
+2,777.951s. Fresh namespace/lock/profile and controller-directory postchecks
+pass. Its discovery-wrapper close fix removes that resource warning. This is
+local-CI tooling evidence, not a new product oracle lane; WI-084 remains open.
 
 **WP-0 is part of it since 2026-10-17** (owner decision; it was WI-083's
 closing condition, and is not a 1.1.0 blocker any more). No deadline. It
@@ -4074,17 +4145,419 @@ control or a recorded owner acceptance naming the residual risk.
 ## WI-085 — the pre-launch stop test can signal before its intended pause
 
 **Opened:** 2026-10-20 (Plan 036 WP-1 round-3 polish).
-**Status:** open.
+**Status:** closed 2026-10-24.
 
 `tests/test_requal_batch_driver.py::test_a_stop_after_the_last_check_but_before_the_launch_prevents_the_lane`
-can fail under full-suite load because its SIGTERM can arrive before the lane
-supervisor reaches the intended pre-launch pause. The watchdog still prevents
+can fail under full-suite load because its SIGTERM can arrive before the
+driver reaches the intended pre-launch pause. The watchdog still prevents
 the launch and reports `watchdog: stopped before launch (signal 15)`, so this is
 a test synchronization defect rather than evidence that a lane ran after stop.
 The bound `scripts/plan-033` tooling and the flaky test are deliberately not
 changed as part of WP-1.
 
-**Closes when:** the test has a positive handshake proving the supervisor has
+**2026-10-24 — fixed and independently reviewed.** The test intercepts the
+driver's existing pause-only `sleep` call and publishes a positive handshake
+after the last stop check. It holds that pause until SIGTERM has been sent,
+then releases it. It still asserts that no lane command ran and that the
+supervisor reported cancellation before launch. The harness files are
+unchanged. The focused test passed 15 consecutive runs under concurrent suite
+load, and all 73 batch-driver tests passed with a disk-backed temporary root.
+Both complete suite runs passed: 13,172 tests each, with 142 skips, one
+expected failure and 67 subtests per run. Ruff, strict mypy, static safety,
+the work-item register, all 171 frontend unit tests, the installed-wheel smoke
+and the upgrade/rollback rehearsal passed. GPT's independent review passed,
+including controls that move the pause before the final check or launch the
+lane despite the cancellation report: the revised test rejects both. The
+cross-lineage DeepSeek review also passed: a complete suite matched those
+counts, all 73 driver tests passed, 15 loaded repetitions passed, and
+independent controls rejected both an early pause and a launched lane. Final
+review polish adds a structural supervisor-start assertion, resets inherited
+stop-signal dispositions and bounds the shim's orphan lifetime; it does not
+change the production driver or its timing.
+
+**Closes when:** the test has a positive handshake proving the driver has
 reached the final-check/pre-launch pause before SIGTERM is sent, and repeated
 full-suite runs no longer reproduce the race while still proving that the lane
 command never launches.
+
+## WI-086 — qualify an authenticated IIS-hosted shared-authoring profile
+
+**Opened:** 2026-10-22 (shared-service scope request).
+**Status:** open. Scoped in the [IIS assessment](iis-shared-service-assessment.md);
+no hosted implementation or Windows/IIS qualification is claimed. Plan 032's
+existing 1.x scope ruling stays in place pending a version/support decision.
+
+The current application trusts caller-claimed actors, has no request authorization,
+and owns an exclusive single-process SQLite workspace. IIS proxying alone does
+not supply trusted application identity or collaborative persistence. Start with
+a Windows identity/lifecycle spike comparing a dedicated Windows Service behind
+IIS with HttpPlatformHandler, then qualify one-workspace shared authoring.
+
+**Closes when:** a topology ADR and verified identity handoff, exhaustive route
+authorization, PostgreSQL revision/conformance probes, persistent administrator
+ADMX configuration, reproducible install/upgrade/recovery evidence, and independent
+review are banked; capability/support records name the exact qualified matrix.
+The web process retains no AD/SYSVOL write rights. Live publication is outside
+this item's closing condition.
+
+
+## WI-087 — provide a reviewed repair workflow for legacy registry identities
+
+**Opened:** 2026-10-23 (bulk/ADMX setting identity investigation).
+**Status:** closed 2026-10-24. The surfaced registry-only recovery workflow
+preserves explicit choices and source history, passes Linux/browser/Windows
+application checks, and has two independent Tier-2 code reviews.
+
+The authoring fix refuses duplicate editor IDs and ambiguous legacy ownership
+before a write can choose or erase the wrong registry record. Existing heads and
+immutable history remain readable. Exact structured owners and single-frame legacy
+owners can be reconfigured. Multiple legacy parses remain uncertain regardless of
+current catalogue/address/side matches; those cannot prove the historical producer.
+Otherwise the [recovery guide](workspace-recovery.md#legacy-registry-editor-ids-and-ambiguous-admx-ownership)
+describes recovering chosen raw registry records into a fresh draft with newly
+generated UUIDs. Copy retains editor IDs and Fork prefixes them; neither resolves
+a duplicate pair. Older builds can read the raw records, but structured list-element
+rows may appear unresolved in their settings browser. A strict complete-head guard
+can prevent partial repairs which leave another bad family.
+
+**Closes when:** an explicit command or UI previews every selected row and owner,
+requires the operator's repair choices, preserves every chosen registry record
+and the original history, and commits unique identities as an audited revision
+or clearly identified fresh draft. Pre-edit identity warnings explain duplicate
+editor IDs, ambiguous ownership and recovery before an unrelated edit fails, while
+keeping readable records and independently eligible native exports available.
+Editing warnings must not become core validation errors or a blanket export ban;
+clean restores and other explicitly reviewed recovery actions remain possible.
+Tests cover historical catalogue changes, raw side edits, ambiguous owners, repeated
+IDs, multiple malformed families, stale revisions and failed-write rollback. Nothing
+rewrites historical revisions or silently infers a winner. The repair
+workflow must also preview fork-prefixed/imported ADMX rows that owner-based
+reconfiguration does not select: configuration now refuses new writes that
+overlap retained rows, rather than committing duplicate native addresses and
+blocking exports. Overlapping newly generated single/bulk writes are also
+refused before a revision. Not configured can still leave copied rows. Current address
+matches must not silently assign ownership or authorize deletion. The ownership
+refusal alone does not implement warnings or recovery.
+Native Windows policy qualification remains separate.
+
+**Closure evidence:** runtime/test commit
+`433684d9f05863c51f82d09cef8c0de16a6fcd4a`. Inspection, preview and the
+**Recover registry rows** dialog require explicit keep/omit decisions for every
+row, display exact JSON and stored owner claims, and require the registry-only
+scope acknowledgement. Apply rechecks the source revision and reviewed digest
+under the workspace lock, then creates a fresh audited draft with unique IDs.
+Selected native fields, order and comments stay exact; source SQL head,
+history and retained document references remain untouched. Known replaced or
+defaulted source values are refused. The original description, private import
+provenance and other policy components are not copied; disclosed omission
+counts remain part of the review. Advisory warnings do not become validation
+errors or a blanket export ban. New identities do not resolve native-address
+conflicts or reconstruct historical ADMX intent.
+
+The full Linux suite passes 13,710 tests (142 skips, one xfail and 67 subtests)
+in 1,100.68 seconds; all 11 branch-coverage floors pass (91.30% total, 90.90%
+store). Frontend checks pass 257 tests and the complete Chromium/Firefox suite
+passes 538 cases in 15.4 minutes. Installed-wheel smoke and upgrade/rollback
+checks pass. Long default names reserve suffix space and preserve complete
+Unicode characters; the two original failures and the passing 15-case focused
+browser selection are retained.
+
+Hosted Windows Python 3.14.9 passes 13,401 tests (425 skips, one xfail and
+55 subtests) in 1,481.39 seconds, with all 11 floors and 92.16% total branch
+coverage. Run `40138646882`, job `121005522825`, tests merge
+`95ea51190bc753c608445c14280a484c1e6314ea`; its complete tree and the frozen
+runtime head both equal `cf01c9972b46b0d2da6dccc10f77fa855e03b789`.
+
+A separate lab Windows 3.14 run uses qualified controller
+`8b55b685eb8567c288fec2cb9874c51f36c3d2bb` to test the exact `433684d9`
+archive. It passes the same 13,401 tests in 2,592.34 seconds and all five job
+phases, including all 11 floors (92.16% total). Actual wall time including
+cleanup is 2,788.085 seconds. Fresh postchecks confirm zero owned runs and
+cancellation markers, a released startup lock, unchanged profile environment
+and removal of the controller run directory. Controller qualification and
+product-archive qualification retain their separate identities.
+
+Both independent Tier-2 code reviews pass. One executes 208 targeted backend
+tests, 22 independent synthetic controls, 122 register/cost checks and all
+15 focused browser cases. Its controls cover all six native types, changed
+reviewed facts, post-revision-SQL cancellation/rollback/reuse and a real-lock
+versus unlocked concurrency control. The other executes five primary targeted
+selections totalling 412 passes, a 36-case conflict recheck, frontend tests and
+independent API/digest/exact-value probes. These qualify the offline workspace
+workflow; native policy format, deployment, shared-service authentication and
+Plan 033 oracle qualification remain separate.
+
+## WI-088 — derive observed list-policy state without inventing intent
+
+**Opened:** 2026-10-23 (N7 bounded synthetic settings-browser observation).
+**Status:** closed 2026-10-24.
+
+At `2b63c83c`, configuring a list-only policy as Disabled correctly writes its
+`disabledList` set values, but the reverse reader labels it Enabled unless every
+list-item action is delete. A set DWORD0 pattern, mixed set/delete pattern and
+complete two-item Disabled pattern were labelled Enabled; all-delete and scalar
+controls worked. Identical Enabled/Disabled lists are indistinguishable, and a
+mixed snapshot matching neither complete pattern was also labelled Enabled.
+Read/filter operations preserved the workspace and sent no mutation requests.
+This is an existing read-inference defect; the writer is not being corrected here.
+
+**Closes when:** a read-only evaluator identifies the complete normalized Enabled
+and Disabled policy-level patterns using side/hive, registry key/value name,
+type, action and native value, including defaultKey/item-key semantics. Exactly
+one complete matching pattern identifies that observed state. Both or neither
+matching are explicitly indeterminate, rather than a guessed authoring decision.
+Observed-state representation is separate from mutation states: indeterminate
+must not become an accepted configure/bulk target. API/UI/filter behavior clearly
+presents those observations without reusing policy-ownership ambiguity metadata.
+Tests cover set-only, mixed actions, all-delete, scalar controls, identical lists,
+partial/native mixed snapshots, both sides and unchanged head/history/documents
+through every read/filter. Matching work is precomputed/bounded per policy; no
+hidden writes, state rewrite, snapshot migration or silent repair is introduced.
+The candidate evaluator also covers declared scalar markers and stale historical
+level frames independently of today's writer family. Child-only heuristics remain
+unless unclaimed possible historical level evidence exposes uncertainty; child
+values and unresolved raw records stay separate. Tests cover scalar both/neither,
+delete/reversed/default markers, moved addresses and unchanged storage/export
+eligibility. Native Windows qualification remains separate and is not supplied by these
+local observation corrections.
+
+**Verified 2026-10-24.** The complete reader at `a269528e` and the raw-location
+follow-up at `696b0a5d` pass their exact-head CI, including Python 3.13/3.14 on
+Linux and Windows. The follow-up local suite passed 13,630 tests (142 skips,
+one expected failure, 67 subtests), all coverage floors, 257 frontend tests and
+523 browser cases including Firefox; static checks, installed-wheel smoke and
+upgrade/rollback rehearsal passed. Fresh GPT and DeepSeek reviews of the complete
+reader and the follow-up passed with independent native-pattern, writer/reader,
+read-ownership and storage-preservation probes. These establish the closing
+conditions for the read-only observation correction, not new native policy
+qualification or a reviewed identity-repair workflow.
+
+## WI-089 — a Python write failure can leave a workspace transaction open
+
+**Opened:** 2026-10-24 (review of draft creation for registry repair).
+**Status:** closed 2026-10-24. All four write transactions roll back Python
+failures and cancellation before commit, preserving the original exception and
+the existing SQLite error mapping.
+
+Creation, baseline import and recovery deletion caught only SQLite exceptions
+inside their transactions. Editing caught ordinary Python exceptions but not
+cancellation derived from `BaseException`. A failure after a SQL write could
+therefore leave a live transaction, partial rows visible on that connection,
+and no corresponding audit revision. A subsequent valid write then failed.
+This was reproduced with unencodable audit text in direct store calls; the
+HTTP request models already reject that text. No durable partial commit was
+demonstrated.
+
+All four transaction handlers now roll back on `BaseException` and preserve
+the original non-SQLite exception. SQLite error mapping stays unchanged.
+Baseline import still commits each successful item separately: a later failed
+item rolls back without undoing earlier imports, and retry skips those items.
+
+**Closes when:** injected ordinary exceptions and cancellation after SQL writes
+leave the database unchanged and reusable in each transaction path, direct
+unencodable audit text also rolls back, and a later-item import failure can be
+retried without changing the earlier item's immutable revision. Run the
+required local checks and the available Windows leg before review.
+
+**Verified 2026-10-24.** Runtime and regression source at `a882e2e6` passes the
+full Linux suite (13,187 tests, 142 skips, one expected failure, 67 subtests),
+all 11 coverage floors (90.97% total), 171 frontend tests, a 73-case browser
+recheck, static checks, installed-wheel smoke and upgrade/rollback rehearsal.
+The native Windows Python 3.14 job passes all five phases: 12,878 tests,
+425 skips, one expected failure, 55 subtests, all coverage floors (91.85%
+total) and CLI exit 0. Its separately qualified controller is `8b55b685` and
+its tested archive is `a882e2e6`; these are different roles, not interchangeable
+source claims. Fresh postchecks confirm no owned runs/markers, a released
+startup lock, unchanged profile and removal of the controller run directory.
+
+Both independent Tier-2 reviews pass. One executes 226 targeted tests and
+43 additional late-SQL/control cases plus a repeated-import scenario, covering
+shared retained documents, archive-schema rollback, cancellation, immutable
+history, independent readers and connection reuse. The other executes 278
+targeted tests and audits the source and qualification evidence. These results
+qualify workspace transaction cleanup; they claim no native policy/oracle lane
+or undo after an already completed commit.
+
+## WI-090 — a blank claimed actor escapes as an HTTP 500
+
+**Opened:** 2026-10-24 (ordinary API input review).
+**Status:** closed 2026-10-24. The HTTP boundary preserves the identity library
+contract, refuses blank actors before writes, and passes qualification plus two
+independent Tier-2 reviews.
+
+Request models enforce actor length but accept whitespace-only text. The shared
+identity factory already rejects those labels with `ValueError`; the API let
+that argument error escape as a 500. This affects ordinary JSON-body mutations
+and the estate import's query parameter. A synthetic HTTP reproduction left no
+rows or open transaction, and a valid follow-up succeeded; this is an error
+response defect rather than a partial-write or authentication claim.
+
+The API identity boundary now translates the factory's `ValueError` into a
+validation issue at `actor`, with code `invalid_actor` and HTTP 422. The core
+identity factory keeps its existing exception contract and valid label trimming;
+unrelated internal `ValueError` exceptions remain internal failures.
+
+**Closes when:** actual HTTP requests with ASCII and Unicode whitespace actors
+receive an actor-field refusal across creation, editing, forking, starter
+creation/derivation/deletion and estate import, without changing database rows
+or history. Correcting only the actor must allow the operation and record the
+factory's normalized actor and supplied reason. Preserve the identity library
+contract, complete the required checks including the available Windows leg,
+and bank two independent Tier-2 reviews.
+
+**Closure evidence:** runtime/test commit `347aeea65ed9c9f60b1f52c68a56dc9d30204b42`.
+The actual HTTP baseline has 28 failing whitespace cases and one passing
+unrelated-error control; the patched HTTP/library selection passes 37 tests.
+All four whitespace forms across seven operation families leave complete SQL
+state/history unchanged on refusal, leave no transaction open, and succeed
+after correcting only the actor with the normalized immutable audit.
+
+The full Linux suite passes 13,201 tests (142 skips, one xfail and 67 subtests)
+in 933.27 seconds, with all 11 coverage floors met and 90.96% total branch
+coverage. Frontend checks pass 171 tests. The browser recheck passes all 73;
+the first run's old-main initial-selection race is retained separately and
+is addressed by PR120, outside this patch. Installed-wheel smoke and the
+upgrade/rollback rehearsal pass.
+
+The available hosted Windows leg uses Python 3.14.9 on Windows Server 2025:
+12,892 tests pass (425 skips, one xfail and 55 subtests) in 1,984.00 seconds,
+with all 11 coverage floors met and 91.84% total branch coverage. Run
+`40136756895`, job `120999776724`, tests PR merge
+`57e563025828d4e9ce80cacec594b5474a584bf1`; its complete tree and the frozen
+runtime/test head both equal `9c5a983d1e5ca2d975518962b534333b6d6110a4`.
+This is application/runtime evidence, not a native policy/oracle verdict.
+
+Both independent Tier-2 reviews pass. One executes 832 targeted tests and
+58 additional HTTP whitespace requests, including the six JSON control cases
+that retain the earlier XML-text refusal. The other executes 227 targeted
+tests and 13 additional probe cases, and restores the old helper in memory
+to reproduce the 28 intended failures and passing internal-error control.
+Both independently check the hosted Windows log, source hashes and merge-tree
+equivalence. Extra probes preserve the existing claimed/untrusted identity,
+normalization and unrelated exception behavior; they establish no trusted
+authentication or broader crash-recovery guarantee.
+
+## WI-091 — bind recovery review to the inspected source and retire refused previews
+
+**Opened:** 2026-10-24 (recovery UI review-state follow-up).
+**Status:** closed 2026-10-24. Preview binds the inspected source, creation
+conflicts retire their current review after pending cleanup, and qualification
+plus two independent Tier-2 reviews pass. The recovery guide includes the
+required policy reload before reopening.
+
+Before the fix, the browser displayed rows from inspection but accepted preview's
+digest without checking that its returned source still matched those facts. In a
+private synthetic browser/server probe at `310d2c14`, an out-of-band head edit
+that keeps the revision unchanged causes preview to bind a different value;
+the dialog still displays the old value, enables creation, and creates the
+new draft with the uninspected value. Ordinary API edits advance revision and
+remain covered by revision refusal. This observation does not establish a
+normal API race or expand support for arbitrary external SQLite writers.
+
+A refused creation also left its old preview actionable: pending-control
+cleanup restored the enabled Apply button after a 409. The operator should
+retain choices for reference, retire that refused review, and explicitly
+review again; a changed source requires a fresh inspection. A retired response
+must not invalidate a newer editor's review, and a transient refusal must not
+unnecessarily discard a still-valid review.
+
+**Closes when:** preview is accepted only when its complete source matches the
+inspection, ignoring object-key ordering while retaining row order and exact
+raw JSON strings. Changed native values/order/owner claims/omission counts or
+source metadata require reopening for inspection without creation. Current
+409 responses retire the preview after pending cleanup, retain operator
+inputs and explain revision refresh; a name collision can be corrected and
+reviewed again. Retired conflicts preserve newer reviews and transient
+refusals retain a valid retry. Tests exercise both browsers and the actual
+synthetic same-revision boundary, required local/available Windows checks pass,
+and two independent Tier-2 reviews are banked. No native policy qualification
+or new backend concurrency guarantee is claimed.
+
+**Closure evidence:** runtime/test commit
+`43c7d15368487229d53b4c0465861564ccbd0edc`. The complete preview source must
+match inspection: object-key order is ignored, while arrays and opaque raw
+JSON strings remain exact. A current 409 retires only its captured review
+after restoring pending controls; newer reviews and transient retries retain
+their authority. Correcting a name collision permits a fresh preview, and a
+source revision change requires closing recovery, selecting the policy again
+to reload it, and reopening with fresh decisions.
+
+The original before-browser specification has 16 failures and six passing
+controls at `310d2c14`. It is retained separately from the final specification,
+which strengthens the reload/reinspect/create roundtrip and helper/guidance.
+The actual private browser/server probe also refuses the previously unseen
+same-revision value and permits creation only after fresh inspection. This
+remains an out-of-band synthetic head-edit observation, not an ordinary API
+race or support for arbitrary external writers.
+
+The full Linux suite passes 13,710 tests (142 skips, one xfail, 67 subtests and
+two warnings) in 1123.99 seconds. All eleven module coverage floors and the
+overall floor pass (91.30% total). Frontend checks pass 257 tests; the seven-file
+record selection passes 138. Installed-wheel smoke and upgrade/rollback pass.
+All 560 local browser cases pass in 15.7 minutes with an explicit 60-second
+per-case budget. The initial default-budget run's 559 passes and one existing
+accessibility deadline failure are retained, not counted as a pass; five scans
+on an owned 639-policy later-superset fixture pass in 35.36 seconds. Hosted
+default-settings frontend checks independently pass all 560 in 10.4 minutes.
+
+Hosted Windows Python 3.14.9 passes 13,401 tests (425 skips, one xfail, 55 subtests
+and two warnings) in 1662.44 seconds, with all module and overall floors met
+(92.16% total). Run `40145947288`, job `121027194923`, checks out
+`ff7ce2ef7e5033d02f5009cc563db3105cc2753b`; its complete tree is identical to
+the runtime head. This closure changes documentation only: product, tests,
+scripts and workflows remain identical to that qualified head.
+
+Both independent Tier-2 reviews pass. One executes 37 Chromium/Firefox recovery
+cases, 3,076 comparator assertions and 138 record gates. The other executes
+68 frontend contracts, 27 backend/register tests, an actual API QWORD boundary
+probe and 15 cases using the actual frontend/read/mutation modules; disabling
+either guard makes its private controls fail. Both audit source and primary
+qualification bindings. These results qualify the offline application review
+workflow, not native policy/oracle behavior.
+
+## WI-092 — out-of-range revision selectors escape as HTTP 500
+
+**Opened:** 2026-10-25.
+**Status:** closed 2026-10-25. The shared reader refuses non-native integers
+before SQL binding, preserving the existing not-found outcome and workspace
+health precedence.
+
+`get_revision` binds unrestricted Python integers to SQLite. A selector such
+as `9223372036854775808` raises `OverflowError`, so historical reads, both
+comparison routes and restore return HTTP 500 instead of the missing-revision
+response. The same defect exists at current `main` and in the qualified
+authoring composition. Synthetic private-workspace probes reproduced all four
+HTTP paths; ordinary revision 1 still returned 200.
+
+`store.py` is listed as unbound in `docs/plan-033/bound-source-cost.md`.
+Changing this reader does not expire an estate lane. Restore reaches the
+reader before its mutation, so verification must preserve workspace health,
+optimistic concurrency, immutable history and audit identity. Treat the
+change as Tier 2: two independent reviewers, including executing probes, and
+the available Windows test leg.
+
+**Closes when:** non-native integers produce the existing not-found outcome
+without SQL binding or workspace changes; representable revision identifiers
+remain exact without clamping; health guards, comparison and a valid restore
+retry still work; regression tests demonstrate failure before the fix; and
+required local checks, Windows checks and two independent reviews pass.
+
+**Closure evidence.** Runtime commit `bdc9b6ef` changes two lines in
+`WorkspaceStore.get_revision`. The regression suite failed 20 cases with nine
+controls before the fix, then passed all 29. It covers exact native MIN/MAX
+lookups, no boundary aliasing, health guards, both comparison routes and
+failed restores followed by a valid audited retry. The Linux suite passed
+13,201 cases (142 skips, one xfail and 67 subtests), with 90.97% overall
+coverage and every module floor met; all 73 browser cases, 171 frontend
+tests, installed-package smoke and upgrade/rollback rehearsal passed.
+
+All 17 hosted checks passed on that runtime. Both Windows legs passed 12,892
+cases (425 skips, one xfail and 55 subtests): Python 3.14 at 91.85% overall
+coverage and Python 3.13 at 91.84%, with every module floor met. The hosted
+merge tree was measured identical to the tested runtime tree. Two independent
+executing reviews passed; their final private probes passed 35 and 21 cases,
+and each reviewer independently ran all 29 committed regressions. Their
+preserved addenda correct private-harness retry counts and the scope of
+database-state comparisons; no product defect remained. All 86 positive-cost
+estate-bound paths stayed byte-identical. This closes the input-handling
+defect; it does not claim a new estate capability or a release/deployment.

@@ -321,3 +321,71 @@ def test_cli_hash_still_works_without_trust_anchor(tmp_path: Path, capsys) -> No
     captured = capsys.readouterr()
     assert rc == 0, captured.err
     assert len(captured.out.strip()) == 64
+
+
+@pytest.mark.parametrize("payload", [b"\xff", b"\xef\xbb\xbf\xff"])
+def test_load_trust_anchor_reports_invalid_encoding(tmp_path: Path, payload: bytes) -> None:
+    path = tmp_path / "anchor.json"
+    path.write_bytes(payload)
+    with pytest.raises(ProvenanceError, match="cannot load trust anchor"):
+        load_trust_anchor(path)
+
+
+def test_bom_trust_anchor_keeps_signature_verification(tmp_path: Path) -> None:
+    private_key, public_key = generate_keypair()
+    anchor = TrustAnchor(key_id="synthetic-anchor", public_key=public_key, algorithm="Ed25519")
+    path = tmp_path / "anchor.json"
+    save_trust_anchor(anchor, path)
+    path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
+    loaded = load_trust_anchor(path)
+    assert loaded == anchor
+    digest = b"synthetic reviewed evidence hash"
+    signature = sign_pack(digest, private_key, key_id=anchor.key_id)
+    assert verify_provenance_signature(digest, signature, loaded)
+    assert not verify_provenance_signature(b"different evidence hash", signature, loaded)
+
+
+@pytest.mark.parametrize(
+    "bad_input",
+    ["pack", "anchor", "signature-missing", "signature-directory", "signature-encoding"],
+)
+def test_cli_matrix_input_errors_preserve_output(tmp_path: Path, capsys, bad_input: str) -> None:
+    cli = _load_cli()
+    pack, anchor, signature = _setup_signed_pack(tmp_path)
+    if bad_input == "pack":
+        pack.write_bytes(b"\xff")
+    elif bad_input == "anchor":
+        anchor.write_bytes(b"\xff")
+    elif bad_input == "signature-missing":
+        signature.unlink()
+    elif bad_input == "signature-directory":
+        signature.unlink()
+        signature.mkdir()
+    else:
+        signature.write_bytes(b"\xff")
+    output = tmp_path / "matrix.md"
+    output.write_text("Previously reviewed matrix\n", encoding="utf-8")
+    rc = cli.main([
+        "--pack", str(pack), "--trust-anchor", str(anchor),
+        "--signature", str(signature), "--matrix", "--output", str(output),
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert captured.err.startswith("ERROR:")
+    assert captured.out == ""
+    assert output.read_text(encoding="utf-8") == "Previously reviewed matrix\n"
+
+
+def test_cli_bom_pack_and_anchor_preserve_verified_claims(tmp_path: Path, capsys) -> None:
+    cli = _load_cli()
+    pack, anchor, signature = _setup_signed_pack(tmp_path)
+    for path in (pack, anchor):
+        path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
+    rc = cli.main([
+        "--pack", str(pack), "--trust-anchor", str(anchor),
+        "--signature", str(signature), "--matrix",
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    assert "registry-policy" in captured.out
+    assert "DRAFT" not in captured.out

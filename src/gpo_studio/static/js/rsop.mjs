@@ -1,3 +1,4 @@
+import { createReadScope } from "./read-context.mjs";
 import { $, escapeHtml } from "./state.mjs";
 import { api } from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
@@ -213,12 +214,18 @@ export function renderRsopResult(body) {
     .join("");
 }
 
+const reads = createReadScope({ element: () => $("#rsop-dialog") });
+
 export function initRsop() {
+  $("#rsop-dialog").addEventListener("close",()=>reads.invalidate());
   $("#open-rsop").onclick = openRsop;
   $("#rsop-form").onsubmit = submitRsop;
+  $("#rsop-form").addEventListener("input", () => reads.invalidate());
+  $("#rsop-form").addEventListener("change", () => reads.invalidate());
 }
 
 export function openRsop() {
+  reads.invalidate();
   const form = $("#rsop-form");
   clearFormErrors(form);
   $("#rsop-results").innerHTML =
@@ -233,6 +240,10 @@ async function submitRsop(event) {
     return;
   }
   const form = event.currentTarget;
+  const read = reads.start({ report: error => {
+    $("#rsop-results").innerHTML = "";
+    showFormErrors(form, error);
+  } });
   clearFormErrors(form);
   const results = $("#rsop-results");
   let topology;
@@ -242,9 +253,9 @@ async function submitRsop(event) {
     showFormErrors(form, error);
     return;
   }
-  results.innerHTML = '<div class="table-empty">Computing…</div>';
+  const pending=read.beginPending({busy:[results],loading:[{element:results,message:"Computing…",recovery:"Compute again to review the current input.",className:"table-empty"}]});
   try {
-    const body = await api("/api/rsop/compute", {
+    const body = await /* request: rsop.compute */ api("/api/rsop/compute", {
       method: "POST",
       body: JSON.stringify({
         query_id: form.query_id.value || "ui-query",
@@ -265,9 +276,9 @@ async function submitRsop(event) {
         ...topology,
       }),
     });
+    if (!read.isCurrent()) return;
     results.innerHTML = renderRsopResult(body);
   } catch (error) {
-    results.innerHTML = "";
-    showFormErrors(form, error);
-  }
+    read.reportError(error);
+  } finally {pending.finish()}
 }
