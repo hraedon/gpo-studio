@@ -732,7 +732,19 @@ def _resolve_value(
                     )
                 ]
             )
-        return "REG_SZ", value
+        # An enum with no parsed items has no defined registry type; writing the
+        # entered text as REG_SZ would silently mistype a DWORD enum.
+        raise ValidationError(
+            [
+                ValidationIssue(
+                    "error",
+                    "unsupported_element_kind",
+                    f"Element {element.id!r} is an enum with no items this "
+                    f"tool can read, so its registry type is unknown.",
+                    f"elements/{element.id}",
+                )
+            ]
+        )
     if element.kind == "unknown":
         raise ValidationError(
             [

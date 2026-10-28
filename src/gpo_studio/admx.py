@@ -352,15 +352,23 @@ def _parse_enum_items(
         display_name = _resolve_string_ref(display_ref, strings)
         value_kind: Literal["decimal", "string", "longDecimal"] | None = None
         value_raw = ""
-        for child in item_elem:
+        # The ADMX schema wraps the item's value in <value>; older synthetic
+        # templates put it directly under <item>. Accept both.
+        value_container = item_elem.find("{*}value")
+        if value_container is None:
+            value_container = item_elem
+        for child in value_container:
             child_local = _local_name(child.tag)
             if child_local == "decimal":
                 value_kind = "decimal"
                 value_raw = child.get("value", "")
                 break
             if child_local == "string":
+                # Schema form is <string>text</string>; the attribute form is
+                # what the synthetic fixtures use.
                 value_kind = "string"
-                value_raw = child.get("value", "")
+                attribute = child.get("value")
+                value_raw = attribute if attribute is not None else (child.text or "")
                 break
             if child_local == "longDecimal":
                 value_kind = "longDecimal"

@@ -23,6 +23,16 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Fixed
 
+- Enum elements from real Windows ADMX templates now load their items (#139).
+  The schema wraps each item's value in `<value>`, and string values are element
+  text (`<string>Z:</string>`). The parser only looked for value elements directly
+  under `<item>`, so every real enum loaded with no items. The UI then showed a
+  free-text box, and the export wrote the entered text as `REG_SZ`, even where
+  the template defines `REG_DWORD` (for example "Set user home folder"). An enum
+  with no readable items is now refused (`unsupported_element_kind`) instead of
+  being written as `REG_SZ`. This change does not rewrite settings saved
+  before the fix.
+
 - Keep workspace accessibility checks within their existing time limit as
   other browser tests add policies, by filtering the sidebar to their own fixture.
 

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from gpo_studio.admx import (
+    AdmxCatalogue,
     AdmxError,
     EnumItem,
+    PolicyElement,
     build_catalogue,
     find_adml,
     load_catalogue,
@@ -540,3 +544,61 @@ def test_enum_malformed_decimal_value_skipped() -> None:
     elem = policies[0].elements[0]
     assert len(elem.enum_items) == 1
     assert elem.enum_items[0].value == 42
+
+
+def _real_enum(catalogue: AdmxCatalogue, enum_id: str) -> PolicyElement:
+    for policy in catalogue.policies:
+        for element in policy.elements:
+            if element.kind == "enum" and element.id == enum_id:
+                return element
+    raise AssertionError(f"enum {enum_id!r} not in catalogue")
+
+
+def test_real_admx_enum_items_inside_value_are_parsed() -> None:
+    """Issue #139: real ADMX wraps each item's value in ``<value>``."""
+    real = Path(__file__).parent / "fixtures" / "admx-real"
+    catalogue = build_catalogue(
+        (real / "UserProfiles.admx").read_bytes(),
+        (real / "UserProfiles.adml").read_bytes(),
+    )
+    for enum_id in (
+        "UploadHiveMethod",
+        "UploadHiveTime",
+        "AllowUserInfoAccess",
+        "USER_HOME_LOCATION",
+        "DRIVE_LETTER",
+    ):
+        assert _real_enum(catalogue, enum_id).enum_items, enum_id
+
+    method = _real_enum(catalogue, "UploadHiveMethod").enum_items
+    assert [(i.value, i.registry_type) for i in method] == [
+        (1, "REG_DWORD"),
+        (2, "REG_DWORD"),
+    ]
+    # The schema's string form is element text, not a value attribute.
+    drives = _real_enum(catalogue, "DRIVE_LETTER").enum_items
+    assert all(i.registry_type == "REG_SZ" for i in drives)
+    assert drives[-1].value == "Z:"
+    assert drives[-1].display_name
+
+
+def test_enum_item_value_wrapper_and_direct_child_both_parse() -> None:
+    admx = _ADMX_MINIMAL.replace(
+        b'<enum id="Mode" key="Software\\Policies\\Synthetic" valueName="Mode" />',
+        b'<enum id="Mode" key="Software\\Policies\\Synthetic" valueName="Mode">'
+        b'<item displayName="$(string.SyntheticPolicy)"><value><decimal value="3" /></value></item>'
+        b'<item displayName="$(string.SyntheticPolicy)"><value><string>abc</string></value></item>'
+        b'<item displayName="$(string.SyntheticPolicy)">'
+        b'<value><longDecimal value="5000000000" /></value></item>'
+        b'<item displayName="$(string.SyntheticPolicy)"><decimal value="4" /></item>'
+        b"</enum>",
+    )
+    assert admx != _ADMX_MINIMAL
+    catalogue = build_catalogue(admx, _ADML_MINIMAL)
+    items = _real_enum(catalogue, "Mode").enum_items
+    assert [(i.value, i.registry_type) for i in items] == [
+        (3, "REG_DWORD"),
+        ("abc", "REG_SZ"),
+        (5000000000, "REG_QWORD"),
+        (4, "REG_DWORD"),
+    ]

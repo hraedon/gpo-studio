@@ -246,14 +246,6 @@ def test_list_rejects_non_list_value() -> None:
         resolve_policy(policy, config)
 
 
-def test_enum_policy_produces_sz() -> None:
-    policy = _policy((_element("enum", "Mode", value_name="Mode"),))
-    config = PolicyConfiguration(side="computer", values={"Mode": "Standard"})
-    settings = resolve_policy(policy, config)
-    assert settings[0].registry_type == "REG_SZ"
-    assert settings[0].value == "Standard"
-
-
 def test_unknown_element_raises_validation_error() -> None:
     policy = _policy((_element("unknown", "Weird", value_name="Weird"),))
     config = PolicyConfiguration(side="computer", values={"Weird": "x"})
@@ -465,9 +457,12 @@ def test_enum_unknown_value_raises() -> None:
     assert "Mode" in exc_info.value.issues[0].message
 
 
-def test_enum_empty_items_falls_back_to_sz() -> None:
+def test_enum_without_items_is_refused_not_written_as_sz() -> None:
+    # Issue #139: an enum whose items could not be read has no registry type.
+    # Writing the entered text as REG_SZ mistyped DWORD enums from real ADMX.
     policy = _policy((_enum_element(()),))
-    config = PolicyConfiguration(side="computer", values={"Mode": "Standard"})
-    settings = resolve_policy(policy, config)
-    assert settings[0].registry_type == "REG_SZ"
-    assert settings[0].value == "Standard"
+    config = PolicyConfiguration(side="computer", values={"Mode": "1"})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert exc_info.value.issues[0].code == "unsupported_element_kind"
+    assert exc_info.value.issues[0].path == "elements/Mode"
