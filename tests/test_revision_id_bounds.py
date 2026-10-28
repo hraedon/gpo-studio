@@ -157,3 +157,30 @@ def test_valid_history_read_and_comparison_keep_working(client, policy):
     assert response.json()["revision"] == 2
     assert response.json()["actor"] == "editor"
     assert comparison.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "spelling", ["+1", "%2B1", "%201", "1%20", "1.0", "01", "-0", "1_0", "1e0"]
+)
+@pytest.mark.parametrize("view", ["revision", "revision-diff", "current-diff", "restore"])
+def test_api_refuses_non_canonical_revision_selectors(client, policy, spelling, view):
+    # Issue #140: lax integer coercion resolved "+1", " 1" and "1.0" to revision 1.
+    store, gpo = policy
+    store.update_metadata(
+        gpo.guid, 1, {"description": "Second draft"}, identity="editor", reason="describe policy"
+    )
+    before = tuple(store._connection.iterdump())
+    prefix = f"/api/gpos/{gpo.guid}"
+    body = {"expected_revision": 2, "actor": "analyst", "reason": "restore an existing revision"}
+
+    if view == "restore":
+        response = client.post(f"{prefix}/revisions/{spelling}/restore", json=body)
+    else:
+        response = client.get({
+            "revision": f"{prefix}/revisions/{spelling}",
+            "revision-diff": f"{prefix}/revisions/diff?from_revision={spelling}&to_revision=2",
+            "current-diff": f"{prefix}/diff?against_revision={spelling}",
+        }[view])
+
+    assert response.status_code == 422, response.text
+    assert tuple(store._connection.iterdump()) == before

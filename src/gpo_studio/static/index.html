@@ -383,7 +383,7 @@
       <label>Change reason<input name="reason" required maxlength="500" value="Reviewed registry-only recovery"></label>
       <div class="filter-row"><button type="button" id="registry-repair-keep-all">Keep all as raw rows</button><button type="button" id="registry-repair-omit-all">Omit all rows</button></div>
       <div id="registry-repair-rows"></div>
-      <label><input type="checkbox" name="registry_only" required> I understand this creates a registry-only draft. Other policy components and the original description are not copied.</label>
+      <label class="check-field"><input type="checkbox" name="registry_only" required> I understand this creates a registry-only draft. Other policy components and the original description are not copied.</label>
       <section id="registry-repair-preview" hidden aria-labelledby="registry-repair-preview-title"><h3 id="registry-repair-preview-title" tabindex="-1">Review before creation</h3><div id="registry-repair-review"></div></section>
       <div class="dialog-actions"><button type="button" value="cancel">Cancel</button><button type="submit" id="registry-repair-preview-button">Preview choices</button><button type="button" class="primary" id="registry-repair-apply" disabled>Create reviewed draft</button></div>
     </form>

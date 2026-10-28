@@ -381,3 +381,26 @@ for (const kind of ["ascii-limit", "astral-unicode", "existing-suffix"]) {
     ).toBe(name);
   });
 }
+
+test("the registry-only acknowledgement checkbox sits beside its label text", async ({
+  page,
+  request,
+}, testInfo) => {
+  // Issue #140: the dialog's block-level input rule put the checkbox above
+  // the sentence it acknowledges.
+  const dialog = await open(page, await seed(request, testInfo));
+  const label = dialog.locator("label", {
+    has: page.locator('[name="registry_only"]'),
+  });
+  const box = await dialog.locator('[name="registry_only"]').boundingBox();
+  const text = await label.evaluate((element) => {
+    const range = element.ownerDocument.createRange();
+    range.selectNodeContents(element);
+    range.setStartAfter(element.querySelector("input"));
+    const rect = range.getBoundingClientRect();
+    return { x: rect.x, y: rect.y };
+  });
+  expect(box.x + box.width).toBeLessThanOrEqual(text.x);
+  expect(box.y).toBeLessThan(text.y + 24);
+  expect(text.y).toBeLessThan(box.y + box.height);
+});

@@ -324,18 +324,30 @@ def require_no_policy_setting_conflicts(
                 f"replacements/{index}",
             ))
         addresses.add(address)
-    issues.extend(
-        ValidationIssue(
-            "error",
-            "conflicting_retained_setting",
-            "This ADMX change would target a registry address occupied by a retained "
-            "setting. Review the raw registry rows and explicitly resolve the conflict "
-            "before reconfiguring; matching addresses do not establish ADMX ownership.",
-            f"settings/{index}",
-        )
-        for index, setting in enumerate(settings)
-        if index not in selected_positions and setting.identity() in addresses
-    )
+    replacement_ids = {setting.id for setting in replacements}
+    for index, setting in enumerate(settings):
+        if index in selected_positions:
+            continue
+        if setting.identity() in addresses:
+            issues.append(ValidationIssue(
+                "error",
+                "conflicting_retained_setting",
+                "This ADMX change would target a registry address occupied by a retained "
+                "setting. Review the raw registry rows and explicitly resolve the conflict "
+                "before reconfiguring; matching addresses do not establish ADMX ownership.",
+                f"settings/{index}",
+            ))
+        elif setting.id in replacement_ids:
+            # A row whose side or location was edited keeps its editor ID but is
+            # no longer owned here; rewriting it would duplicate that ID.
+            issues.append(ValidationIssue(
+                "error",
+                "conflicting_retained_setting",
+                "This ADMX change would reuse the editor ID of a retained setting whose "
+                "registry location was edited. Review the raw registry rows and explicitly "
+                "resolve the conflict before reconfiguring.",
+                f"settings/{index}",
+            ))
     if issues:
         raise ValidationError(issues)
 

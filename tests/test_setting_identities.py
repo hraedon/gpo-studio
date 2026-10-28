@@ -1138,3 +1138,41 @@ def test_api_side_edit_keeps_value_visible_without_rewriting_history(harness: An
     assert client.get(f"/api/gpos/{gpo.guid}/export.zip").status_code == 200
     assert store.get_revision(gpo.guid, 1).snapshot["settings"] == [asdict(row) for row in rows]
     assert storage(store) == before
+
+
+@pytest.mark.parametrize("reconfigured_side", ["computer", "user"])
+def test_reconfiguring_beside_a_side_edited_child_names_the_retained_conflict(
+    harness: Any, monkeypatch: Any, reconfigured_side: Side
+) -> None:
+    # Issue #140: the original side failed with duplicate_setting_id, because the
+    # edited row keeps its editor ID but is no longer owned by that side.
+    client, store = harness
+    definition = replace(
+        policy("SideEdit", value_name="State", elements=(text("state"),)), class_="Both"
+    )
+    monkeypatch.setattr(app.state, "admx_catalogue", AdmxCatalogue(policies=(definition,)))
+    gpo = draft(client)
+    first = configured(client, gpo, "SideEdit", values={"state": "original"})
+    assert first.status_code == 200, first.text
+    head = store.get_gpo(gpo["guid"])
+    child = next(row for row in head.settings if row.value_name == "Option")
+    store.put_settings(
+        head.guid,
+        head.revision,
+        [replace(child, side="user", hive="HKCU")],
+        identity="test",
+        reason="Move the child to the user side",
+    )
+    before = storage(store)
+    response = configured(
+        client,
+        {"guid": head.guid, "revision": head.revision + 1},
+        "SideEdit",
+        side=reconfigured_side,
+        values={"state": "again"},
+    )
+    assert response.status_code == 422, response.text
+    assert [issue["code"] for issue in response.json()["error"]["issues"]] == [
+        "conflicting_retained_setting"
+    ]
+    assert storage(store) == before

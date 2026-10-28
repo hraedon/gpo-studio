@@ -426,3 +426,29 @@ test("a real catalogue switch between Computer chunks preserves the first 100 co
     catalogueRevision = await loadPack(request, "A");
   }
 });
+
+test("a deletion observed during a chunk stops the bulk change with a message", async ({
+  page,
+  request,
+}) => {
+  // Issue #140: the chunk loop returned with no message at all.
+  const gpo = await seed(request, 101, "deleted mid-bulk");
+  await openSelected(page, gpo, 101);
+  const pending = await trace(page, gpo, { holdFirst: true });
+  try {
+    await page.locator('[data-bulk-state="disabled"]').click();
+    await pending.arrived;
+    // The tab learns of the deletion while the first chunk is in flight.
+    await page.evaluate(async (guid) => {
+      const { observeGpoDeleted } = await import("/assets/js/state.mjs");
+      observeGpoDeleted(guid);
+    }, gpo.guid);
+    pending.release();
+    await expect(page.locator("#error-summary")).toContainText(
+      "This policy was deleted",
+    );
+    expect(pending.calls).toHaveLength(1);
+  } finally {
+    pending.release();
+  }
+});

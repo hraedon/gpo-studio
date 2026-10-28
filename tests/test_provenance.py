@@ -389,3 +389,11 @@ def test_cli_bom_pack_and_anchor_preserve_verified_claims(tmp_path: Path, capsys
     assert rc == 0, captured.err
     assert "registry-policy" in captured.out
     assert "DRAFT" not in captured.out
+
+
+def test_load_trust_anchor_reports_deep_nesting(tmp_path: Path) -> None:
+    # Issue #140: about 200k levels raised an uncaught RecursionError.
+    path = tmp_path / "anchor.json"
+    path.write_text("[" * 200_000 + "]" * 200_000, encoding="utf-8")
+    with pytest.raises(ProvenanceError, match="cannot load trust anchor"):
+        load_trust_anchor(path)

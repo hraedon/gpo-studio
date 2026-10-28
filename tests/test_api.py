@@ -4,6 +4,7 @@ import io
 import zipfile
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from gpo_studio.api import app
@@ -507,6 +508,17 @@ def test_admx_policy_detail(tmp_path, monkeypatch) -> None:
         not_found = client.get("/api/admx/policies/Nonexistent")
         assert not_found.status_code == 404
 
+
+
+@pytest.mark.parametrize("path", ["/api/admx/policies", "/api/admx/policies?q="])
+def test_admx_policies_without_an_id_is_a_direct_404(tmp_path, monkeypatch, path) -> None:
+    # Issue #140: the slash redirect sent this to /api/admx/policies/, a 404.
+    _setup_admx_env(tmp_path, monkeypatch)
+    with TestClient(app, follow_redirects=False) as client:
+        response = client.get(path)
+    assert response.status_code == 404, response.headers
+    assert "location" not in response.headers
+    assert "/api/admx/search" in response.json()["error"]["message"]
 
 def _setup_real_shape_admx_env(tmp_path, monkeypatch):
     """Point the app at the real-shaped fixtures, which collide on policy name."""

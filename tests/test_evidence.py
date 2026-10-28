@@ -701,3 +701,11 @@ def test_load_pack_accepts_utf8_bom_without_changing_canonical_hash(tmp_path: Pa
     path = tmp_path / "pack.json"
     path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8-sig")
     assert canonical_pack_hash(load_pack(path)) == canonical_pack_hash(parse_pack(raw))
+
+
+def test_load_pack_reports_deep_nesting_as_invalid_json(tmp_path: Path) -> None:
+    # Issue #140: about 200k levels raised an uncaught RecursionError.
+    path = tmp_path / "pack.json"
+    path.write_text("[" * 200_000 + "]" * 200_000, encoding="utf-8")
+    with pytest.raises(PackError, match="invalid JSON"):
+        load_pack(path)

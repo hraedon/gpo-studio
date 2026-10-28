@@ -1273,9 +1273,11 @@ public sealed class CiLocalDeadline : IDisposable {
         timer = new Timer(Expire, null, milliseconds, Timeout.Infinite);
     }
     void Expire(object state) {
+        // Any failure to confirm an exit enforces the deadline: an exception
+        // escaping this timer callback would lose exit code 124.
         try {
             if (child.HasExited) return;
-        } catch (InvalidOperationException) { }
+        } catch (Exception) { }
         TimedOut = true;
         // The wrapper owns the job's sole, non-inheritable handle. Exiting
         // closes it and Windows reaps the descendants even if taskkill fails.

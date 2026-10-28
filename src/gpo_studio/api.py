@@ -31,6 +31,7 @@ from fastapi.responses import JSONResponse as _FastAPIJSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StrictBool,
@@ -2696,6 +2697,7 @@ NO_ARTIFACT_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/health"): _JSON,
     ("POST", "/api/workspace/integrity"): _JSON,
     ("GET", "/api/admx/search"): _JSON,
+    ("GET", "/api/admx/policies"): _JSON,
     ("GET", "/api/admx/policies/{policy_id:path}"): _JSON,
     ("POST", "/api/admx/policies/{policy_id:path}/configure"): _GPO_PAYLOAD,
     ("POST", "/api/gpos/{guid}/bulk-policy-state"): _GPO_PAYLOAD,
@@ -3112,6 +3114,13 @@ def admx_search(request: Request, q: str = "") -> dict[str, Any]:
         for p in policies
     ]
     return {"catalogue_revision": snapshot.revision, "items": items, "count": len(items)}
+
+
+@app.get("/api/admx/policies", include_in_schema=False)
+def admx_policy_without_id() -> dict[str, Any]:
+    # Without this route the slash redirect sends the client to
+    # /api/admx/policies/, whose empty policy id can only be a 404.
+    raise NotFoundError("Name a policy, or search with /api/admx/search?q=")
 
 
 @app.get("/api/admx/policies/{policy_id:path}")
@@ -4342,12 +4351,33 @@ def revisions(request: Request, guid: str) -> dict[str, Any]:
     }
 
 
+_CANONICAL_REVISION = re.compile(r"0|-?[1-9][0-9]*", re.ASCII)
+
+
+def _canonical_revision(value: object) -> object:
+    """Refuse a revision selector that only lax integer coercion would accept.
+
+    ``+1``, `` 1``, ``01`` and ``1.0`` all parsed as revision 1, so one revision
+    had many URLs. Range is still the store's concern (WI-092), so any canonical
+    integer reaches it.
+    """
+    if isinstance(value, str) and _CANONICAL_REVISION.fullmatch(value) is None:
+        raise PydanticCustomError(
+            "revision_not_canonical",
+            "revision must be a decimal integer without sign, padding or fraction",
+        )
+    return value
+
+
+RevisionSelector = Annotated[int, BeforeValidator(_canonical_revision)]
+
+
 @app.get("/api/gpos/{guid}/revisions/diff")
 def revision_diff(
     request: Request,
     guid: str,
-    from_revision: int = Query(ge=1),
-    to_revision: int = Query(ge=1),
+    from_revision: Annotated[RevisionSelector, Query(ge=1)],
+    to_revision: Annotated[RevisionSelector, Query(ge=1)],
 ) -> dict[str, Any]:
     if from_revision == to_revision:
         raise ValidationError([
@@ -4364,7 +4394,7 @@ def revision_diff(
 
 
 @app.get("/api/gpos/{guid}/revisions/{revision}")
-def revision(request: Request, guid: str, revision: int) -> dict[str, Any]:
+def revision(request: Request, guid: str, revision: RevisionSelector) -> dict[str, Any]:
     item = _store(request).get_revision(guid, revision)
     # The snapshot as stored, in its public form: the response class leaves
     # out the import record's stored-only identity, as it does everywhere.
@@ -4372,7 +4402,9 @@ def revision(request: Request, guid: str, revision: int) -> dict[str, Any]:
 
 
 @app.post("/api/gpos/{guid}/revisions/{revision}/restore")
-def restore(request: Request, guid: str, revision: int, body: RestoreMutation) -> dict[str, Any]:
+def restore(
+    request: Request, guid: str, revision: RevisionSelector, body: RestoreMutation
+) -> dict[str, Any]:
     gpo = _store(request).restore_revision(
         guid,
         revision,
@@ -4473,7 +4505,9 @@ def _resolve_gpo(request: Request, ref: str | dict[str, Any]) -> GPO:
 
 
 @app.get("/api/gpos/{guid}/diff")
-def diff_gpo(request: Request, guid: str, against_revision: int) -> dict[str, Any]:
+def diff_gpo(
+    request: Request, guid: str, against_revision: RevisionSelector
+) -> dict[str, Any]:
     current = _store(request).get_gpo(guid)
     old_revision = _store(request).get_revision(guid, against_revision)
     old_gpo = gpo_from_dict(old_revision.snapshot)

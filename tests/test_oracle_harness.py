@@ -339,3 +339,11 @@ def test_load_recipe_accepts_utf8_bom(tmp_path: Path) -> None:
     path = tmp_path / "recipe.json"
     path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8-sig")
     assert load_recipe(path) == parse_recipe(raw)
+
+
+def test_load_recipe_reports_deep_nesting_as_invalid_json(tmp_path: Path) -> None:
+    # Issue #140: about 200k levels raised an uncaught RecursionError.
+    path = tmp_path / "recipe.json"
+    path.write_text("[" * 200_000 + "]" * 200_000, encoding="utf-8")
+    with pytest.raises(RecipeError, match="invalid JSON"):
+        load_recipe(path)
