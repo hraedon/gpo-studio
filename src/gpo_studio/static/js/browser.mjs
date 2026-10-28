@@ -487,8 +487,12 @@ async function applyBulkState(targetState) {
             target_state: targetState,
           }),
         });
-        if (!isGpoObservationCurrent(payload.gpo)) return;
         completed.push(...batch);
+        // Returning here ended the bulk change with no message at all.
+        if (!isGpoObservationCurrent(payload.gpo))
+          throw new Error(
+            "This policy was deleted. Reload and review the target before applying more changes.",
+          );
         updateGpoSummary(payload.gpo);
         renderList();
       }

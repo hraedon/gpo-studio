@@ -342,6 +342,8 @@ def load_pack(path: Path) -> EvidencePack:
         raise PackError(f"cannot read pack {path}: {exc}") from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PackError(f"invalid JSON in pack {path}: {exc}") from exc
+    except RecursionError:
+        raise PackError(f"invalid JSON in pack {path}: nested too deeply") from None
     return parse_pack(raw, source=str(path))
 
 

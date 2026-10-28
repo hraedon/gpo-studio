@@ -168,6 +168,8 @@ def load_recipe(path: Path) -> FixtureRecipe:
         raise RecipeError(f"cannot read recipe {path}: {exc}") from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RecipeError(f"invalid JSON in recipe {path}: {exc}") from exc
+    except RecursionError:
+        raise RecipeError(f"invalid JSON in recipe {path}: nested too deeply") from None
     return parse_recipe(raw)
 
 

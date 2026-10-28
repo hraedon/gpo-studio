@@ -642,3 +642,22 @@ def test_platform_registry_accepts_utf8_bom(tmp_path: Path) -> None:
     path = tmp_path / "platforms.json"
     path.write_bytes(b"\xef\xbb\xbf" + PLATFORM_REGISTRY_PATH.read_bytes())
     assert load_platform_registry(path) == load_platform_registry(PLATFORM_REGISTRY_PATH)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param("[" * 200_000 + "]" * 200_000, id="deep-nesting"),
+        pytest.param('{"schema_version": NaN}', id="nan"),
+        pytest.param('{"schema_version": -Infinity}', id="infinity"),
+    ],
+)
+def test_platform_registry_refuses_deep_nesting_and_non_json_numbers(
+    tmp_path: Path, payload: str
+) -> None:
+    # Issue #140: deep nesting raised RecursionError, and NaN/Infinity (Python
+    # extensions, not JSON) were accepted.
+    path = tmp_path / "platforms.json"
+    path.write_text(payload, encoding="utf-8")
+    with pytest.raises(RemediationCorpusError, match="unreadable or invalid JSON"):
+        load_platform_registry(path)

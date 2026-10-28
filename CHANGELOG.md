@@ -21,7 +21,41 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   User-side scripts remain refused at the API (`scripts_user_side_unmeasured`)
   until WI-071's logon/shutdown lane banks a verdict.
 
+- **A policy whose stored rows share an editor ID can no longer be edited**
+  (#140). Every commit now checks for duplicate IDs, so renaming, linking,
+  GPP edits, deleting a setting and forking all fail with
+  `duplicate_setting_id` on such a policy; export still works. To recover,
+  reconfigure the owning ADMX policy, or use registry-only recovery, which
+  does not copy links, filters, GPP or CSE entries.
+
+- **Settings written by 1.1.0 or earlier whose policy or element ID contains
+  `-user-` or `-computer-` are refused on reconfigure** with
+  `ambiguous_setting_owner` (422), because such an ID parses as more than one
+  policy and side (#140). This is deliberate: review the raw rows and recover
+  them into a fresh draft before reconfiguring.
+
 ### Fixed
+
+- Clear errors for malformed or out-of-contract input (#140):
+  - Reconfiguring a policy beside a row whose side was edited reports
+    `conflicting_retained_setting` instead of `duplicate_setting_id`.
+  - Evidence packs, oracle recipes, trust anchors and the remediation corpus
+    report deeply nested JSON as invalid instead of raising `RecursionError`,
+    and the remediation corpus refuses `NaN` and `Infinity`.
+  - Revision selectors in history, comparison and restore routes must be
+    canonical decimal integers. `+1`, ` 1`, `01` and `1.0` returned revision 1;
+    they are now refused with a 422.
+  - `GET /api/admx/policies` (with or without `?q=`) returns a 404 that points
+    to `/api/admx/search`, instead of redirecting to another 404.
+  - The configure dialog refuses a decimal field that is not whole decimal
+    digits; it read `1e3` as 1.
+  - A bulk policy-state change stops with a message when the policy is deleted
+    while a chunk is in flight; it used to stop silently.
+  - The registry-only recovery checkbox sits beside its label instead of
+    above it.
+  - The Windows local-CI deadline exits with 124 whatever exception reading the
+    child's exit state raises; before, only `InvalidOperationException` was
+    handled.
 
 - Enum elements from real Windows ADMX templates now load their items (#139).
   The schema wraps each item's value in `<value>`, and string values are element

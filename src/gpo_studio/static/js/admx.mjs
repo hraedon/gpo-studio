@@ -167,7 +167,8 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
   if(policyState==="enabled")$$("[data-elem-id]",f).forEach(el=>{
     if(!ok)return;const kind=el.dataset.kind;const id=el.dataset.elemId;
     if(kind==="boolean"){values[id]=el.checked}
-    else if(kind==="decimal"){const n=parseInt(el.value,10);if(!Number.isFinite(n)){toast(`Invalid number for ${id}`);ok=false;return}values[id]=n}
+    // parseInt read "1.5" as 1 and "1e3" as 1; send only whole decimal digits.
+    else if(kind==="decimal"){if(!/^[0-9]+$/.test(el.value)){toast(`Invalid number for ${id}`);ok=false;return}values[id]=Number(el.value)}
     else if(kind==="text"||kind==="enum"){values[id]=el.value}
     else if(kind==="multitext"||kind==="list"){values[id]=el.value.split(/\r?\n/).filter(Boolean)}
   });

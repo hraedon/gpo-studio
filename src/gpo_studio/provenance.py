@@ -160,6 +160,10 @@ def load_trust_anchor(path: Path) -> TrustAnchor:
         raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ProvenanceError(f"cannot load trust anchor {path}: {exc}") from exc
+    except RecursionError:
+        raise ProvenanceError(
+            f"cannot load trust anchor {path}: JSON nested too deeply"
+        ) from None
 
     mapping = _as_mapping(raw, "trust anchor")
     key_id = _required_str(mapping, "key_id", "trust anchor key_id")

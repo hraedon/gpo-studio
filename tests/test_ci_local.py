@@ -2638,3 +2638,40 @@ def test_main_keeps_run_tree_on_request(
 
     assert ci_local.main(["--python", "fixture", "--keep"]) == 2
     assert run_root.is_dir()
+
+
+def test_windows_deadline_fires_when_the_exit_probe_throws_unexpectedly(
+    ci_local: ModuleType,
+) -> None:
+    # Issue #140: Expire caught only InvalidOperationException, so any other
+    # exception from HasExited escaped the timer callback and lost exit 124.
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell is required for the deadline failure control")
+    guard = ci_local._windows_process_guard().removesuffix("[CiLocalProcessJob]::Attach()\n")
+    probe = "if (child.HasExited) return;"
+    assert guard.count(probe) == 1
+    # Substitute only the property read; the catch under test is unchanged.
+    guard = guard.replace(
+        probe, "if (ProbeExited()) return;"
+    ).replace(
+        "    void Expire(object state) {",
+        "    static bool ProbeExited() { throw new Win32Exception(5); }\n"
+        "    void Expire(object state) {",
+        1,
+    )
+    script = ci_local._powershell_prelude() + "\n" + guard
+    script += (
+        "$child=[Diagnostics.Process]::GetCurrentProcess()\n"
+        "$watchdog=[CiLocalDeadline]::new($child, 200)\n"
+        "try { Start-Sleep -Seconds 5; Write-Output 'WRAPPER_SURVIVED' }\n"
+        "finally { $watchdog.Dispose(); $child.Dispose() }\n"
+    )
+    completed = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=POWERSHELL_FIXTURE_TIMEOUT,
+    )
+    assert completed.returncode == 124, (completed.returncode, completed.stderr)
+    assert "WRAPPER_SURVIVED" not in completed.stdout
