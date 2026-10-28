@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, assert_never, cast
 
@@ -61,10 +61,18 @@ class Category:
 
 @dataclass(frozen=True, slots=True)
 class EnumItem:
+    """One choice of an ADMX ``<enum>``.
+
+    ``action="delete"`` is the schema's ``<delete/>`` value: selecting the item
+    removes the element's value (``value`` is ``""`` and ``registry_type`` is
+    the ``REG_SZ`` placeholder every delete record carries).
+    """
+
     id: str
     display_name: str
     value: str | int
     registry_type: RegistryType
+    action: Literal["set", "delete"] = "set"
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,22 +391,25 @@ def _enum_value_child(item_elem: ET.Element) -> ET.Element | None:
 
 
 def _enum_string_value(child: ET.Element) -> str:
-    """The text of an enum ``<string>`` value.
+    """The text of an enum ``<string>`` value, exactly as written.
 
     Schema form is ``<string>text</string>``; the attribute form is what the
-    synthetic fixtures use. Both at once, nested markup, or padded text is
-    refused: whether Windows trims padded text is unmeasured, and guessing
-    either way could write a value the template does not mean.
+    synthetic fixtures use. ADMX strings are ``xs:string``, so surrounding
+    whitespace is value data and is kept. Both forms at once, or nested
+    markup, leave the value ambiguous and are refused.
     """
     attribute = child.get("value")
     text = child.text or ""
     if len(child) or (attribute is not None and text.strip()):
         raise _UnreadableEnum
-    if attribute is not None:
-        return attribute
-    if text != text.strip():
-        raise _UnreadableEnum
-    return text
+    return attribute if attribute is not None else text
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedEnumItem:
+    item: EnumItem
+    kind: _EnumValueKind
+    explicit: bool
 
 
 def _parse_enum_items(
@@ -408,23 +419,65 @@ def _parse_enum_items(
 
     An empty result makes configure refuse the enum (``unsupported_element_kind``)
     rather than offer a partial list or write a guessed value. Items whose value
-    kind is unknown or whose number is malformed are skipped (Plan 005 WP-1).
+    kind is unknown or whose number is malformed or out of range are skipped
+    (Plan 005 WP-1).
     """
     try:
-        items = _read_enum_items(enum_elem, strings)
+        parsed = _read_enum_items(enum_elem, strings)
+        return _unique_enum_ids(parsed)
     except _UnreadableEnum:
         return ()
-    # Decoding a stored value and resolving a submitted id both need one item
-    # per id; with a collision the first match would silently win.
-    if len({item.id for item in items}) != len(items):
-        return ()
-    return items
+
+
+def _enum_write(item: EnumItem) -> tuple[str, RegistryType, str | int]:
+    return item.action, item.registry_type, item.value
+
+
+def _unique_enum_ids(parsed: list[_ParsedEnumItem]) -> tuple[EnumItem, ...]:
+    """Give every item a distinct id, keeping each unique fallback id unchanged.
+
+    Fallback ids derive from the value, so items that differ only in registry
+    type (decimal ``1`` and string ``"1"``) collide. Only colliding fallback
+    ids are qualified with the value kind (``decimal:1``, ``string:1``); the
+    kind and the exact value together identify a write. Two items that write
+    the same thing, or explicit ids that collide, are refused: the first match
+    would silently win both when resolving a submitted id and when decoding a
+    stored value.
+    """
+    writes = [_enum_write(entry.item) for entry in parsed]
+    if len(set(writes)) != len(writes):
+        raise _UnreadableEnum
+    ids = [entry.item.id for entry in parsed]
+    qualified = [False] * len(parsed)
+    while True:
+        counts: dict[str, int] = {}
+        for item_id in ids:
+            counts[item_id] = counts.get(item_id, 0) + 1
+        colliding = [index for index, item_id in enumerate(ids) if counts[item_id] > 1]
+        if not colliding:
+            break
+        renamable = [
+            index for index in colliding if not parsed[index].explicit and not qualified[index]
+        ]
+        if not renamable:
+            raise _UnreadableEnum
+        for index in renamable:
+            entry = parsed[index]
+            value = "" if entry.item.action == "delete" else str(entry.item.value)
+            ids[index] = f"{entry.kind}:{value}"
+            qualified[index] = True
+    return tuple(
+        replace(entry.item, id=item_id) for entry, item_id in zip(parsed, ids, strict=True)
+    )
+
+
+_ENUM_RANGE = {"decimal": 2**32 - 1, "longDecimal": 2**64 - 1}
 
 
 def _read_enum_items(
     enum_elem: ET.Element, strings: dict[str, str]
-) -> tuple[EnumItem, ...]:
-    items: list[EnumItem] = []
+) -> list[_ParsedEnumItem]:
+    items: list[_ParsedEnumItem] = []
     for position, item_elem in enumerate(enum_elem):
         if _local_name(item_elem.tag) != "item":
             continue
@@ -440,10 +493,12 @@ def _read_enum_items(
         value_kind = _ENUM_VALUE_KINDS[_local_name(child.tag)]
         value: str | int
         registry_type: RegistryType
+        action: Literal["set", "delete"] = "set"
         match value_kind:
             case "delete":
-                # A delete item removes the value; EnumItem can only write one.
-                raise _UnreadableEnum
+                # Real templates use this, e.g. inetres.admx NeedEdgeBrowser "None".
+                value, registry_type, action = "", "REG_SZ", "delete"
+                fallback_id = f"item-{position}"
             case "string":
                 value = _enum_string_value(child)
                 registry_type = "REG_SZ"
@@ -455,20 +510,28 @@ def _read_enum_items(
                 if _ENUM_INTEGER.fullmatch(raw) is None:
                     continue
                 value = int(raw)
+                # decimal is xs:unsignedInt, longDecimal xs:unsignedLong.
+                if not 0 <= value <= _ENUM_RANGE[value_kind]:
+                    continue
                 registry_type = "REG_DWORD" if value_kind == "decimal" else "REG_QWORD"
                 # "01" and "1" write the same value, so they share one id.
                 fallback_id = str(value)
             case _:
                 assert_never(value_kind)
         items.append(
-            EnumItem(
-                id=explicit_id or fallback_id,
-                display_name=display_name,
-                value=value,
-                registry_type=registry_type,
+            _ParsedEnumItem(
+                EnumItem(
+                    id=explicit_id or fallback_id,
+                    display_name=display_name,
+                    value=value,
+                    registry_type=registry_type,
+                    action=action,
+                ),
+                value_kind,
+                bool(explicit_id),
             )
         )
-    return tuple(items)
+    return items
 
 
 def _parse_elements(

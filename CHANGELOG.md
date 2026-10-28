@@ -72,20 +72,41 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 - Enum settings saved before that fix are now flagged instead of shown as valid
   (#142). The settings browser matched a stored value to an item by value
   alone, so a `REG_SZ` `"1"` read as the `REG_DWORD` item `1`. A stored enum
-  value now selects an item only when its registry type matches too. Otherwise
-  the row is listed as unresolved ("enum value has the wrong registry type;
-  reconfigure the policy to repair it", "enum value matches no template item",
-  or "enum template has no readable items") and the element shows no value.
-  Reconfiguring the policy rewrites the row with the template's type. The
-  editor shows an enum with no readable items as unsupported instead of
+  row now selects an item only when its action, registry type and value all
+  match. Otherwise the element shows no value and the row is listed as
+  unresolved: "enum value has the wrong registry type; reconfigure the policy to
+  repair it" (or, for a row under a foreign or imported id that reconfigure
+  would refuse to overwrite, "…; remove or replace this raw row before
+  reconfiguring the policy"), "enum value matches no template item", or "enum
+  template has no readable items". An element-level delete in an enabled
+  policy whose enum has no `<delete/>` item is flagged the same way.
+
+- Enum items whose value is `<delete/>` are now offered (#142). On
+  Windows Server 2025 this is inetres.admx `NeedEdgeBrowser` ("None" in its
+  three enums), which was previously listed without that choice. Selecting
+  the item removes the value (a `**del.` record), and that delete reads back as
+  the item in an enabled policy. Such an item's id is `item-<n>`.
+
+- The editor shows an enum with no readable items as unsupported instead of
   offering a free-text box, and enabling it is refused with
-  `unsupported_element_kind` rather than `missing_element_value`. An enum is now
-  also refused when an item deletes its value (`<delete/>`), names no value or
-  more than one (an empty `<value/>`, or a `<value>` beside a direct value),
-  has `<string>` text with leading or trailing whitespace, or shares its id with
-  another item (for example the decimal `1` and the string `"1"`). Numeric item
-  ids are canonical (`<decimal value="01"/>` gets the id `1`), and a number
-  spelled with underscores or non-ASCII digits is treated as malformed.
+  `unsupported_element_kind` rather than `missing_element_value` (#142).
+
+- Stricter enum item parsing (#142). An enum is refused (no items) when an item
+  names no value or more than one (an empty `<value/>`, two values, or a
+  `<value>` beside a direct value), when a `<string>` has both a `value`
+  attribute and text, or when two items write the same type and value.
+  `<string>` text is kept exactly, including surrounding whitespace. Items
+  that differ only in registry type keep a usable id: a fallback id stays
+  `str(value)` when it is unique, and only colliding fallback ids are
+  qualified by kind (`decimal:1`, `string:1`). Numeric ids are canonical
+  (`<decimal value="01"/>` gets the id `1`). A `<decimal>` outside 0–4294967295,
+  a `<longDecimal>` outside 0–2^64−1, and a number spelled with underscores or
+  non-ASCII digits are skipped as malformed, as other malformed numbers
+  already were. Across the 223 Windows Server 2025 templates (1,073 enums),
+  this changes only `NeedEdgeBrowser`. The 18 enums with `<valueList>` items
+  remain refused, as since #141: Bits.admx
+  `BITS_SetTransferPolicyOnCostedNetwork`, four WindowsMediaPlayer.admx proxy
+  and buffering policies, and ten inetres.admx zone template policies.
 
 - Keep workspace accessibility checks within their existing time limit as
   other browser tests add policies, by filtering the sidebar to their own fixture.

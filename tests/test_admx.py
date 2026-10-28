@@ -629,14 +629,13 @@ def test_enum_with_a_value_list_item_reports_no_items() -> None:
     assert items == ()
 
 
+
 _ITEM = b'<item displayName="$(string.SyntheticPolicy)">'
 
 
 @pytest.mark.parametrize(
     "unreadable",
     [
-        pytest.param(_ITEM + b"<value><delete /></value></item>", id="delete-in-value"),
-        pytest.param(_ITEM + b"<delete /></item>", id="delete-direct"),
         pytest.param(
             _ITEM + b'<value /><decimal value="1" /></item>', id="empty-value-beside-direct"
         ),
@@ -655,11 +654,6 @@ _ITEM = b'<item displayName="$(string.SyntheticPolicy)">'
             id="two-children-in-value",
         ),
         pytest.param(_ITEM + b'<decimal value="1" /><string>a</string></item>', id="two-direct"),
-        pytest.param(_ITEM + b"<value><string> Z: </string></value></item>", id="padded-string"),
-        pytest.param(
-            _ITEM + b"<value><string>\n          Z:\n        </string></value></item>",
-            id="pretty-printed-string",
-        ),
         pytest.param(
             _ITEM + b'<value><string value="a">b</string></value></item>', id="attr-and-text"
         ),
@@ -672,6 +666,97 @@ def test_enum_with_an_unreadable_item_reports_no_items(unreadable: bytes) -> Non
         _ITEM + b'<value><decimal value="0" /></value></item>' + unreadable
     )
     assert items == ()
+
+
+# The shape of inetres.admx NeedEdgeBrowser (Windows Server 2025): a
+# Both-class policy with no policy-level valueName whose enums offer "None"
+# as a <delete/> item before the decimal choices. Names and key are synthetic.
+DELETE_ITEM_ADMX = b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions revision="1.0" schemaVersion="1.0"
+    xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="synthetic" namespace="Synthetic.Policies.DeleteItem" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <policies>
+    <policy name="NeedEdgeBrowser" class="Both" displayName="$(string.NeedEdgeBrowser)"
+        explainText="$(string.NeedEdgeBrowser)" key="Software\\Policies\\Synthetic\\DeleteItem"
+        presentation="$(presentation.NeedEdgeBrowser)">
+      <elements>
+        <enum id="NeedEdgeBrowser" valueName="NeedEdgeBrowser">
+          <item displayName="$(string.Choice_None)">
+            <value>
+              <delete />
+            </value>
+          </item>
+          <item displayName="$(string.Choice_Stable)">
+            <value>
+              <decimal value="1" />
+            </value>
+          </item>
+          <item displayName="$(string.Choice_Beta)">
+            <value>
+              <decimal value="2" />
+            </value>
+          </item>
+          <item displayName="$(string.Choice_Legacy)">
+            <value>
+              <decimal value="0" />
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>"""
+
+DELETE_ITEM_ADML = b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources revision="1.0" schemaVersion="1.0"
+    xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <resources>
+    <stringTable>
+      <string id="NeedEdgeBrowser">Synthetic browser choice</string>
+      <string id="Choice_None">None</string>
+      <string id="Choice_Stable">Stable channel</string>
+      <string id="Choice_Beta">Beta channel</string>
+      <string id="Choice_Legacy">Legacy engine</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="NeedEdgeBrowser">
+        <dropdownList refId="NeedEdgeBrowser">Choice</dropdownList>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>"""
+
+
+def test_real_delete_item_shape_is_a_choice_that_removes_the_value() -> None:
+    """Issue #142: inetres.admx NeedEdgeBrowser offers "None" as <delete/>."""
+    catalogue = build_catalogue(DELETE_ITEM_ADMX, DELETE_ITEM_ADML)
+    items = _real_enum(catalogue, "NeedEdgeBrowser").enum_items
+    assert [(i.id, i.action, i.registry_type, i.value, i.display_name) for i in items] == [
+        ("item-0", "delete", "REG_SZ", "", "None"),
+        ("1", "set", "REG_DWORD", 1, "Stable channel"),
+        ("2", "set", "REG_DWORD", 2, "Beta channel"),
+        ("0", "set", "REG_DWORD", 0, "Legacy engine"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("xml", "expected"),
+    [
+        pytest.param(b"<string> G: </string>", " G: ", id="padded-text"),
+        pytest.param(b'<string value=" G: " />', " G: ", id="padded-attribute"),
+        pytest.param(b"<string>\n  Z:\n</string>", "\n  Z:\n", id="multiline-text"),
+    ],
+)
+def test_enum_string_whitespace_is_value_data(xml: bytes, expected: str) -> None:
+    # ADMX strings are xs:string: surrounding whitespace is part of the value.
+    items = _enum_with_items(
+        _ITEM + b"<value>" + xml + b"</value></item>"
+        + _ITEM + b"<value><string>other</string></value></item>"
+    )
+    assert [(i.id, i.value) for i in items] == [(expected, expected), ("other", "other")]
 
 
 def test_enum_numeric_fallback_ids_are_canonical() -> None:
@@ -689,36 +774,104 @@ def test_enum_numeric_fallback_ids_are_canonical() -> None:
 
 
 @pytest.mark.parametrize(
-    "colliding",
+    ("xml", "expected"),
     [
         pytest.param(
             _ITEM + b'<value><decimal value="1" /></value></item>'
-            + _ITEM + b"<value><string>1</string></value></item>",
+            + _ITEM + b"<value><string>1</string></value></item>"
+            + _ITEM + b'<value><decimal value="2" /></value></item>',
+            [("decimal:1", "REG_DWORD", 1), ("string:1", "REG_SZ", "1"), ("2", "REG_DWORD", 2)],
             id="decimal-and-string",
         ),
+        pytest.param(
+            _ITEM + b'<value><decimal value="1" /></value></item>'
+            + _ITEM + b'<value><longDecimal value="1" /></value></item>',
+            [("decimal:1", "REG_DWORD", 1), ("longDecimal:1", "REG_QWORD", 1)],
+            id="dword-and-qword",
+        ),
+        pytest.param(
+            _ITEM + b"<value><string /></value></item>"
+            + _ITEM + b"<value><string>item-0</string></value></item>",
+            [("string:", "REG_SZ", ""), ("string:item-0", "REG_SZ", "item-0")],
+            id="empty-and-literal-placeholder",
+        ),
+        pytest.param(
+            b'<item id="2" displayName="$(string.SyntheticPolicy)"><decimal value="1" /></item>'
+            + _ITEM + b'<value><decimal value="2" /></value></item>',
+            [("2", "REG_DWORD", 1), ("decimal:2", "REG_DWORD", 2)],
+            id="explicit-keeps-its-id",
+        ),
+        pytest.param(
+            _ITEM + b'<value><decimal value="1" /></value></item>'
+            + _ITEM + b"<value><string>1</string></value></item>"
+            + _ITEM + b"<value><string>decimal:1</string></value></item>",
+            [
+                ("decimal:1", "REG_DWORD", 1),
+                ("string:1", "REG_SZ", "1"),
+                ("string:decimal:1", "REG_SZ", "decimal:1"),
+            ],
+            id="qualified-id-collides-again",
+        ),
+    ],
+)
+def test_type_distinct_items_with_colliding_fallback_ids_are_qualified(
+    xml: bytes, expected: list[tuple[str, str, object]]
+) -> None:
+    # Issue #142: the registry type is part of an item's identity. Only the
+    # colliding fallback ids change; a unique one stays exactly str(value).
+    assert [(i.id, i.registry_type, i.value) for i in _enum_with_items(xml)] == expected
+
+
+@pytest.mark.parametrize(
+    "duplicate",
+    [
         pytest.param(
             _ITEM + b'<value><decimal value="1" /></value></item>'
             + _ITEM + b'<value><decimal value="01" /></value></item>',
             id="same-decimal",
         ),
         pytest.param(
-            b'<item id="2" displayName="$(string.SyntheticPolicy)"><decimal value="1" /></item>'
-            + _ITEM + b'<value><decimal value="2" /></value></item>',
-            id="explicit-and-fallback",
+            _ITEM + b"<value><string>a</string></value></item>"
+            + _ITEM + b"<value><string>a</string></value></item>",
+            id="same-string",
+        ),
+        pytest.param(
+            _ITEM + b"<value><delete /></value></item>"
+            + _ITEM + b"<value><delete /></value></item>",
+            id="two-deletes",
+        ),
+        pytest.param(
+            b'<item id="x" displayName="$(string.SyntheticPolicy)"><decimal value="1" /></item>'
+            + b'<item id="x" displayName="$(string.SyntheticPolicy)"><decimal value="2" /></item>',
+            id="same-explicit-id",
         ),
     ],
 )
-def test_enum_with_colliding_item_ids_reports_no_items(colliding: bytes) -> None:
-    # Issue #142: with a shared id the first match silently won, both when
-    # resolving a submitted id and when decoding a stored value.
-    assert _enum_with_items(colliding) == ()
+def test_enum_with_true_duplicates_reports_no_items(duplicate: bytes) -> None:
+    # Same type and value (or the same explicit id): the first match would win.
+    assert _enum_with_items(duplicate) == ()
 
 
-@pytest.mark.parametrize("spelling", ["\u0661", "1_0", "\uff11"])
-def test_enum_decimal_outside_the_schema_lexical_form_is_malformed(spelling: str) -> None:
-    # int() accepts these; xs:unsignedInt does not, so they take the malformed path.
+@pytest.mark.parametrize(
+    "spelling", ["\u0661", "1_0", "\uff11", "-1", "4294967296"]
+)
+def test_enum_decimal_outside_the_schema_is_skipped_as_malformed(spelling: str) -> None:
+    # int() accepts these; xs:unsignedInt does not (lexically or by range), so
+    # they take Plan 005's malformed-number path.
     items = _enum_with_items(
         _ITEM + f'<value><decimal value="{spelling}" /></value></item>'.encode()
         + _ITEM + b'<value><decimal value="3" /></value></item>'
     )
     assert [(i.id, i.value) for i in items] == [("3", 3)]
+
+
+@pytest.mark.parametrize(
+    ("spelling", "kept"),
+    [("-1", False), ("18446744073709551616", False), ("18446744073709551615", True)],
+)
+def test_enum_long_decimal_is_unsigned_64_bit(spelling: str, kept: bool) -> None:
+    items = _enum_with_items(
+        _ITEM + f'<value><longDecimal value="{spelling}" /></value></item>'.encode()
+        + _ITEM + b'<value><longDecimal value="3" /></value></item>'
+    )
+    assert [i.value for i in items] == ([int(spelling)] if kept else []) + [3]
