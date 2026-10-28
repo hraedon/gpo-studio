@@ -69,6 +69,24 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   the id `item-<n>`, so it is never selected by the dropdown's empty
   placeholder. This change does not rewrite settings saved before the fix.
 
+- Enum settings saved before that fix are now flagged instead of shown as valid
+  (#142). The settings browser matched a stored value to an item by value
+  alone, so a `REG_SZ` `"1"` read as the `REG_DWORD` item `1`. A stored enum
+  value now selects an item only when its registry type matches too. Otherwise
+  the row is listed as unresolved ("enum value has the wrong registry type;
+  reconfigure the policy to repair it", "enum value matches no template item",
+  or "enum template has no readable items") and the element shows no value.
+  Reconfiguring the policy rewrites the row with the template's type. The
+  editor shows an enum with no readable items as unsupported instead of
+  offering a free-text box, and enabling it is refused with
+  `unsupported_element_kind` rather than `missing_element_value`. An enum is now
+  also refused when an item deletes its value (`<delete/>`), names no value or
+  more than one (an empty `<value/>`, or a `<value>` beside a direct value),
+  has `<string>` text with leading or trailing whitespace, or shares its id with
+  another item (for example the decimal `1` and the string `"1"`). Numeric item
+  ids are canonical (`<decimal value="01"/>` gets the id `1`), and a number
+  spelled with underscores or non-ASCII digits is treated as malformed.
+
 - Keep workspace accessibility checks within their existing time limit as
   other browser tests add policies, by filtering the sidebar to their own fixture.
 

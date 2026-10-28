@@ -621,7 +621,9 @@ def _setting_belongs_to_element(
 def _decode_element_values(
     plan: _PolicyReadPlan,
     rows: tuple[_StoredReadBinding, ...],
-) -> tuple[dict[str, bool | int | str | list[str]], frozenset[int], frozenset[int]]:
+) -> tuple[
+    dict[str, bool | int | str | list[str]], frozenset[int], frozenset[int], dict[int, str]
+]:
     # Keep source/ownership binding unchanged. Only rows whose existing list
     # binding would make int() fail are excluded from values and shown unresolved.
     unsupported = frozenset(
@@ -634,6 +636,7 @@ def _decode_element_values(
     )
     result: dict[str, bool | int | str | list[str]] = {}
     claimed: set[int] = set()
+    enum_repairs: dict[int, str] = {}
     for binding in plan.elements:
         element = binding.element
         matching = [
@@ -674,10 +677,15 @@ def _decode_element_values(
             items = _collect_list_items(element, bound_rows)
             result[element.id] = [str(s.value) for s in items]
         elif element.kind == "enum":
-            result[element.id] = _decode_enum(element, element_settings[0])
+            decoded = _decode_enum(element, element_settings[0])
+            if isinstance(decoded, _EnumRepair):
+                # Still claimed by this element, but never shown as a selection.
+                enum_repairs[matching[0][0]] = decoded.reason
+            elif decoded is not None:
+                result[element.id] = decoded
         elif element.kind == "unknown":
             continue
-    return result, frozenset(claimed), unsupported
+    return result, frozenset(claimed), unsupported, enum_repairs
 
 
 def _collect_list_items(
@@ -720,13 +728,38 @@ def _list_sort_key(suffix: str, element_id: str) -> tuple[int, str] | None:
     return (len(digits), digits)
 
 
+@dataclass(frozen=True, slots=True)
+class _EnumRepair:
+    reason: str
+
+
 def _decode_enum(
     element: PolicyElement, setting: RegistrySetting
-) -> str:
+) -> str | _EnumRepair | None:
+    """The item id a stored enum row selects, or why the row needs repair.
+
+    A row selects an item only when both its registry type and its value match
+    exactly. Before #139 every real enum was written as ``REG_SZ``, so a stored
+    ``"1"`` must not be read as the ``REG_DWORD`` item ``1``: it is reported so
+    that the policy can be reconfigured, which rewrites the row.
+    """
+    if setting.action != "set":
+        # Disabling a policy deletes its element values; no item is selected.
+        return None
     for item in element.enum_items:
-        if item.value == setting.value:
+        if (
+            item.registry_type == setting.registry_type
+            and type(item.value) is type(setting.value)
+            and item.value == setting.value
+        ):
             return item.id
-    return str(setting.value)
+    if not element.enum_items:
+        return _EnumRepair("enum template has no readable items")
+    if any(str(item.value) == str(setting.value) for item in element.enum_items):
+        return _EnumRepair(
+            "enum value has the wrong registry type; reconfigure the policy to repair it"
+        )
+    return _EnumRepair("enum value matches no template item")
 
 
 def build_settings_browser(
@@ -790,7 +823,9 @@ def build_settings_browser(
         structured_ids = structured_policy_ids(policy)
         plan = _build_policy_read_plan(policy, side)
         bound_rows = tuple(_bind_stored_setting(plan, setting) for setting in raw)
-        element_values, claimed, unsupported = _decode_element_values(plan, bound_rows)
+        element_values, claimed, unsupported, enum_repairs = _decode_element_values(
+            plan, bound_rows
+        )
         if policy.value_name or policy.enabled_list is not None or policy.disabled_list is not None:
             observed_state, state_reason, unmatched_state = _observe_policy_state(
                 policy, side, bound_rows, plan
@@ -815,6 +850,8 @@ def build_settings_browser(
             reason = None
             if row_index in unsupported:
                 reason = "unsupported legacy list ordinal"
+            elif row_index in enum_repairs:
+                reason = enum_repairs[row_index]
             elif row_index not in claimed and row.address not in plan.non_list_addresses and (
                 row.legacy_list_conflict or (
                     row.legacy_suffix is not None

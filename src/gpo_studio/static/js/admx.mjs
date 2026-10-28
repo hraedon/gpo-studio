@@ -95,7 +95,9 @@ async function loadAdmxDetail(id,options={}){
           const opts=e.enum_items.map(it=>`<option value="${escapeHtml(it.id)}">${escapeHtml(it.display_name)}</option>`).join("");
           return `<label class="config-field">${label}<select data-elem-id="${escapeHtml(e.id)}" data-kind="enum"><option value="">— Select —</option>${opts}</select></label>`;
         }
-        return `<label class="config-field">${label}<input type="text" data-elem-id="${escapeHtml(e.id)}" data-kind="enum" placeholder="Enter enum value"></label>`;
+        // Configure refuses an itemless enum (unsupported_element_kind): free
+        // text would have no registry type, so offer no field for it.
+        return `<div class="config-field">${label}<small>Unsupported enum: this template defines no items this tool can read.</small></div>`;
       }
       return `<div class="config-field"><small>Unsupported element kind: ${escapeHtml(e.kind)}</small></div>`;
     }).join("");

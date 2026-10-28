@@ -627,3 +627,98 @@ def test_enum_with_a_value_list_item_reports_no_items() -> None:
         b'<item displayName="$(string.SyntheticPolicy)"><value><decimal value="0" /></value></item>'
     )
     assert items == ()
+
+
+_ITEM = b'<item displayName="$(string.SyntheticPolicy)">'
+
+
+@pytest.mark.parametrize(
+    "unreadable",
+    [
+        pytest.param(_ITEM + b"<value><delete /></value></item>", id="delete-in-value"),
+        pytest.param(_ITEM + b"<delete /></item>", id="delete-direct"),
+        pytest.param(
+            _ITEM + b'<value /><decimal value="1" /></item>', id="empty-value-beside-direct"
+        ),
+        pytest.param(
+            _ITEM + b'<value><decimal value="1" /></value><decimal value="1" /></item>',
+            id="value-beside-direct",
+        ),
+        pytest.param(
+            _ITEM
+            + b'<value><decimal value="1" /></value><value><decimal value="2" /></value></item>',
+            id="two-values",
+        ),
+        pytest.param(_ITEM + b"<value /></item>", id="empty-value"),
+        pytest.param(
+            _ITEM + b'<value><decimal value="1" /><decimal value="2" /></value></item>',
+            id="two-children-in-value",
+        ),
+        pytest.param(_ITEM + b'<decimal value="1" /><string>a</string></item>', id="two-direct"),
+        pytest.param(_ITEM + b"<value><string> Z: </string></value></item>", id="padded-string"),
+        pytest.param(
+            _ITEM + b"<value><string>\n          Z:\n        </string></value></item>",
+            id="pretty-printed-string",
+        ),
+        pytest.param(
+            _ITEM + b'<value><string value="a">b</string></value></item>', id="attr-and-text"
+        ),
+    ],
+)
+def test_enum_with_an_unreadable_item_reports_no_items(unreadable: bytes) -> None:
+    # Issue #142: each of these was dropped or read as a guess. A partial list
+    # would hide the item; no items makes configure refuse the enum.
+    items = _enum_with_items(
+        _ITEM + b'<value><decimal value="0" /></value></item>' + unreadable
+    )
+    assert items == ()
+
+
+def test_enum_numeric_fallback_ids_are_canonical() -> None:
+    # Issue #142: "01" writes the value 1, so its id is "1".
+    items = _enum_with_items(
+        _ITEM + b'<value><decimal value="01" /></value></item>'
+        + _ITEM + b'<value><longDecimal value="0042" /></value></item>'
+        + _ITEM + b'<value><decimal value="0" /></value></item>'
+    )
+    assert [(i.id, i.value, i.registry_type) for i in items] == [
+        ("1", 1, "REG_DWORD"),
+        ("42", 42, "REG_QWORD"),
+        ("0", 0, "REG_DWORD"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "colliding",
+    [
+        pytest.param(
+            _ITEM + b'<value><decimal value="1" /></value></item>'
+            + _ITEM + b"<value><string>1</string></value></item>",
+            id="decimal-and-string",
+        ),
+        pytest.param(
+            _ITEM + b'<value><decimal value="1" /></value></item>'
+            + _ITEM + b'<value><decimal value="01" /></value></item>',
+            id="same-decimal",
+        ),
+        pytest.param(
+            b'<item id="2" displayName="$(string.SyntheticPolicy)"><decimal value="1" /></item>'
+            + _ITEM + b'<value><decimal value="2" /></value></item>',
+            id="explicit-and-fallback",
+        ),
+    ],
+)
+def test_enum_with_colliding_item_ids_reports_no_items(colliding: bytes) -> None:
+    # Issue #142: with a shared id the first match silently won, both when
+    # resolving a submitted id and when decoding a stored value.
+    assert _enum_with_items(colliding) == ()
+
+
+@pytest.mark.parametrize("spelling", ["\u0661", "1_0", "\uff11"])
+def test_enum_decimal_outside_the_schema_lexical_form_is_malformed(spelling: str) -> None:
+    # int() accepts these; xs:unsignedInt does not, so they take the malformed path.
+    items = _enum_with_items(
+        _ITEM + f'<value><decimal value="{spelling}" /></value></item>'.encode()
+        + _ITEM + b'<value><decimal value="3" /></value></item>'
+    )
+    assert [(i.id, i.value) for i in items] == [("3", 3)]

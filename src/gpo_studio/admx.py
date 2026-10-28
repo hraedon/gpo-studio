@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -340,7 +341,87 @@ def _parse_supported_on(
     return defs
 
 
+_EnumValueKind = Literal["decimal", "string", "longDecimal", "delete"]
+_ENUM_VALUE_KINDS: dict[str, _EnumValueKind] = {
+    "decimal": "decimal",
+    "string": "string",
+    "longDecimal": "longDecimal",
+    "delete": "delete",
+}
+# The lexical form of xs:unsignedInt/xs:unsignedLong: ASCII digits, an optional
+# sign, surrounding whitespace collapsed. ``int()`` also accepts underscores and
+# non-ASCII digits, which no schema form allows.
+_ENUM_INTEGER = re.compile(r"[ \t\r\n]*[+-]?[0-9]+[ \t\r\n]*", re.ASCII)
+
+
+class _UnreadableEnum(Exception):
+    """An item this model cannot represent exactly; the enum reports no items."""
+
+
+def _enum_value_child(item_elem: ET.Element) -> ET.Element | None:
+    """The single value element of an enum ``<item>``, or ``None`` if unknown.
+
+    The schema wraps the value in ``<value>``; older synthetic templates put it
+    directly under ``<item>``. Either shape must name exactly one value: an
+    empty or repeated wrapper, a wrapper beside a direct value, or two direct
+    values leave the written value ambiguous, so they are refused.
+    """
+    wrappers = [c for c in item_elem if _local_name(c.tag) == "value"]
+    direct = [c for c in item_elem if _local_name(c.tag) in _ENUM_VALUE_KINDS]
+    if len(wrappers) > 1 or (wrappers and direct):
+        raise _UnreadableEnum
+    if wrappers:
+        children = list(wrappers[0])
+        if len(children) != 1:
+            raise _UnreadableEnum
+        child = children[0]
+        # Unknown value forms are skipped, as they are directly under <item>.
+        return child if _local_name(child.tag) in _ENUM_VALUE_KINDS else None
+    if len(direct) > 1:
+        raise _UnreadableEnum
+    return direct[0] if direct else None
+
+
+def _enum_string_value(child: ET.Element) -> str:
+    """The text of an enum ``<string>`` value.
+
+    Schema form is ``<string>text</string>``; the attribute form is what the
+    synthetic fixtures use. Both at once, nested markup, or padded text is
+    refused: whether Windows trims padded text is unmeasured, and guessing
+    either way could write a value the template does not mean.
+    """
+    attribute = child.get("value")
+    text = child.text or ""
+    if len(child) or (attribute is not None and text.strip()):
+        raise _UnreadableEnum
+    if attribute is not None:
+        return attribute
+    if text != text.strip():
+        raise _UnreadableEnum
+    return text
+
+
 def _parse_enum_items(
+    enum_elem: ET.Element, strings: dict[str, str]
+) -> tuple[EnumItem, ...]:
+    """Parse an enum's items, or return ``()`` when any item cannot be modelled.
+
+    An empty result makes configure refuse the enum (``unsupported_element_kind``)
+    rather than offer a partial list or write a guessed value. Items whose value
+    kind is unknown or whose number is malformed are skipped (Plan 005 WP-1).
+    """
+    try:
+        items = _read_enum_items(enum_elem, strings)
+    except _UnreadableEnum:
+        return ()
+    # Decoding a stored value and resolving a submitted id both need one item
+    # per id; with a collision the first match would silently win.
+    if len({item.id for item in items}) != len(items):
+        return ()
+    return items
+
+
+def _read_enum_items(
     enum_elem: ET.Element, strings: dict[str, str]
 ) -> tuple[EnumItem, ...]:
     items: list[EnumItem] = []
@@ -349,77 +430,44 @@ def _parse_enum_items(
             continue
         if item_elem.find("{*}valueList") is not None:
             # A <valueList> item writes further values this model cannot carry.
-            # Report no items so the enum is refused rather than half-written.
-            return ()
-        item_id = item_elem.get("id", "")
+            raise _UnreadableEnum
+        explicit_id = item_elem.get("id", "")
         display_ref = item_elem.get("displayName", "")
         display_name = _resolve_string_ref(display_ref, strings)
-        value_kind: Literal["decimal", "string", "longDecimal"] | None = None
-        value_raw = ""
-        # The ADMX schema wraps the item's value in <value>; older synthetic
-        # templates put it directly under <item>. Accept both.
-        value_container = item_elem.find("{*}value")
-        if value_container is None:
-            value_container = item_elem
-        for child in value_container:
-            child_local = _local_name(child.tag)
-            if child_local == "decimal":
-                value_kind = "decimal"
-                value_raw = child.get("value", "")
-                break
-            if child_local == "string":
-                # Schema form is <string>text</string>; the attribute form is
-                # what the synthetic fixtures use.
-                value_kind = "string"
-                attribute = child.get("value")
-                value_raw = attribute if attribute is not None else (child.text or "")
-                break
-            if child_local == "longDecimal":
-                value_kind = "longDecimal"
-                value_raw = child.get("value", "")
-                break
-        if value_kind is None:
+        child = _enum_value_child(item_elem)
+        if child is None:
             continue
-        # Real ADMX items carry no id, so the value stands in for one. An empty
-        # value would share the UI's unselected "" option, so number it instead.
-        item_id = item_id or value_raw or f"item-{position}"
-        if value_kind == "decimal":
-            try:
-                parsed_value: str | int = int(value_raw)
-            except ValueError:
-                continue
-            items.append(
-                EnumItem(
-                    id=item_id,
-                    display_name=display_name,
-                    value=parsed_value,
-                    registry_type="REG_DWORD",
-                )
+        value_kind = _ENUM_VALUE_KINDS[_local_name(child.tag)]
+        value: str | int
+        registry_type: RegistryType
+        match value_kind:
+            case "delete":
+                # A delete item removes the value; EnumItem can only write one.
+                raise _UnreadableEnum
+            case "string":
+                value = _enum_string_value(child)
+                registry_type = "REG_SZ"
+                # Real ADMX items carry no id, so the value stands in for one. An
+                # empty value would share the UI's unselected "" option.
+                fallback_id = value or f"item-{position}"
+            case "decimal" | "longDecimal":
+                raw = child.get("value", "")
+                if _ENUM_INTEGER.fullmatch(raw) is None:
+                    continue
+                value = int(raw)
+                registry_type = "REG_DWORD" if value_kind == "decimal" else "REG_QWORD"
+                # "01" and "1" write the same value, so they share one id.
+                fallback_id = str(value)
+            case _:
+                assert_never(value_kind)
+        items.append(
+            EnumItem(
+                id=explicit_id or fallback_id,
+                display_name=display_name,
+                value=value,
+                registry_type=registry_type,
             )
-        elif value_kind == "string":
-            items.append(
-                EnumItem(
-                    id=item_id,
-                    display_name=display_name,
-                    value=value_raw,
-                    registry_type="REG_SZ",
-                )
-            )
-        elif value_kind == "longDecimal":
-            try:
-                parsed_value = int(value_raw)
-            except ValueError:
-                continue
-            items.append(
-                EnumItem(
-                    id=item_id,
-                    display_name=display_name,
-                    value=parsed_value,
-                    registry_type="REG_QWORD",
-                )
-            )
-        else:
-            assert_never(value_kind)
+        )
     return tuple(items)
 
 

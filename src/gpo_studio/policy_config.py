@@ -472,6 +472,10 @@ def _resolve_enabled(
     hive = _hive_for(config.side)
     for element in policy.elements:
         if element.id not in config.values:
+            if element.kind == "unknown" or (element.kind == "enum" and not element.enum_items):
+                # The editor offers no field for an element it cannot write, so
+                # report that element as unsupported whatever value is missing.
+                _resolve_value(element, "")
             raise ValidationError(
                 [
                     ValidationIssue(
