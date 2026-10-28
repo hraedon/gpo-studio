@@ -30,8 +30,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   free-text box, and the export wrote the entered text as `REG_SZ`, even where
   the template defines `REG_DWORD` (for example "Set user home folder"). An enum
   with no readable items is now refused (`unsupported_element_kind`) instead of
-  being written as `REG_SZ`. This change does not rewrite settings saved
-  before the fix.
+  being written as `REG_SZ`. So is an enum with a `<valueList>` item, whose
+  extra registry writes are not modelled. An item with an empty value gets
+  the id `item-<n>`, so it is never selected by the dropdown's empty
+  placeholder. This change does not rewrite settings saved before the fix.
 
 - Keep workspace accessibility checks within their existing time limit as
   other browser tests add policies, by filtering the sidebar to their own fixture.

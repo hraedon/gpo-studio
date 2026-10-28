@@ -344,9 +344,13 @@ def _parse_enum_items(
     enum_elem: ET.Element, strings: dict[str, str]
 ) -> tuple[EnumItem, ...]:
     items: list[EnumItem] = []
-    for item_elem in enum_elem:
+    for position, item_elem in enumerate(enum_elem):
         if _local_name(item_elem.tag) != "item":
             continue
+        if item_elem.find("{*}valueList") is not None:
+            # A <valueList> item writes further values this model cannot carry.
+            # Report no items so the enum is refused rather than half-written.
+            return ()
         item_id = item_elem.get("id", "")
         display_ref = item_elem.get("displayName", "")
         display_name = _resolve_string_ref(display_ref, strings)
@@ -376,6 +380,9 @@ def _parse_enum_items(
                 break
         if value_kind is None:
             continue
+        # Real ADMX items carry no id, so the value stands in for one. An empty
+        # value would share the UI's unselected "" option, so number it instead.
+        item_id = item_id or value_raw or f"item-{position}"
         if value_kind == "decimal":
             try:
                 parsed_value: str | int = int(value_raw)
@@ -383,7 +390,7 @@ def _parse_enum_items(
                 continue
             items.append(
                 EnumItem(
-                    id=item_id or value_raw,
+                    id=item_id,
                     display_name=display_name,
                     value=parsed_value,
                     registry_type="REG_DWORD",
@@ -392,7 +399,7 @@ def _parse_enum_items(
         elif value_kind == "string":
             items.append(
                 EnumItem(
-                    id=item_id or value_raw,
+                    id=item_id,
                     display_name=display_name,
                     value=value_raw,
                     registry_type="REG_SZ",
@@ -405,7 +412,7 @@ def _parse_enum_items(
                 continue
             items.append(
                 EnumItem(
-                    id=item_id or value_raw,
+                    id=item_id,
                     display_name=display_name,
                     value=parsed_value,
                     registry_type="REG_QWORD",
