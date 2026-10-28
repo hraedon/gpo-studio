@@ -12,13 +12,12 @@ What these tests hold:
 - Studio's ``scripts.ini`` writer reproduces both captures byte for byte, so
   the per-trigger file shape needs no change;
 - the machine-side Scripts pair Studio registers matches the capture;
-- the USER-side pair does not: GPME registered tool GUID ``{40B66650-...}``
-  where ``export.py`` writes the machine side's ``{40B6664F-...}``. That
-  test is ``xfail(strict=True)``: it asserts the measured truth, fails
-  today because ``export.py`` is bound by live lane evidence and changes
-  only in a requalification batch (Plan 035, WI-071), and will XPASS --
-  failing the suite -- the moment that batch lands, so the marker cannot
-  outlive the fix.
+- the user-side pair does too: GPME registered its own tool GUID
+  ``{40B66650-...}`` on the user side (where the machine side carries
+  ``{40B6664F-...}``), and ``export.py`` writes that measured half since
+  the Plan 035 WP-1 change -- this test was ``xfail(strict=True)`` while
+  ``export.py`` still reused the machine half, so the fix could not land
+  silently.
 """
 
 from __future__ import annotations
@@ -172,14 +171,6 @@ def test_the_two_sides_carry_different_tool_guids() -> None:
     assert "{40B66650-4972-11D1-A7CA-0000F87571E3}" in user
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "WI-071: export.py writes the machine-side Scripts tool GUID {40B6664F-...} on the "
-        "user side; window 19 measured {40B66650-...}. export.py is bound by live lane "
-        "evidence, so the fix rides the Plan 035 requalification batch."
-    ),
-)
 def test_user_side_pair_matches_the_capture() -> None:
     _machine, user = _core_lists()
     assert user == _MEASURED["gPCUserExtensionNames"]

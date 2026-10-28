@@ -3119,10 +3119,14 @@ banked as superseded. `w22-r1` (verified) is the current evidence: the same byte
 expected values pinned to the banked ones, and the invocation verifiable against the
 committed run sheet.
 
-**Still open:** the `export.py` change itself. `export.py` is bound by **six** lanes
+**Still open:** the requalification batch. The `export.py` change itself landed
+2026-10-23 (the user side writes its measured tool GUID `{40B66650-…}`;
+`test_user_side_pair_matches_the_capture` is un-xfailed and passing).
+`export.py` is bound by **six** lanes
 (`docs/plan-033/bound-source-cost.md`: endpoint, firewall, publication,
-scripts-metadata, wp1b and wp2), so the change rides a requalification batch that
-re-runs all six. After
+scripts-metadata, wp1b and wp2); their refreeze verdicts are parked in
+`pending_requalification` until the batch re-runs all six at the shipping
+commit. After
 that, the separate logon/shutdown lane this item proposes, with the finalizer comparing
 the user pair against the captured value and pinning the report rows from a first run.
 
