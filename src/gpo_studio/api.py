@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import functools
@@ -18,6 +19,7 @@ import uuid as uuid_module
 import zipfile
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -1793,10 +1795,18 @@ def _store(request: Request) -> WorkspaceStore:
 # order is catalogue -> WorkspaceStore; no code holds a store lock while
 # acquiring this one. Loading files happens outside it, publication inside it.
 _CATALOGUE_LOCK = threading.RLock()
-#: One template ingest at a time: an ingest may hold up to the template
-#: store's aggregate byte limit in memory, so concurrent ingests would multiply
-#: it. Waiting requests hold no template bytes.
+#: Template ingests run one at a time, on one dedicated thread. An ingest may
+#: hold up to the template store's aggregate byte limit, and glibc keeps a
+#: separate malloc arena per thread that retains what an ingest freed, so
+#: ingests spread over the request threadpool each left that much resident.
+#: A second ingest while one runs is refused (409) rather than queued: a
+#: queued request would hold a threadpool token it could not give back, and
+#: lock waits cannot be cancelled. The lock is released when the ingest itself
+#: finishes, not when its request does.
 _TEMPLATE_INGEST_LOCK = threading.Lock()
+_TEMPLATE_INGEST_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="gpo-studio-template-ingest"
+)
 _EMPTY_CATALOGUE = AdmxCatalogue()
 
 
@@ -1805,6 +1815,26 @@ class _CatalogueSnapshot:
     catalogue: AdmxCatalogue
     sources: tuple[Any, ...]
     revision: str
+
+
+class _TemplateIngestInProgress(StudioError):
+    def __init__(self) -> None:
+        super().__init__(
+            "A template ingest is already in progress. Try again when it finishes."
+        )
+
+
+async def _run_template_ingest[T](work: Callable[[], T]) -> T:
+    """Run ``work`` on the template ingest thread, or refuse if one is running."""
+    if not _TEMPLATE_INGEST_LOCK.acquire(blocking=False):
+        raise _TemplateIngestInProgress()
+    try:
+        future = _TEMPLATE_INGEST_EXECUTOR.submit(work)
+    except BaseException:
+        _TEMPLATE_INGEST_LOCK.release()
+        raise
+    future.add_done_callback(lambda _done: _TEMPLATE_INGEST_LOCK.release())
+    return await asyncio.wrap_future(future)
 
 
 class _CatalogueConflict(StudioError):
@@ -2549,11 +2579,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not hasattr(app.state, "admx_catalogue"):
         admx_dir = os.getenv("GPO_STUDIO_ADMX_DIR", "./admx")
         try:
-            from .template_store import ingest_source
+            from . import template_store
 
             # The configured folder is resolved once here, as the ingest route
             # resolves its request path; ingest then follows no link inside it.
-            result = ingest_source("default", "local", Path(admx_dir).resolve())
+            # It runs on the ingest thread, like every other ingest.
+            result = await _run_template_ingest(functools.partial(
+                template_store.ingest_source,
+                "default",
+                "local",
+                Path(admx_dir).resolve(),
+                display_path=admx_dir,
+            ))
             app.state.template_sources = [result]
             app.state.admx_catalogue = result.catalogue
         except Exception as error:
@@ -2828,6 +2865,16 @@ class _ExportReviewConflict(StudioError):
         self.expected_revision = expected_revision
         self.expected_hash = expected_hash
         self.current_hash = current_hash
+
+
+@app.exception_handler(_TemplateIngestInProgress)
+async def template_ingest_in_progress(
+    request: Request, error: _TemplateIngestInProgress
+) -> JSONResponse:
+    return JSONResponse(
+        _error_body(request, {"message": str(error), "code": "template_ingest_in_progress"}),
+        status_code=409,
+    )
 
 
 @app.exception_handler(_ExportReviewConflict)
@@ -3423,9 +3470,12 @@ def list_template_sources(request: Request) -> dict[str, Any]:
 
 
 @app.post("/api/templates/ingest", status_code=201)
-def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dict[str, Any]:
-    with _TEMPLATE_INGEST_LOCK:
-        return _ingest_template_source(request, body)
+async def ingest_template_source(
+    request: Request, body: IngestTemplateRequest
+) -> dict[str, Any]:
+    return await _run_template_ingest(
+        functools.partial(_ingest_template_source, request, body)
+    )
 
 
 def _ingest_template_source(request: Request, body: IngestTemplateRequest) -> dict[str, Any]:
@@ -3440,7 +3490,9 @@ def _ingest_template_source(request: Request, body: IngestTemplateRequest) -> di
                 # Echo what was submitted, never where it resolved: the
                 # resolved path would reveal where an in-root link points.
                 raise StudioError(f"Path escapes template root: {body.path}")
-        result = template_store.ingest_source(body.name, body.kind, directory)
+        result = template_store.ingest_source(
+            body.name, body.kind, directory, display_path=body.path
+        )
     except template_store.TemplateError as exc:
         raise StudioError(str(exc)) from exc
     except OSError as exc:

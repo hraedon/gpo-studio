@@ -406,19 +406,36 @@ These ADMX template store defects predate `1.1.0` and are present in it.
   Server 2025 every one of the 446 files in the stock
   `C:\Windows\PolicyDefinitions` is also hard-linked into the component store
   (`C:\Windows\WinSxS`), so such a check would refuse the stock store.
-  Creating a hard link needs write access to the target file (Linux with
-  `fs.protected_hardlinks`; NTFS) on the same volume. Creating a bind mount
-  needs mount privileges in the process's mount namespace. Keep the template
-  root writable only by trusted administrators.
+  A hard link must be on the same volume as its target. On Linux with
+  `fs.protected_hardlinks`, creating one also needs ownership of the target
+  or read and write access to it. NTFS has no such check: on Windows Server
+  2025, `mklink /H` linked a file its creator was denied write access to.
+  Creating a bind mount needs mount privileges in the process's mount
+  namespace. Keep the template root writable only by trusted administrators.
 - **Template ingest is bounded.** A file over the 10 MiB limit was skipped when
   hashed but still read in full when parsed. It is now read at most one byte
   past the limit and refuses the source. So does a source holding more than
   512 MiB of ADMX/ADML files, more than 20,000 files and folders, or more than
   256 subfolders. A real Windows Server 2025 store is 446 files, about 7.4 MB
   and one locale subfolder. Previously an oversized file was left out of the
-  lock silently; now no partial catalogue is activated. Template ingests are
-  serialized, so concurrent requests cannot multiply the up-to-512 MiB an
-  ingest may hold.
+  lock silently; now no partial catalogue is activated.
+- **Template ingests run one at a time, on one thread.** Behaviour change:
+  `POST /api/templates/ingest` now answers 409 (`template_ingest_in_progress`)
+  while another ingest runs. It is not queued, because a queued request would
+  hold a request thread it could not give back. Every ingest, the startup one
+  included, runs on a single dedicated thread. On Linux, glibc keeps a separate
+  allocator arena per thread and holds on to what an ingest freed there, so
+  ingests spread over the request threads each left their memory resident.
+  Measured on Linux (glibc) with sources of 50 files just under 10 MiB each:
+  - Before this change, four simultaneous ingests peaked at 1,847 MiB resident
+    and kept 1,748 MiB afterwards.
+  - Now, four simultaneous requests ingest one source and refuse three (409),
+    with a peak of 584 MiB.
+  - Eight ingests in a row peak at 610 MiB, and between ingests the process
+    keeps 430 to 550 MiB resident without growing.
+  - With `MALLOC_ARENA_MAX=1` the retained figure fell to 63 MiB.
+
+  Windows was not measured.
 - **A file swapped for a FIFO could hang an open.** The no-follow file opens
   shared by template ingest and backup imports (`safe_io`) inspected an entry,
   then opened it blocking. A regular file replaced by a FIFO in between blocked
@@ -427,9 +444,18 @@ These ADMX template store defects predate `1.1.0` and are present in it.
   read, and only a regular file is switched back to blocking I/O. This edits a
   lane-bound file: the refreeze `fdeploy` verdict is parked in
   `pending_requalification` until the requalification batch re-runs it.
-- **The template-root refusal no longer discloses where a path resolves.**
-  `Path escapes template root` used to name the resolved target, revealing
-  where an in-root link pointed. It now echoes only the submitted path.
+- **Template ingest errors no longer disclose where a path resolves.** The
+  ingest route resolves the submitted path before reading it, and its errors
+  named the resolved target. That included `Path escapes template root`, and
+  refusals such as `Template directory does not exist` when no template root
+  is set, so a submitted link revealed where it pointed. Every error the route
+  returns now names only the submitted path, including any path a Windows
+  open failure reports.
+- **Windows open failures are classified by their status code.** A refusal
+  used to be told apart from a read failure by searching the error message,
+  which also holds the entry name, so a file named like a status code could
+  change the result. `safe_io` now carries the NT status or Win32 error on the
+  exception, and template ingest classifies on that.
 
 ## [1.1.0] - 2026-10-20
 
