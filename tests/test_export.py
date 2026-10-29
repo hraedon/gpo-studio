@@ -50,6 +50,8 @@ def sample_gpo() -> GPO:
             ),
         ),
         links=(GPOLink(id="link-1", target="OU=Lab,DC=example,DC=test"),),
+        # The plan links only inside the declared domain.
+        domain="example.test",
     )
 
 
@@ -121,7 +123,8 @@ def test_powershell_plan_escapes_names_and_maps_disabled_sides() -> None:
 def test_powershell_plan_uses_nonempty_comment_when_description_is_empty() -> None:
     plan = powershell_plan(replace(sample_gpo(), description=""))
 
-    assert "-Comment 'Created by GPO Studio'" in plan
+    # The fixed line, then the binding marker a re-run looks for.
+    assert "-Comment ('Created by GPO Studio' + [char]0x000A + [char]0x000A + " in plan
     assert "-Comment ''" not in plan
 
 
@@ -151,20 +154,25 @@ def test_powershell_plan_includes_security_filters() -> None:
     )
     plan = powershell_plan(gpo)
     assert "# Security filtering" in plan
-    assert "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoApply" in plan
-    assert "-TargetName 'DOMAIN\\User1'" in plan
-    assert "-TargetType User -Replace" in plan
-    assert "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead" in plan
-    assert "-TargetName 'DOMAIN\\Readers'" in plan
-    assert "-TargetType Computer -Replace" in plan
-    assert "-TargetType Group" not in plan
+    # Each principal is resolved before anything changes, then granted from
+    # the resolved list.
+    assert "([System.Security.Principal.NTAccount]'DOMAIN\\User1')" in plan
+    assert "$authored += ,@($sid, $name, 'GpoApply', 'User')" in plan
+    assert "$authored += ,@($sid, $name, 'GpoRead', 'Computer')" in plan
+    assert (
+        "    Set-GPPermission -Guid $gpo.Id -PermissionLevel $a[2] -TargetName $a[1]"
+        " -TargetType $a[3] -Replace -Domain $domain | Out-Null"
+    ) in plan
+    assert "'Group')" not in plan
     assert "-Inheritable" not in plan
 
 
 def test_powershell_plan_omits_security_filters_when_empty() -> None:
+    """No filters authored means "not authored": permissions are left alone
+    (a new GPO keeps Authenticated Users: GpoApply), and the plan says so."""
     plan = powershell_plan(sample_gpo())
-    assert "Set-GPPermission" not in plan
-    assert "# Security filtering" not in plan
+    assert "GPPermission" not in plan
+    assert "# Security filtering: none authored." in plan
 
 
 def test_powershell_plan_includes_wmi_filter() -> None:
@@ -175,7 +183,7 @@ def test_powershell_plan_includes_wmi_filter() -> None:
     plan = powershell_plan(gpo)
     assert "# WMI filter:" in plan
     assert "WorkstationFilter" in plan
-    assert "GPMC COM API" in plan
+    assert "Assign it in GPMC" in plan
 
 
 def test_powershell_plan_omits_wmi_filter_when_none() -> None:
@@ -371,6 +379,10 @@ def test_powershell_plan_sanitizes_wmi_newlines() -> None:
 
 
 def test_powershell_plan_removes_stale_security_filters() -> None:
+    """Every non-deny GpoApply outside the authored apply set is lowered to
+    GpoRead, matched by the SID Windows resolved each Apply principal to. The
+    old loop passed ``-PermissionLevel None`` without ``-Replace`` (which lowers
+    nothing) and skipped a ``$protected`` list (Daybreak finding 2)."""
     gpo = replace(
         sample_gpo(),
         security_filters=(
@@ -391,19 +403,13 @@ def test_powershell_plan_removes_stale_security_filters() -> None:
         ),
     )
     plan = powershell_plan(gpo)
-    assert "Get-GPPermission -Guid $gpo.Id -All" in plan
-    assert "$desiredApply = @('DOMAIN\\User1')" in plan
-    assert "$protected" in plan
-    assert "Authenticated Users" in plan
-    assert "foreach ($perm in $existing)" in plan
-    assert "$perm.Permission -eq 'GpoApply'" in plan
-    assert "$desiredApply -notcontains $perm.Trustee.Name" in plan
-    assert "$protected -notcontains $perm.Trustee.Name" in plan
+    assert "$existing = @(Get-GPPermission -Guid $gpo.Id -All -Domain $domain)" in plan
+    assert "        $seen[[string]$perm.Trustee.Sid.Value] -ne 'GpoApply') {" in plan
     assert (
-        "Set-GPPermission -Guid $gpo.Id -PermissionLevel None"
-        " -TargetName $perm.Trustee.Name -TargetType $perm.Trustee.SidType"
-        " -ErrorAction SilentlyContinue"
+        "        Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName $who"
+        " -TargetType $type -Replace -Domain $domain | Out-Null"
     ) in plan
+    assert "$protected" not in plan and "-PermissionLevel None" not in plan
 
 
 def test_powershell_plan_sanitizes_wmi_backtick() -> None:
@@ -416,8 +422,11 @@ def test_powershell_plan_sanitizes_wmi_backtick() -> None:
         ),
     )
     plan = powershell_plan(gpo)
-    assert "Evil Filter" in plan
-    assert "Evil`Filter" not in plan
+    comments = [line for line in plan.splitlines() if line.startswith("#")]
+    assert any("Evil Filter" in line for line in comments)
+    assert not any("`" in line for line in comments)
+    # In a single-quoted literal a backtick is an ordinary character.
+    assert "$wmiName = 'Evil`Filter'" in plan
 
 
 def test_powershell_plan_sanitizes_domain_in_wmi_comment() -> None:
@@ -463,7 +472,11 @@ def test_powershell_plan_side_status_user_only() -> None:
     assert "$gpo.GpoStatus = 'ComputerSettingsDisabled'" in plan
 
 
-def test_powershell_plan_security_filter_protects_default_trustees() -> None:
+def test_powershell_plan_security_filter_exempts_no_trustee() -> None:
+    """The ``$protected`` list is gone. Authenticated Users was in it, which is
+    how a pilot filter kept applying to everyone (Daybreak finding 2), and the
+    admin groups need no exemption: their default level is
+    GpoEditDeleteModifySecurity, which is not GpoApply and is never touched."""
     gpo = replace(
         sample_gpo(),
         security_filters=(
@@ -477,13 +490,11 @@ def test_powershell_plan_security_filter_protects_default_trustees() -> None:
         ),
     )
     plan = powershell_plan(gpo)
-    assert "$protected" in plan
-    assert "Authenticated Users" in plan
-    assert "Domain Admins" in plan
-    assert "Enterprise Admins" in plan
-    assert "SYSTEM" in plan
-    assert "Administrators" in plan
-    assert "$protected -notcontains $perm.Trustee.Name" in plan
+    assert "$protected" not in plan
+    code = [line for line in plan.splitlines() if not line.lstrip().startswith("#")]
+    for name in ("Domain Admins", "Enterprise Admins", "SYSTEM", "Administrators"):
+        assert not any(name in line for line in code), name
+    assert "    if ($perm.Permission -eq 'GpoApply' -and -not $perm.Denied -and" in plan
 
 
 def test_powershell_plan_security_filter_only_reconciles_apply() -> None:
@@ -505,8 +516,11 @@ def test_powershell_plan_security_filter_only_reconciles_apply() -> None:
         ),
     )
     plan = powershell_plan(gpo)
-    assert "$desiredApply = @('DOMAIN\\User1')" in plan
-    assert "DOMAIN\\Readers" not in plan.split("$desiredApply")[1].split("\n")[0]
+    authored = [line for line in plan.splitlines() if line.startswith("$authored += ")]
+    assert authored == [
+        "$authored += ,@($sid, $name, 'GpoRead', 'Group')",
+        "$authored += ,@($sid, $name, 'GpoApply', 'User')",
+    ]
     assert "$perm.Permission -eq 'GpoApply'" in plan
 
 
@@ -631,4 +645,8 @@ def test_powershell_plan_security_filter_empty_desired() -> None:
         ),
     )
     plan = powershell_plan(gpo)
-    assert "$desiredApply = @()" in plan
+    # No Apply principal: the apply set is empty, so Authenticated Users is
+    # lowered too and the GPO applies to no one -- the model's meaning
+    # (`rsop`: with filters authored, only an Apply filter applies it).
+    assert "$authored += ,@($sid, $name, 'GpoApply'" not in plan
+    assert "applies to no one" in plan

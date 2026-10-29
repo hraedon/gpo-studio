@@ -837,7 +837,10 @@ PS_PARAMETERS: Mapping[str, Field] = {
     "Key": Field("line", required=True),
     "ValueName": _LINE,
     "Value": _TEXT,
-    "desiredApply": Field("principal", required=True),
+    "Domain": Field("name", required=True),
+    "Marker": Field("line", required=True),
+    "Sid": Field("sid", required=True),
+    "WmiFilter": _TEXT,
 }
 #: The AD discovery scripts (`ad_discovery.discovery_script_*`): each
 #: ``param()`` default. Empty means "not given" and is allowed.

@@ -769,8 +769,9 @@ def test_every_generated_plan_passes_egress() -> None:
 
 
 def test_the_two_shapes_the_reference_missed_pass() -> None:
-    """``$desiredApply = @()`` (read-only filtering) and ``-Value @()`` (an empty
-    REG_MULTI_SZ): valid output the round-10 reference refused."""
+    """``$authored = @()`` (once ``$desiredApply = @()``: read-only filtering)
+    and ``-Value @()`` (an empty REG_MULTI_SZ): valid output the round-10
+    reference refused."""
     from gpo_studio.export import powershell_plan
     from gpo_studio.model import GPO, RegistrySetting, SecurityFilter
 
@@ -783,7 +784,7 @@ def test_the_two_shapes_the_reference_missed_pass() -> None:
         security_filters=(SecurityFilter("f", "LAB\\Readers", permission="read"),),
     )
     plan = powershell_plan(gpo)
-    assert "$desiredApply = @()" in plan and "-Value @()" in plan
+    assert "$authored = @()" in plan and "-Value @()" in plan
     assert egress.powershell_plan_problems(plan) == []
 
 

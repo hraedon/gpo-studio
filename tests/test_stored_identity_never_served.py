@@ -151,13 +151,15 @@ def _body(method: str, path: str, client: TestClient, guid: str, inbox: Path) ->
         },
         ("PATCH", "/api/gpos/{guid}/settings/{setting_id:path}/comment"): {**audit, "comment": "c"},
         ("POST", "/api/gpos/{guid}/copy-settings"): {**audit, "source_guid": guid},
+        # In the imported GPO's own domain: the plan, and so export.zip, links
+        # only inside the declared domain.
         ("POST", "/api/gpos/{guid}/links"): {
             **audit,
-            "link": {"target": "OU=R23,DC=studio,DC=local"},
+            "link": {"target": "OU=R23,DC=ad,DC=hraedon,DC=com"},
         },
         ("PUT", "/api/gpos/{guid}/links/{link_id}"): {
             **audit,
-            "link": {"target": "OU=R23,DC=studio,DC=local", "enforced": True},
+            "link": {"target": "OU=R23,DC=ad,DC=hraedon,DC=com", "enforced": True},
         },
         ("POST", "/api/gpos/{guid}/security-filters"): {
             **audit,

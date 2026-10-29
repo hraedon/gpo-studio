@@ -463,10 +463,22 @@ A closed allowlist validates the plan; see
 - Side enablement (`$gpo.GpoStatus`)
 - GPO creation and rename (`New-GPO`, `Rename-GPO`)
 
+The plan only changes the GPO's declared domain, and stops unchanged unless
+that domain is reachable under its declared DNS name and every link target is
+in it. It modifies the GPO whose comment carries the plan's binding marker
+(written when the plan creates the GPO); any other existing GPO with the
+workspace GUID or the name is refused unless you run
+`apply.ps1 -AdoptExistingGpo`. When security filters are authored, every other
+trustee holding Apply, Authenticated Users included, is lowered to Read. An
+authored WMI filter must be assigned in GPMC before the plan writes links. Run
+`apply.ps1 -WhatIf` to see the changes without making them. See
+[PowerShell plan accuracy](capability-matrix.md#powershell-plan-accuracy) for
+the full rules.
+
 ### What the plan does not apply
 
-- WMI filter assignment. The plan notes it in a comment; assign it manually in
-  GPMC.
+- WMI filter assignment. Assign it in GPMC; until a filter of that name is
+  assigned, the plan stops before writing links.
 - GPP Groups and Registry content. It is in the GPMC backup export only.
 
 ### Windows path handling
