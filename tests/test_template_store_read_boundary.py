@@ -588,3 +588,212 @@ def test_api_refuses_a_source_over_a_limit_without_a_partial_catalogue(
     _write_pair(folder, "second", "Synthetic.Test.Second", "SecondPolicy")
     monkeypatch.setattr(template_store, "_MAX_TEMPLATE_SOURCE_ENTRIES", 3, raising=False)
     _refused_ingest_keeps_catalogue(client, folder, "more than 3 files and folders")
+
+
+# --- Review round 1 ------------------------------------------------------------
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX FIFO test")
+def test_ingest_does_not_hang_on_a_fifo_swapped_in_before_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A template replaced by a FIFO between inspection and open is refused.
+
+    Startup ingests the configured folder, so a blocked open kept the server
+    from coming up at all.
+    """
+    import threading
+    from types import ModuleType
+    from typing import Any
+
+    from gpo_studio import safe_io
+
+    store = tmp_path / "store"
+    _write_pair(store, "victim", "Synthetic.Test.Victim", "VictimPolicy")
+    victim = store / "victim.admx"
+    real_os = os
+
+    class SwappingOs(ModuleType):
+        def __getattr__(self, name: str) -> Any:
+            return getattr(real_os, name)
+
+    swapping = SwappingOs("os")
+
+    def swap_then_open(path: Any, flags: int, *args: Any, dir_fd: Any = None, **kw: Any) -> int:
+        if path == victim.name and dir_fd is not None and not victim.is_fifo():
+            real_os.unlink(path, dir_fd=dir_fd)
+            real_os.mkfifo(path, dir_fd=dir_fd)
+        return real_os.open(path, flags, *args, dir_fd=dir_fd, **kw)
+
+    swapping.open = swap_then_open  # type: ignore[attr-defined]
+    monkeypatch.setattr(safe_io, "os", swapping)
+    outcome: dict[str, object] = {}
+
+    def run() -> None:
+        try:
+            outcome["result"] = ingest_source("store", "local", store)
+        except BaseException as error:  # noqa: BLE001 - reported to the test
+            outcome["error"] = error
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(5)
+    if worker.is_alive():
+        writer = real_os.open(victim, os.O_WRONLY | os.O_NONBLOCK)
+        real_os.close(writer)
+        worker.join(5)
+        pytest.fail("ingest blocked opening a FIFO")
+    assert isinstance(outcome.get("error"), TemplateError), outcome
+    assert "Refused template folder" in str(outcome["error"])
+
+
+@pytest.mark.parametrize("swapped", ["root", "locale"])
+def test_locale_folders_are_read_from_the_tree_that_was_enumerated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, swapped: str
+) -> None:
+    """Swap the root or its locale folder after the root is enumerated.
+
+    Locale folders are opened through the handles root enumeration produced,
+    so an ADMX from one tree is never paired with an ADML from another.
+    """
+    store = tmp_path / "store"
+    _write_pair(store, "vendor", "Synthetic.Policies.TreeA", "TreeAPolicy")
+    other = tmp_path / "other"
+    _write_pair(other, "vendor", "Synthetic.Policies.TreeB", "TreeBPolicy")
+    tree_a_adml = _sha((store / "en-US" / "vendor.adml").read_bytes())
+    assert tree_a_adml != _sha((other / "en-US" / "vendor.adml").read_bytes())
+
+    original = template_store.iter_directory
+    calls: list[int] = []
+
+    def swap_after_root(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
+        calls.append(dir_fd)
+        first = len(calls) == 1
+        yield from original(dir_fd)
+        if not first:
+            return
+        try:
+            if swapped == "root":
+                store.rename(tmp_path / "moved")
+                other.rename(store)
+            else:
+                (store / "en-US").rename(tmp_path / "moved-locale")
+                (other / "en-US").rename(store / "en-US")
+        except PermissionError:
+            # Windows: the retained handles deny the rename, the same property.
+            assert sys.platform == "win32"
+
+    monkeypatch.setattr(template_store, "iter_directory", swap_after_root)
+    result = ingest_source("store", "local", tmp_path / "store")
+    hashes = {f.relative_path: f.sha256 for f in result.source.files}
+    assert hashes[str(Path("en-US", "vendor.adml"))] == tree_a_adml
+    assert [p.qualified_id for p in result.catalogue.policies] == [
+        "Synthetic.Policies.TreeA:TreeAPolicy"
+    ]
+
+
+def test_source_over_the_subfolder_limit_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "store"
+    _write_pair(store, "good", "Synthetic.Test.Good", "GoodPolicy")
+    (store / "fr-FR").mkdir()
+    monkeypatch.setattr(template_store, "_MAX_TEMPLATE_SUBFOLDERS", 2, raising=False)
+    assert ingest_source("store", "local", store).source.files
+
+    (store / "de-DE").mkdir()
+    with pytest.raises(TemplateError, match="more than 2 subfolders"):
+        ingest_source("store", "local", store)
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ("0xC0000043", "Cannot read template folder"),  # sharing violation
+        ("0xC0000022", "Cannot read template folder"),  # access denied
+        ("0x8000002D", "Refused template folder"),  # stopped on symlink
+        ("0xC000050B", "Refused template folder"),  # reparse point encountered
+    ],
+)
+def test_windows_open_failures_are_reported_by_cause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str, expected: str
+) -> None:
+    store = tmp_path / "store"
+    _write_pair(store, "good", "Synthetic.Test.Good", "GoodPolicy")
+
+    def failing(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
+        raise template_store.SafeOpenError(
+            f"Cannot open directory entry 'good.admx' safely: NT status {status}"
+        )
+        yield  # pragma: no cover - makes this a generator
+
+    monkeypatch.setattr(template_store, "iter_directory", failing)
+    with pytest.raises(TemplateError) as refusal:
+        ingest_source("store", "local", store)
+    message = str(refusal.value)
+    assert message.startswith(expected), message
+    assert status in message
+    if expected.startswith("Cannot read"):
+        assert "link" not in message.lower()
+
+
+@pytest.mark.usefixtures("symlink_privilege")
+def test_api_does_not_disclose_where_an_escaping_path_resolves(
+    client: TestClient, tmp_path: Path
+) -> None:
+    secret = tmp_path / "outside-secret-folder"
+    _write_pair(secret, "good", "Synthetic.Test.Good", "GoodPolicy")
+    (tmp_path / "root").mkdir()
+    alias = tmp_path / "root" / "alias"
+    alias.symlink_to(secret, target_is_directory=True)
+    response = client.post(
+        "/api/templates/ingest",
+        json={"name": "default", "kind": "local", "path": str(alias)},
+    )
+    assert response.status_code == 422, response.text
+    message = response.json()["error"]["message"]
+    assert "escapes template root" in message
+    assert "outside-secret-folder" not in message
+
+
+def test_api_serializes_template_ingests(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+    import time
+
+    folder = tmp_path / "root" / "vendor"
+    _write_pair(folder, "good", "Synthetic.Test.Good", "GoodPolicy")
+    original = template_store.ingest_source
+    active: list[int] = []
+    peak: list[int] = []
+    guard = threading.Lock()
+
+    def slow_ingest(*args: object, **kwargs: object) -> template_store.IngestResult:
+        with guard:
+            active.append(1)
+            peak.append(len(active))
+        try:
+            time.sleep(0.3)
+            return original(*args, **kwargs)  # type: ignore[arg-type]
+        finally:
+            with guard:
+                active.pop()
+
+    monkeypatch.setattr(template_store, "ingest_source", slow_ingest)
+    statuses: list[int] = []
+
+    def post(name: str) -> None:
+        response = client.post(
+            "/api/templates/ingest",
+            json={"name": name, "kind": "local", "path": str(folder)},
+        )
+        statuses.append(response.status_code)
+
+    workers = [threading.Thread(target=post, args=(f"src{i}",)) for i in range(3)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(30)
+    assert statuses == [201, 201, 201]
+    assert max(peak) == 1

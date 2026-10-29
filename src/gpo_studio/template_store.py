@@ -285,6 +285,10 @@ _MAX_TEMPLATE_SOURCE_BYTES = 512 * 1024 * 1024
 #: Directory entries (files and folders) enumerated in the folder and its
 #: immediate subfolders. The same store has 447; 20,000 is about 45 times that.
 _MAX_TEMPLATE_SOURCE_ENTRIES = 20_000
+#: Immediate subfolders (locale folders) of one source. Each is held open from
+#: root enumeration until it is read, so this also bounds open handles. The
+#: measured store has one (en-US); a central store carries one per language.
+_MAX_TEMPLATE_SUBFOLDERS = 256
 _READ_CHUNK = 64 * 1024
 
 _LINK_REFUSAL = (
@@ -413,9 +417,38 @@ def _refuse_unsafe_entries(directory: Path) -> Iterator[None]:
             and cause.errno not in (errno.ELOOP, errno.ENOTDIR)
         ):
             raise
+        if _is_windows_read_failure(str(error)):
+            raise TemplateError(
+                f"Cannot read template folder {directory}: {error}. Check that the "
+                "folder is available and GPO Studio has permission to read it."
+            ) from error
         raise TemplateError(
             f"Refused template folder {directory}: {error}. {_LINK_REFUSAL}"
         ) from error
+
+
+_NT_STATUS = re.compile(r"NT status 0x([0-9A-Fa-f]{8})")
+_WIN32_ERROR = re.compile(r"Win32 error (\d+)")
+#: STATUS_STOPPED_ON_SYMLINK, STATUS_IO_REPARSE_TAG_NOT_HANDLED and
+#: STATUS_REPARSE_POINT_ENCOUNTERED: an open that met a link or reparse point.
+_NT_LINK_STATUSES = frozenset({0x8000002D, 0xC0000279, 0xC000050B})
+#: ERROR_STOPPED_ON_SYMLINK.
+_WIN32_LINK_ERRORS = frozenset({681})
+
+
+def _is_windows_read_failure(message: str) -> bool:
+    """Whether a cause-less ``safe_io`` error is a Windows open/read failure.
+
+    ``safe_io``'s Windows walk reports a failed ``NtOpenFile`` or
+    ``CreateFileW`` by status code, with no chained ``OSError``. A sharing
+    violation or access denial is not a link and must not read as one; only
+    the statuses an open returns on meeting a link stay refusals.
+    """
+    if (status := _NT_STATUS.search(message)) is not None:
+        return int(status.group(1), 16) not in _NT_LINK_STATUSES
+    if (code := _WIN32_ERROR.search(message)) is not None:
+        return int(code.group(1)) not in _WIN32_LINK_ERRORS
+    return False
 
 
 @dataclass(slots=True)
@@ -425,6 +458,8 @@ class _Inventory:
     admx: dict[str, bytes] = field(default_factory=dict)
     root_adml: dict[str, bytes] = field(default_factory=dict)
     subdirectories: list[str] = field(default_factory=list)
+    handles: dict[str, int] = field(default_factory=dict)
+    """Subfolder descriptors duplicated during root enumeration (owned)."""
     adml: dict[tuple[str | None, str], _AdmlRead] = field(default_factory=dict)
     pairs: dict[str, _Pair] = field(default_factory=dict)
 
@@ -439,10 +474,21 @@ def _record_adml(
     )
 
 
-def _read_root(root_fd: int, budget: _Budget, inventory: _Inventory) -> None:
+def _read_root(
+    directory: Path, root_fd: int, budget: _Budget, inventory: _Inventory
+) -> None:
     for entry in iter_directory(root_fd):
         budget.add_entry()
         if entry.is_directory:
+            if len(inventory.subdirectories) >= _MAX_TEMPLATE_SUBFOLDERS:
+                raise TemplateError(
+                    f"Template folder {directory} has more than "
+                    f"{_MAX_TEMPLATE_SUBFOLDERS} subfolders; the source was not ingested"
+                )
+            # Keep the subfolder exactly as enumeration opened it, relative to
+            # this root handle: reopening it by path later could read another
+            # tree swapped in at the same name.
+            inventory.handles[entry.name] = os.dup(entry.fd)
             inventory.subdirectories.append(entry.name)
         elif _is_admx_name(entry.name):
             inventory.admx[entry.name] = _read_template_file(entry.fd, entry.name, budget)
@@ -453,7 +499,6 @@ def _read_root(root_fd: int, budget: _Budget, inventory: _Inventory) -> None:
 
 
 def _read_locale(
-    directory: Path,
     subdirectory: str,
     spelling: str,
     budget: _Budget,
@@ -470,7 +515,7 @@ def _read_locale(
         if name not in inventory.pairs
     }
     candidates: dict[str, bytes] = {}
-    dir_fd = open_directory(directory / subdirectory)
+    dir_fd = inventory.handles.pop(subdirectory)
     try:
         for entry in iter_directory(dir_fd):
             budget.add_entry()
@@ -502,42 +547,55 @@ def _read_source(directory: Path) -> _Inventory:
     The folder and every path component above it are opened without following
     links; each entry of the folder and of its immediate subfolders is opened
     relative to its retained parent and refused if it is a link, junction,
-    reparse point or special file. Every ADMX in the folder and every ADML in
-    it or a subfolder is read exactly once, through the handle that
-    enumeration opened, and those bytes feed both the hash and the parser.
+    reparse point or special file. A subfolder is read through the handle root
+    enumeration opened, never reopened by path, so the whole inventory comes
+    from one tree. Entries below a subfolder are counted, not entered or read.
+    Every ADMX in the folder and every ADML in it or a subfolder is read
+    exactly once, through the handle that enumeration opened, and those bytes
+    feed both the hash and the parser.
     ADML pairing follows ``admx.find_adml``: a sibling, then ``en-US``, then
     the first other subfolder in sorted order.
     """
     budget = _Budget(directory)
     inventory = _Inventory()
-    with _refuse_unsafe_entries(directory):
-        root_fd = open_directory(directory)
-        try:
-            _read_root(root_fd, budget, inventory)
-        finally:
-            os.close(root_fd)
-        for admx_name in sorted(inventory.admx, key=_sort_key):
-            match = _find_name(inventory.root_adml, Path(admx_name).stem + ".adml")
-            if match is not None:
-                inventory.pairs[admx_name] = _Pair(
-                    relative_path=match.spelling,
-                    directory=None,
-                    name=match.name,
-                    data=inventory.root_adml[match.name],
-                )
-        inventory.root_adml.clear()
-        en_us = _find_name(inventory.subdirectories, "en-US")
-        order: list[tuple[str, str]] = []
-        if en_us is not None:
-            order.append((en_us.name, en_us.spelling))
-        order.extend(
-            (name, name)
-            for name in sorted(inventory.subdirectories, key=_sort_key)
-            if en_us is None or name != en_us.name
-        )
-        for subdirectory, spelling in order:
-            _read_locale(directory, subdirectory, spelling, budget, inventory)
+    try:
+        with _refuse_unsafe_entries(directory):
+            _read_tree(directory, budget, inventory)
+    finally:
+        for handle in inventory.handles.values():
+            with contextlib.suppress(OSError):
+                os.close(handle)
+        inventory.handles.clear()
     return inventory
+
+
+def _read_tree(directory: Path, budget: _Budget, inventory: _Inventory) -> None:
+    root_fd = open_directory(directory)
+    try:
+        _read_root(directory, root_fd, budget, inventory)
+    finally:
+        os.close(root_fd)
+    for admx_name in sorted(inventory.admx, key=_sort_key):
+        match = _find_name(inventory.root_adml, Path(admx_name).stem + ".adml")
+        if match is not None:
+            inventory.pairs[admx_name] = _Pair(
+                relative_path=match.spelling,
+                directory=None,
+                name=match.name,
+                data=inventory.root_adml[match.name],
+            )
+    inventory.root_adml.clear()
+    en_us = _find_name(inventory.subdirectories, "en-US")
+    order: list[tuple[str, str]] = []
+    if en_us is not None:
+        order.append((en_us.name, en_us.spelling))
+    order.extend(
+        (name, name)
+        for name in sorted(inventory.subdirectories, key=_sort_key)
+        if en_us is None or name != en_us.name
+    )
+    for subdirectory, spelling in order:
+        _read_locale(subdirectory, spelling, budget, inventory)
 
 
 def _inventory_files(inventory: _Inventory) -> tuple[TemplateFile, ...]:

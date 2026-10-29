@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -231,16 +232,21 @@ def test_concurrent_source_additions_merge_latest_complete_sources(
     one = write_pack(folder / "extra-one", "A", "Synthetic.ExtraOne")
     two = write_pack(folder / "extra-two", "B", "Synthetic.ExtraTwo")
     original = templates.ingest_source
-    parsed = threading.Barrier(2)
+    # Ingests are serialized (one may hold up to the aggregate byte limit), so
+    # the two requests overlap in time but parse one after the other; both
+    # sources must still end up in the active catalogue.
+    started = threading.Event()
 
     def load(*args: Any, **kwargs: Any) -> Any:
+        started.set()
         result = original(*args, **kwargs)
-        parsed.wait(timeout=5)
+        time.sleep(0.2)
         return result
 
     monkeypatch.setattr(templates, "ingest_source", load)
     with ThreadPoolExecutor(max_workers=2) as executor:
         a = executor.submit(activate, client, one, "extra-one")
+        assert started.wait(timeout=5)
         b = executor.submit(activate, client, two, "extra-two")
         versions = {
             a.result(timeout=10)["catalogue_revision"],

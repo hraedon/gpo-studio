@@ -1793,6 +1793,10 @@ def _store(request: Request) -> WorkspaceStore:
 # order is catalogue -> WorkspaceStore; no code holds a store lock while
 # acquiring this one. Loading files happens outside it, publication inside it.
 _CATALOGUE_LOCK = threading.RLock()
+#: One template ingest at a time: an ingest may hold up to the template
+#: store's aggregate byte limit in memory, so concurrent ingests would multiply
+#: it. Waiting requests hold no template bytes.
+_TEMPLATE_INGEST_LOCK = threading.Lock()
 _EMPTY_CATALOGUE = AdmxCatalogue()
 
 
@@ -3420,7 +3424,12 @@ def list_template_sources(request: Request) -> dict[str, Any]:
 
 @app.post("/api/templates/ingest", status_code=201)
 def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dict[str, Any]:
-    from .template_store import TemplateError, ingest_source
+    with _TEMPLATE_INGEST_LOCK:
+        return _ingest_template_source(request, body)
+
+
+def _ingest_template_source(request: Request, body: IngestTemplateRequest) -> dict[str, Any]:
+    from . import template_store
 
     try:
         directory = Path(body.path).resolve()
@@ -3428,11 +3437,11 @@ def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dic
         if template_root:
             root = Path(template_root).resolve()
             if not directory.is_relative_to(root):
-                raise StudioError(
-                    f"Path escapes template root: {directory}"
-                )
-        result = ingest_source(body.name, body.kind, directory)
-    except TemplateError as exc:
+                # Echo what was submitted, never where it resolved: the
+                # resolved path would reveal where an in-root link points.
+                raise StudioError(f"Path escapes template root: {body.path}")
+        result = template_store.ingest_source(body.name, body.kind, directory)
+    except template_store.TemplateError as exc:
         raise StudioError(str(exc)) from exc
     except OSError as exc:
         raise StudioError(
