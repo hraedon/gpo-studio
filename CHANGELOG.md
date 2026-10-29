@@ -137,7 +137,9 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   shows its element deletes as values (`""`, `0`, `False` or `[""]`). A list
   item whose legacy ordinal cannot be ordered still counts as a value write,
   and a disable's delete for an element the template has since renamed or
-  removed makes the state Indeterminate rather than Enabled.
+  removed makes the state Indeterminate rather than Enabled. Such a stale
+  delete only adds uncertainty; it never proves that the current rows are a
+  disable.
 
 - The settings browser reads every row bound to an element (#146). It decoded
   only the first, so a second row for the same element was invisible. When a
@@ -170,7 +172,15 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   refuses them as `json_invalid`: an OU link `order` of `1e400` reached
   `int(inf)` and returned a 500. An evidence pack whose outcome,
   classification, evidence kind, side or role is a list or object is refused
-  with `PackError` instead of raising `TypeError`.
+  with `PackError` instead of raising `TypeError`. Discovery imports check
+  their fields: an OU link `order` must be a JSON integer from 1 to
+  2,147,483,647 (`"NaN"`, `null`, `[]` or `{}` returned a 500, and `"7"` or
+  `7.9` were coerced), and link `enabled`/`enforced` and trust `transitive`
+  must be JSON booleans (`"false"` read as true).
+- A discovery import is now committed. Its cache write opened a transaction
+  that was never committed, so the cache was lost when the workspace closed,
+  and the next change to the workspace failed and marked it degraded: every
+  later request returned 503 until restart.
   - A bulk policy-state change interrupted after its last chunk had committed
     reported "N policies changed before the remaining bulk change failed",
     although nothing remained. It now says "N policies changed, then the bulk

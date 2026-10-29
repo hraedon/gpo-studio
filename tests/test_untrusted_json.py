@@ -297,3 +297,149 @@ def test_measuring_depth_does_not_copy_a_wide_array_of_scalars() -> None:
         tracemalloc.stop()
     assert peak < 1_000_000
     assert json_input._deeper_than([[0]] * 3 + [[[[0]]]], 3)
+
+
+# --- wrong-typed fields in untyped bodies (#148 review round 2) -------------
+
+_GUID = "11111111-2222-3333-4444-555555555555"
+UNTYPED_BODIES: dict[str, dict[str, object]] = {
+    "/api/discovery/forest": {
+        "kind": "gpo-studio-discovery-forest", "name": "example.test",
+        "schema_master": "dc01.example.test", "domain_naming_master": "dc01.example.test",
+        "domains": ["example.test"], "global_catalogs": ["dc01.example.test"],
+        "trusts": [{
+            "source": "example.test", "target": "child.example.test",
+            "direction": "bidirectional", "trust_type": "parent-child", "transitive": True,
+        }],
+    },
+    "/api/discovery/domain": {
+        "kind": "gpo-studio-discovery-domain", "dns_name": "example.test",
+        "netbios_name": "EXAMPLE", "domain_controllers": ["dc01.example.test"],
+        "pdc_emulator": "dc01.example.test", "rid_master": "dc01.example.test",
+        "infrastructure_master": "dc01.example.test", "functional_level": "Windows2016Domain",
+    },
+    "/api/discovery/sites": {
+        "kind": "gpo-studio-discovery-sites",
+        "sites": [{
+            "name": "Site", "description": "", "subnets": ["192.0.2.0/24"],
+            "site_links": ["LINK"],
+        }],
+        "subnets": [{"cidr": "192.0.2.0/24", "site_name": "Site", "description": ""}],
+    },
+    "/api/discovery/ous": {
+        "kind": "gpo-studio-discovery-ous",
+        "ous": [{
+            "name": "Synthetic", "distinguished_name": "OU=Synthetic,DC=example,DC=test",
+            "parent_dn": "DC=example,DC=test", "description": "",
+            "gpo_links": [{
+                "id": _GUID, "target": "OU=Synthetic,DC=example,DC=test",
+                "enabled": True, "enforced": False, "order": 1,
+            }],
+        }],
+    },
+    "/api/discovery/gpos": {
+        "kind": "gpo-studio-discovery-gpos", "domain": "example.test",
+        "gpos": [{"guid": _GUID, "name": "Synthetic"}],
+    },
+    "/api/discovery/principals": {
+        "kind": "gpo-studio-discovery-principals",
+        "principals": [{
+            "object_guid": _GUID, "object_sid": "S-1-5-21-1-2-3-1001",
+            "sid_history": ["S-1-5-21-1-2-3-2001"], "object_class": "user",
+            "sam_account_name": "synthetic", "display_name": "Synthetic",
+            "canonical_name": "example.test/Users/synthetic",
+            "distinguished_name": "CN=synthetic,CN=Users,DC=example,DC=test",
+            "domain": "example.test", "source_dc": "dc01.example.test",
+            "collected_at": "2026-07-25T10:00:00Z", "resolution_state": "resolved",
+        }],
+    },
+    "/api/estate/import": {
+        "kind": "gpo-lens-estate",
+        "gpos": [{
+            "guid": _GUID, "display_name": "Synthetic baseline", "description": "",
+            "domain": "example.test", "computer_enabled": True, "user_enabled": True,
+            "settings": [{
+                "id": "s1", "side": "computer", "hive": "HKLM",
+                "key": r"Software\Policies\Synthetic", "value_name": "Enabled",
+                "registry_type": "REG_DWORD", "value": 1, "action": "set", "comment": "",
+            }],
+            "links": [{
+                "id": "l1", "target": "OU=Synthetic,DC=example,DC=test",
+                "enabled": True, "enforced": False, "order": 1,
+            }],
+            "security_filters": [],
+            "wmi_filter": None,
+        }],
+    },
+}
+WRONG_TYPES = ["x", None, [], {}, True, 10**30, -1, 0, 1.5]
+
+
+def _paths(value: object, path: tuple[object, ...] = ()) -> Iterator[tuple[object, ...]]:
+    yield path
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield from _paths(child, (*path, key))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _paths(child, (*path, index))
+
+
+def _replaced(value: object, path: tuple[object, ...], new: object) -> object:
+    if not path:
+        return new
+    head, *rest = path
+    copy = json.loads(json.dumps(value))
+    copy[head] = _replaced(copy[head], tuple(rest), new)
+    return copy
+
+
+def _gpo_dict(client: TestClient) -> dict[str, object]:
+    guid = client.post("/api/gpos", json={"name": "Synthetic diff"}).json()["gpo"]["guid"]
+    return client.get(f"/api/gpos/{guid}").json()["gpo"]
+
+
+def test_untyped_bodies_answer_every_wrong_typed_field_without_a_server_error(
+    client: TestClient,
+) -> None:
+    gpo = _gpo_dict(client)
+    bodies = {**UNTYPED_BODIES, "/api/diff": {"baseline": gpo, "draft": gpo, "observed": gpo}}
+    assert set(bodies) == {
+        route.path for _method, route in _mutation_routes()
+        if any(
+            api_module._admits_any(field.field_info.annotation)
+            for field in route.dependant.body_params
+        )
+    }
+    failures = []
+    for path, body in bodies.items():
+        valid = client.post(path, json=body)
+        assert valid.status_code < 300, (path, valid.text)
+        for where in _paths(body):
+            if where == ("kind",):
+                continue
+            for wrong in WRONG_TYPES:
+                response = client.post(path, json=_replaced(body, where, wrong))
+                if response.status_code >= 500:
+                    failures.append((path, where, wrong, response.status_code))
+    assert failures == []
+
+
+@pytest.mark.parametrize("order", ["Infinity", "NaN", "7", None, [], {}, True, 0, -1, 1.5, 2**31])
+def test_discovery_link_order_must_be_a_positive_integer(client: TestClient, order: object) -> None:
+    # Sol r2: int() on these raised inside the handler (500) or coerced them.
+    where = ("ous", 0, "gpo_links", 0, "order")
+    body = _replaced(UNTYPED_BODIES["/api/discovery/ous"], where, order)
+    response = client.post("/api/discovery/ous", json=body)
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["issues"][0]["code"] == "invalid_gpo_link_order"
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1, None, []])
+def test_discovery_booleans_must_be_json_booleans(client: TestClient, value: object) -> None:
+    # bool("false") is True: a string read as a boolean flipped its meaning.
+    where = ("ous", 0, "gpo_links", 0, "enabled")
+    body = _replaced(UNTYPED_BODIES["/api/discovery/ous"], where, value)
+    response = client.post("/api/discovery/ous", json=body)
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["issues"][0]["code"] == "invalid_boolean_field"
