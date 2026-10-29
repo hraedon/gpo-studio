@@ -671,16 +671,20 @@ def _decode_element_values(
     element_rows: list[tuple[_ElementReadBinding, tuple[int, ...]]] = []
     for binding in plan.elements:
         element = binding.element
-        matching = [
-            (index, row)
-            for index, row in enumerate(rows)
-            if not (element.kind == "list" and index in unsupported)
-            and _setting_belongs_to_element(row, binding, plan)
-        ]
         if element.kind == "unknown":
             # Unparsed kinds have no value name: no decoding, and no state evidence.
             continue
-        element_rows.append((binding, tuple(index for index, _row in matching)))
+        bound = tuple(
+            index for index, row in enumerate(rows)
+            if _setting_belongs_to_element(row, binding, plan)
+        )
+        # State evidence comes from every bound write, including a list item
+        # whose legacy ordinal cannot be ordered and so is not decoded.
+        element_rows.append((binding, bound))
+        matching = [
+            (index, rows[index]) for index in bound
+            if not (element.kind == "list" and index in unsupported)
+        ]
         if not matching:
             continue
         claimed.update(index for index, _row in matching)
@@ -775,6 +779,18 @@ def _element_row_identity(
     return "none"
 
 
+def _is_stale_disable(row: _StoredReadBinding, plan: _PolicyReadPlan) -> bool:
+    """A disable's delete for this policy that no current element claimed."""
+    structured = row.structured
+    if structured is not None:
+        return (
+            structured.policy_id == plan.policy_id
+            and structured.side == plan.side
+            and structured.kind == "disabled-element"
+        )
+    return row.legacy_suffix is not None and row.legacy_suffix.startswith("disabled-element-")
+
+
 def _has_delete_item(element: PolicyElement) -> bool:
     return element.kind == "enum" and any(item.action == "delete" for item in element.enum_items)
 
@@ -782,6 +798,8 @@ def _has_delete_item(element: PolicyElement) -> bool:
 def _observe_child_only_state(
     rows: tuple[_StoredReadBinding, ...],
     element_rows: tuple[tuple[_ElementReadBinding, tuple[int, ...]], ...],
+    *,
+    stale_disable: bool = False,
 ) -> tuple[ObservedPolicyState, ObservedStateReason | None] | None:
     """Observe a policy with no policy-level writes from its element rows (#147).
 
@@ -800,10 +818,16 @@ def _observe_child_only_state(
     editor IDs of Studio's own writes tell them apart, so without them the
     state is indeterminate. ``None`` means no row is bound to any element, and
     the caller keeps its historical heuristic.
+
+    ``stale_disable`` reports a disable's delete, by its editor ID, for an
+    element the current template no longer binds (its value name changed, or
+    it was removed). It is disabled evidence: on its own it cannot prove the
+    current state, and beside a value write it contradicts it.
     """
     if not any(indices for _binding, indices in element_rows):
-        return None
-    enabled_evidence = disabled_evidence = False
+        return ("indeterminate", "no_complete_pattern") if stale_disable else None
+    enabled_evidence = False
+    disabled_evidence = stale_disable
     # Rows an enabled policy cannot write (a delete of a value it always sets).
     only_disable_explains = False
     complete_disable = True
@@ -832,6 +856,10 @@ def _observe_child_only_state(
                     return "indeterminate", "no_complete_pattern"
                 enabled_evidence = True
             case "delete":
+                if row.address[1:] != (binding.key, binding.value_name):
+                    # Bound by its editor ID to a value the template has since
+                    # renamed: it does not delete the current value.
+                    complete_disable = False
                 if identity == "disabled-element":
                     disabled_evidence = True
                 elif not _has_delete_item(element):
@@ -1088,6 +1116,7 @@ def build_settings_browser(
         element_values, claimed, repairs = decoded.values, decoded.claimed, decoded.repairs
         observed_state: ObservedPolicyState
         state_reason: ObservedStateReason | None
+        stale_disables: frozenset[int] = frozenset()
         if policy.value_name or policy.enabled_list is not None or policy.disabled_list is not None:
             observed_state, state_reason, unmatched_state = _observe_policy_state(
                 policy, side, bound_rows, plan
@@ -1100,7 +1129,13 @@ def build_settings_browser(
                 index for index, row in enumerate(bound_rows)
                 if index not in claimed and _may_be_policy_state_record(row, plan)
             )
-            child_state = _observe_child_only_state(bound_rows, decoded.element_rows)
+            stale_disables = frozenset(
+                index for index, row in enumerate(bound_rows)
+                if index not in claimed and _is_stale_disable(row, plan)
+            )
+            child_state = _observe_child_only_state(
+                bound_rows, decoded.element_rows, stale_disable=bool(stale_disables)
+            )
             if unmatched_state:
                 observed_state, state_reason = "indeterminate", "no_complete_pattern"
             elif child_state is not None:
@@ -1135,6 +1170,8 @@ def build_settings_browser(
                 )
             ):
                 reason = "ambiguous legacy policy component"
+            elif row_index in stale_disables:
+                reason = "disable record for an element this template does not bind"
             elif row_index in unmatched_state and row_index not in claimed:
                 reason = "unmatched policy state evidence"
             if reason is not None:

@@ -484,3 +484,84 @@ def test_browser_explains_the_new_indeterminate_reason() -> None:
         Path(__file__).resolve().parents[1] / "src/gpo_studio/static/js/browser.mjs"
     ).read_text(encoding="utf-8")
     assert "  disabled_matches_enabled_deletes: " in script
+
+
+# --- review round 1 (#148) ---------------------------------------------------
+
+
+def _label_and_entries() -> PolicyDefinition:
+    return _policy(
+        PolicyElement(kind="text", id="Label", registry_value_name="Label"),
+        PolicyElement(kind="list", id="Entries", registry_key=KEY + r"\Entries"),
+    )
+
+
+@pytest.mark.parametrize("ordinal", ["1", "²"], ids=["orderable", "unorderable"])
+def test_a_list_write_blocks_disabled_whether_or_not_its_ordinal_decodes(ordinal: str) -> None:
+    # Sol: the "²" item was excluded before the state observer saw it, so the
+    # disable's Label delete alone read as Disabled.
+    policy = _label_and_entries()
+    (disable,) = _disabled(policy)
+    item = RegistrySetting(
+        id=f"admx-{policy.qualified_id}-computer-Entries-{ordinal}",
+        side="computer", hive="HKLM", key=KEY + r"\Entries",
+        value_name="1", registry_type="REG_SZ", value="entry",
+    )
+    result = _read(policy, [disable, item])
+    assert [(g.state, g.state_reason) for g in result.resolved] == [
+        ("indeterminate", "no_complete_pattern")
+    ]
+
+
+def _renamed(policy: PolicyDefinition, value_name: str) -> PolicyDefinition:
+    (mode,) = policy.elements
+    return replace(policy, elements=(replace(mode, registry_value_name=value_name),))
+
+
+@pytest.mark.parametrize(
+    ("namespace", "reason"),
+    [
+        (LEGACY_NS, "ambiguous legacy policy component"),
+        # Its editor ID still binds it to Mode, but at the old address.
+        (
+            STRUCTURED_NS,
+            "element value is deleted, but the policy state is indeterminate, so "
+            "this cannot be read as a value or as a disabled policy",
+        ),
+    ],
+    ids=["legacy", "structured"],
+)
+def test_a_disable_for_a_renamed_element_is_not_read_as_enabled(
+    namespace: str, reason: str
+) -> None:
+    # Sol: with no row bound to a current element, the old heuristic said Enabled.
+    old = _policy(replace(ELEMENTS["text"], registry_value_name="OldMode"), namespace=namespace)
+    rows = _disabled(old)
+    assert _summary(_read(old, rows)) == [("disabled", None, {})]
+    new = _renamed(old, "NewMode")
+    result = _read(new, rows)
+    assert _summary(result) == [("indeterminate", "no_complete_pattern", {})]
+    assert [(u.setting, u.reason) for u in result.unresolved] == [(rows[0], reason)]
+
+
+@pytest.mark.parametrize("namespace", [LEGACY_NS, STRUCTURED_NS], ids=["legacy", "structured"])
+def test_a_disable_for_a_removed_element_blocks_enabled_but_not_disabled(namespace: str) -> None:
+    old = _policy(ELEMENTS["text"], COUNT, namespace=namespace)
+    (stale,) = [row for row in _disabled(old) if row.value_name == "Mode"]
+    new = _policy(COUNT, namespace=namespace)
+    if namespace == LEGACY_NS:
+        # The removed element's legacy suffix still parses under this owner.
+        assert stale.id.endswith("-computer-disabled-element-Mode")
+    result = _read(new, [stale])
+    assert _summary(result) == [("indeterminate", "no_complete_pattern", {})]
+    assert [u.reason for u in result.unresolved] == [
+        "ambiguous legacy policy component" if namespace == LEGACY_NS
+        else "disable record for an element this template does not bind"
+    ]
+    current = _enabled(new, {"Count": 3})
+    assert _summary(_read(new, current)) == [("enabled", None, {"Count": 3})]
+    assert [(g.state, g.state_reason) for g in _read(new, [stale, *current]).resolved] == [
+        ("indeterminate", "no_complete_pattern")
+    ]
+    # A complete current disable beside it is still Disabled.
+    assert _summary(_read(new, [stale, *_disabled(new)])) == [("disabled", None, {})]
