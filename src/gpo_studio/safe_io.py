@@ -42,6 +42,14 @@ class SafeDirectoryEntry:
 _O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _O_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
+# A file can be swapped for a FIFO or device between inspection and open, and a
+# blocking open of a FIFO waits for a writer forever. Final components are
+# therefore opened non-blocking (and never as a controlling terminal), checked
+# with fstat on the handle, and only a regular file is switched back to
+# blocking I/O before it is returned.
+_O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+_O_NOCTTY = getattr(os, "O_NOCTTY", 0)
+_O_FILE_OPEN = _O_NOFOLLOW | _O_CLOEXEC | _O_NONBLOCK | _O_NOCTTY
 
 _windows_test_hook_phase2: Callable[[], None] | None = None
 
@@ -82,7 +90,7 @@ def _open_regular_posix(path: Path) -> int:
     try:
         fd = os.open(
             parts[-1],
-            os.O_RDONLY | _O_NOFOLLOW | _O_CLOEXEC,
+            os.O_RDONLY | _O_FILE_OPEN,
             dir_fd=parent_fd,
         )
     except OSError as error:
@@ -92,6 +100,7 @@ def _open_regular_posix(path: Path) -> int:
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise SafeOpenError("Path does not name a regular file")
+        os.set_blocking(fd, True)
         return fd
     except BaseException:
         os.close(fd)
@@ -105,7 +114,7 @@ def _open_or_create_regular_posix(
     if not parts:
         raise SafeOpenError("Path does not name a regular file")
     parent_fd = _open_directory_posix(Path(anchor, *parts[:-1]))
-    flags = os.O_RDWR | os.O_CREAT | _O_NOFOLLOW | _O_CLOEXEC
+    flags = os.O_RDWR | os.O_CREAT | _O_FILE_OPEN
     if exclusive:
         flags |= os.O_EXCL
     try:
@@ -119,6 +128,7 @@ def _open_or_create_regular_posix(
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise SafeOpenError("Path does not name a regular file")
+        os.set_blocking(fd, True)
         return fd
     except BaseException:
         os.close(fd)
@@ -173,7 +183,7 @@ def _iter_directory_posix(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
                 flags = os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW | _O_CLOEXEC
                 is_directory = True
             elif stat.S_ISREG(before.st_mode):
-                flags = os.O_RDONLY | _O_NOFOLLOW | _O_CLOEXEC
+                flags = os.O_RDONLY | _O_FILE_OPEN
                 is_directory = False
             else:
                 raise SafeOpenError(
@@ -194,6 +204,8 @@ def _iter_directory_posix(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
                     )
                 if not is_directory and not stat.S_ISREG(after.st_mode):
                     raise SafeOpenError(f"File entry {name!r} changed while opening")
+                if not is_directory:
+                    os.set_blocking(child_fd, True)
                 yield SafeDirectoryEntry(
                     name=name,
                     is_directory=is_directory,

@@ -351,7 +351,10 @@ def _is_manifest_form(relative: str, finalizer: str) -> bool:
 #: parked the six refreeze verdicts that bind export.py (endpoint, firewall,
 #: publication, scripts-metadata, wp1b, wp2); the requalification batch that
 #: re-runs them at the shipping commit empties the set again and registers
-#: their successors. A verdict that lands here needs a reason, not a new
+#: their successors. The 2026-10-29 safe_io.py change (POSIX final components
+#: opened non-blocking, so a file swapped for a FIFO cannot hang an open) parked
+#: the refreeze fdeploy verdict, the one lane that binds safe_io.py; the same
+#: batch re-runs it. A verdict that lands here needs a reason, not a new
 #: mechanism.
 
 #: WP0_MANIFEST (in the JSON registry) is the live WP-0 manifest. WP-0 binds by
