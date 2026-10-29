@@ -40,6 +40,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, TextIO
 
+from .json_input import JsonInputError, loads_untrusted
+
 PACK_SCHEMA_VERSION = 1
 
 Classification = Literal[
@@ -337,13 +339,11 @@ def load_pack(path: Path) -> EvidencePack:
     future or stale schema cannot be silently misread.
     """
     try:
-        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        raw = loads_untrusted(path.read_text(encoding="utf-8-sig"))
     except OSError as exc:
         raise PackError(f"cannot read pack {path}: {exc}") from exc
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, JsonInputError) as exc:
         raise PackError(f"invalid JSON in pack {path}: {exc}") from exc
-    except RecursionError:
-        raise PackError(f"invalid JSON in pack {path}: nested too deeply") from None
     return parse_pack(raw, source=str(path))
 
 

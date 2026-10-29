@@ -17,7 +17,7 @@ import time
 import uuid as uuid_module
 import zipfile
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -28,6 +28,7 @@ from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, Response
 from fastapi.responses import JSONResponse as _FastAPIJSONResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import (
     BaseModel,
@@ -163,6 +164,7 @@ from .import_export import (
     extract_side_settings,
     resolve_gpo,
 )
+from .json_input import JsonInputError, loads_untrusted
 from .lifecycle import (
     SCOPE_DIMENSIONS,
     SCOPE_SURVIVAL,
@@ -2287,6 +2289,43 @@ class JSONResponse(_FastAPIJSONResponse):
             ).encode("ascii")
 
 
+# Request handling (``unwritable_text``, error rendering) recurses over the
+# body, so nesting is bounded well below Python's recursion limit. No request
+# model nests anywhere near this deep.
+_MAX_REQUEST_JSON_DEPTH = 100
+
+
+class _UntrustedJsonRequest(Request):
+    """A request whose JSON body is parsed by :func:`loads_untrusted` (#145).
+
+    FastAPI reports a ``JSONDecodeError`` as its normal 422 ``json_invalid``
+    response, but any other parse failure (an integer longer than Python's
+    int-string limit, nesting deep enough to raise ``RecursionError``, bytes
+    that are not text) became a generic 400, and nesting that parsed but was
+    too deep for the text check below became a 500.
+    """
+
+    async def json(self) -> Any:
+        if not hasattr(self, "_json"):
+            try:
+                self._json = loads_untrusted(
+                    await self.body(), allow_non_finite=True, max_depth=_MAX_REQUEST_JSON_DEPTH
+                )
+            except JsonInputError as error:
+                raise json.JSONDecodeError(error.reason, "", error.pos or 0) from None
+        return self._json
+
+
+class _UntrustedJsonRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def untrusted_json_handler(request: Request) -> Response:
+            return await handler(_UntrustedJsonRequest(request.scope, request.receive))
+
+        return untrusted_json_handler
+
+
 async def _reject_unwritable_request_text(request: Request) -> None:
     """Refuse a JSON body holding text XML cannot carry, before any handler runs.
 
@@ -2303,8 +2342,10 @@ async def _reject_unwritable_request_text(request: Request) -> None:
     if not body:
         return
     try:
-        data = json.loads(body)
-    except ValueError:
+        data = loads_untrusted(
+            body, allow_non_finite=True, max_depth=_MAX_REQUEST_JSON_DEPTH
+        )
+    except JsonInputError:
         return  # the body model reports malformed JSON itself
     # Request paths are not model paths, so CR is judged by the store's model
     # check (`validation.text_issues`), which knows where CR survives.
@@ -2606,6 +2647,8 @@ app = FastAPI(
     default_response_class=JSONResponse,
     dependencies=[Depends(_reject_unwritable_request_text)],
 )
+# Before any route is declared: every route parses its body as untrusted JSON.
+app.router.route_class = _UntrustedJsonRoute
 app.add_middleware(HostValidationMiddleware)
 app.add_middleware(OriginValidationMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)

@@ -24,6 +24,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+from .json_input import JsonInputError, loads_untrusted
+
 Algorithm = Literal["Ed25519"]
 
 
@@ -127,8 +129,8 @@ def serialize_signature(sig: ProvenanceSignature) -> bytes:
 def parse_signature(data: bytes) -> ProvenanceSignature:
     """Parse a sidecar JSON signature into a ``ProvenanceSignature``."""
     try:
-        raw = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raw = loads_untrusted(data.decode("utf-8"))
+    except (UnicodeDecodeError, JsonInputError) as exc:
         raise ProvenanceError(f"invalid signature sidecar: {exc}") from exc
 
     mapping = _as_mapping(raw, "signature sidecar")
@@ -157,13 +159,9 @@ def save_trust_anchor(anchor: TrustAnchor, path: Path) -> None:
 def load_trust_anchor(path: Path) -> TrustAnchor:
     """Load a trust anchor from a JSON file."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raw = loads_untrusted(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, JsonInputError) as exc:
         raise ProvenanceError(f"cannot load trust anchor {path}: {exc}") from exc
-    except RecursionError:
-        raise ProvenanceError(
-            f"cannot load trust anchor {path}: JSON nested too deeply"
-        ) from None
 
     mapping = _as_mapping(raw, "trust anchor")
     key_id = _required_str(mapping, "key_id", "trust anchor key_id")
