@@ -340,25 +340,70 @@ These ADMX template store defects predate `1.1.0` and are present in it.
   each ADMX/ADML once to hash it and again to parse it, so a pair replaced
   between the two reads was loaded into the catalogue while the lock still
   attested the replaced bytes. Each file is now read exactly once, through one
-  handle, and those bytes feed both the hash and the parser. For a store
-  without links or oversized files, the lock is unchanged: the same bytes give
-  the same lock hash, file list and catalogue (checked against the previous
-  reader on a Windows Server 2025 store).
+  handle, and those bytes feed both the hash and the parser. Locale subfolders
+  are read through the handles that enumerating the template folder opened,
+  never reopened by path, so a folder swapped mid-ingest cannot pair an ADMX
+  from one tree with an ADML from another.
+
+  For a store without links or oversized files, the lock format and hash input
+  are unchanged, and the same bytes give the same lock hash, file list and
+  catalogue. This was checked against the previous reader on a Windows Server
+  2025 store and on every store in `tests/fixtures`. One Linux-only edge case
+  differs: a folder holding two ADMLs whose names differ only by case (possible
+  only on a case-sensitive filesystem). The previous reader paired whichever
+  the directory listing returned first; the new reader picks deterministically,
+  in sorted order, so such a store can get a different lock than before.
 - **Template folders no longer follow links.** A template folder is read through
-  the same no-follow boundary as backup imports: a symbolic link, Windows
-  junction or other reparse point, or a special file such as a FIFO, in the
-  folder, its locale subfolders or its own path refuses the whole source (422,
-  `Refused template folder ...`), and the active catalogue is kept. Previously
-  a linked ADMX/ADML inside `GPO_STUDIO_TEMPLATE_ROOT` could load templates from
-  outside it. The ingest route and the startup `GPO_STUDIO_ADMX_DIR` load
-  resolve the folder the operator named once, then follow nothing inside it.
+  the same no-follow boundary as backup imports. That boundary covers the
+  folder's own path, the folder, and its immediate (locale) subfolders. Entries
+  below a locale subfolder are counted against the entry limit but never
+  entered or read. Within that boundary a symbolic link, Windows junction or
+  other reparse point, or a special file such as a FIFO refuses the whole
+  source (422, `Refused template folder ...`), and the active catalogue is kept.
+  Previously a linked ADMX/ADML inside `GPO_STUDIO_TEMPLATE_ROOT` could load
+  templates from outside it. The ingest route and the startup
+  `GPO_STUDIO_ADMX_DIR` load resolve the folder the operator named once, then
+  follow nothing inside it. A Windows open that fails for another reason, such
+  as a sharing violation or access denied, is reported as
+  `Cannot read template folder ...` with its NT status, not as a link refusal.
+- **Behaviour change: a central store opened by UNC path is refused.** On a
+  domain controller the per-domain folder under the `SYSVOL` share is a
+  junction to a folder outside the share. Seen over SMB it is a reparse point
+  that path resolution cannot canonicalise, so
+  `\\<domain>\SYSVOL\<domain>\Policies\PolicyDefinitions` is now refused. This
+  is deliberate (fail closed). Ingest a local copy of the central store
+  instead.
+- **Not detected: hard links and bind mounts.** A hard link or bind mount
+  inside the template folder is an ordinary file or folder to every check above,
+  so it can make a file outside the template root readable under a name inside
+  it. Refusing files with more than one link is not an option: on Windows
+  Server 2025 every one of the 446 files in the stock
+  `C:\Windows\PolicyDefinitions` is also hard-linked into the component store
+  (`C:\Windows\WinSxS`), so such a check would refuse the stock store.
+  Creating a hard link needs write access to the target file (Linux with
+  `fs.protected_hardlinks`; NTFS) on the same volume. Creating a bind mount
+  needs mount privileges in the process's mount namespace. Keep the template
+  root writable only by trusted administrators.
 - **Template ingest is bounded.** A file over the 10 MiB limit was skipped when
   hashed but still read in full when parsed. It is now read at most one byte
-  past the limit and refuses the source, as does a source holding more than
-  512 MiB of ADMX/ADML files or more than 20,000 files and folders. A real
-  Windows Server 2025 store is 446 files and about 7.4 MB. Previously an
-  oversized file was left out of the lock silently; now no partial catalogue
-  is activated.
+  past the limit and refuses the source. So does a source holding more than
+  512 MiB of ADMX/ADML files, more than 20,000 files and folders, or more than
+  256 subfolders. A real Windows Server 2025 store is 446 files, about 7.4 MB
+  and one locale subfolder. Previously an oversized file was left out of the
+  lock silently; now no partial catalogue is activated. Template ingests are
+  serialized, so concurrent requests cannot multiply the up-to-512 MiB an
+  ingest may hold.
+- **A file swapped for a FIFO could hang an open.** The no-follow file opens
+  shared by template ingest and backup imports (`safe_io`) inspected an entry,
+  then opened it blocking. A regular file replaced by a FIFO in between blocked
+  the open forever, which at startup kept the server from coming up. POSIX
+  file opens are now non-blocking, the handle's type is checked before any
+  read, and only a regular file is switched back to blocking I/O. This edits a
+  lane-bound file: the refreeze `fdeploy` verdict is parked in
+  `pending_requalification` until the requalification batch re-runs it.
+- **The template-root refusal no longer discloses where a path resolves.**
+  `Path escapes template root` used to name the resolved target, revealing
+  where an in-root link pointed. It now echoes only the submitted path.
 
 ## [1.1.0] - 2026-10-20
 

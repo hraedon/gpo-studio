@@ -139,6 +139,39 @@ migration tables, GPP XML) is treated as untrusted:
 - Every archive and inbox import path has a path-traversal guard.
 - Request bodies are size-checked while streaming, with a 10 MiB ceiling.
 
+### ADMX template folders
+
+A template folder (the startup `GPO_STUDIO_ADMX_DIR`, or one loaded through
+`POST /api/templates/ingest`, confined to `GPO_STUDIO_TEMPLATE_ROOT` when that
+is set) is read through the same no-follow boundary as backup imports.
+
+- **Boundary.** The path the operator named is resolved once. After that,
+  nothing is followed in the folder's own path, the folder itself or its
+  immediate (locale) subfolders. Entries below a locale subfolder are counted
+  against the entry limit but never entered or read. Within the boundary, a
+  symbolic link, Windows junction or other reparse point, or a special file
+  such as a FIFO, refuses the whole source.
+- **Read once.** Each ADMX/ADML is read once, through the handle enumeration
+  opened, and the same bytes are hashed for the template lock and parsed. Locale
+  subfolders are read through handles retained from enumerating the folder,
+  never reopened by path.
+- **Limits.** A source is refused when it holds a file over 10 MiB, more than
+  512 MiB of ADMX/ADML bytes, more than 20,000 files and folders, or more than
+  256 subfolders. One ingest runs at a time.
+- **Not detected: hard links and bind mounts.** A hard link or a bind mount
+  inside the folder looks like an ordinary file or folder, so it can expose a
+  file from outside the template root under a name inside it. Studio does not
+  refuse files with more than one link: every one of the 446 files in a stock
+  Windows Server 2025 `C:\Windows\PolicyDefinitions` is also hard-linked into
+  `C:\Windows\WinSxS`, so that check would refuse the stock store. Creating a
+  hard link needs write access to the target file (Linux with
+  `fs.protected_hardlinks`; NTFS) on the same volume. Creating a bind mount
+  needs mount privileges in Studio's mount namespace. **The template root must
+  be writable only by trusted administrators.**
+- **Central store over UNC.** On a domain controller the per-domain folder
+  under `SYSVOL` is a junction to a folder outside the share, so a central store
+  opened by UNC path is refused. Ingest a local copy instead.
+
 ### Immutable revisions
 
 Every mutation creates an immutable revision with actor and reason. Revisions
