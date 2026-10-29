@@ -55,8 +55,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   input when closed, close freely: RSoP, the security template, Folder
   Redirection, the publication preview, export review, the starter and WMI
   filter catalogues, the ADMX folder dialog and the revision-conflict review.
-  While an editing dialog has changes, or a save from one is still in flight,
-  leaving or reloading the page shows the browser's own "Leave site?" warning.
+  While an editing dialog has changes, or a save from one is still in flight
+  (even after its editor was closed or reopened), leaving or reloading the page
+  shows the browser's own "Leave site?" warning. So does an open RSoP or
+  security-template dialog whose input changed since it opened.
   Shift+Tab after clicking a non-focusable part of a dialog now stays in the
   dialog instead of moving focus to the page behind it.
 

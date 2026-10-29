@@ -92,6 +92,11 @@ export function beginDialogLoad(dialog) {
   return guards.get(dialog)?.beginLoad() ?? (() => {});
 }
 
+// A save from this dialog settled: the open prompt's description follows it.
+export function refreshDialogPrompt(dialog) {
+  guards.get(dialog)?.refresh();
+}
+
 // Close as the × button does: ask first if the dialog has changes.
 export function requestDialogClose(dialog) {
   const guard = guards.get(dialog);
@@ -99,8 +104,9 @@ export function requestDialogClose(dialog) {
   else dialog.close("cancel");
 }
 
-// Armed while an open editing dialog has changes, and while a save from one is
-// still in flight (even after its dialog was closed): leaving could lose it.
+// Armed while an open guarded dialog has changes, and while a save from one is
+// still in flight (even after its dialog was closed or reopened): leaving
+// could lose it.
 export function hasUnsavedDialogEdits() {
   return [...guards.values()].some(
     (guard) => guard.hasChanges() || guard.savePending(),
@@ -122,6 +128,12 @@ function installUnloadGuard() {
 
 // The prompt exists only while it is asking, so an idle dialog's controls are
 // exactly the ones it had before this guard.
+function promptDescription(saving) {
+  return saving
+    ? "Your changes are still being saved. If the save fails, they will be lost."
+    : "Your changes in this dialog have not been saved.";
+}
+
 function buildPrompt(dialog, saving) {
   const overlay = document.createElement("div");
   overlay.className = "discard-prompt";
@@ -135,9 +147,7 @@ function buildPrompt(dialog, saving) {
   title.textContent = "Discard your changes?";
   const description = document.createElement("p");
   description.id = `${dialog.id}-discard-description`;
-  description.textContent = saving
-    ? "Your changes are still being saved. If the save fails, they will be lost."
-    : "Your changes in this dialog have not been saved.";
+  description.textContent = promptDescription(saving);
   panel.setAttribute("aria-labelledby", title.id);
   panel.setAttribute("aria-describedby", description.id);
   const actions = document.createElement("div");
@@ -151,14 +161,21 @@ function buildPrompt(dialog, saving) {
   actions.append(keep, discard);
   panel.append(title, description, actions);
   overlay.append(panel);
-  return { overlay, keep, discard };
+  return { overlay, keep, discard, description };
 }
 
-// Returns null for a dialog without the marker. `close` must be the dialog's
-// own (wrapped) close so focus returns to the opener as for any other close.
-// `isPending` reports a save from this dialog that has not resolved yet.
-export function createDialogGuard(dialog, { close, isPending = () => false }) {
-  if (!dialog.hasAttribute("data-guard-edits")) return null;
+// Returns null for a dialog without a marker. `data-guard-edits` asks on Esc
+// and ×, and arms beforeunload while changed. `data-guard-input` (a dialog
+// that keeps its input when closed) only arms beforeunload while it is open
+// and changed. `close` must be the dialog's own (wrapped) close so focus
+// returns to the opener as for any other close. `isPending` reports the
+// current editor's own save; `inFlight` any unresolved save from this form.
+export function createDialogGuard(
+  dialog,
+  { close, isPending = () => false, inFlight = () => false },
+) {
+  const asks = dialog.hasAttribute("data-guard-edits");
+  if (!asks && !dialog.hasAttribute("data-guard-input")) return null;
   installUnloadGuard();
   const tracker = createEditTracker(() =>
     dialog.querySelectorAll("input,select,textarea"),
@@ -208,7 +225,10 @@ export function createDialogGuard(dialog, { close, isPending = () => false }) {
       return dialog.open && load === null && tracker.changed();
     },
     savePending() {
-      return isPending();
+      return inFlight();
+    },
+    refresh() {
+      if (prompt) prompt.description.textContent = promptDescription(isPending());
     },
     promptOpen() {
       return dialog.open && prompt !== null;
@@ -216,7 +236,7 @@ export function createDialogGuard(dialog, { close, isPending = () => false }) {
     // A save in flight still asks: if it fails, closing would have lost the
     // values the form keeps for a retry.
     shouldAsk() {
-      return guard.hasChanges();
+      return asks && guard.hasChanges();
     },
     beginLoad() {
       const token = {};

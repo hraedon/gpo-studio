@@ -200,7 +200,6 @@ test("dialogs that edit nothing close freely after input", async ({
   const rsop = page.locator("#rsop-dialog");
   await page.locator("#open-rsop").click();
   await rsop.locator("[name=computer_name]").fill("LABCL01");
-  expect(await unloadArmed(page)).toBe(false);
   await page.keyboard.press("Escape");
   await expect(rsop).toBeHidden();
   await expect(page.locator("[data-discard-prompt]")).toHaveCount(0);
@@ -209,7 +208,7 @@ test("dialogs that edit nothing close freely after input", async ({
   await rsop.getByRole("button", { name: "Close" }).first().click();
   await expect(rsop).toBeHidden();
   // RSoP and the security template keep their input across a close, so
-  // closing them loses nothing and they are not guarded.
+  // closing them loses nothing and does not ask.
   await page.locator("#open-rsop").click();
   await expect(rsop.locator("[name=computer_name]")).toHaveValue("LABCL02");
   await page.keyboard.press("Escape");
@@ -478,8 +477,12 @@ test("a change still asks while its save is in flight, and survives a failed sav
     await expect(prompt(dialog)).toHaveAccessibleDescription(
       "Your changes are still being saved. If the save fails, they will be lost.",
     );
-    await prompt(dialog).getByRole("button", { name: "Keep editing" }).click();
+    // The save fails while the prompt is open: its description follows.
     release();
+    await expect(prompt(dialog)).toHaveAccessibleDescription(
+      "Your changes in this dialog have not been saved.",
+    );
+    await prompt(dialog).getByRole("button", { name: "Keep editing" }).click();
     await expect(dialog.locator(".form-error")).toContainText(
       "Synthetic held save failure",
     );
@@ -540,4 +543,113 @@ test("Shift+Tab after a click on a non-focusable part stays in the dialog", asyn
   ).toBeFocused();
   await prompt(dialog).getByRole("button", { name: "Discard" }).click();
   await expect(dialog).toBeHidden();
+});
+
+test("reopening an editor keeps the leave warning for a save still in flight", async ({
+  page,
+  request,
+}, testInfo) => {
+  const gpo = await seed(request, testInfo, "reopen");
+  await selectPolicy(page, gpo);
+  await page.locator('[data-tab="links"]').click();
+  const dialog = page.locator("#link-dialog");
+  const held = [];
+  await page.route("**/api/gpos/*/links", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await new Promise((resolve) => held.push(resolve));
+    await route
+      .fulfill({
+        status: 500,
+        json: { error: { message: "Synthetic reopened save failure" } },
+      })
+      .catch(() => {});
+  });
+  const releaseAll = () => held.forEach((resolve) => resolve());
+  try {
+    await page.locator("#add-link").click();
+    await dialog.locator('[name="target"]').fill("OU=First,DC=example,DC=test");
+    await dialog.getByRole("button", { name: "Save link" }).click();
+    await expect.poll(() => held.length).toBe(1);
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await prompt(dialog).getByRole("button", { name: "Discard" }).click();
+    await expect(dialog).toBeHidden();
+
+    // A fresh editor on the same form does not end the first save.
+    await page.locator("#add-link").click();
+    await expect(dialog.locator(".form-pending")).toHaveCount(0);
+    expect(await unloadArmed(page)).toBe(true);
+    const asked = page.waitForEvent("dialog");
+    page.reload().catch(() => {});
+    const native = await asked;
+    expect(native.type()).toBe("beforeunload");
+    await native.dismiss();
+
+    // A second save settling first leaves the first one protected.
+    await dialog
+      .locator('[name="target"]')
+      .fill("OU=Second,DC=example,DC=test");
+    await dialog.getByRole("button", { name: "Save link" }).click();
+    await expect.poll(() => held.length).toBe(2);
+    held[1]();
+    await expect(dialog.locator(".form-error")).toContainText(
+      "Synthetic reopened save failure",
+    );
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    expect(await unloadArmed(page)).toBe(true);
+    held[0]();
+    await expect(page.locator("#error-message")).toContainText(
+      "Synthetic reopened save failure",
+    );
+    expect(await unloadArmed(page)).toBe(false);
+  } finally {
+    releaseAll();
+  }
+});
+
+test("RSoP and the security template warn on leaving only while open and changed", async ({
+  page,
+  request,
+}, testInfo) => {
+  const gpo = await seed(request, testInfo, "input");
+  await selectPolicy(page, gpo);
+  for (const [opener, id, field, value] of [
+    ["#open-rsop", "#rsop-dialog", "[name=topology]", '{"nodes": [1]}'],
+    [
+      "#open-security-template",
+      "#security-template-dialog",
+      "[name=families]",
+      '{"audit": {}}',
+    ],
+  ]) {
+    const dialog = page.locator(id);
+    await page.locator(opener).click();
+    expect(await unloadArmed(page)).toBe(false);
+    await dialog.locator(field).fill(value);
+    expect(await unloadArmed(page)).toBe(true);
+    const asked = page.waitForEvent("dialog");
+    page.reload().catch(() => {});
+    const native = await asked;
+    expect(native.type()).toBe("beforeunload");
+    await native.dismiss();
+    await expect(dialog.locator(field)).toHaveValue(value);
+
+    // Closing never asks, and a closed dialog is not protected.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(page.locator("[data-discard-prompt]")).toHaveCount(0);
+    expect(await unloadArmed(page)).toBe(false);
+    // Reopened with the kept input, it is unchanged until edited again.
+    await page.locator(opener).click();
+    await expect(dialog.locator(field)).toHaveValue(value);
+    expect(await unloadArmed(page)).toBe(false);
+    await dialog.locator(field).fill(`${value} `);
+    expect(await unloadArmed(page)).toBe(true);
+    await dialog
+      .locator(".dialog-head")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await expect(dialog).toBeHidden();
+    expect(await unloadArmed(page)).toBe(false);
+  }
 });

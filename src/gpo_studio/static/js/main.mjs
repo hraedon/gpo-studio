@@ -16,7 +16,7 @@ import {initScripts} from './scripts.mjs';
 import {initPublication} from './publication.mjs';
 import {initTemplates} from './templates.mjs';
 import {initRegistryRepair} from './registry-repair.mjs';
-import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,updateMutationList,mutationFailed,endMutation,isMutationPending} from './mutation-context.mjs';
+import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,updateMutationList,mutationFailed,endMutation,isMutationPending,hasMutationInFlight} from './mutation-context.mjs';
 import {captureDialogFocus,restoreDialogFocus} from './dialog-focus.mjs';
 import {createDialogGuard} from './dialog-guard.mjs';
 
@@ -97,7 +97,7 @@ function initialiseDialog(dialog){
     nativeClose(...args);
     if(closing)closingFocus.push(closing);
   };
-  const guard=createDialogGuard(dialog,{close:()=>dialog.close("cancel"),isPending:()=>Boolean(form&&isMutationPending(form))});
+  const guard=createDialogGuard(dialog,{close:()=>dialog.close("cancel"),isPending:()=>Boolean(form&&isMutationPending(form)),inFlight:()=>Boolean(form&&hasMutationInFlight(form))});
   dialog.showModal=()=>{
     if(dialog.open)return;
     pendingAnnouncement.textContent="";

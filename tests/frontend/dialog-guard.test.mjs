@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import {
   beginDialogLoad,
   createDialogGuard,
@@ -134,4 +134,34 @@ test("an unguarded dialog closes directly and has no load to hold", () => {
   requestDialogClose(dialog);
   expect(closed).toEqual(["cancel"]);
   expect(() => beginDialogLoad(dialog)()).not.toThrow();
+});
+
+test("an input dialog never asks but arms leaving while open and changed", () => {
+  vi.stubGlobal("window", { addEventListener: () => {} });
+  const field = control("TEXTAREA", { name: "topology" });
+  let saving = false;
+  const dialog = {
+    open: true,
+    hasAttribute: (name) => name === "data-guard-input",
+    querySelectorAll: () => [field],
+  };
+  const guard = createDialogGuard(dialog, {
+    close: () => {},
+    inFlight: () => saving,
+  });
+  guard.opened();
+  expect(hasUnsavedDialogEdits()).toBe(false);
+  field.value = '{"nodes": []}';
+  expect(guard.hasChanges()).toBe(true);
+  expect(guard.shouldAsk()).toBe(false);
+  expect(hasUnsavedDialogEdits()).toBe(true);
+  dialog.open = false;
+  guard.closed();
+  expect(hasUnsavedDialogEdits()).toBe(false);
+  // An unresolved save keeps leaving guarded after its dialog closed.
+  saving = true;
+  expect(hasUnsavedDialogEdits()).toBe(true);
+  saving = false;
+  expect(hasUnsavedDialogEdits()).toBe(false);
+  vi.unstubAllGlobals();
 });

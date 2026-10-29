@@ -473,7 +473,7 @@
     </form>
   </dialog>
 
-  <dialog id="rsop-dialog" class="wide" aria-labelledby="rsop-dialog-title">
+  <dialog id="rsop-dialog" data-guard-input class="wide" aria-labelledby="rsop-dialog-title">
     <form method="dialog" id="rsop-form">
       <div class="dialog-head"><div><p class="eyebrow">Resultant Set of Policy</p><h2 id="rsop-dialog-title">Predict effective policy</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <p class="rsop-note">This predicts what Windows would apply; it does not read anything from a real computer. The prediction matched a real Windows client on twelve test topologies covering LSDOU order, link order, inheritance, enforcement, security filtering (including Deny on Read), user scope and loopback. Slow-link detection and safe mode are not modelled. WMI queries are never run here.</p>
@@ -494,7 +494,7 @@
     </form>
   </dialog>
 
-  <dialog id="security-template-dialog" class="wide" aria-labelledby="security-template-dialog-title">
+  <dialog id="security-template-dialog" data-guard-input class="wide" aria-labelledby="security-template-dialog-title">
     <form method="dialog" id="security-template-form">
       <div class="dialog-head"><div><p class="eyebrow">Security settings</p><h2 id="security-template-dialog-title">Render a security template</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">&times;</button></div>
       <p class="rsop-note">This builds a <code>GptTmpl.inf</code>; it cannot read one. Both families were tested by having Windows <code>secedit</code> validate, import and export the template. <code>secedit /configure</code> was never run, so nothing here shows that Windows applies these settings. Each result lists its limits above it.</p>
