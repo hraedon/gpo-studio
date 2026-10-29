@@ -553,10 +553,14 @@ async function applyBulkState(targetState) {
       error.code === "catalogue_conflict"
         ? catalogueReviewMessage
         : error.message;
+    const changed = `${completed.length} ${completed.length === 1 ? "policy" : "policies"} changed`;
     showPersistentError(
-      completed.length
-        ? `${completed.length} ${completed.length === 1 ? "policy" : "policies"} changed before the remaining bulk change failed: ${message}`
-        : message,
+      !completed.length
+        ? message
+        : completed.length < selected.length
+          ? `${changed} before the remaining bulk change failed: ${message}`
+          : // The last chunk committed; nothing remained to fail (#145).
+            `${changed}, then the bulk change stopped: ${message}`,
     );
   } finally {
     bulkApplying = false;
