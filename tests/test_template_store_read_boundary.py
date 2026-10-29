@@ -263,9 +263,16 @@ def test_lock_attests_the_bytes_the_catalogue_was_built_from(
 
     def classify_then_swap(*args: object, **kwargs: object) -> object:
         if not swapped:
-            swapped.append(True)
-            for relative in relatives:
-                (store / relative).write_bytes((swap / relative).read_bytes())
+            try:
+                # ADML first: on Windows the handle enumeration holds shares
+                # read only, so the write is refused while that file is open
+                # (itself the property under test); swap at the next call.
+                for relative in reversed(relatives):
+                    (store / relative).write_bytes((swap / relative).read_bytes())
+            except PermissionError:
+                assert sys.platform == "win32"
+            else:
+                swapped.append(True)
         return original_classify(*args, **kwargs)  # type: ignore[arg-type]
 
     original_build = template_store.build_catalogue
