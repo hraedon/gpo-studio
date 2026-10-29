@@ -1,8 +1,10 @@
 import { expect, test } from "vitest";
 import {
+  beginDialogLoad,
   createDialogGuard,
   createEditTracker,
   hasUnsavedDialogEdits,
+  requestDialogClose,
   snapshotControls,
 } from "../../src/gpo_studio/static/js/dialog-guard.mjs";
 
@@ -124,4 +126,12 @@ test("a dialog without the editing marker gets no guard", () => {
   const dialog = { hasAttribute: () => false };
   expect(createDialogGuard(dialog, { close: () => {} })).toBeNull();
   expect(hasUnsavedDialogEdits()).toBe(false);
+});
+
+test("an unguarded dialog closes directly and has no load to hold", () => {
+  const closed = [];
+  const dialog = { close: (value) => closed.push(value) };
+  requestDialogClose(dialog);
+  expect(closed).toEqual(["cancel"]);
+  expect(() => beginDialogLoad(dialog)()).not.toThrow();
 });

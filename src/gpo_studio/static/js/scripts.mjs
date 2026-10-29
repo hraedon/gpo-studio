@@ -2,6 +2,7 @@ import { createReadScope } from "./read-context.mjs";
 import { state, $, escapeHtml, getGpoGeneration } from "./state.mjs";
 import { api, ApiError } from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
+import { requestDialogClose } from "./dialog-guard.mjs";
 import { renderLimitations } from "./rsop.mjs";
 
 // The Scripts export panel (Plan 034).
@@ -272,8 +273,11 @@ export function initScripts() {
   const dialog = $("#scripts-dialog");
   const form = $("#scripts-form");
   $("#open-scripts").onclick = openScripts;
+  // The × asks before discarding authored rows; the footer Close does not.
   form.querySelectorAll("[data-close-scripts]").forEach((button) => {
-    button.onclick = () => dialog.close();
+    button.onclick = button.closest(".dialog-head")
+      ? () => requestDialogClose(dialog)
+      : () => dialog.close();
   });
   dialog.addEventListener("close", cancelPendingPreview);
   $("#scripts-add-legacy").onclick = () => {

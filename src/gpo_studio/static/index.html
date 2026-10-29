@@ -525,7 +525,7 @@
     </form>
   </dialog>
 
-  <dialog id="scripts-dialog" class="wide" aria-labelledby="scripts-dialog-title" aria-describedby="scripts-dialog-description">
+  <dialog id="scripts-dialog" data-guard-edits class="wide" aria-labelledby="scripts-dialog-title" aria-describedby="scripts-dialog-description">
     <form id="scripts-form" novalidate>
       <div class="dialog-head"><div><p class="eyebrow">Scripts</p><h2 id="scripts-dialog-title">Export startup scripts</h2></div><button type="button" class="icon" data-close-scripts aria-label="Close">&times;</button></div>
       <p id="scripts-dialog-description" class="rsop-note">This builds a GPMC backup of the selected policy that lists computer startup scripts in <code>scripts.ini</code> and <code>psscripts.ini</code>. It carries the script names and parameters only, not the scripts themselves. Windows imported a backup like this and kept the entries; it has never run them. Shutdown, logon, logoff and user scripts are not offered because no test has covered them.</p>

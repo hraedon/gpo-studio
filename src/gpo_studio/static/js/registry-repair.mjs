@@ -1,7 +1,7 @@
 import { $, escapeHtml } from "./state.mjs";
 import { api, actionApi, toast } from "./api.mjs";
 import { createReadScope } from "./read-context.mjs";
-import { recordDialogBaseline } from "./dialog-guard.mjs";
+import { beginDialogLoad } from "./dialog-guard.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
 import { loadList, renderList } from "./render.mjs";
 import {
@@ -82,8 +82,11 @@ export async function openRegistryRepair() {
   $("#registry-repair-rows").replaceChildren();
   $("#registry-repair-omissions").textContent = "";
   dialog.showModal();
-  const target = dialog.editorTarget, session = dialog.editorSession;
-  if (!target) return;
+  // Nothing filled in until the rows load is an edit, and no control can be
+  // changed meanwhile: they are all disabled below.
+  const loaded = beginDialogLoad(dialog);
+  const target = dialog.editorTarget;
+  if (!target) { loaded(); return; }
   field("name").value = defaultRepairName(target.name);
   const read = reads.start({ report: (error) => showFormErrors(form, error) });
   const pending = read.beginPending({
@@ -104,12 +107,7 @@ export async function openRegistryRepair() {
       return `<fieldset class="registry-repair-row"><legend>Source row ${row.row + 1}</legend><pre>${escapeHtml(row.record_json)}</pre><p>Stored editor claims: ${escapeHtml(claims)}. ${escapeHtml(row.identity.warnings.join(", "))}</p><label>Choice for row ${row.row + 1}<select name="row-${row.row}" required><option value="">Choose explicitly…</option><option value="keep_raw">Keep as a raw row with a new ID</option><option value="omit">Omit from the new draft</option></select></label></fieldset>`;
     }).join("");
   } catch (error) { read.reportError(error); }
-  finally {
-    pending.finish(); read.complete();
-    // The name and rows filled in above are the starting state, not edits;
-    // every control stayed disabled while they loaded.
-    if (dialog.open && dialog.editorSession === session) recordDialogBaseline(dialog);
-  }
+  finally { pending.finish(); read.complete(); loaded(); }
 }
 
 async function previewChoices(event) {

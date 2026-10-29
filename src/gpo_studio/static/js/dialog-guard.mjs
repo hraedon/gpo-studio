@@ -85,16 +85,34 @@ export function recordDialogBaseline(dialog) {
   guards.get(dialog)?.record();
 }
 
+// While a dialog fills itself (its controls disabled), nothing counts as a
+// change. The returned function ends the load and records the filled state as
+// the baseline; it does nothing once the dialog has been closed or reopened.
+export function beginDialogLoad(dialog) {
+  return guards.get(dialog)?.beginLoad() ?? (() => {});
+}
+
+// Close as the × button does: ask first if the dialog has changes.
+export function requestDialogClose(dialog) {
+  const guard = guards.get(dialog);
+  if (guard?.shouldAsk()) guard.ask();
+  else dialog.close("cancel");
+}
+
+// Armed while an open editing dialog has changes, and while a save from one is
+// still in flight (even after its dialog was closed): leaving could lose it.
 export function hasUnsavedDialogEdits() {
-  return [...guards.values()].some((guard) => guard.hasChanges());
+  return [...guards.values()].some(
+    (guard) => guard.hasChanges() || guard.savePending(),
+  );
 }
 
 let unloadGuardInstalled = false;
 function installUnloadGuard() {
   if (unloadGuardInstalled) return;
   unloadGuardInstalled = true;
-  // The handler stays registered but only asks while an open editing dialog
-  // has changes; otherwise the page unloads without a prompt.
+  // The handler stays registered but only asks while hasUnsavedDialogEdits();
+  // otherwise the page unloads without a prompt.
   window.addEventListener("beforeunload", (event) => {
     if (!hasUnsavedDialogEdits()) return;
     event.preventDefault();
@@ -104,7 +122,7 @@ function installUnloadGuard() {
 
 // The prompt exists only while it is asking, so an idle dialog's controls are
 // exactly the ones it had before this guard.
-function buildPrompt(dialog) {
+function buildPrompt(dialog, saving) {
   const overlay = document.createElement("div");
   overlay.className = "discard-prompt";
   overlay.dataset.discardPrompt = "";
@@ -117,7 +135,9 @@ function buildPrompt(dialog) {
   title.textContent = "Discard your changes?";
   const description = document.createElement("p");
   description.id = `${dialog.id}-discard-description`;
-  description.textContent = "Your changes in this dialog have not been saved.";
+  description.textContent = saving
+    ? "Your changes are still being saved. If the save fails, they will be lost."
+    : "Your changes in this dialog have not been saved.";
   panel.setAttribute("aria-labelledby", title.id);
   panel.setAttribute("aria-describedby", description.id);
   const actions = document.createElement("div");
@@ -136,6 +156,7 @@ function buildPrompt(dialog) {
 
 // Returns null for a dialog without the marker. `close` must be the dialog's
 // own (wrapped) close so focus returns to the opener as for any other close.
+// `isPending` reports a save from this dialog that has not resolved yet.
 export function createDialogGuard(dialog, { close, isPending = () => false }) {
   if (!dialog.hasAttribute("data-guard-edits")) return null;
   installUnloadGuard();
@@ -143,7 +164,8 @@ export function createDialogGuard(dialog, { close, isPending = () => false }) {
     dialog.querySelectorAll("input,select,textarea"),
   );
   let prompt = null,
-    returnFocus = null;
+    returnFocus = null,
+    load = null;
 
   function hidePrompt() {
     if (!prompt) return;
@@ -183,15 +205,27 @@ export function createDialogGuard(dialog, { close, isPending = () => false }) {
       tracker.record();
     },
     hasChanges() {
-      return dialog.open && tracker.changed();
+      return dialog.open && load === null && tracker.changed();
+    },
+    savePending() {
+      return isPending();
     },
     promptOpen() {
       return dialog.open && prompt !== null;
     },
-    // A save already in flight keeps running when its dialog closes, so
-    // closing then is not a discard.
+    // A save in flight still asks: if it fails, closing would have lost the
+    // values the form keeps for a retry.
     shouldAsk() {
-      return guard.hasChanges() && !isPending();
+      return guard.hasChanges();
+    },
+    beginLoad() {
+      const token = {};
+      load = token;
+      return () => {
+        if (load !== token) return;
+        load = null;
+        if (dialog.open) tracker.record();
+      };
     },
     ask() {
       if (prompt) return;
@@ -201,7 +235,7 @@ export function createDialogGuard(dialog, { close, isPending = () => false }) {
       const content = [...dialog.children].filter(
         (child) => !child.matches("[data-pending-announcement]"),
       );
-      prompt = { ...buildPrompt(dialog), content };
+      prompt = { ...buildPrompt(dialog, isPending()), content };
       prompt.keep.addEventListener("click", keepEditing);
       prompt.discard.addEventListener("click", discardChanges);
       content.forEach((child) => {
@@ -213,6 +247,7 @@ export function createDialogGuard(dialog, { close, isPending = () => false }) {
     keepEditing,
     opened() {
       returnFocus = null;
+      load = null;
       hidePrompt();
       tracker.record();
     },
@@ -220,6 +255,7 @@ export function createDialogGuard(dialog, { close, isPending = () => false }) {
     closed() {
       if (dialog.open) return;
       returnFocus = null;
+      load = null;
       hidePrompt();
       tracker.clear();
     },

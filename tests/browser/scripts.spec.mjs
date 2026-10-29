@@ -204,7 +204,17 @@ test("works from the keyboard: add, reorder, remove, close", async ({
       .getByLabel("Command"),
   ).toBeFocused();
 
+  // The authored row is a change, so Esc asks; Discard is reached by keyboard.
   await page.keyboard.press("Escape");
+  const discard = page
+    .locator("#scripts-dialog")
+    .getByRole("alertdialog", { name: "Discard your changes?" });
+  await expect(
+    discard.getByRole("button", { name: "Keep editing" }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(discard.getByRole("button", { name: "Discard" })).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(page.locator("#scripts-dialog")).not.toBeVisible();
   await expect(opener).toBeFocused();
 });

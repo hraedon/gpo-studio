@@ -43,17 +43,22 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 - **Editing dialogs ask before Esc or × discards a change** (#140). After a
   field is changed, or a row is added, removed or reordered, closing one of the
-  sixteen editing dialogs with Esc or its × button asks "Discard your
+  seventeen editing dialogs with Esc or its × button asks "Discard your
   changes?". **Keep editing** is focused and returns to the dialog with nothing
   lost; Esc in the prompt means Keep editing. **Discard** closes the dialog as
-  before. An unchanged dialog closes at once. The Cancel button still discards
-  without asking, saving never asks, and Esc or × while a save is in flight
-  closes without asking, because the save keeps running. Dialogs that edit
-  nothing close freely: RSoP, the security template, Folder Redirection,
-  scripts and publication previews, export review, the starter and WMI filter
-  catalogues, the ADMX folder dialog and the revision-conflict review. While an
-  editing dialog has changes, leaving or reloading the page shows the browser's
-  own "Leave site?" warning.
+  before. An unchanged dialog closes at once, including registry-only recovery
+  while its rows are still loading. The Cancel button (and the Scripts footer's
+  Close) still discards without asking, and saving never asks. Esc or × while a
+  save is in flight asks too, since a failed save keeps the values for a retry.
+  The editing dialogs are those that change the workspace, plus Scripts, whose
+  rows are cleared when it reopens. Dialogs that edit nothing, or keep their
+  input when closed, close freely: RSoP, the security template, Folder
+  Redirection, the publication preview, export review, the starter and WMI
+  filter catalogues, the ADMX folder dialog and the revision-conflict review.
+  While an editing dialog has changes, or a save from one is still in flight,
+  leaving or reloading the page shows the browser's own "Leave site?" warning.
+  Shift+Tab after clicking a non-focusable part of a dialog now stays in the
+  dialog instead of moving focus to the page behind it.
 
 - Clear errors for malformed or out-of-contract input (#140):
   - Reconfiguring a policy beside a row whose side was edited reports

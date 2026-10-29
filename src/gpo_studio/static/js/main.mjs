@@ -146,8 +146,11 @@ function initialiseDialog(dialog){
     if(event.key!=="Tab")return;
     const focusable=focusableElements(dialog);
     if(!focusable.length){event.preventDefault();dialog.focus();return}
-    const first=focusable[0],last=focusable[focusable.length-1];
-    if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
+    const first=focusable[0],last=focusable[focusable.length-1],active=document.activeElement;
+    // A click on a non-focusable part focuses the <dialog> itself; from there
+    // (or from inert content behind the discard prompt) wrap, not escape.
+    if(active===dialog||active?.closest?.("[inert]")){event.preventDefault();(event.shiftKey?last:first).focus()}
+    else if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
     else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
     else if(!dialog.contains(document.activeElement)){event.preventDefault();first.focus()}
   });

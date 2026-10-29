@@ -208,6 +208,23 @@ test("dialogs that edit nothing close freely after input", async ({
   await rsop.locator("[name=computer_name]").fill("LABCL02");
   await rsop.getByRole("button", { name: "Close" }).first().click();
   await expect(rsop).toBeHidden();
+  // RSoP and the security template keep their input across a close, so
+  // closing them loses nothing and they are not guarded.
+  await page.locator("#open-rsop").click();
+  await expect(rsop.locator("[name=computer_name]")).toHaveValue("LABCL02");
+  await page.keyboard.press("Escape");
+  await expect(rsop).toBeHidden();
+  const template = page.locator("#security-template-dialog");
+  await page.locator("#open-security-template").click();
+  await template.locator("[name=families]").fill('{"audit": {}}');
+  await page.keyboard.press("Escape");
+  await expect(template).toBeHidden();
+  await page.locator("#open-security-template").click();
+  await expect(template.locator("[name=families]")).toHaveValue(
+    '{"audit": {}}',
+  );
+  await page.keyboard.press("Escape");
+  await expect(template).toBeHidden();
 
   const review = page.locator("#export-review-dialog");
   await page.locator("#export").click();
@@ -338,4 +355,189 @@ test("dialogs filled after opening start from their filled state", async ({
       [...document.querySelectorAll("dialog[open]")].map((d) => d.id),
     ),
   ).toEqual([]);
+});
+
+test("Scripts asks before × or Esc discards authored rows", async ({
+  page,
+  request,
+}, testInfo) => {
+  const gpo = await seed(request, testInfo, "scripts");
+  await selectPolicy(page, gpo);
+  const opener = page.getByRole("button", { name: "Scripts", exact: true });
+  const dialog = page.locator("#scripts-dialog");
+  const close = dialog.locator(".dialog-head").getByRole("button", {
+    name: "Close",
+  });
+  const rows = dialog.locator("#scripts-legacy-rows > li.script-row");
+
+  await opener.click();
+  await close.click();
+  await expect(dialog).toBeHidden();
+
+  await opener.click();
+  await dialog.getByRole("button", { name: "Add startup script" }).click();
+  await rows.first().getByLabel("Command").fill("synthetic.cmd");
+  expect(await unloadArmed(page)).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(prompt(dialog)).toBeVisible();
+  await prompt(dialog).getByRole("button", { name: "Keep editing" }).click();
+  await close.click();
+  await expect(prompt(dialog)).toBeVisible();
+  await prompt(dialog).getByRole("button", { name: "Discard" }).click();
+  await expect(dialog).toBeHidden();
+  // Reopening starts from no rows, so a close really discards them.
+  await opener.click();
+  await expect(rows).toHaveCount(0);
+
+  // The footer Close is the deliberate dismissal, like Cancel.
+  await dialog.getByRole("button", { name: "Add startup script" }).click();
+  await dialog
+    .locator(".dialog-actions")
+    .getByRole("button", { name: "Close" })
+    .click();
+  await expect(dialog).toBeHidden();
+  await expect(prompt(dialog)).toHaveCount(0);
+});
+
+test("registry recovery is not changed while its rows load", async ({
+  page,
+  request,
+}, testInfo) => {
+  const gpo = await seed(request, testInfo, "loading");
+  await selectPolicy(page, gpo);
+  let release = () => {};
+  await page.route(`**/api/gpos/${gpo.guid}/registry-repair`, async (route) => {
+    await new Promise((resolve) => {
+      release = resolve;
+    });
+    await route.continue().catch(() => {});
+  });
+  const repair = page.locator("#registry-repair-dialog");
+  const source = repair.locator("#registry-repair-source");
+  try {
+    for (const close of ["Escape", "×"]) {
+      await page.locator("#repair-registry").click();
+      await expect(source).toHaveText("Loading source…");
+      await expect(repair.locator('[name="name"]')).toHaveValue(
+        /registry recovery/,
+      );
+      expect(await unloadArmed(page)).toBe(false);
+      if (close === "Escape") await page.keyboard.press("Escape");
+      else
+        await repair
+          .getByRole("button", { name: "Close", exact: true })
+          .click();
+      await expect(repair).toBeHidden();
+      await expect(prompt(repair)).toHaveCount(0);
+      release();
+    }
+
+    // Once loaded, the filled name and rows are still the starting state.
+    await page.locator("#repair-registry").click();
+    await expect(source).toHaveText("Loading source…");
+    release();
+    await expect(source).toContainText("0 registry rows");
+    expect(await unloadArmed(page)).toBe(false);
+    await page.keyboard.press("Escape");
+    await expect(repair).toBeHidden();
+  } finally {
+    release();
+  }
+});
+
+test("a change still asks while its save is in flight, and survives a failed save", async ({
+  page,
+  request,
+}, testInfo) => {
+  const gpo = await seed(request, testInfo, "pending");
+  await selectPolicy(page, gpo);
+  await page.locator('[data-tab="links"]').click();
+  const dialog = page.locator("#link-dialog");
+  const target = dialog.locator('[name="target"]');
+  let release = () => {};
+  await page.route("**/api/gpos/*/links", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await new Promise((resolve) => {
+      release = resolve;
+    });
+    await route
+      .fulfill({
+        status: 500,
+        json: { error: { message: "Synthetic held save failure" } },
+      })
+      .catch(() => {});
+  });
+  try {
+    await page.locator("#add-link").click();
+    await target.fill("OU=Held,DC=example,DC=test");
+    await dialog.getByRole("button", { name: "Save link" }).click();
+    await expect(dialog.locator(".form-pending")).toBeVisible();
+    expect(await unloadArmed(page)).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(prompt(dialog)).toBeVisible();
+    await expect(prompt(dialog)).toHaveAccessibleDescription(
+      "Your changes are still being saved. If the save fails, they will be lost.",
+    );
+    await prompt(dialog).getByRole("button", { name: "Keep editing" }).click();
+    release();
+    await expect(dialog.locator(".form-error")).toContainText(
+      "Synthetic held save failure",
+    );
+    await expect(dialog).toBeVisible();
+    await expect(target).toHaveValue("OU=Held,DC=example,DC=test");
+    expect(await unloadArmed(page)).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(prompt(dialog)).toBeVisible();
+
+    // Discard while a save is in flight closes; leaving stays guarded until
+    // that save resolves.
+    await prompt(dialog).getByRole("button", { name: "Keep editing" }).click();
+    await dialog.getByRole("button", { name: "Save link" }).click();
+    await expect(dialog.locator(".form-pending")).toBeVisible();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await prompt(dialog).getByRole("button", { name: "Discard" }).click();
+    await expect(dialog).toBeHidden();
+    expect(await unloadArmed(page)).toBe(true);
+    release();
+    await expect(page.locator("#error-message")).toContainText(
+      "Synthetic held save failure",
+    );
+    expect(await unloadArmed(page)).toBe(false);
+  } finally {
+    release();
+  }
+});
+
+test("Shift+Tab after a click on a non-focusable part stays in the dialog", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const dialog = page.locator("#gpo-dialog");
+  const inDialog = () =>
+    page.evaluate(() =>
+      document.getElementById("gpo-dialog").contains(document.activeElement),
+    );
+  await page.locator("#new-gpo").click();
+  await dialog.locator("#gpo-dialog-title").click();
+  await page.keyboard.press("Shift+Tab");
+  expect(await inDialog()).toBe(true);
+  await expect(
+    dialog.locator(".dialog-actions").getByRole("button", {
+      name: "Create policy",
+    }),
+  ).toBeFocused();
+
+  await dialog.locator('[name="name"]').fill("Synthetic trap");
+  await page.keyboard.press("Escape");
+  await prompt(dialog).locator("h3").click();
+  await page.keyboard.press("Shift+Tab");
+  await expect(
+    prompt(dialog).getByRole("button", { name: "Discard" }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    prompt(dialog).getByRole("button", { name: "Keep editing" }),
+  ).toBeFocused();
+  await prompt(dialog).getByRole("button", { name: "Discard" }).click();
+  await expect(dialog).toBeHidden();
 });
