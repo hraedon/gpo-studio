@@ -76,6 +76,10 @@ for (const theme of ["light", "dark"]) {
         await expect(dialog.locator(".dialog-head button")).toBeInViewport();
         await expect(dialog.locator(".dialog-actions")).toBeInViewport();
         await page.keyboard.press("Escape");
+        // The added rows are a change, so Esc asks before discarding them.
+        if (selector === "#gpp-group-dialog")
+          await dialog.getByRole("button", { name: "Discard" }).click();
+        await expect(dialog).toBeHidden();
       }
       // Result/status regions that used to follow the footer must now scroll
       // with the body instead of creating extra grid rows.
@@ -121,6 +125,8 @@ test("labels configuration checkboxes and retains help through field-error recov
     metadataAxe.violations.filter((issue) => issue.id === "label"),
   ).toEqual([]);
   await page.keyboard.press("Escape");
+  await metadata.getByRole("button", { name: "Discard" }).click();
+  await expect(metadata).toBeHidden();
   await page.locator('[data-tab="security"]').click();
   await page.locator("#add-filter").click();
   const dialog = page.locator("#filter-dialog");

@@ -11,6 +11,11 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Changed
 
+- Development dependency: vitest and its `@vitest/*` packages move from
+  4.1.11 to 4.1.12, which clears two moderate `npm audit` advisories in
+  `@vitest/mocker` (GHSA-qxg6-89mg-rqv8, GHSA-xp26-3454-mjgp) (#140). Only the
+  frontend unit tests use it; the shipped application does not depend on Node.
+
 - The native backup export writes the **measured user-side Scripts tool GUID**
   (`{40B66650-4972-11D1-A7CA-0000F87571E3}`) in `UserExtensionGuids` instead of
   reusing the machine side's `{40B6664F-…}` (Plan 035 WP-1, estate window 19 —
@@ -35,6 +40,27 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   them into a fresh draft before reconfiguring.
 
 ### Fixed
+
+- **Editing dialogs ask before Esc or × discards a change** (#140). After a
+  field is changed, or a row is added, removed or reordered, closing one of the
+  seventeen editing dialogs with Esc or its × button asks "Discard your
+  changes?". **Keep editing** is focused and returns to the dialog with nothing
+  lost; Esc in the prompt means Keep editing. **Discard** closes the dialog as
+  before. An unchanged dialog closes at once, including registry-only recovery
+  while its rows are still loading. The Cancel button (and the Scripts footer's
+  Close) still discards without asking, and saving never asks. Esc or × while a
+  save is in flight asks too, since a failed save keeps the values for a retry.
+  The editing dialogs are those that change the workspace, plus Scripts, whose
+  rows are cleared when it reopens. Dialogs that edit nothing, or keep their
+  input when closed, close freely: RSoP, the security template, Folder
+  Redirection, the publication preview, export review, the starter and WMI
+  filter catalogues, the ADMX folder dialog and the revision-conflict review.
+  While an editing dialog has changes, or a save from one is still in flight
+  (even after its editor was closed or reopened), leaving or reloading the page
+  shows the browser's own "Leave site?" warning. So does an open RSoP or
+  security-template dialog whose input changed since it opened.
+  Shift+Tab after clicking a non-focusable part of a dialog now stays in the
+  dialog instead of moving focus to the page behind it.
 
 - Clear errors for malformed or out-of-contract input (#140):
   - Reconfiguring a policy beside a row whose side was edited reports
