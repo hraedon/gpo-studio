@@ -80,6 +80,12 @@ _VALID_ROLES: frozenset[str] = frozenset({"DC", "member-server", "client"})
 _VALID_CONTENT: frozenset[str] = frozenset({"in-repo", "hash-reference", "excluded"})
 
 
+def _is_one_of(value: object, valid: frozenset[str]) -> bool:
+    # A list or object is unhashable: test the type before membership, so it is
+    # refused as a PackError instead of raising TypeError.
+    return isinstance(value, str) and value in valid
+
+
 class PackError(ValueError):
     """Raised when an evidence pack fails schema or invariant validation."""
 
@@ -227,7 +233,7 @@ def _parse_content_item(raw: object) -> ContentItem:
     data = _as_mapping(raw, "content item")
     content_id = _required_str(data, "content_id", "content item content_id")
     classification = data.get("classification")
-    if classification not in _VALID_CONTENT:
+    if not _is_one_of(classification, _VALID_CONTENT):
         raise PackError(
             f"content item {content_id!r} has invalid classification {classification!r}"
         )
@@ -274,7 +280,7 @@ def _require_content_field(
 def _parse_estate(raw: object) -> Estate:
     data = _as_mapping(raw, "estate")
     role = data.get("role")
-    if role not in _VALID_ROLES:
+    if not _is_one_of(role, _VALID_ROLES):
         raise PackError(f"estate role {role!r} is not one of {sorted(_VALID_ROLES)}")
     return Estate(
         os=_required_str(data, "os", "estate.os"),
@@ -295,21 +301,21 @@ def _parse_record(raw: object) -> EvidenceRecord:
     classification = data.get("classification")
     evidence_kind = data.get("evidence_kind")
     side = data.get("side")
-    if outcome not in _VALID_OUTCOMES:
+    if not _is_one_of(outcome, _VALID_OUTCOMES):
         raise PackError(
             f"record {capability!r} outcome {outcome!r} is not one of "
             f"{sorted(_VALID_OUTCOMES)}"
         )
-    if classification not in _VALID_CLASSIFICATIONS:
+    if not _is_one_of(classification, _VALID_CLASSIFICATIONS):
         raise PackError(
             f"record {capability!r} classification {classification!r} is invalid"
         )
-    if evidence_kind not in _VALID_KINDS:
+    if not _is_one_of(evidence_kind, _VALID_KINDS):
         raise PackError(
             f"record {capability!r} evidence_kind {evidence_kind!r} is not "
             f"one of {sorted(_VALID_KINDS)}"
         )
-    if side not in _VALID_SIDES:
+    if not _is_one_of(side, _VALID_SIDES):
         raise PackError(f"record {capability!r} side {side!r} is invalid")
     cse_guid = data.get("cse_guid")
     if cse_guid is not None and not isinstance(cse_guid, str):

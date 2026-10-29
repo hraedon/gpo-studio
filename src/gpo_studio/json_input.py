@@ -53,19 +53,19 @@ def _int(text: str) -> int:
 
 
 def _deeper_than(value: object, limit: int) -> bool:
-    # Iterative, so measuring the depth cannot itself recurse too deeply.
-    stack = [(value, 0)]
+    # Iterative, so measuring the depth cannot itself recurse too deeply. Only
+    # containers are pushed: a wide array of scalars costs no extra memory.
+    stack: list[tuple[dict[str, object] | list[object], int]] = []
+    if isinstance(value, dict | list):
+        stack.append((value, 0))
     while stack:
         item, depth = stack.pop()
-        if isinstance(item, dict):
-            children = list(item.values())
-        elif isinstance(item, list):
-            children = item
-        else:
-            continue
         if depth >= limit:
             return True
-        stack.extend((child, depth + 1) for child in children)
+        children = item.values() if isinstance(item, dict) else item
+        stack.extend(
+            (child, depth + 1) for child in children if isinstance(child, dict | list)
+        )
     return False
 
 

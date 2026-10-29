@@ -2303,25 +2303,59 @@ class _UntrustedJsonRequest(Request):
     int-string limit, nesting deep enough to raise ``RecursionError``, bytes
     that are not text) became a generic 400, and nesting that parsed but was
     too deep for the text check below became a 500.
+
+    ``NaN``, ``Infinity`` and overflowing floats are kept only for a body
+    whose schema types every value, so validation reports them as field
+    errors. A body that admits ``Any`` (the discovery imports) would hand them
+    to code that does ``int(inf)``, or store them where no response can render
+    them, so for such a route they are refused here.
     """
+
+    allow_non_finite = True
 
     async def json(self) -> Any:
         if not hasattr(self, "_json"):
             try:
                 self._json = loads_untrusted(
-                    await self.body(), allow_non_finite=True, max_depth=_MAX_REQUEST_JSON_DEPTH
+                    await self.body(),
+                    allow_non_finite=self.allow_non_finite,
+                    max_depth=_MAX_REQUEST_JSON_DEPTH,
                 )
             except JsonInputError as error:
                 raise json.JSONDecodeError(error.reason, "", error.pos or 0) from None
         return self._json
 
 
+class _FiniteJsonRequest(_UntrustedJsonRequest):
+    allow_non_finite = False
+
+
+def _admits_any(annotation: object, seen: set[type[BaseModel]] | None = None) -> bool:
+    """Whether a body annotation lets an untyped JSON value through validation."""
+    if annotation is Any or annotation is object:
+        return True
+    seen = set() if seen is None else seen
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation in seen:
+            return False
+        seen.add(annotation)
+        return any(
+            _admits_any(field.annotation, seen) for field in annotation.model_fields.values()
+        )
+    return any(_admits_any(argument, seen) for argument in get_args(annotation))
+
+
 class _UntrustedJsonRoute(APIRoute):
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         handler = super().get_route_handler()
+        request_class = (
+            _FiniteJsonRequest
+            if any(_admits_any(field.field_info.annotation) for field in self.dependant.body_params)
+            else _UntrustedJsonRequest
+        )
 
         async def untrusted_json_handler(request: Request) -> Response:
-            return await handler(_UntrustedJsonRequest(request.scope, request.receive))
+            return await handler(request_class(request.scope, request.receive))
 
         return untrusted_json_handler
 

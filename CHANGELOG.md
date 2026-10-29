@@ -134,7 +134,10 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   disable for 1,220; `NeedEdgeBrowser` is the one Indeterminate. The other
   40 have only list elements, for which disabling writes no row at all, so
   there is nothing to read back (unchanged). A disabled policy also no longer
-  shows its element deletes as values (`""`, `0`, `False` or `[""]`).
+  shows its element deletes as values (`""`, `0`, `False` or `[""]`). A list
+  item whose legacy ordinal cannot be ordered still counts as a value write,
+  and a disable's delete for an element the template has since renamed or
+  removed makes the state Indeterminate rather than Enabled.
 
 - The settings browser reads every row bound to an element (#146). It decoded
   only the first, so a second row for the same element was invisible. When a
@@ -161,7 +164,13 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   request text check could walk (about 1,000 levels) returned a 500. All now
   return the normal 422 `json_invalid` response, and request bodies may nest
   at most 100 arrays and objects. `NaN` and `Infinity` in a request body are
-  still reported as field errors, as before.
+  still reported as field errors where the request model types the field
+  (no request model has a float field). A body that admits any JSON value —
+  the six discovery imports, `/api/diff` and `/api/estate/import` — now
+  refuses them as `json_invalid`: an OU link `order` of `1e400` reached
+  `int(inf)` and returned a 500. An evidence pack whose outcome,
+  classification, evidence kind, side or role is a list or object is refused
+  with `PackError` instead of raising `TypeError`.
   - A bulk policy-state change interrupted after its last chunk had committed
     reported "N policies changed before the remaining bulk change failed",
     although nothing remained. It now says "N policies changed, then the bulk

@@ -11,13 +11,20 @@ request text check but not the parser.
 from __future__ import annotations
 
 import json
+import re
+import tracemalloc
 from collections.abc import Callable, Iterator
 from contextlib import closing
 from pathlib import Path
+from typing import get_args
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
+from gpo_studio import api as api_module
+from gpo_studio import json_input
 from gpo_studio.api import app
 from gpo_studio.evidence import PackError, load_pack
 from gpo_studio.json_input import JsonInputError, loads_untrusted
@@ -174,3 +181,119 @@ def test_request_bodies_nested_within_the_limit_still_reach_validation(
     assert (issue["type"], issue["loc"]) == ("string_type", ["body", "description"])
     created = client.post("/api/gpos", json={"name": "Synthetic valid"})
     assert created.status_code == 201, created.text
+
+
+# --- non-finite numbers cannot reach a handler (#148 review) ----------------
+
+NON_FINITE = ["NaN", "Infinity", "-Infinity", "1e400", "-1e400"]
+DISCOVERY_OU = (
+    '{"kind":"gpo-studio-discovery-ous","ous":[{"name":"Synthetic",'
+    '"distinguished_name":"OU=Synthetic,DC=example,DC=test",'
+    '"gpo_links":[{"id":"x","target":"x","order":%s}]}]}'
+)
+
+
+def _mutation_routes() -> list[tuple[str, APIRoute]]:
+    return [
+        (method, route)
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.dependant.body_params
+        for method in sorted(route.methods & {"POST", "PUT", "PATCH", "DELETE"})
+    ]
+
+
+def _admits_float(annotation: object, seen: set[type] | None = None) -> bool:
+    if annotation is float:
+        return True
+    seen = set() if seen is None else seen
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation in seen:
+            return False
+        seen.add(annotation)
+        return any(_admits_float(f.annotation, seen) for f in annotation.model_fields.values())
+    return any(_admits_float(argument, seen) for argument in get_args(annotation))
+
+
+def test_every_body_either_refuses_non_finite_numbers_or_cannot_hold_them() -> None:
+    """A typed body has no float field, so validation refuses NaN and Infinity.
+
+    Any other body admits ``Any`` and is parsed with non-finite numbers refused.
+    """
+    untyped = set()
+    for _method, route in _mutation_routes():
+        annotations = [field.field_info.annotation for field in route.dependant.body_params]
+        if any(api_module._admits_any(annotation) for annotation in annotations):
+            untyped.add(route.path)
+        else:
+            assert not any(_admits_float(annotation) for annotation in annotations), route.path
+    assert {path for path in untyped if path.startswith("/api/discovery/")} == {
+        f"/api/discovery/{kind}"
+        for kind in ("forest", "domain", "sites", "ous", "gpos", "principals")
+    }
+
+
+@pytest.mark.parametrize("token", NON_FINITE)
+def test_discovery_import_refuses_non_finite_numbers(client: TestClient, token: str) -> None:
+    # Before: int(inf) raised OverflowError (int(nan) ValueError) -> 500.
+    response = client.post(
+        "/api/discovery/ous",
+        content=DISCOVERY_OU % token,
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 422, response.text
+    (issue,) = response.json()["error"]["issues"]
+    assert issue["type"] == "json_invalid"
+    ok = client.post(
+        "/api/discovery/ous",
+        content=DISCOVERY_OU % "1",
+        headers={"Content-Type": "application/json"},
+    )
+    assert ok.status_code == 200, ok.text
+
+
+@pytest.mark.parametrize("token", NON_FINITE)
+def test_no_route_answers_non_finite_numbers_with_a_server_error(
+    client: TestClient, token: str
+) -> None:
+    guid = client.post("/api/gpos", json={"name": "Synthetic sweep"}).json()["gpo"]["guid"]
+    failures = []
+    for method, route in _mutation_routes():
+        url = re.sub(r"\{[^}]+\}", "x", route.path.replace("{guid}", guid))
+        names = [
+            name
+            for field in route.dependant.body_params
+            for name in (
+                field.field_info.annotation.model_fields
+                if isinstance(field.field_info.annotation, type)
+                and issubclass(field.field_info.annotation, BaseModel)
+                else [field.name]
+            )
+        ]
+        bodies = [
+            "{" + ",".join(f'"{name}":{token}' for name in names) + "}",
+            "{" + ",".join(f'"{name}":[{token}]' for name in names) + "}",
+            "{" + ",".join(f'"{name}":{{"k":{token}}}' for name in names) + "}",
+            token,
+            DISCOVERY_OU % token,
+        ]
+        for body in bodies:
+            response = client.request(
+                method, url, content=body, headers={"Content-Type": "application/json"}
+            )
+            if response.status_code >= 500:
+                failures.append((method, route.path, body[:60], response.status_code))
+    assert failures == []
+
+
+def test_measuring_depth_does_not_copy_a_wide_array_of_scalars() -> None:
+    # #148 review: every scalar was pushed as a (child, depth) tuple, so a
+    # 10 MB array of zeros cost hundreds of megabytes to measure.
+    wide = [0] * 1_000_000
+    tracemalloc.start()
+    try:
+        assert not json_input._deeper_than(wide, 100)
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 1_000_000
+    assert json_input._deeper_than([[0]] * 3 + [[[[0]]]], 3)
