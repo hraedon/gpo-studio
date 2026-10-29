@@ -203,6 +203,16 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   2,147,483,647 (`"NaN"`, `null`, `[]` or `{}` returned a 500, and `"7"` or
   `7.9` were coerced), and link `enabled`/`enforced` and trust `transitive`
   must be JSON booleans (`"false"` read as true).
+- The generated discovery scripts now print what their importers accept;
+  a test runs each one under `pwsh` with stand-in directory objects and
+  imports its output. The forest script read `Transitive`, a property no
+  .NET trust type has, so every trust printed `null`; it now derives
+  transitivity from the trust type (parent-child, tree-root, shortcut and
+  forest trusts are transitive, external trusts are not) and stops on a
+  trust type that does not decide it. The domain script assigned the domain
+  object to its `[string]` `$Domain` parameter, which turned it back into its
+  name, so the script failed before printing anything. The principal search
+  printed a single SID-history value as a string instead of a list.
 - A discovery import is now committed. Its cache write opened a transaction
   that was never committed, so the cache was lost when the workspace closed,
   and the next change to the workspace failed and marked it degraded: every
