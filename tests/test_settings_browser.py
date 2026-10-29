@@ -1207,16 +1207,40 @@ def test_enum_delete_beside_an_indeterminate_state_is_reported(has_delete_item: 
 
 
 def test_disabled_element_delete_is_never_read_as_the_delete_item() -> None:
-    # Pins the disabled-element guard in _decode_enum on its own: this
-    # child-only policy is (wrongly, #147) observed as enabled, so only that
-    # guard keeps the disable's delete from reading as the "None" choice.
     policy = _delete_item_enum()
     rows = resolve_policy(policy, PolicyConfiguration("computer", {}, state="disabled"))
     (row,) = rows
     assert row.action == "delete" and "disabled-element" in row.id
     result = build_settings_browser(_catalogue(policies=(policy,)), rows)
-    assert [group.element_values for group in result.resolved] == [{}]
+    # Before #147 this child-only policy was observed as enabled.
+    assert [(group.state, group.element_values) for group in result.resolved] == [
+        ("disabled", {})
+    ]
     assert result.unresolved == ()
+
+
+def test_disable_delete_in_an_enabled_policy_is_flagged_not_selected() -> None:
+    # Pins the disabled-element guard on its own: the state row says enabled,
+    # so only the row's identity keeps the disable's delete from reading as
+    # the "None" choice. Before #147 the row was silently dropped.
+    policy = _with_state(_delete_item_enum())
+    (disable,) = [
+        row for row in resolve_policy(policy, PolicyConfiguration("computer", {}, state="disabled"))
+        if row.value_name == "TestValue"
+    ]
+    result = build_settings_browser(
+        _catalogue(policies=(policy,)), [_state_row(policy, 1), disable]
+    )
+    assert [(group.state, group.element_values) for group in result.resolved] == [
+        ("enabled", {})
+    ]
+    assert [(u.setting, u.reason) for u in result.unresolved] == [
+        (
+            disable,
+            "element value was deleted by disabling the policy, but the policy is "
+            "observed as enabled",
+        )
+    ]
 
 
 @pytest.mark.parametrize("has_delete_item", [True, False])
@@ -1260,3 +1284,114 @@ def test_enum_match_needs_registry_and_python_types(
     result = build_settings_browser(_catalogue(policies=(policy,)), [row])
     assert result.resolved[0].element_values == {}
     assert [(u.setting, u.reason) for u in result.unresolved] == [(row, reason)]
+
+
+# --- issue #146: every row bound to an element is read -----------------------
+
+_SCALARS: dict[str, tuple[PolicyElement, Any, Any]] = {
+    "boolean": (PolicyElement(kind="boolean", id="Mode", registry_value_name="TestValue"), True, 0),
+    "decimal": (PolicyElement(kind="decimal", id="Mode", registry_value_name="TestValue"), 7, 8),
+    "text": (PolicyElement(kind="text", id="Mode", registry_value_name="TestValue"), "a", "b"),
+    "multitext": (
+        PolicyElement(kind="multitext", id="Mode", registry_value_name="TestValue"),
+        ["a"], ["b"],
+    ),
+    "enum": (_dword_enum_policy().elements[0], "1", 2),
+}
+
+
+@pytest.mark.parametrize("kind", _SCALARS)
+@pytest.mark.parametrize("state", [False, True], ids=["child-only", "with-state"])
+def test_a_second_row_bound_to_a_single_value_element_is_flagged(kind: str, state: bool) -> None:
+    """Issue #146: only the first bound row was read; the second was invisible."""
+    element, chosen, other = _SCALARS[kind]
+    policy = _policy(elements=(element,))
+    if state:
+        policy = _with_state(policy)
+    rows = resolve_policy(policy, PolicyConfiguration("computer", {"Mode": chosen}))
+    (child,) = [row for row in rows if row.value_name == "TestValue"]
+    # A second row the element binds by address: an imported, mistyped copy.
+    second = replace(child, id="imported-computer-1", registry_type="REG_SZ", value=str(other))
+    for order in ([*rows, second], [second, *rows]):
+        result = build_settings_browser(_catalogue(policies=(policy,)), order)
+        assert [(group.state, group.element_values) for group in result.resolved] == [
+            ("enabled" if state else "indeterminate", {})
+        ]
+        reason = (
+            "more than one registry row is bound to this element, which writes one "
+            "value; none of them is shown"
+        )
+        assert sorted(
+            (u.setting.id, u.reason) for u in result.unresolved
+        ) == sorted([(child.id, reason), (second.id, reason)])
+
+
+def test_a_single_bound_row_still_decodes() -> None:
+    element, chosen, _other = _SCALARS["enum"]
+    policy = _with_state(_policy(elements=(element,)))
+    rows = resolve_policy(policy, PolicyConfiguration("computer", {"Mode": chosen}))
+    result = build_settings_browser(_catalogue(policies=(policy,)), rows)
+    assert [group.element_values for group in result.resolved] == [{"Mode": chosen}]
+    assert result.unresolved == ()
+
+
+def _list_policy(namespace: str = NS) -> PolicyDefinition:
+    return _with_state(_policy(
+        namespace=namespace,
+        elements=(
+            PolicyElement(
+                kind="list", id="Entries", registry_key=KEY + r"\Entries",
+                attributes=(("valuePrefix", ""),),
+            ),
+        ),
+    ))
+
+
+def test_every_list_row_is_an_item_whatever_its_editor_id() -> None:
+    """Issue #146: an item without an ordinal ID was dropped beside ones with one."""
+    policy = _list_policy("https://synthetic.example.test/list")
+    rows = resolve_policy(policy, PolicyConfiguration("computer", {"Entries": ["one", "two"]}))
+    (item,) = [row for row in rows if row.value_name == "2"]
+    # The list's own structured identity, but the scalar "element" kind: it
+    # carries no ordinal, so it cannot be ordered among the others.
+    prefix = item.id.rsplit(":", 3)[0]
+    unordered = replace(
+        item, id=f"{prefix}:element:{b'Entries'.hex()}:0", value_name="3", value="three"
+    )
+    result = build_settings_browser(_catalogue(policies=(policy,)), [unordered, *rows])
+    assert [group.element_values for group in result.resolved] == [
+        {"Entries": ["one", "two", "three"]}
+    ]
+    assert result.unresolved == ()
+
+
+def test_a_list_row_that_writes_no_value_is_flagged() -> None:
+    policy = _list_policy("https://synthetic.example.test/list")
+    rows = resolve_policy(policy, PolicyConfiguration("computer", {"Entries": ["one", "two"]}))
+    deleted = [
+        replace(row, action="delete", value="") if row.value_name == "2" else row for row in rows
+    ]
+    result = build_settings_browser(_catalogue(policies=(policy,)), deleted)
+    assert [group.element_values for group in result.resolved] == [{"Entries": ["one"]}]
+    assert [(u.setting.value_name, u.reason) for u in result.unresolved] == [
+        ("2", "this registry action writes no list item")
+    ]
+
+
+@pytest.mark.parametrize("kind", [kind for kind in _SCALARS if kind != "enum"])
+def test_a_deleted_value_in_an_enabled_policy_is_flagged_not_shown_empty(kind: str) -> None:
+    # Before #146/#147 a delete decoded as False, 0, "" or [""].
+    element, chosen, _other = _SCALARS[kind]
+    policy = _with_state(_policy(elements=(element,)))
+    rows = [
+        replace(row, id="imported-computer-1", action="delete", registry_type="REG_SZ", value="")
+        if row.value_name == "TestValue" else row
+        for row in resolve_policy(policy, PolicyConfiguration("computer", {"Mode": chosen}))
+    ]
+    result = build_settings_browser(_catalogue(policies=(policy,)), rows)
+    assert [(group.state, group.element_values) for group in result.resolved] == [
+        ("enabled", {})
+    ]
+    assert [u.reason for u in result.unresolved] == [
+        "element value is deleted, but this element writes a value when the policy is enabled"
+    ]

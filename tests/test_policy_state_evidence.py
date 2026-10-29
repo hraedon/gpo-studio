@@ -114,8 +114,9 @@ def test_current_scalar_and_reserved_child_controls(side: Side, state: str, chil
     rows = current(policy, side, state)
     result = observed(policy, rows)
     assert result.resolved[0].state == state and result.resolved[0].state_reason is None
+    # A disable's delete is the expected removal, not an empty text value (#147).
     assert result.resolved[0].element_values == (
-        {child: "retained"} if state == "enabled" else {child: ""}
+        {child: "retained"} if state == "enabled" else {}
     )
     assert not result.unresolved
 
