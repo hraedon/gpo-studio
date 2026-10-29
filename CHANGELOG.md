@@ -11,6 +11,11 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Changed
 
+- Development dependency: vitest and its `@vitest/*` packages move from
+  4.1.11 to 4.1.12, which clears two moderate `npm audit` advisories in
+  `@vitest/mocker` (GHSA-qxg6-89mg-rqv8, GHSA-xp26-3454-mjgp) (#140). Only the
+  frontend unit tests use it; the shipped application does not depend on Node.
+
 - The native backup export writes the **measured user-side Scripts tool GUID**
   (`{40B66650-4972-11D1-A7CA-0000F87571E3}`) in `UserExtensionGuids` instead of
   reusing the machine side's `{40B6664F-…}` (Plan 035 WP-1, estate window 19 —
