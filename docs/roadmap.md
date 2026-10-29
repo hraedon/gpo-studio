@@ -36,7 +36,7 @@ current verification status, see [`capability-matrix.md`](capability-matrix.md).
 | Capability | State | Authoring | Import | Export | PowerShell plan | Diff | Windows-lab verification |
 |---|---|---|---|---|---|---|---|
 | GPO inventory / create / rename / description | supported | workspace CRUD with optimistic concurrency | GPMC backup single-GPO import; gpo-lens estate import | Studio bundle and GPMC backup manifest | `New-GPO`, `Rename-GPO`, `-Comment` | not compared | not yet |
-| Computer / User side status | supported | toggle in model and API | imported from backup/estate | emitted in bundle manifests | `Set-GPO -Status` | not compared | not yet |
+| Computer / User side status | supported | toggle in model and API | imported from backup/estate | emitted in bundle manifests | `$gpo.GpoStatus` | not compared | not yet |
 
 ### Registry policy
 
@@ -101,8 +101,10 @@ The plan applies:
 
 - Registry policy: `Set-GPRegistryValue` and `Remove-GPRegistryValue` for all supported value types and delete actions.
 - Links: `New-GPLink` / `Set-GPLink` with enabled, enforced, and order values.
-- Security filtering: `Set-GPPermission` to add/replace desired principals and remove stale ones.
-- Side status: `Set-GPO -Status` to AllSettingsEnabled, UserSettingsDisabled, ComputerSettingsDisabled, or AllSettingsDisabled.
+- Domain binding: every cmdlet names the declared domain, and the plan stops unless that domain is reachable under that name.
+- GPO binding: the workspace GUID, or a same-named GPO carrying the plan's binding marker; any other same-named GPO only with `-AdoptExistingGpo`.
+- Security filtering: `Set-GPPermission` to add/replace desired principals; every other Apply holder, Authenticated Users included, is lowered to Read.
+- Side status: the `GpoStatus` property, set to AllSettingsEnabled, UserSettingsDisabled, ComputerSettingsDisabled, or AllSettingsDisabled.
 
 The plan does **not** apply:
 

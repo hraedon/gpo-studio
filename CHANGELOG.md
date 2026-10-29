@@ -332,6 +332,37 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   server error. Invalid requests leave workspace data unchanged; valid actor
   trimming and the identity library's argument errors are preserved (WI-090).
 
+### Security
+
+- **The PowerShell plan (`plan.ps1`, `apply.ps1`) is bound to the GPO's
+  declared domain.** Every GroupPolicy cmdlet now names `-Domain`, and before
+  any change the plan resolves the declared domain and stops unless it is
+  reachable under exactly that name. A plan run in another domain's session no
+  longer modifies that domain. Declare the domain's DNS name: a GPO still on
+  the default `studio.local`, or naming a NetBIOS name, gets a plan that stops
+  without changing anything.
+- **The plan no longer adopts an unrelated GPO by display name.** It modifies
+  the GPO whose GUID is the workspace GUID or, failing that, the GPO of the same
+  name only if its comment carries the plan's binding marker
+  (`GPO Studio binding: <workspace GUID>`), which the plan now writes when it
+  creates the GPO, so re-runs still find it. Any other same-named GPO is refused
+  unless the operator runs the plan with `-AdoptExistingGpo` (for example after
+  `Import-GPO -CreateIfNeeded`). The marker prevents accidents and is not
+  authentication. An imported GPO's `source_guid` never selects a GPO.
+- **Security filtering no longer fails open.** When filters are authored they
+  are the GPO's whole apply set: every other trustee holding `GpoApply`,
+  `Authenticated Users` included, is lowered to `GpoRead` (Read is kept for
+  MS16-072). Matching is by the SID Windows resolves each Apply principal to.
+  The old `$protected` list, which kept `Authenticated Users: GpoApply` on every
+  filtered GPO, is gone, and so is the old removal, which passed
+  `-PermissionLevel None` without `-Replace` and so lowered nothing. Deny
+  entries are left as they are; an inherited `GpoApply` or a `GpoCustom` entry
+  outside the apply set stops the plan, and a read-back stops it if anything
+  outside the apply set still holds `GpoApply`. No filters authored still means
+  the permissions are left alone. Filtering and side status now run before
+  links, so nothing is linked while a new GPO still applies to everyone. Both
+  findings predate 1.1.0 (pre-1.1.1 security review).
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

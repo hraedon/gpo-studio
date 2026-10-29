@@ -1283,9 +1283,51 @@ module and delegated GPO rights.
 | WMI filter assignment | GPMC backup export (`Backup.xml`, `gpreport.xml`). The plan emits a comment naming the filter but does not assign it. Assign manually via GPMC or the GPMC COM API. |
 | GPP Groups and Registry | GPMC backup export (`Preferences/` XML) and Studio bundle export. The plan does not apply GPP content. |
 
+### Domain and GPO binding
+
+The plan modifies one domain and one GPO:
+
+- **Domain.** Every GroupPolicy cmdlet names `-Domain` with the GPO's declared
+  domain. Before any change the plan resolves that domain and stops unless it is
+  reachable under exactly that name; there is no fallback to the session's
+  domain. Declare the domain's DNS name: a GPO left on the default
+  `studio.local`, or naming a NetBIOS name, gets a plan that stops unchanged.
+- **GPO.** The GPO whose GUID is the workspace GUID (an estate import keeps its
+  AD GUID); failing that, the GPO with the same display name only if its comment
+  carries `GPO Studio binding: <workspace GUID>`. The plan writes that marker
+  into the comment of a GPO it creates, which is how a re-run finds it:
+  `New-GPO` assigns a new GUID, so the workspace GUID never resolves to it. Any
+  other GPO with the name is refused unless the plan is run with
+  `-AdoptExistingGpo` (for example after `Import-GPO -CreateIfNeeded` created
+  the GPO). The marker prevents accidents; it is not authentication, because
+  anyone who can edit a GPO's comment can write it. An imported GPO's
+  `source_guid` never selects a GPO: it comes from the imported data, and GPO
+  GUIDs are not secret.
+
+### Security filtering
+
+- **No filters authored:** the plan leaves permissions alone. A new GPO keeps
+  the Windows default, Authenticated Users with `GpoApply`.
+- **Filters authored:** they are the GPO's whole apply set. Each is granted
+  (`Set-GPPermission -Replace`); then every other trustee holding `GpoApply`,
+  Authenticated Users included, is lowered to `GpoRead`. Read stays, because
+  since MS16-072 the computer reads the GPO for both sides. Trustees are matched
+  by the SID Windows resolves each Apply principal to. Edit and management
+  levels are not Apply and are untouched; deny entries are left as they are.
+- **Only read filters authored:** the apply set is empty, so after the plan
+  runs the GPO applies to no one. This matches the RSOP model.
+- The plan stops, before any link is written, if an inherited `GpoApply` or a
+  `GpoCustom` entry lies outside the apply set (it cannot lower either), or if
+  a read-back finds anything outside the apply set still holding `GpoApply`.
+
+The plan binds the GPO, reconciles filtering, writes settings and side status,
+and writes links last.
+
 The plan is idempotent for registry values and links. Review it, test it in a
 lab, and run it with delegated GPO permissions. Native Windows behaviour and
-CSE-specific details still apply.
+CSE-specific details still apply. The binding and filtering rules above are
+covered by tests that run the plan under PowerShell against a stand-in for the
+GroupPolicy module; they are not yet a Windows evidence lane.
 
 ---
 

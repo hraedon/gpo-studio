@@ -172,7 +172,7 @@ def test_a_stored_link_reaches_powershell_exactly(tmp_path) -> None:
         identity="alice", reason="probe",
     )
     script = powershell_plan(gpo)
-    assert "-Target 'OU=Lab,DC=studio,DC=local')" in script
+    assert "-Target 'OU=Lab,DC=studio,DC=local' -Domain $domain)" in script
     assert "DC=local\n" not in script
 
 

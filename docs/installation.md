@@ -463,6 +463,15 @@ A closed allowlist validates the plan; see
 - Side enablement (`$gpo.GpoStatus`)
 - GPO creation and rename (`New-GPO`, `Rename-GPO`)
 
+The plan only changes the GPO's declared domain, and stops unchanged unless
+that domain is reachable under its declared DNS name. It modifies the GPO with
+the workspace GUID, or a GPO of the same name that carries the plan's binding
+marker in its comment; any other GPO of that name is refused unless you run
+`apply.ps1 -AdoptExistingGpo`. When security filters are authored, every other
+trustee holding Apply, Authenticated Users included, is lowered to Read. See
+[PowerShell plan accuracy](capability-matrix.md#powershell-plan-accuracy) for
+the full rules.
+
 ### What the plan does not apply
 
 - WMI filter assignment. The plan notes it in a comment; assign it manually in

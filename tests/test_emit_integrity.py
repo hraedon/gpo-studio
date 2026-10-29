@@ -729,7 +729,7 @@ def test_comment_and_registry_data_may_span_lines() -> None:
     """Written as [char] codes, so each statement stays one physical line
     (`tests/test_powershell_execution.py` runs it and reads the value back)."""
     plan = export.powershell_plan(_plan_gpo())
-    assert "-Comment ('Line one' + [char]0x000A + 'Line two')" in plan
+    assert "-Comment ('Line one' + [char]0x000A + 'Line two' + [char]0x000A" in plan
     assert validate_plan(plan).valid
 
 

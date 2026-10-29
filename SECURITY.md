@@ -155,6 +155,15 @@ backticks, dangerous aliases and cmdlet spelling (case-insensitive). Running it
 needs the `GroupPolicy` PowerShell module and delegated GPO rights on the
 target Windows host.
 
+The plan names its declared domain on every GroupPolicy call and stops unless
+that domain is reachable under that name. It modifies only the GPO with the
+workspace GUID or a same-named GPO whose comment carries the plan's binding
+marker, unless the operator passes `-AdoptExistingGpo`. The marker is accident
+prevention, not authentication. Authored security filters are the GPO's whole
+apply set: any other `GpoApply`, Authenticated Users included, is lowered to
+`GpoRead`. See
+[`docs/capability-matrix.md`](docs/capability-matrix.md#powershell-plan-accuracy).
+
 ## References
 
 - [`docs/architecture.md`](docs/architecture.md): components, trust

@@ -238,12 +238,169 @@ def _plan_precondition(gpo: GPO) -> ValidationIssue | None:
     )
 
 
+#: The text a plan writes into the comment of a GPO it creates, and looks for
+#: before it will modify a GPO it found only by display name. Accident
+#: prevention, not authentication: anyone who can edit a GPO's comment can
+#: write it.
+def plan_binding_marker(gpo: GPO) -> str:
+    return f"GPO Studio binding: {gpo.guid}"
+
+
+def _plan_comment(gpo: GPO) -> str:
+    """The comment a plan gives a GPO it creates: the description (or a fixed
+    line when there is none), then the binding marker on its own line."""
+    return f"{gpo.description or 'Created by GPO Studio'}\n\n{plan_binding_marker(gpo)}"
+
+
+def _plan_security_filtering(gpo: GPO) -> list[str]:
+    """The security-filtering section: the authored filters are the GPO's whole
+    apply set (Daybreak finding 2).
+
+    Every new GPO starts with ``Authenticated Users: GpoApply``. The section
+    used to keep that entry (it sat in a ``$protected`` list), so a filter
+    authored for a pilot group still applied to every authenticated principal.
+    Now each authored filter is granted first, Windows is asked for the SID it
+    resolved each Apply principal to, and every other non-deny ``GpoApply`` --
+    Authenticated Users included -- is moved to ``GpoRead``. Read stays: since
+    MS16-072 the computer reads the GPO for both sides, so Authenticated Users
+    (or Domain Computers) must keep it. That is also the model's meaning
+    (`rsop._gpo_filter_status`): with filters authored, a GPO applies only to
+    principals an Apply filter names.
+
+    It is matched by SID, not by name: the authored principal is
+    ``DOMAIN\\name`` while a trustee's ``Name`` is the bare name. A principal
+    Windows resolves to nothing adds ``''`` (the ``[string]`` cast), never
+    ``$null``, so it cannot match a trustee whose SID did not read. It fails
+    closed: an inherited or ``GpoCustom`` entry outside the apply set (which
+    ``Set-GPPermission`` cannot reduce, or whose rights cannot be read) stops
+    the plan, and a read-back afterwards stops it if anything outside the
+    apply set still holds ``GpoApply``. Deny entries are left as they are.
+
+    No filters authored means "not authored", not "apply to nobody": no
+    section is written and the GPO keeps whatever it has (a new GPO: the
+    Windows default, Authenticated Users Apply).
+    """
+    if not gpo.security_filters:
+        return [
+            "",
+            "# Security filtering: none authored. Permissions are left as they are; a new",
+            "# GPO keeps the Windows default (Authenticated Users: GpoApply).",
+        ]
+    # REFUSED, NOT APPROXIMATED (WI-041).
+    #
+    # `Set-GPPermission` cannot express a deny ACE at all -- that is WI-033's
+    # own recorded finding about the cmdlet, and it is why the RSOP lane
+    # writes denies straight onto the groupPolicyContainer's DACL. Every way
+    # of emitting one anyway is wrong in the dangerous direction:
+    #
+    #   * emitting `-PermissionLevel GpoApply` INVERTS it, and this is what
+    #     the module used to do -- a plan authored as "keep this GPO off
+    #     these machines" GRANTED the permission instead, byte-identical to
+    #     the allow plan;
+    #   * silently dropping the row publishes a plan that leaves the deny
+    #     unapplied while looking complete, which fails in the same
+    #     direction one step later.
+    #
+    # A plan an operator reviews and runs has to mean what it says. So a GPO
+    # carrying a deny does not get a partial plan; it gets no plan and a
+    # reason. Same call as the cpassword refusal below, and WI-012's on
+    # `explicitValue`: refuse what cannot be expressed rather than guess.
+    refusal = _plan_precondition(gpo)
+    if refusal is not None:
+        raise ValidationError([refusal])
+    lines = [
+        "",
+        "# Security filtering: the authored filters are the GPO's whole apply set.",
+        "# Any other trustee holding GpoApply, Authenticated Users included, is moved to",
+        "# GpoRead: Read stays because, since MS16-072, the computer reads the GPO for both",
+        "# sides. Deny entries are left as they are.",
+    ]
+    if not any(sf.permission == "apply" for sf in gpo.security_filters):
+        lines.append(
+            "# No authored filter grants Apply: after this section the GPO applies to no one."
+        )
+    lines.append("$applySids = @()")
+    for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
+        match sf.permission:
+            case "apply":
+                perm = "GpoApply"
+            case "read":
+                perm = "GpoRead"
+            case _:
+                assert_never(sf.permission)
+        target = ps_literal(sf.principal, "TargetName")
+        target_type = sf.target_type.title()
+        lines.append(
+            f"Set-GPPermission -Guid $gpo.Id -PermissionLevel {perm} -TargetName {target}"
+            f" -TargetType {target_type} -Replace -Domain $domain | Out-Null"
+        )
+        if sf.permission == "apply":
+            lines.append(
+                f"$applySids += [string](Get-GPPermission -Guid $gpo.Id -TargetName {target}"
+                f" -TargetType {target_type} -Domain $domain).Trustee.Sid.Value"
+            )
+    lines += [
+        "foreach ($perm in Get-GPPermission -Guid $gpo.Id -All -Domain $domain) {",
+        "    if (-not $perm.Denied -and $applySids -notcontains $perm.Trustee.Sid.Value) {",
+        "        if ($perm.Permission -eq 'GpoCustom' -or",
+        "            ($perm.Permission -eq 'GpoApply' -and $perm.Inherited)) {",
+        "            throw ('The plan cannot reduce ' + $perm.Permission + ' held by '"
+        " + $perm.Trustee.Domain + '\\' + $perm.Trustee.Name + ' (inherited: '"
+        " + $perm.Inherited + '). Review it in GPMC, then run the plan again.')",
+        "        }",
+        "        if ($perm.Permission -eq 'GpoApply') {",
+        "            $type = 'Group'",
+        "            if ($perm.Trustee.SidType -eq 'User') { $type = 'User' }",
+        "            if ($perm.Trustee.SidType -eq 'Computer') { $type = 'Computer' }",
+        "            Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead"
+        " -TargetName ($perm.Trustee.Domain + '\\' + $perm.Trustee.Name)"
+        " -TargetType $type -Replace -Domain $domain | Out-Null",
+        "        }",
+        "    }",
+        "}",
+        "foreach ($perm in Get-GPPermission -Guid $gpo.Id -All -Domain $domain) {",
+        "    if ($perm.Permission -eq 'GpoApply' -and -not $perm.Denied -and",
+        "        $applySids -notcontains $perm.Trustee.Sid.Value) {",
+        "        throw ('After security filtering ' + $perm.Trustee.Domain + '\\'"
+        " + $perm.Trustee.Name + ' still holds GpoApply. Stopping before links are written.')",
+        "    }",
+        "}",
+    ]
+    return lines
+
+
 def powershell_plan(gpo: GPO) -> str:
     """Generate an idempotent, human-reviewable GroupPolicy module plan.
 
     Validates its own input (DeepSeek final-r8 N3): a GPO with a validation
     error gets no plan, whichever caller asks, and every quoted argument is
     checked as it is written (:func:`emit_integrity.ps_literal`).
+
+    BOUND TO ONE DOMAIN AND ONE GPO (Daybreak finding 1). The plan used to
+    call every cmdlet without ``-Domain``, so it modified whatever domain the
+    session was in, and when the workspace GUID did not resolve it silently
+    adopted any GPO with the same display name. Now:
+
+    * every GroupPolicy call names ``-Domain`` with the GPO's declared domain,
+      and before any change the plan resolves that domain
+      (``Microsoft.GroupPolicy.GPDomain``) and stops unless it is reachable
+      under exactly that name. There is no fallback to the session's domain.
+    * the GPO is the one whose GUID is the workspace GUID (an estate import
+      keeps its AD GUID as its workspace GUID); failing that, a GPO of the
+      same name only if its comment carries :func:`plan_binding_marker`, which
+      the plan writes when it creates the GPO. That is how a re-run finds the
+      GPO it created: ``New-GPO`` assigns a new GUID, so the workspace GUID
+      never resolves to it. Any other same-named GPO is refused unless the
+      operator runs the plan with ``-AdoptExistingGpo``.
+    * ``source_guid`` is never used to pick a GPO. It comes from the imported
+      backup's or estate's own data -- a fork's names its parent workspace GPO
+      -- and a GPO's GUID is no secret (the Default Domain Policy's is
+      well-known), so a crafted import could otherwise name any GPO.
+
+    Order matters for failing closed: the GPO is bound, its security filtering
+    reconciled and read back, then its settings and side status written, and
+    links last, so nothing is linked while a new GPO still applies to
+    Authenticated Users.
     """
     errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
     refusal = _plan_precondition(gpo)
@@ -251,36 +408,53 @@ def powershell_plan(gpo: GPO) -> str:
         errors.insert(0, refusal)
     if errors:
         raise ValidationError(errors)
+    name = ps_literal(gpo.name, "Name")
     lines = [
         "# Generated by GPO Studio. Review before running with delegated GPO rights.",
         "# This plan intentionally does not run from the web application.",
+        f"# Domain: {_ps_sanitize_comment(gpo.domain)}. Every GroupPolicy call names it,",
+        "# and the plan stops before any change unless it is reachable under that name.",
+        f"# GPO: {_ps_sanitize_comment(gpo.name)}"
+        f" (workspace GUID {_ps_sanitize_comment(gpo.guid)}).",
+        "# The plan modifies the GPO with the workspace GUID or, failing that, the GPO",
+        "# with this name only if its comment carries this plan's binding marker, which",
+        "# the plan writes when it creates the GPO. Any other GPO with this name is",
+        "# refused unless you run the plan with -AdoptExistingGpo. The marker prevents",
+        "# accidents; it is not authentication: anyone who can edit the comment can write it.",
         "#Requires -Modules GroupPolicy",
         "[CmdletBinding(SupportsShouldProcess=$true)]",
-        "param()",
+        "param([switch]$AdoptExistingGpo)",
         "$ErrorActionPreference = 'Stop'",
-        f"$gpo = Get-GPO -Guid {ps_literal(gpo.guid, 'Guid')} -ErrorAction SilentlyContinue",
+        f"$domain = {ps_literal(gpo.domain, 'Domain')}",
+        f"$marker = {ps_literal(plan_binding_marker(gpo), 'Marker')}",
+        "try { $resolved = [Microsoft.GroupPolicy.GPDomain]::new($domain) }",
+        "catch { throw ('Domain ' + $domain + ' is not reachable, so nothing was changed: '"
+        " + $_.Exception.Message) }",
+        "if ($resolved.DomainName -ne $domain) {",
+        "    throw ('Domain ' + $domain + ' resolved to ' + $resolved.DomainName"
+        " + ', so nothing was changed. Declare the DNS name of the domain.')",
+        "}",
+        f"$gpo = Get-GPO -Guid {ps_literal(gpo.guid, 'Guid')} -Domain $domain"
+        " -ErrorAction SilentlyContinue",
         "if (-not $gpo) {",
-        f"    $gpo = Get-GPO -Name {ps_literal(gpo.name, 'Name')} -ErrorAction SilentlyContinue",
+        f"    $gpo = Get-GPO -Name {name} -Domain $domain -ErrorAction SilentlyContinue",
+        "    if ($gpo -and -not $AdoptExistingGpo -and"
+        " -not ([string]$gpo.Description).Contains($marker)) {",
+        "        throw ('A GPO named ' + $gpo.DisplayName + ' (' + $gpo.Id + ') exists in '"
+        " + $domain + ' and nothing ties it to this plan, so nothing was changed. To modify"
+        " that GPO, run the plan with -AdoptExistingGpo.')",
+        "    }",
         "}",
         "if (-not $gpo) {",
-    ]
-    if gpo.description:
-        lines.append(
-            f"    $gpo = New-GPO -Name {ps_literal(gpo.name, 'Name')}"
-            f" -Comment {ps_literal(gpo.description, 'Comment')}"
-        )
-    else:
-        lines.append(
-            f"    $gpo = New-GPO -Name {ps_literal(gpo.name, 'Name')}"
-            " -Comment 'Created by GPO Studio'"
-        )
-    lines += [
+        f"    $gpo = New-GPO -Name {name} -Comment {ps_literal(_plan_comment(gpo), 'Comment')}"
+        " -Domain $domain",
         "}",
-        "elseif ($gpo.DisplayName -ne " + ps_literal(gpo.name, "Name") + ") {",
-        f"    Rename-GPO -Guid $gpo.Id -TargetName {ps_literal(gpo.name, 'Name')} | Out-Null",
+        f"elseif ($gpo.DisplayName -ne {name}) {{",
+        f"    Rename-GPO -Guid $gpo.Id -TargetName {name} -Domain $domain | Out-Null",
         "}",
-        "",
     ]
+    lines += _plan_security_filtering(gpo)
+    lines.append("")
     for setting in gpo.settings:
         key = f"{setting.hive}\\{setting.key}"
         if setting.action == "delete":
@@ -288,17 +462,17 @@ def powershell_plan(gpo: GPO) -> str:
                 "Remove-GPRegistryValue -Guid $gpo.Id"
                 f" -Key {ps_literal(key, 'Key')}"
                 f" -ValueName {ps_literal(setting.value_name, 'ValueName')}"
-                " -ErrorAction SilentlyContinue"
+                " -Domain $domain -ErrorAction SilentlyContinue"
             )
         elif setting.action == "delete_all_values":
             lines.append(
                 f"$existing = Get-GPRegistryValue -Guid $gpo.Id"
-                f" -Key {ps_literal(key, 'Key')} -ErrorAction SilentlyContinue"
+                f" -Key {ps_literal(key, 'Key')} -Domain $domain -ErrorAction SilentlyContinue"
             )
             lines.append(
                 "if ($existing) { $existing | ForEach-Object"
                 f" {{ Remove-GPRegistryValue -Guid $gpo.Id -Key {ps_literal(key, 'Key')}"
-                " -ValueName $_.ValueName -ErrorAction SilentlyContinue } }"
+                " -ValueName $_.ValueName -Domain $domain -ErrorAction SilentlyContinue } }"
             )
         elif setting.action == "set":
             type_map = {
@@ -314,100 +488,10 @@ def powershell_plan(gpo: GPO) -> str:
                 f" -Key {ps_literal(key, 'Key')}"
                 f" -ValueName {ps_literal(setting.value_name, 'ValueName')}"
                 f" -Type {type_map[setting.registry_type]}"
-                f" -Value {_ps_value(setting)}"
+                f" -Value {_ps_value(setting)} -Domain $domain"
             )
         else:
             assert_never(setting.action)
-    if gpo.links:
-        lines.extend(["", "# Link intent (New-GPLink updates an existing link when present)."])
-    for link in gpo.links:
-        target = ps_literal(link.target, "Target")
-        common = (
-            f"-Guid $gpo.Id -Target {target}"
-            f" -LinkEnabled {'Yes' if link.enabled else 'No'}"
-            f" -Enforced {'Yes' if link.enforced else 'No'} -Order {link.order}"
-        )
-        lines.extend(
-            [
-                f"$existingLink = (Get-GPInheritance -Target {target}).GpoLinks |",
-                "    Where-Object { $_.GpoId -eq $gpo.Id }",
-                f"if ($existingLink) {{ Set-GPLink {common} | Out-Null }}",
-                f"else {{ New-GPLink {common} | Out-Null }}",
-            ]
-        )
-    if gpo.security_filters:
-        # REFUSED, NOT APPROXIMATED (WI-041).
-        #
-        # `Set-GPPermission` cannot express a deny ACE at all -- that is WI-033's
-        # own recorded finding about the cmdlet, and it is why the RSOP lane
-        # writes denies straight onto the groupPolicyContainer's DACL. Every way
-        # of emitting one anyway is wrong in the dangerous direction:
-        #
-        #   * emitting `-PermissionLevel GpoApply` INVERTS it, and this is what
-        #     the module used to do -- a plan authored as "keep this GPO off
-        #     these machines" GRANTED the permission instead, byte-identical to
-        #     the allow plan;
-        #   * silently dropping the row publishes a plan that leaves the deny
-        #     unapplied while looking complete, which fails in the same
-        #     direction one step later.
-        #
-        # A plan an operator reviews and runs has to mean what it says. So a GPO
-        # carrying a deny does not get a partial plan; it gets no plan and a
-        # reason. Same call as the cpassword refusal below, and WI-012's on
-        # `explicitValue`: refuse what cannot be expressed rather than guess.
-        refusal = _plan_precondition(gpo)
-        if refusal is not None:
-            raise ValidationError([refusal])
-        lines.append("")
-        lines.append("# Security filtering — reconcile GpoApply permissions only.")
-        lines.append("# GpoEdit, GpoRead, and other management permissions are preserved.")
-        desired_targets = ", ".join(
-            ps_literal(sf.principal, "desiredApply")
-            for sf in gpo.security_filters
-            if sf.permission == "apply"
-        )
-        lines.append(f"$desiredApply = @({desired_targets})")
-        lines.append("# Trustees that must not be removed even if absent from desired set.")
-        lines.append("$protected = @('Authenticated Users', 'Domain Admins',")
-        lines.append("  'Enterprise Admins', 'SYSTEM', 'Administrators')")
-        lines.append(
-            "$existing = Get-GPPermission -Guid $gpo.Id -All -ErrorAction SilentlyContinue"
-        )
-        lines.append("foreach ($perm in $existing) {")
-        lines.append("    if ($perm.Permission -eq 'GpoApply' -and")
-        lines.append("        $desiredApply -notcontains $perm.Trustee.Name -and")
-        lines.append("        $protected -notcontains $perm.Trustee.Name) {")
-        lines.append(
-            "        Set-GPPermission -Guid $gpo.Id -PermissionLevel None"
-            " -TargetName $perm.Trustee.Name -TargetType $perm.Trustee.SidType"
-            " -ErrorAction SilentlyContinue"
-        )
-        lines.append("    }")
-        lines.append("}")
-        for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
-            match sf.permission:
-                case "apply":
-                    perm = "GpoApply"
-                case "read":
-                    perm = "GpoRead"
-                case _:
-                    assert_never(sf.permission)
-            target_type_ps = sf.target_type.title()
-            lines.append(
-                f"Set-GPPermission -Guid $gpo.Id -PermissionLevel {perm}"
-                f" -TargetName {ps_literal(sf.principal, 'TargetName')}"
-                f" -TargetType {target_type_ps} -Replace"
-                " | Out-Null"
-            )
-    if gpo.wmi_filter is not None:
-        wmi_name = _ps_sanitize_comment(gpo.wmi_filter.name)
-        wmi_query = _ps_sanitize_comment(gpo.wmi_filter.query)
-        lines.append("")
-        lines.append(f"# WMI filter: {wmi_name} ({wmi_query})")
-        lines.append(
-            f"# Assign WMI filter '{wmi_name}' to this GPO via GPMC or the"
-            f" GPMC COM API (domain: {_ps_sanitize_comment(gpo.domain)})."
-        )
     status_value: str
     if gpo.computer_enabled and gpo.user_enabled:
         status_value = "AllSettingsEnabled"
@@ -417,7 +501,6 @@ def powershell_plan(gpo: GPO) -> str:
         status_value = "ComputerSettingsDisabled"
     else:
         status_value = "AllSettingsDisabled"
-
     lines.extend(
         [
             "",
@@ -426,6 +509,38 @@ def powershell_plan(gpo: GPO) -> str:
             f"$gpo.GpoStatus = '{status_value}'",
         ]
     )
+    if gpo.wmi_filter is not None:
+        wmi_name = _ps_sanitize_comment(gpo.wmi_filter.name)
+        wmi_query = _ps_sanitize_comment(gpo.wmi_filter.query)
+        lines.append("")
+        lines.append(f"# WMI filter: {wmi_name} ({wmi_query})")
+        lines.append(
+            f"# Assign WMI filter '{wmi_name}' to this GPO via GPMC or the"
+            f" GPMC COM API (domain: {_ps_sanitize_comment(gpo.domain)})."
+        )
+    if gpo.links:
+        lines.extend(
+            [
+                "",
+                "# Link intent, last: nothing is linked before filtering and status are in place.",
+                "# New-GPLink updates an existing link when present.",
+            ]
+        )
+    for link in gpo.links:
+        target = ps_literal(link.target, "Target")
+        common = (
+            f"-Guid $gpo.Id -Target {target}"
+            f" -LinkEnabled {'Yes' if link.enabled else 'No'}"
+            f" -Enforced {'Yes' if link.enforced else 'No'} -Order {link.order} -Domain $domain"
+        )
+        lines.extend(
+            [
+                f"$existingLink = (Get-GPInheritance -Target {target} -Domain $domain).GpoLinks |",
+                "    Where-Object { $_.GpoId -eq $gpo.Id }",
+                f"if ($existingLink) {{ Set-GPLink {common} | Out-Null }}",
+                f"else {{ New-GPLink {common} | Out-Null }}",
+            ]
+        )
     return "\n".join(lines) + "\n"
 
 

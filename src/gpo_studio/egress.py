@@ -220,53 +220,69 @@ PLAN_GRAMMAR: frozenset[str] = frozenset(
     line.replace("<s>", _LITERAL)
     for line in (
         "",
-        "        $desiredApply -notcontains $perm.Trustee.Name -and",
-        "        $protected -notcontains $perm.Trustee.Name) {",
-        "        Set-GPPermission -Guid $gpo.Id -PermissionLevel None -TargetName $perm.Trustee.Name -TargetType $perm.Trustee.SidType -ErrorAction SilentlyContinue",  # noqa: E501
-        "    $gpo = Get-GPO -Name <s> -ErrorAction SilentlyContinue",
-        "    $gpo = New-GPO -Name <s> -Comment <s>",
-        "    Rename-GPO -Guid $gpo.Id -TargetName <s> | Out-Null",
+        "            $type = <s>",
+        "            ($perm.Permission -eq <s> -and $perm.Inherited)) {",
+        "            Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName ($perm.Trustee.Domain + <s> + $perm.Trustee.Name) -TargetType $type -Replace -Domain $domain | Out-Null",  # noqa: E501
+        "            if ($perm.Trustee.SidType -eq <s>) { $type = <s> }",
+        "            throw (<s> + $perm.Permission + <s> + $perm.Trustee.Domain + <s> + $perm.Trustee.Name + <s> + $perm.Inherited + <s>)",  # noqa: E501
+        "        $applySids -notcontains $perm.Trustee.Sid.Value) {",
+        "        if ($perm.Permission -eq <s> -or",
+        "        if ($perm.Permission -eq <s>) {",
+        "        throw (<s> + $gpo.DisplayName + <s> + $gpo.Id + <s> + $domain + <s>)",
+        "        throw (<s> + $perm.Trustee.Domain + <s> + $perm.Trustee.Name + <s>)",
+        "        }",
+        "    $gpo = Get-GPO -Name <s> -Domain $domain -ErrorAction SilentlyContinue",
+        "    $gpo = New-GPO -Name <s> -Comment <s> -Domain $domain",
+        "    Rename-GPO -Guid $gpo.Id -TargetName <s> -Domain $domain | Out-Null",
         "    Where-Object { $_.GpoId -eq $gpo.Id }",
-        "    if ($perm.Permission -eq <s> -and",
+        "    if ($gpo -and -not $AdoptExistingGpo -and -not ([string]$gpo.Description).Contains($marker)) {",  # noqa: E501
+        "    if ($perm.Permission -eq <s> -and -not $perm.Denied -and",
+        "    if (-not $perm.Denied -and $applySids -notcontains $perm.Trustee.Sid.Value) {",
+        "    throw (<s> + $domain + <s> + $resolved.DomainName + <s>)",
         "    }",
-        "  <s>, <s>, <s>)",
         "#",
         "$ErrorActionPreference = <s>",
-        "$desiredApply = @(<s>)",
-        "$existing = Get-GPPermission -Guid $gpo.Id -All -ErrorAction SilentlyContinue",
-        "$existing = Get-GPRegistryValue -Guid $gpo.Id -Key <s> -ErrorAction SilentlyContinue",
-        "$existingLink = (Get-GPInheritance -Target <s>).GpoLinks |",
-        "$gpo = Get-GPO -Guid <s> -ErrorAction SilentlyContinue",
+        "$applySids += [string](Get-GPPermission -Guid $gpo.Id -TargetName <s> -TargetType Computer -Domain $domain).Trustee.Sid.Value",  # noqa: E501
+        "$applySids += [string](Get-GPPermission -Guid $gpo.Id -TargetName <s> -TargetType Group -Domain $domain).Trustee.Sid.Value",  # noqa: E501
+        "$applySids += [string](Get-GPPermission -Guid $gpo.Id -TargetName <s> -TargetType User -Domain $domain).Trustee.Sid.Value",  # noqa: E501
+        "$applySids = @(<s>)",
+        "$domain = <s>",
+        "$existing = Get-GPRegistryValue -Guid $gpo.Id -Key <s> -Domain $domain -ErrorAction SilentlyContinue",  # noqa: E501
+        "$existingLink = (Get-GPInheritance -Target <s> -Domain $domain).GpoLinks |",
+        "$gpo = Get-GPO -Guid <s> -Domain $domain -ErrorAction SilentlyContinue",
         "$gpo.GpoStatus = <s>",
-        "$protected = @(<s>, <s>,",
-        "Remove-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -ErrorAction SilentlyContinue",  # noqa: E501
-        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoApply -TargetName <s> -TargetType Computer -Replace | Out-Null",  # noqa: E501
-        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoApply -TargetName <s> -TargetType Group -Replace | Out-Null",  # noqa: E501
-        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoApply -TargetName <s> -TargetType User -Replace | Out-Null",  # noqa: E501
-        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName <s> -TargetType Computer -Replace | Out-Null",  # noqa: E501
-        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName <s> -TargetType Group -Replace | Out-Null",  # noqa: E501
-        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName <s> -TargetType User -Replace | Out-Null",  # noqa: E501
-        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type Binary -Value ([byte[]]@(<s>))",  # noqa: E501
-        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type Binary -Value <bytes>",
-        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type DWord -Value <n>",
-        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type ExpandString -Value <s>",
-        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type MultiString -Value @(<s>)",
-        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type QWord -Value <n>",
-        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type String -Value <s>",
+        "$marker = <s>",
+        "Remove-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Domain $domain -ErrorAction SilentlyContinue",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoApply -TargetName <s> -TargetType Computer -Replace -Domain $domain | Out-Null",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoApply -TargetName <s> -TargetType Group -Replace -Domain $domain | Out-Null",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoApply -TargetName <s> -TargetType User -Replace -Domain $domain | Out-Null",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName <s> -TargetType Computer -Replace -Domain $domain | Out-Null",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName <s> -TargetType Group -Replace -Domain $domain | Out-Null",  # noqa: E501
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName <s> -TargetType User -Replace -Domain $domain | Out-Null",  # noqa: E501
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type Binary -Value ([byte[]]@(<s>)) -Domain $domain",  # noqa: E501
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type Binary -Value <bytes> -Domain $domain",  # noqa: E501
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type DWord -Value <n> -Domain $domain",  # noqa: E501
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type ExpandString -Value <s> -Domain $domain",  # noqa: E501
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type MultiString -Value @(<s>) -Domain $domain",  # noqa: E501
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type QWord -Value <n> -Domain $domain",  # noqa: E501
+        "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type String -Value <s> -Domain $domain",  # noqa: E501
         "[CmdletBinding(SupportsShouldProcess=$true)]",
-        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced No -Order <n> | Out-Null }",  # noqa: E501
-        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced Yes -Order <n> | Out-Null }",  # noqa: E501
-        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced No -Order <n> | Out-Null }",  # noqa: E501
-        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced Yes -Order <n> | Out-Null }",  # noqa: E501
+        "catch { throw (<s> + $domain + <s> + $_.Exception.Message) }",
+        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced No -Order <n> -Domain $domain | Out-Null }",  # noqa: E501
+        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced Yes -Order <n> -Domain $domain | Out-Null }",  # noqa: E501
+        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced No -Order <n> -Domain $domain | Out-Null }",  # noqa: E501
+        "else { New-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced Yes -Order <n> -Domain $domain | Out-Null }",  # noqa: E501
         "elseif ($gpo.DisplayName -ne <s>) {",
-        "foreach ($perm in $existing) {",
-        "if ($existing) { $existing | ForEach-Object { Remove-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName $_.ValueName -ErrorAction SilentlyContinue } }",  # noqa: E501
-        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced No -Order <n> | Out-Null }",  # noqa: E501
-        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced Yes -Order <n> | Out-Null }",  # noqa: E501
-        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced No -Order <n> | Out-Null }",  # noqa: E501
-        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced Yes -Order <n> | Out-Null }",  # noqa: E501
+        "foreach ($perm in Get-GPPermission -Guid $gpo.Id -All -Domain $domain) {",
+        "if ($existing) { $existing | ForEach-Object { Remove-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName $_.ValueName -Domain $domain -ErrorAction SilentlyContinue } }",  # noqa: E501
+        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced No -Order <n> -Domain $domain | Out-Null }",  # noqa: E501
+        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled No -Enforced Yes -Order <n> -Domain $domain | Out-Null }",  # noqa: E501
+        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced No -Order <n> -Domain $domain | Out-Null }",  # noqa: E501
+        "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced Yes -Order <n> -Domain $domain | Out-Null }",  # noqa: E501
+        "if ($resolved.DomainName -ne $domain) {",
         "if (-not $gpo) {",
-        "param()",
+        "param([switch]$AdoptExistingGpo)",
+        "try { $resolved = [Microsoft.GroupPolicy.GPDomain]::new($domain) }",
         "}",
     )
 )
