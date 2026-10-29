@@ -268,7 +268,7 @@
     </form>
   </dialog>
 
-  <dialog id="gpo-dialog" aria-labelledby="gpo-dialog-title">
+  <dialog id="gpo-dialog" data-guard-edits aria-labelledby="gpo-dialog-title">
     <form method="dialog" id="gpo-form">
       <div class="dialog-head"><div><p class="eyebrow">Draft policy</p><h2 id="gpo-dialog-title">New GPO</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <p class="form-hint">Name and change reason are required. Description is optional.</p>
@@ -285,7 +285,7 @@
     </form>
   </dialog>
 
-  <dialog id="setting-dialog" aria-labelledby="setting-dialog-title">
+  <dialog id="setting-dialog" data-guard-edits aria-labelledby="setting-dialog-title">
     <form method="dialog" id="setting-form">
       <div class="dialog-head"><div><p class="eyebrow">Administrative Templates / Registry</p><h2 id="setting-dialog-title">Add policy setting</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <div class="grid two compact"><label>Configuration<select name="side"><option value="computer">Computer</option><option value="user">User</option></select></label><label>Action<select name="action"><option value="set">Set value</option><option value="delete">Delete value</option></select></label></div>
@@ -298,7 +298,7 @@
     </form>
   </dialog>
 
-  <dialog id="link-dialog" aria-labelledby="link-dialog-title">
+  <dialog id="link-dialog" data-guard-edits aria-labelledby="link-dialog-title">
     <form method="dialog" id="link-form">
       <div class="dialog-head"><div><p class="eyebrow">Scope of management</p><h2 id="link-dialog-title">Add link</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Domain or OU distinguished name<input name="target" required placeholder="OU=Workstations,DC=example,DC=test"></label>
@@ -308,7 +308,7 @@
     </form>
   </dialog>
 
-  <dialog id="configure-dialog" aria-labelledby="configure-title">
+  <dialog id="configure-dialog" data-guard-edits aria-labelledby="configure-title">
     <form method="dialog" id="configure-form">
       <div class="dialog-head"><div><p class="eyebrow">ADMX policy configuration</p><h2 id="configure-title">Configure policy</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Target GPO<select name="target_gpo" id="configure-target-gpo" required></select></label>
@@ -319,7 +319,7 @@
     </form>
   </dialog>
 
-  <dialog id="filter-dialog" aria-labelledby="filter-dialog-title">
+  <dialog id="filter-dialog" data-guard-edits aria-labelledby="filter-dialog-title">
     <form method="dialog" id="filter-form">
       <div class="dialog-head"><div><p class="eyebrow">Security filtering</p><h2 id="filter-dialog-title">Add security filter</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Principal (SID or account)<input name="principal" required maxlength="255" placeholder="S-1-5-32-544 or DOMAIN\Admins"></label>
@@ -331,7 +331,7 @@
     </form>
   </dialog>
 
-  <dialog id="wmi-dialog" aria-labelledby="wmi-dialog-title">
+  <dialog id="wmi-dialog" data-guard-edits aria-labelledby="wmi-dialog-title">
     <form method="dialog" id="wmi-form">
       <div class="dialog-head"><div><p class="eyebrow">WMI filtering</p><h2 id="wmi-dialog-title">WMI filter</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Name<input name="name" required maxlength="255" placeholder="Workstation WMI filter"></label>
@@ -351,7 +351,7 @@
     </form>
   </dialog>
 
-  <dialog id="estate-dialog" aria-labelledby="estate-dialog-title">
+  <dialog id="estate-dialog" data-guard-edits aria-labelledby="estate-dialog-title">
     <form method="dialog" id="estate-form">
       <div class="dialog-head"><div><p class="eyebrow">Estate import</p><h2 id="estate-dialog-title">Import gpo-lens estate</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <div class="estate-toggle" role="group" aria-label="Estate import source">
@@ -372,7 +372,7 @@
     </form>
   </dialog>
 
-  <dialog id="registry-repair-dialog" aria-labelledby="registry-repair-title">
+  <dialog id="registry-repair-dialog" data-guard-edits aria-labelledby="registry-repair-title">
     <form method="dialog" id="registry-repair-form">
       <div class="dialog-head"><div><p class="eyebrow">Registry-only recovery</p><h2 id="registry-repair-title">Recover registry rows</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <p>The original policy and its history stay intact. Every kept row receives a new raw editor identity; this does not reconstruct ADMX ownership. Configuring a policy at an overlapping address may still be refused.</p>
@@ -389,7 +389,7 @@
     </form>
   </dialog>
 
-  <dialog id="fork-dialog" aria-labelledby="fork-dialog-title">
+  <dialog id="fork-dialog" data-guard-edits aria-labelledby="fork-dialog-title">
     <form method="dialog" id="fork-form">
       <div class="dialog-head"><div><p class="eyebrow">Fork baseline</p><h2 id="fork-dialog-title">Fork to draft</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>New GPO name<input name="name" required maxlength="255" placeholder="Forked policy"></label>
@@ -398,7 +398,7 @@
     </form>
   </dialog>
 
-  <dialog id="gpp-group-dialog" aria-labelledby="gpp-group-dialog-title">
+  <dialog id="gpp-group-dialog" data-guard-edits aria-labelledby="gpp-group-dialog-title">
     <form method="dialog" id="gpp-group-form">
       <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-group-dialog-title">Add group</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="scope">
@@ -417,7 +417,7 @@
     </form>
   </dialog>
 
-  <dialog id="gpp-registry-dialog" aria-labelledby="gpp-registry-dialog-title">
+  <dialog id="gpp-registry-dialog" data-guard-edits aria-labelledby="gpp-registry-dialog-title">
     <form method="dialog" id="gpp-registry-form">
       <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-registry-dialog-title">Add registry</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="scope">
@@ -453,7 +453,7 @@
     </form>
   </dialog>
 
-  <dialog id="gpmc-import-dialog" aria-labelledby="gpmc-import-title" aria-describedby="gpmc-import-description">
+  <dialog id="gpmc-import-dialog" data-guard-edits aria-labelledby="gpmc-import-title" aria-describedby="gpmc-import-description">
     <form method="dialog" id="gpmc-import-form">
       <div class="dialog-head"><div><p class="eyebrow">Safe inbox import</p><h2 id="gpmc-import-title">Import GPMC backup</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <p id="gpmc-import-description">Enter the backup folder's path relative to the import inbox. Absolute paths and <code>..</code> are not allowed.</p>
@@ -561,7 +561,7 @@
     </form>
   </dialog>
 
-  <dialog id="starter-gpo-dialog" aria-labelledby="starter-gpo-dialog-title">
+  <dialog id="starter-gpo-dialog" data-guard-edits aria-labelledby="starter-gpo-dialog-title">
     <form method="dialog" id="starter-gpo-form">
       <div class="dialog-head"><div><p class="eyebrow">Starter GPO</p><h2 id="starter-gpo-dialog-title">Create starter GPO</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Name<input name="name" required maxlength="255" placeholder="Security baseline template"></label>
@@ -572,7 +572,7 @@
     </form>
   </dialog>
 
-  <dialog id="derive-dialog" aria-labelledby="derive-dialog-title">
+  <dialog id="derive-dialog" data-guard-edits aria-labelledby="derive-dialog-title">
     <form method="dialog" id="derive-form">
       <div class="dialog-head"><div><p class="eyebrow">Derive from starter</p><h2 id="derive-dialog-title">Derive GPO</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="source_guid">
@@ -582,7 +582,7 @@
     </form>
   </dialog>
 
-  <dialog id="copy-settings-dialog" aria-labelledby="copy-settings-dialog-title">
+  <dialog id="copy-settings-dialog" data-guard-edits aria-labelledby="copy-settings-dialog-title">
     <form method="dialog" id="copy-settings-form">
       <div class="dialog-head"><div><p class="eyebrow">Copy settings</p><h2 id="copy-settings-dialog-title">Copy from another GPO</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <label>Source GPO<select name="source_guid" required></select></label>
@@ -592,7 +592,7 @@
     </form>
   </dialog>
 
-  <dialog id="comment-dialog" aria-labelledby="comment-dialog-title">
+  <dialog id="comment-dialog" data-guard-edits aria-labelledby="comment-dialog-title">
     <form method="dialog" id="comment-form">
       <div class="dialog-head"><div><p class="eyebrow">Registry policy comment</p><h2 id="comment-dialog-title">Update comment</h2></div><button class="icon" type="button" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="setting_id">

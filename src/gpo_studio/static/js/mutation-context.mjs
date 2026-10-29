@@ -109,6 +109,10 @@ export function beginMutation(form, { target = null, workspace = false } = {}) {
   return context;
 }
 
+export function isMutationPending(form) {
+  return pendingForms.has(form);
+}
+
 export function isCurrentEditor(context) {
   return Boolean(
     context.dialog?.open && context.dialog.editorSession === context.session,

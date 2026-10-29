@@ -36,6 +36,20 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Fixed
 
+- **Editing dialogs ask before Esc or × discards a change** (#140). After a
+  field is changed, or a row is added, removed or reordered, closing one of the
+  sixteen editing dialogs with Esc or its × button asks "Discard your
+  changes?". **Keep editing** is focused and returns to the dialog with nothing
+  lost; Esc in the prompt means Keep editing. **Discard** closes the dialog as
+  before. An unchanged dialog closes at once. The Cancel button still discards
+  without asking, saving never asks, and Esc or × while a save is in flight
+  closes without asking, because the save keeps running. Dialogs that edit
+  nothing close freely: RSoP, the security template, Folder Redirection,
+  scripts and publication previews, export review, the starter and WMI filter
+  catalogues, the ADMX folder dialog and the revision-conflict review. While an
+  editing dialog has changes, leaving or reloading the page shows the browser's
+  own "Leave site?" warning.
+
 - Clear errors for malformed or out-of-contract input (#140):
   - Reconfiguring a policy beside a row whose side was edited reports
     `conflicting_retained_setting` instead of `duplicate_setting_id`.

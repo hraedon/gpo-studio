@@ -16,8 +16,9 @@ import {initScripts} from './scripts.mjs';
 import {initPublication} from './publication.mjs';
 import {initTemplates} from './templates.mjs';
 import {initRegistryRepair} from './registry-repair.mjs';
-import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,updateMutationList,mutationFailed,endMutation} from './mutation-context.mjs';
+import {captureMutation,resetEditor,beginMutation,isCurrentEditor,isSameEditor,updateMutationList,mutationFailed,endMutation,isMutationPending} from './mutation-context.mjs';
 import {captureDialogFocus,restoreDialogFocus} from './dialog-focus.mjs';
+import {createDialogGuard} from './dialog-guard.mjs';
 
 const tabs=$$(".tab[role='tab']");
 let focusIntent=0;
@@ -67,7 +68,7 @@ tabs.forEach((tab,index)=>{
 
 function focusableElements(dialog){
   const selector='a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
-  return [...dialog.querySelectorAll(selector)].filter(element=>element.getClientRects().length>0&&element.getAttribute("aria-hidden")!=="true");
+  return [...dialog.querySelectorAll(selector)].filter(element=>element.getClientRects().length>0&&element.getAttribute("aria-hidden")!=="true"&&!element.closest("[inert]"));
 }
 
 function initialiseDialog(dialog){
@@ -96,6 +97,7 @@ function initialiseDialog(dialog){
     nativeClose(...args);
     if(closing)closingFocus.push(closing);
   };
+  const guard=createDialogGuard(dialog,{close:()=>dialog.close("cancel"),isPending:()=>Boolean(form&&isMutationPending(form))});
   dialog.showModal=()=>{
     if(dialog.open)return;
     pendingAnnouncement.textContent="";
@@ -106,6 +108,7 @@ function initialiseDialog(dialog){
     dialog.returnFocus=active instanceof HTMLElement?active:null;
     const focus=openingFocus=captureDialogFocus(dialog);
     nativeShowModal();
+    guard?.opened();
     readDialogOpened(dialog);
     const nativeFocus=document.activeElement,initialFocusIntent=focusIntent;
     requestAnimationFrame(()=>{
@@ -116,10 +119,28 @@ function initialiseDialog(dialog){
       if(target instanceof HTMLElement)target.focus();
     });
   };
-  dialog.addEventListener("cancel",event=>{event.preventDefault();dialog.close()});
+  // Esc is handled at keydown: a second Esc after a prevented cancel event
+  // arrives as a cancel that cannot be prevented, and would close the dialog.
+  dialog.addEventListener("keydown",event=>{
+    if(!guard||event.key!=="Escape"||event.isComposing||!dialog.open)return;
+    if(guard.promptOpen()){event.preventDefault();event.stopPropagation();guard.keepEditing();return}
+    if(guard.shouldAsk()){event.preventDefault();event.stopPropagation();guard.ask()}
+  },true);
+  dialog.addEventListener("cancel",event=>{
+    event.preventDefault();
+    if(guard&&event.cancelable){
+      if(guard.promptOpen()){guard.keepEditing();return}
+      if(guard.shouldAsk()){guard.ask();return}
+    }
+    dialog.close();
+  });
   dialog.addEventListener("click",event=>{
     const cancel=event.target.closest('button[value="cancel"]');
-    if(cancel&&cancel.closest("dialog")===dialog){event.preventDefault();dialog.close("cancel")}
+    if(!cancel||cancel.closest("dialog")!==dialog)return;
+    event.preventDefault();
+    // The × beside the title asks first; the Cancel action is a deliberate discard.
+    if(guard&&cancel.closest(".dialog-head")&&guard.shouldAsk()){guard.ask();return}
+    dialog.close("cancel");
   });
   dialog.addEventListener("keydown",event=>{
     if(event.key!=="Tab")return;
@@ -131,6 +152,7 @@ function initialiseDialog(dialog){
     else if(!dialog.contains(document.activeElement)){event.preventDefault();first.focus()}
   });
   dialog.addEventListener("close",()=>{
+    guard?.closed();
     const focus=closingFocus.shift()||openingFocus;
     if(openingFocus===focus){openingFocus=null;dialog.returnFocus=null}
     requestAnimationFrame(()=>restoreDialogFocus(dialog,focus));
