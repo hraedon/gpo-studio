@@ -1202,10 +1202,22 @@ public static class PsDirectBackstop {
 [PsDirectBackstop]::Arm(($DeadlineSeconds + $script:BackstopGraceSeconds) * 1000, 124,
     "psdirect deadline: backstop fired $($script:BackstopGraceSeconds) s after the $DeadlineSeconds s budget; exiting 124.")
 
+# A brokered host identity in UPN form keeps its realm in whatever case the
+# broker holds. From Linux pwsh, Negotiate goes through MIT Kerberos, which
+# rejects an AS reply whose realm differs in case from the one it asked for
+# ("KDC reply did not match expectations") -- and New-PSSession then HANGS
+# rather than failing. Measured 2026-10-29: user@ad.<domain> hung past 40 s,
+# user@AD.<domain> connected at once. An AD realm is its DNS domain upper-cased,
+# so the suffix is upper-cased here; DOMAIN\user is left alone.
+$hostUser = $env:HYPERV_CONTROL_USERNAME
+if ($hostUser -match '^(?<name>[^@\\]+)@(?<realm>[^@\\]+)$') {
+    $hostUser = "$($Matches['name'])@$($Matches['realm'].ToUpperInvariant())"
+}
+
 $script:HostConnection = @{
     ComputerName = $LabHost
     Credential   = [System.Management.Automation.PSCredential]::new(
-        $env:HYPERV_CONTROL_USERNAME,
+        $hostUser,
         (ConvertTo-SecureString $env:HYPERV_CONTROL_PASSWORD -AsPlainText -Force))
 }
 
