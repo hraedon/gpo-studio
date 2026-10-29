@@ -1280,45 +1280,57 @@ module and delegated GPO rights.
 
 | Policy area | Where it lives instead |
 |-------------|----------------------|
-| WMI filter assignment | GPMC backup export (`Backup.xml`, `gpreport.xml`). The plan does not assign it: assign it in GPMC. Until a filter of that name is assigned, the plan stops before writing links. |
+| WMI filter assignment | GPMC backup export (`Backup.xml`, `gpreport.xml`). A GPO with a WMI filter gets no plan: apply it through the GPMC backup and assign the filter in GPMC. |
 | GPP Groups and Registry | GPMC backup export (`Preferences/` XML) and Studio bundle export. The plan does not apply GPP content. |
 
 ### Domain and GPO binding
 
 The plan modifies one domain and one GPO, and checks everything it can before
-it changes anything:
+it changes anything. Every identity comparison in it is ordinal (PowerShell's
+`-eq` and `-contains` use culture rules, under which a zero-width space or a
+soft hyphen still matches).
 
 - **Domain.** Every GroupPolicy cmdlet names `-Domain` with the GPO's declared
-  domain. Before any change the plan resolves that domain and stops unless it is
-  reachable under that name; there is no fallback to the session's domain.
-  Declare the domain's DNS name: a GPO left on the default `studio.local`, or
-  naming a NetBIOS name, gets a plan that stops unchanged.
-- **Link targets.** Every link target must be the declared domain, one of its
-  OUs, or one of its sites (`CN=<site>,CN=Sites,CN=Configuration,` + the
-  domain's DN). Anything else -- another domain, a child domain, a container --
-  is a validation warning and the plan is not generated; the plan also checks
-  each target itself before it runs. Sites live in the forest root's
-  configuration partition, so a site link is accepted only when the declared
-  domain is the forest root: site links for a child domain need a separate
-  decision.
+  domain. Before any change the plan constructs a
+  `Microsoft.GroupPolicy.GPDomain` for it and stops if that fails; there is no
+  fallback to the session's domain. Measured on WS2025 (2026-10-29): an
+  unknown name fails ("does not exist or could not be contacted"), and the
+  NetBIOS name `LAB` failed with a referral error, so its plan stopped. For a
+  reachable DNS name `DomainName` simply echoes the name as given (upper case
+  stays upper case), so the check proves the domain is reachable under that
+  name, not that the name is canonical. Declare the domain's DNS name: a GPO
+  left on the default `studio.local` gets a plan that stops unchanged.
+- **Link targets.** Every link target must be the declared domain or one of
+  its OUs. Anything else -- another domain, a child domain, a container, a
+  site -- is a validation warning and no plan is generated. Before any change
+  the plan also checks each target lexically and then reads it with
+  `Get-GPInheritance`, which must answer with a container of the expected type
+  (`Domain` or `OU`) and the same path; a missing OU ("There is no such object
+  on the server", measured) or a mismatch stops the plan. The answers are
+  reused when the links are written. Site links are not written by plans:
+  `Get-GPInheritance` answers only for a domain or an OU (measured: "Only a
+  domain or an organizational unit (OU) may be targeted"). Link a site in GPMC.
 - **GPO.** The plan lists every GPO in the domain (`Get-GPO -All`), so a lookup
-  error stops it rather than reading as "absent". It then uses the GPO whose
-  comment has a line that is exactly `GPO Studio binding: <workspace GUID>`.
-  The plan writes that line into the comment of a GPO it creates, which is how
-  a re-run finds it, even after a rename. Failing that, an existing GPO with
-  the workspace GUID or the name is used only when the plan is run with
-  `-AdoptExistingGpo` (for example after `Import-GPO -CreateIfNeeded` created
-  the GPO). A GUID match alone is not enough: an estate import keeps whatever
-  GUID its file names, the Default Domain Policy's included. Without the marker
-  the plan never renames a GPO, even with the switch. Two GPOs with the name,
-  two carrying the marker, or another GPO holding the name or the GUID stop the
-  plan. The marker prevents accidents and is not authentication: anyone who can
-  edit a GPO's comment can write it. An imported GPO's `source_guid` never
-  selects a GPO.
-- **WMI filter.** The plan cannot assign a WMI filter. If one is authored, the
-  plan stops before linking until the GPO has a filter of that name (assign it
-  in GPMC and run the plan again); an existing GPO without it is not changed at
-  all.
+  error stops it rather than reading as "absent". The GPO whose comment has a
+  line exactly `GPO Studio binding: <workspace GUID>` -- which the plan writes
+  into the comment of a GPO it creates -- binds without `-AdoptExistingGpo`
+  only if the plan would not rename it and the workspace GUID did not come
+  from imported data (an estate import keeps the GUID its file names, so a
+  crafted estate could carry the marker GUID read from another Studio GPO's
+  comment, which every authenticated user can read). Any other existing GPO
+  with the workspace GUID or the name needs `-AdoptExistingGpo` (for example
+  after `Import-GPO -CreateIfNeeded`) and is never renamed. Two GPOs with the
+  name, two carrying the marker, or another GPO holding the name or the GUID
+  stop the plan. The marker prevents accidents and is not authentication. An
+  imported GPO's `source_guid` never selects a GPO.
+- **WMI filter.** A GPO with a WMI filter gets no plan
+  (`wmi_filter_not_verifiable`). The plan cannot assign a filter, and it cannot
+  verify an assigned one: through the GroupPolicy module a filter exposes its
+  name, description and path (`MSFT_SomFilter.ID="{...}",Domain="..."`) and a
+  `GetQueryList()` whose output format has not been measured, while the model
+  records no filter ID. A check by name alone let a different filter with the
+  same name pass. Apply such a GPO through the GPMC backup and `Import-GPO`,
+  and assign the filter in GPMC.
 - **`-WhatIf`.** Every change goes through a cmdlet's or the plan's own
   `ShouldProcess`, side status included, so `-WhatIf` changes nothing. A dry
   run on a GPO that does not exist yet stops after reporting its creation.
@@ -1333,26 +1345,54 @@ it changes anything:
   recreated under the same name is not the group the filter was authored for.
   On an existing GPO, the plan then stops before changing it if an authored
   principal holds an edit or custom level, an inherited entry or a deny
-  (`-Replace` would silently remove edit rights), or if any other trustee holds
-  an inherited `GpoApply` or a `GpoCustom` level (it can lower neither).
-  Then every other trustee holding `GpoApply`, Authenticated Users included,
-  is lowered to `GpoRead` (Read stays, because since MS16-072 the computer reads
-  the GPO for both sides), each filter is granted, and the result is read back:
-  nothing outside the apply set may hold `GpoApply`, and each authored principal
-  must hold exactly its level. Trustees are matched by SID. Deny entries of
-  other trustees are left as they are.
+  (`-Replace` would silently remove edit rights); if any other trustee holds an
+  inherited `GpoApply` or a `GpoCustom` level (it can lower neither); or if a
+  trustee it would lower cannot be named -- its account name must translate
+  back to its own SID, which an orphaned SID's does not. Then every other
+  trustee holding `GpoApply`, Authenticated Users included, is lowered to
+  `GpoRead` (Read stays, because since MS16-072 the computer reads the GPO for
+  both sides), each filter is granted, and the result is read back: nothing
+  outside the apply set may hold `GpoApply`, and each authored principal must
+  hold exactly its level. Trustees are matched by SID. Deny entries of other
+  trustees are left as they are.
 - **Only read filters authored:** the apply set is empty, so after the plan
   runs the GPO applies to no one. This matches the RSOP model.
+
+### When the plan stops partway
+
+The plan is not transactional. Everything it can check, it checks before the
+first change; after that, a stop leaves the GPO in one of these states (the
+plan's header lists them too):
+
+| Stopped | State left behind |
+|---|---|
+| after `New-GPO` (a later check, or `-WhatIf`) | the GPO exists, unlinked, with the Windows default permissions and its marker |
+| while lowering Apply | some former Apply holders are at `GpoRead`, the filters are not granted yet: the GPO may apply to no one, including where it is already linked |
+| while granting | some filters hold their level, others do not |
+| at the read-back | filtering as Windows left it; no settings, status or links written |
+| at a setting, status or link | everything before it is done; nothing after it |
+
+Nothing is linked until the read-back passes. To recover: read the message
+(it names the cause), inspect the GPO with `Get-GPPermission -All`,
+`Get-GPRegistryValue` and `Get-GPInheritance`, fix the cause, and run the plan
+again: every step is idempotent, and a GPO the plan created carries its marker,
+so the re-run binds it. A GPO a stopped run created and you no longer want can
+be removed with `Remove-GPO`; it was never linked.
 
 The plan binds the GPO, reconciles and reads back filtering, writes settings and
 side status, and writes links last. On the estate (2026-10-29, a throwaway GPO
 that was never linked and was removed afterwards) the plan refused an
-unreachable domain, a NetBIOS name and a stale stored SID with nothing changed;
-created the GPO with its marker, lowered Authenticated Users to `GpoRead` by the
-name `NT AUTHORITY\Authenticated Users` and granted a SID-authored principal;
-re-ran idempotently; changed nothing under `-WhatIf`; refused the GPO once its
-marker was removed; and adopted it with `-AdoptExistingGpo`. `New-GPO` itself
-refuses a second GPO with an existing name.
+unreachable domain, the NetBIOS name (a referral error) and a stale stored SID
+with nothing changed; created the GPO with its marker, lowered Authenticated
+Users to `GpoRead` by the name `NT AUTHORITY\Authenticated Users` and granted a
+SID-authored principal; re-ran idempotently; changed nothing under `-WhatIf`;
+refused the GPO once its marker was removed; and adopted it with
+`-AdoptExistingGpo`. `New-GPO` itself refuses a second GPO with an existing name.
+A second estate run (same rules) found a link to a missing OU stopped the plan
+before any change: with no GPO yet, nothing was created; on the existing marked
+GPO, its permissions, setting, status, comment and versions were byte-identical
+afterwards, though the plan would also have changed a setting and the side
+status.
 
 The plan is idempotent for registry values and links. Review it, test it in a
 lab, and run it with delegated GPO permissions. Native Windows behaviour and

@@ -175,7 +175,9 @@ function Remove-GPRegistryValue { param($Guid, $Key, $ValueName, $Domain, $Error
   _Out 'KEY' $Key; _Out 'VALUENAME' $ValueName }
 function Get-GPRegistryValue { param($Guid, $Key, $Domain, $ErrorAction) _Out 'KEY' $Key; $null }
 function Get-GPInheritance { param($Target, $Domain) _Out 'TARGET' $Target
-  [pscustomobject]@{ GpoLinks = @() } }
+  $type = 'Domain'
+  if ($Target -match '(?i)^OU=') { $type = 'OU' }
+  [pscustomobject]@{ ContainerType = $type; Path = $Target; GpoLinks = @() } }
 function New-GPLink { param($Guid, $Target, $LinkEnabled, $Enforced, $Order, $Domain) }
 function Set-GPLink { param($Guid, $Target, $LinkEnabled, $Enforced, $Order, $Domain) }
 function Get-GPPermission { param($Guid, [switch]$All, $TargetName, $TargetType, $Domain)

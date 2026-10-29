@@ -148,7 +148,6 @@ def _plan_gpo(**changes: Any) -> GPO:
             SecurityFilter("f1", "EXAMPLE\\LabAdmins", sid="S-1-5-21-1-2-3-1001"),
             SecurityFilter("f2", "EXAMPLE\\Readers", permission="read"),
         ),
-        wmi_filter=WmiFilter("w1", "Servers", query="SELECT * FROM Win32_OperatingSystem"),
     )
     return replace(gpo, **changes)
 
@@ -734,10 +733,14 @@ def test_comment_and_registry_data_may_span_lines() -> None:
 
 
 def test_a_comment_line_cannot_be_ended() -> None:
-    wmi = WmiFilter("w1", "Servers Remove-GPO -All", query="SELECT *\nFROM x")
-    plan = export.powershell_plan(_plan_gpo(wmi_filter=wmi))
-    assert not any(line.startswith("Remove-GPO") for line in plan.splitlines())
-    assert not any(line.startswith("FROM x") for line in plan.splitlines())
+    """The WMI filter's name and query reached plan comments until a filtered
+    GPO stopped getting a plan (round 3); the comment writer still escapes every
+    separator it is handed."""
+    wmi = WmiFilter("w1", "Servers\u2028Remove-GPO -All", query="SELECT *\nFROM x")
+    with pytest.raises(ValidationError):
+        export.powershell_plan(_plan_gpo(wmi_filter=wmi))
+    comment = export._ps_sanitize_comment("Servers\u2028Remove-GPO -All\nFROM x")
+    assert "\u2028" not in comment and "\n" not in comment
 
 
 # --- Registry.pol, scripts.ini, firewall, report, backup ---------------------------------

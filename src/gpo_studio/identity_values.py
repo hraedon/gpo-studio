@@ -261,10 +261,12 @@ def link_target_scope_problem(target: str, domain: str) -> str | None:
     * the domain itself: exactly the domain's ``DC=`` components, in order;
     * an OU: ``OU=`` RDNs only, then exactly those components (an RDN of the
       prefix that is ``DC=`` would be a child domain);
-    * a site: ``CN=<site>,CN=Sites,CN=Configuration,`` then exactly those
-      components. Sites live in the forest root's configuration partition, so
-      this accepts a site only when the declared domain is the forest root; a
-      child domain's site links need a decision of their own.
+    * not a site. Sites live in the forest root's configuration partition, and
+      the plan's link step reads a target with ``Get-GPInheritance``, which
+      answers only for a domain or an OU (measured on WS2025, 2026-10-29: "Only
+      a domain or an organizational unit (OU) may be targeted"), so a plan
+      could never write a site link correctly (round 3). Site links are made
+      in GPMC; plans for them need a decision of their own.
 
     Multi-valued and escaped domain components are refused: no DNS label has
     one. Assumes *target* already passed :func:`dn_problem`.
@@ -293,7 +295,10 @@ def link_target_scope_problem(target: str, domain: str) -> str | None:
         and prefix[1][1].casefold() == "sites"
         and prefix[2][1].casefold() == "configuration"
     ):
-        return None
+        return (
+            "is a site, and a PowerShell plan writes no site links (Get-GPInheritance "
+            "reads only a domain or an OU); link it in GPMC"
+        )
     if "DC" in kinds:
         return f"is in a domain below {domain!r}, not in it"
     return f"is not the domain {domain!r}, one of its OUs or one of its sites"

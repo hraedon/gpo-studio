@@ -171,20 +171,21 @@ def test_powershell_plan_omits_security_filters_when_empty() -> None:
     """No filters authored means "not authored": permissions are left alone
     (a new GPO keeps Authenticated Users: GpoApply), and the plan says so."""
     plan = powershell_plan(sample_gpo())
-    assert "GPPermission" not in plan
+    code = [line for line in plan.splitlines() if not line.startswith("#")]
+    assert not any("GPPermission" in line for line in code)
     assert "# Security filtering: none authored." in plan
 
 
-def test_powershell_plan_includes_wmi_filter() -> None:
+def test_powershell_plan_refuses_a_wmi_filter() -> None:
+    """The plan can neither assign nor verify a WMI filter, so a filtered GPO
+    gets no plan (pre-1.1.1 review, round 3); the GPMC backup carries it."""
     gpo = replace(
         sample_gpo(),
         wmi_filter=WmiFilter(id="wmi-1", name="WorkstationFilter"),
     )
-    plan = powershell_plan(gpo)
-    assert "# WMI filter:" in plan
-    assert "WorkstationFilter" in plan
-    assert "Assign it in GPMC" in plan
-
+    with pytest.raises(ValidationError) as caught:
+        powershell_plan(gpo)
+    assert caught.value.issues[0].code == "wmi_filter_not_verifiable"
 
 def test_powershell_plan_omits_wmi_filter_when_none() -> None:
     plan = powershell_plan(sample_gpo())
@@ -360,24 +361,6 @@ def test_gpmc_backup_round_trip_wmi_description() -> None:
     assert parsed_wmi is None
 
 
-def test_powershell_plan_sanitizes_wmi_newlines() -> None:
-    gpo = replace(
-        sample_gpo(),
-        wmi_filter=WmiFilter(
-            id="wmi-1",
-            name="Evil\nFilter",
-            query="select * from Win32_Service\nRemove-GPO -Guid $gpo.Id",
-        ),
-    )
-    plan = powershell_plan(gpo)
-    wmi_lines = [
-        line for line in plan.splitlines() if "WMI" in line and line.startswith("#")
-    ]
-    assert len(wmi_lines) == 2
-    for line in wmi_lines:
-        assert not line.lstrip("# ").startswith("Remove-GPO")
-
-
 def test_powershell_plan_removes_stale_security_filters() -> None:
     """Every non-deny GpoApply outside the authored apply set is lowered to
     GpoRead, matched by the SID Windows resolved each Apply principal to. The
@@ -404,30 +387,21 @@ def test_powershell_plan_removes_stale_security_filters() -> None:
     )
     plan = powershell_plan(gpo)
     assert "$existing = @(Get-GPPermission -Guid $gpo.Id -All -Domain $domain)" in plan
-    assert "        $seen[[string]$perm.Trustee.Sid.Value] -ne 'GpoApply') {" in plan
+    assert "        -not ($seen.ContainsKey($held) -and $seen[$held] -eq 'GpoApply')) {" in plan
+    # Each trustee to be lowered is named in the preflight, by a name that
+    # translates back to its own SID, before anything changes.
+    assert "        $lower += ,@($who, $type)" in plan
     assert (
-        "        Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName $who"
-        " -TargetType $type -Replace -Domain $domain | Out-Null"
+        "    Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName $l[0]"
+        " -TargetType $l[1] -Replace -Domain $domain | Out-Null"
     ) in plan
     assert "$protected" not in plan and "-PermissionLevel None" not in plan
 
 
-def test_powershell_plan_sanitizes_wmi_backtick() -> None:
-    gpo = replace(
-        sample_gpo(),
-        wmi_filter=WmiFilter(
-            id="wmi-1",
-            name="Evil`Filter",
-            query="select * from Win32_Service",
-        ),
-    )
-    plan = powershell_plan(gpo)
-    comments = [line for line in plan.splitlines() if line.startswith("#")]
-    assert any("Evil Filter" in line for line in comments)
-    assert not any("`" in line for line in comments)
-    # In a single-quoted literal a backtick is an ordinary character.
-    assert "$wmiName = 'Evil`Filter'" in plan
-
+def test_powershell_plan_comment_sanitizer_drops_backticks() -> None:
+    """WMI names reached plan comments until a filtered GPO stopped getting a
+    plan; the comment writer still turns a backtick into a space."""
+    assert export_module._ps_sanitize_comment("Evil`Filter") == "Evil Filter"
 
 def test_powershell_plan_sanitizes_domain_in_wmi_comment() -> None:
     gpo = replace(

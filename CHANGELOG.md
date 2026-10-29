@@ -360,48 +360,51 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Security
 
-Pre-1.1.1 security review, two rounds. Both original findings predate 1.1.0.
+Pre-1.1.1 security review, three rounds. Both original findings predate 1.1.0.
 
 - **The PowerShell plan (`plan.ps1`, `apply.ps1`) is bound to the GPO's
   declared domain.** Every GroupPolicy cmdlet names `-Domain`, and before any
-  change the plan resolves the declared domain and stops unless it is reachable
-  under that name. Declare the domain's DNS name: a GPO still on the default
-  `studio.local`, or naming a NetBIOS name, gets a plan that stops without
-  changing anything.
-- **Link targets must be in the declared domain.** A target that is not the
-  domain, one of its OUs or one of its sites (another domain, a child domain, a
-  container) is a validation warning (`link_target_outside_domain`) and no plan
-  is generated for the GPO; the plan also checks each target before it runs.
-  Site links are accepted only when the declared domain is the forest root.
+  change the plan stops unless the declared domain is reachable. Declare the
+  domain's DNS name: a GPO still on the default `studio.local` gets a plan that
+  stops without changing anything (as did the NetBIOS name on the estate).
+- **Link targets are checked before anything changes.** A target must be the
+  declared domain or one of its OUs; anything else (another domain, a child
+  domain, a container, a site) is a validation warning
+  (`link_target_outside_domain`) and no plan is generated. The plan reads each
+  target with `Get-GPInheritance` before its first change and stops on a
+  missing target or one of the wrong type. Site links are made in GPMC.
 - **The plan modifies only the GPO it is bound to.** It lists the domain's
-  GPOs (a lookup error stops it instead of reading as "absent") and uses the
-  GPO whose comment has the exact line `GPO Studio binding: <workspace GUID>`,
-  which it writes when it creates the GPO. Any other existing GPO with the
-  workspace GUID or the name -- including one an estate import names by GUID,
-  such as the Default Domain Policy -- is refused unless the operator runs the
-  plan with `-AdoptExistingGpo`, and the plan never renames a GPO without the
-  marker. Duplicate names stop it. The marker prevents accidents and is not
-  authentication. `source_guid` never selects a GPO.
+  GPOs (a lookup error stops it) and binds, without `-AdoptExistingGpo`, only
+  the GPO whose comment has the exact line `GPO Studio binding: <workspace
+  GUID>` -- and only when it would not rename it and the workspace GUID did not
+  come from imported data (an estate import keeps its file's GUIDs, so a
+  crafted estate could carry another Studio GPO's marker). Any other existing
+  GPO with the workspace GUID or the name -- the Default Domain Policy named by
+  an estate import, say -- needs the switch and is never renamed. Duplicate
+  names stop the plan. Identity comparisons are ordinal. The marker prevents
+  accidents and is not authentication. `source_guid` never selects a GPO.
 - **Security filtering no longer fails open.** When filters are authored they
   are the GPO's whole apply set. Every principal is resolved to its SID before
   anything changes, and a stored SID that no longer matches stops the plan. On
   an existing GPO the plan stops before changing it if an authored principal
-  holds edit rights, a custom level, an inherited entry or a deny, or if another
-  trustee holds an inherited `GpoApply` or a `GpoCustom` level. Then every other
+  holds edit rights, a custom level, an inherited entry or a deny; if another
+  trustee holds an inherited `GpoApply` or a `GpoCustom` level; or if a trustee
+  it would lower cannot be named (an orphaned SID). Then every other
   `GpoApply`, `Authenticated Users` included, is lowered to `GpoRead` (Read is
   kept for MS16-072), the filters are granted, and a SID-based read-back checks
   both directions. The old `$protected` list, which kept `Authenticated Users:
   GpoApply` on every filtered GPO, is gone, as is the old removal, which passed
   `-PermissionLevel None` without `-Replace` and so lowered nothing. No filters
   authored still leaves the permissions alone.
-- **An authored WMI filter blocks linking until it is assigned.** The plan
-  cannot assign one, so it stops before writing links until the GPO has a WMI
-  filter of that name, and does not change an existing GPO without it. The plan
-  used to link the GPO with the filter unassigned.
+- **A GPO with a WMI filter gets no plan** (`wmi_filter_not_verifiable`). The
+  plan can neither assign nor verify a filter, and used to link the GPO with
+  the filter unassigned. Apply such a GPO through the GPMC backup.
 - **`-WhatIf` changes nothing.** Side status (`GpoStatus`) is set through
   `ShouldProcess`; the read-back is skipped under `-WhatIf`.
 - Filtering and side status run before links, so nothing is linked while a new
-  GPO still applies to everyone.
+  GPO still applies to everyone. The plan is not transactional: its header and
+  `docs/capability-matrix.md` list what a stop after its checks leaves behind
+  and how to recover.
 
 ## [1.1.0] - 2026-10-20
 

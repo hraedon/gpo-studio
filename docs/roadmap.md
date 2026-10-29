@@ -102,13 +102,14 @@ The plan applies:
 - Registry policy: `Set-GPRegistryValue` and `Remove-GPRegistryValue` for all supported value types and delete actions.
 - Links: `New-GPLink` / `Set-GPLink` with enabled, enforced, and order values.
 - Domain binding: every cmdlet names the declared domain, and the plan stops unless that domain is reachable under that name and every link target is in it.
-- GPO binding: the GPO carrying the plan's binding marker; any other GPO with the workspace GUID or the name only with `-AdoptExistingGpo`, and never renamed.
+- GPO binding: the GPO carrying the plan's binding marker (a rename, or a workspace GUID from an import, needs `-AdoptExistingGpo`); any other GPO with the workspace GUID or the name only with `-AdoptExistingGpo`, and never renamed.
 - Security filtering: `Set-GPPermission` to add/replace desired principals; every other Apply holder, Authenticated Users included, is lowered to Read.
 - Side status: the `GpoStatus` property, set to AllSettingsEnabled, UserSettingsDisabled, ComputerSettingsDisabled, or AllSettingsDisabled.
 
 The plan does **not** apply:
 
-- WMI filter assignment. Assign the filter in GPMC: until a filter of that name is assigned, the plan stops before writing links.
+- WMI filter assignment. A GPO with a WMI filter gets no plan: use the GPMC backup and assign the filter in GPMC.
+- Site links. Link a site in GPMC.
 - Group Policy Preferences (GPP Groups, GPP Registry, ILT). For GPP content, use the GPMC backup artifact from the `gpmc-backup` endpoint.
 
 The plan is partial. Administrators must review both `apply.ps1` and the GPMC

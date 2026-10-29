@@ -2,8 +2,17 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from gpo_studio.export import powershell_plan
-from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter, WmiFilter
+from gpo_studio.model import (
+    GPO,
+    GPOLink,
+    RegistrySetting,
+    SecurityFilter,
+    ValidationError,
+    WmiFilter,
+)
 from gpo_studio.ps_plan_validator import (
     PlanValidationIssue,
     PlanValidationResult,
@@ -39,10 +48,6 @@ def _sample_gpo() -> GPO:
                 permission="apply", target_type="group",
                 sid="S-1-5-21-1111111111-2222222222-3333333333-1001",
             ),
-        ),
-        wmi_filter=WmiFilter(
-            id="w1", name="Test WMI",
-            query="SELECT * FROM Win32_OperatingSystem",
         ),
     )
 
@@ -137,13 +142,15 @@ def test_valid_plan_with_security_filters() -> None:
     assert result.valid, f"Issues: {result.issues}"
 
 
-def test_valid_plan_with_wmi_filter() -> None:
+def test_a_wmi_filtered_gpo_gets_no_plan() -> None:
+    """The plan can neither assign nor verify a WMI filter (round 3)."""
     gpo = replace(
         _sample_gpo(),
         wmi_filter=WmiFilter(id="w1", name="Test", query="SELECT * FROM Win32_Service"),
     )
-    result = validate_plan(powershell_plan(gpo))
-    assert result.valid, f"Issues: {result.issues}"
+    with pytest.raises(ValidationError) as caught:
+        powershell_plan(gpo)
+    assert caught.value.issues[0].code == "wmi_filter_not_verifiable"
 
 
 def test_backtick_injection_detected() -> None:

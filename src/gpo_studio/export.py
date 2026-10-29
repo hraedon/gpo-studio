@@ -232,11 +232,27 @@ def _plan_precondition(gpo: GPO) -> ValidationIssue | None:
                     code="link_target_outside_domain",
                     message=(
                         f"Link target {link.target!r} {scope}. A PowerShell plan links "
-                        "only inside the GPO's declared domain: set the domain, or "
-                        "remove the link."
+                        "only to the GPO's declared domain and its OUs: set the domain, "
+                        "or remove the link."
                     ),
                     path=f"links/{link.id}/target",
                 )
+    if gpo.wmi_filter is not None:
+        # The plan cannot assign a WMI filter, and it cannot verify an assigned
+        # one: the GroupPolicy module exposes a filter's name and path, and its
+        # query list's format is unmeasured (round 3). A name match alone let a
+        # different filter with the same name -- deleted and recreated, or
+        # broader -- satisfy the plan before it linked the GPO.
+        return ValidationIssue(
+            severity="error",
+            code="wmi_filter_not_verifiable",
+            message=(
+                f"The GPO has the WMI filter {gpo.wmi_filter.name!r}, which a PowerShell "
+                "plan can neither assign nor verify, so no plan is generated. Apply this "
+                "GPO through the GPMC backup and Import-GPO, and assign the filter in GPMC."
+            ),
+            path="wmi_filter",
+        )
     denied = [sf for sf in gpo.security_filters if sf.deny]
     if not denied:
         return None
@@ -271,6 +287,31 @@ def _plan_comment(gpo: GPO) -> str:
 
 _SID_PRINCIPAL = re.compile(r"[Ss]-\d")
 
+#: Ordinal string comparisons, the plan's only kind for identities: PowerShell's
+#: ``-eq``/``-ccontains`` compare with culture rules, under which a zero-width
+#: space or a soft hyphen inside a value still matches (pre-1.1.1 review,
+#: round 3).
+_ORDINAL = "[StringComparison]::Ordinal"
+_IGNORE_CASE = "[StringComparison]::OrdinalIgnoreCase"
+
+
+def _guid_from_imported_data(gpo: GPO) -> bool:
+    """Whether the workspace GUID came from imported data.
+
+    An estate import keeps the GUID its file names as the workspace GUID and
+    records it as ``source_guid`` too; every other way of making a workspace
+    GPO mints a fresh one. Such a GUID proves nothing about which Studio
+    workspace wrote a marker: a crafted estate can carry the GUID read from
+    another Studio GPO's comment (comments are readable by every authenticated
+    user), so its marker never binds without ``-AdoptExistingGpo``.
+    """
+    if not gpo.source_guid:
+        return False
+    try:
+        return UUID(gpo.guid.strip("{}")) == UUID(gpo.source_guid.strip("{}"))
+    except ValueError:
+        return gpo.guid.strip("{}").casefold() == gpo.source_guid.strip("{}").casefold()
+
 
 def _plan_principals(gpo: GPO) -> list[str]:
     """Resolve every authored filter principal to a SID before anything changes.
@@ -280,7 +321,8 @@ def _plan_principals(gpo: GPO) -> list[str]:
     filter stores a SID (an import does), a different resolution stops the
     plan: a group deleted and recreated under the same name is not the group
     the filter was authored for. Two filters resolving to one SID stop it too.
-    ``$authored`` holds ``(sid, name, level, type)`` per filter.
+    ``$authored`` holds ``(sid, name, level, type)`` per filter; ``$seen``
+    maps each SID to its level, ordinally.
     """
     lines = ["$authored = @()"]
     for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
@@ -312,12 +354,14 @@ def _plan_principals(gpo: GPO) -> list[str]:
         if sf.sid:
             stored = ps_literal(sf.sid, "Sid")
             lines.append(
-                f"if ($sid -ne {stored}) {{ throw ($name + ' resolves to ' + $sid"
-                f" + ', not the stored ' + {stored} + ', so nothing was changed.') }}"
+                f"if (-not [string]::Equals($sid, {stored}, {_IGNORE_CASE})) {{"
+                f" throw ($name + ' resolves to ' + $sid + ', not the stored ' + {stored}"
+                " + ', so nothing was changed.') }"
             )
         lines.append(f"$authored += ,@($sid, $name, '{level}', '{sf.target_type.title()}')")
     lines += [
-        "$seen = @{}",
+        "$seen = [System.Collections.Generic.Dictionary[string, string]]::new("
+        "[StringComparer]::OrdinalIgnoreCase)",
         "foreach ($a in $authored) {",
         "    if ($seen.ContainsKey($a[0])) {",
         "        throw ('Two security filters resolve to ' + $a[0] + ', so nothing was changed.')",
@@ -335,12 +379,19 @@ def _plan_permission_preflight() -> list[str]:
     entry or a deny: ``Set-GPPermission -Replace`` would silently remove edit
     rights, cannot change an inherited entry, and does not express a deny.
     Any other trustee holding an inherited ``GpoApply`` or a ``GpoCustom``
-    level (which may include Apply): the plan cannot lower either.
+    level (which may include Apply): the plan cannot lower either. And every
+    trustee the plan will lower must be one it can name: its account name must
+    translate back to its own SID. An orphaned SID holding Apply used to stop
+    the plan only when it was reached, after Authenticated Users had already
+    been lowered -- an outage on a linked GPO that every re-run repeated
+    (round 3). ``$lower`` holds ``(name, type)`` for each.
     """
     return [
         "$existing = @(Get-GPPermission -Guid $gpo.Id -All -Domain $domain)",
+        "$lower = @()",
         "foreach ($perm in $existing) {",
-        "    if ($seen.ContainsKey([string]$perm.Trustee.Sid.Value)) {",
+        "    $held = [string]$perm.Trustee.Sid.Value",
+        "    if ($seen.ContainsKey($held)) {",
         "        if ($perm.Denied -or $perm.Inherited -or",
         "            @('GpoApply', 'GpoRead') -notcontains $perm.Permission) {",
         "            throw ($perm.Trustee.Name + ' is named by a security filter but holds '"
@@ -353,6 +404,27 @@ def _plan_permission_preflight() -> list[str]:
         "        throw ('The plan cannot reduce ' + $perm.Permission + ' held by '"
         " + $perm.Trustee.Name + ' (inherited: ' + $perm.Inherited + '), so nothing was"
         " changed. Review it in GPMC, then run the plan again.')",
+        "    }",
+        "    if ($perm.Permission -eq 'GpoApply' -and -not $perm.Denied -and",
+        "        -not ($seen.ContainsKey($held) -and $seen[$held] -eq 'GpoApply')) {",
+        "        $who = [string]$perm.Trustee.Name",
+        "        if ($perm.Trustee.Domain) {",
+        "            $who = $perm.Trustee.Domain + '\\' + $perm.Trustee.Name",
+        "        }",
+        "        $named = ''",
+        "        try { $named = ([System.Security.Principal.NTAccount]$who)"
+        ".Translate([System.Security.Principal.SecurityIdentifier]).Value }",
+        "        catch { $named = '' }",
+        "        if (-not $held -or -not [string]::Equals($named, $held,"
+        f" {_IGNORE_CASE})) {{",
+        "            throw ('The plan would have to lower GpoApply held by ' + $held + ' ('"
+        " + $who + '), but cannot name that trustee, so nothing was changed. Remove the"
+        " entry in GPMC, then run the plan again.')",
+        "        }",
+        "        $type = 'Group'",
+        "        if ($perm.Trustee.SidType -eq 'User') { $type = 'User' }",
+        "        if ($perm.Trustee.SidType -eq 'Computer') { $type = 'Computer' }",
+        "        $lower += ,@($who, $type)",
         "    }",
         "}",
     ]
@@ -392,19 +464,9 @@ def _plan_security_filtering(gpo: GPO) -> list[str]:
             "# No authored filter grants Apply: after this section the GPO applies to no one."
         )
     lines += [
-        "foreach ($perm in $existing) {",
-        "    if ($perm.Permission -eq 'GpoApply' -and -not $perm.Denied -and",
-        "        $seen[[string]$perm.Trustee.Sid.Value] -ne 'GpoApply') {",
-        "        $type = 'Group'",
-        "        if ($perm.Trustee.SidType -eq 'User') { $type = 'User' }",
-        "        if ($perm.Trustee.SidType -eq 'Computer') { $type = 'Computer' }",
-        "        $who = $perm.Trustee.Name",
-        "        if ($perm.Trustee.Domain) {",
-        "            $who = $perm.Trustee.Domain + '\\' + $perm.Trustee.Name",
-        "        }",
-        "        Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName $who"
-        " -TargetType $type -Replace -Domain $domain | Out-Null",
-        "    }",
+        "foreach ($l in $lower) {",
+        "    Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName $l[0]"
+        " -TargetType $l[1] -Replace -Domain $domain | Out-Null",
         "}",
         "foreach ($a in $authored) {",
         "    Set-GPPermission -Guid $gpo.Id -PermissionLevel $a[2] -TargetName $a[1]"
@@ -416,15 +478,17 @@ def _plan_security_filtering(gpo: GPO) -> list[str]:
         "else {",
         "    $now = @(Get-GPPermission -Guid $gpo.Id -All -Domain $domain)",
         "    foreach ($perm in $now) {",
+        "        $held = [string]$perm.Trustee.Sid.Value",
         "        if ($perm.Permission -eq 'GpoApply' -and -not $perm.Denied -and",
-        "            $seen[[string]$perm.Trustee.Sid.Value] -ne 'GpoApply') {",
+        "            -not ($seen.ContainsKey($held) -and $seen[$held] -eq 'GpoApply')) {",
         "            throw ('After security filtering ' + $perm.Trustee.Name"
         " + ' still holds GpoApply. Stopping before links are written.')",
         "        }",
         "    }",
         "    foreach ($a in $authored) {",
         "        $held = @($now | Where-Object {",
-        "            [string]$_.Trustee.Sid.Value -eq $a[0] -and -not $_.Denied })",
+        f"            [string]::Equals([string]$_.Trustee.Sid.Value, $a[0], {_IGNORE_CASE})"
+        " -and -not $_.Denied })",
         "        if ($held.Count -ne 1 -or [string]$held[0].Permission -ne $a[2]) {",
         "            throw ('After security filtering ' + $a[1] + ' does not hold exactly '"
         " + $a[2] + '. Stopping before links are written.')",
@@ -436,24 +500,45 @@ def _plan_security_filtering(gpo: GPO) -> list[str]:
 
 
 def _link_target_checks(gpo: GPO) -> list[str]:
-    """The plan's own check that every link target is in the declared domain:
-    the target ends with that domain's DN, and the part before it names no
-    other domain component (a child domain). `validation` refuses the same
-    targets with a precise RDN parse (`link_target_scope_problem`); this is
-    the run-time half, against the name the domain resolved under."""
+    """Check every link target before anything changes, against the directory.
+
+    Lexically first: the target ends with the declared domain's DN and the part
+    before it names no other domain component (`validation` refuses the same
+    targets with a precise RDN parse, `link_target_scope_problem`). Then each
+    is resolved with ``Get-GPInheritance`` (read-only), which must answer with
+    a container of the expected type and the same path: a missing OU used to be
+    found only when its link was written, after filtering, settings and status
+    had changed (round 3). The answers are cached in ``$soms`` for the link
+    step. ``Get-GPInheritance`` reads only domains and OUs (measured), which is
+    one reason plans write no site links.
+    """
     if not gpo.links:
         return []
     targets = ", ".join(ps_literal(link.target, "Target") for link in gpo.links)
     return [
         "$domainDn = 'DC=' + (($resolved.DomainName -split '\\.') -join ',DC=')",
+        "$soms = [System.Collections.Generic.Dictionary[string, object]]::new("
+        "[StringComparer]::OrdinalIgnoreCase)",
         f"foreach ($target in @({targets})) {{",
-        "    $outside = $target -ne $domainDn -and",
-        "        -not $target.EndsWith(',' + $domainDn, [StringComparison]::OrdinalIgnoreCase)",
+        f"    $isDomain = [string]::Equals($target, $domainDn, {_IGNORE_CASE})",
+        "    $outside = -not $isDomain -and",
+        f"        -not $target.EndsWith(',' + $domainDn, {_IGNORE_CASE})",
         "    if ($outside -or $target.Substring(0, [Math]::Max(0,"
         " $target.Length - $domainDn.Length)) -imatch '(^|,)DC=') {",
         "        throw ('Link target ' + $target + ' is not in ' + $domain"
         " + ', so nothing was changed.')",
         "    }",
+        "    try { $som = Get-GPInheritance -Target $target -Domain $domain }",
+        "    catch { throw ('Link target ' + $target + ' cannot be read in ' + $domain"
+        " + ', so nothing was changed: ' + $_.Exception.Message) }",
+        "    $kind = 'OU'",
+        "    if ($isDomain) { $kind = 'Domain' }",
+        f"    if (-not [string]::Equals([string]$som.ContainerType, $kind, {_ORDINAL}) -or",
+        f"        -not [string]::Equals([string]$som.Path, $target, {_IGNORE_CASE})) {{",
+        "        throw ('Link target ' + $target + ' resolved to ' + $som.ContainerType + ' '"
+        " + $som.Path + ', not the ' + $kind + ' named, so nothing was changed.')",
+        "    }",
+        "    $soms[$target] = $som",
         "}",
     ]
 
@@ -465,34 +550,34 @@ def powershell_plan(gpo: GPO) -> str:
     error gets no plan, whichever caller asks, and every quoted argument is
     checked as it is written (:func:`emit_integrity.ps_literal`).
 
-    BOUND TO ONE DOMAIN AND ONE GPO (pre-1.1.1 review, two rounds). Every
-    GroupPolicy call names ``-Domain`` with the declared domain, and the plan
-    proceeds in this order, so that a stop leaves nothing granted or linked
-    beyond what existed:
+    BOUND TO ONE DOMAIN AND ONE GPO (pre-1.1.1 review, three rounds). Every
+    GroupPolicy call names ``-Domain`` with the declared domain, every identity
+    comparison is ordinal, and the plan proceeds in this order:
 
-    1. Preflight, changing nothing: the declared domain is reachable under
-       that name (``Microsoft.GroupPolicy.GPDomain``; no fallback to the
-       session's domain); every link target is in it; every filter principal
-       resolves, to its stored SID where one is stored.
+    1. Preflight, changing nothing: the declared domain is reachable
+       (``Microsoft.GroupPolicy.GPDomain``; no fallback to the session's
+       domain); every link target is in it and resolves to the domain or OU it
+       names (`_link_target_checks`); every filter principal resolves, to its
+       stored SID where one is stored (`_plan_principals`).
     2. Bind the GPO from a complete ``Get-GPO -All`` listing, so a lookup error
-       stops the plan instead of reading as "absent", and two GPOs with the
-       name stop it. An existing GPO -- found by the workspace GUID or by name
-       -- is modified without ``-AdoptExistingGpo`` only if a line of its
-       comment is exactly :func:`plan_binding_marker`, which the plan writes
-       when it creates the GPO. A GUID hit alone is not enough: an estate
-       import keeps whatever GUID its file names, the Default Domain Policy's
-       included. The plan renames only a GPO carrying its marker. Otherwise it
-       creates the GPO.
+       stops the plan instead of reading as "absent". The GPO with a comment
+       line exactly :func:`plan_binding_marker` -- which the plan writes when
+       it creates the GPO -- binds without ``-AdoptExistingGpo``, unless the
+       workspace GUID came from imported data (`_guid_from_imported_data`) or
+       the binding would rename the GPO. Any other existing GPO with the
+       workspace GUID or the name needs the switch, and is never renamed.
+       Duplicates stop the plan. Otherwise it creates the GPO.
     3. On an existing GPO, the permission preflight
-       (`_plan_permission_preflight`) and the WMI filter check, before any
-       change to it.
+       (`_plan_permission_preflight`), before any change to it.
     4. Security filtering (`_plan_security_filtering`), registry settings, side
        status (through ``ShouldProcess``, so ``-WhatIf`` changes nothing), and
-       links last -- and links only once an authored WMI filter is assigned:
-       the plan cannot assign one, so it stops before linking and says how.
+       links last.
 
-    ``source_guid`` never selects a GPO: it comes from the imported data, and
-    GPO GUIDs are not secret.
+    A GPO with an authored WMI filter gets no plan (`_plan_precondition`).
+
+    It is not transactional: what a stop after the preflight leaves behind is
+    listed in the plan's header and in ``docs/capability-matrix.md``.
+    ``source_guid`` never selects a GPO.
     """
     errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
     refusal = _plan_precondition(gpo)
@@ -501,46 +586,57 @@ def powershell_plan(gpo: GPO) -> str:
     if errors:
         raise ValidationError(errors)
     name = ps_literal(gpo.name, "Name")
+    trust_marker = "$false" if _guid_from_imported_data(gpo) else "$true"
     lines = [
         "# Generated by GPO Studio. Review before running with delegated GPO rights.",
         "# This plan intentionally does not run from the web application.",
         f"# Domain: {_ps_sanitize_comment(gpo.domain)}. Every GroupPolicy call names it,",
-        "# and the plan stops before any change unless it is reachable under that name",
-        "# and every link target is in it.",
+        "# and the plan stops before any change unless it is reachable, every link",
+        "# target resolves in it, and every security filter principal resolves.",
         f"# GPO: {_ps_sanitize_comment(gpo.name)}"
         f" (workspace GUID {_ps_sanitize_comment(gpo.guid)}).",
-        "# The plan creates the GPO, or modifies an existing GPO with the workspace GUID",
-        "# or this name only if a line of its comment is this plan's binding marker,",
-        "# which the plan writes when it creates the GPO. Any other existing GPO is",
-        "# refused unless you run the plan with -AdoptExistingGpo, and the plan renames",
-        "# only a GPO carrying its marker. The marker prevents accidents and is",
+        "# The plan creates the GPO, or modifies the existing GPO whose comment has a",
+        "# line that is exactly this plan's binding marker (written when the plan",
+        "# creates the GPO). That GPO still needs -AdoptExistingGpo if the plan would",
+        "# rename it or this workspace GPO's GUID came from imported data. Any other",
+        "# existing GPO with the workspace GUID or this name needs -AdoptExistingGpo",
+        "# and is never renamed. The marker prevents accidents and is",
         "# not authentication: anyone who can edit the comment can write it.",
         "# Run with -WhatIf to see the changes without making them.",
+        "# The plan is not transactional. If it stops after its checks:",
+        "# - after New-GPO: the GPO exists, unlinked, with Windows default permissions;",
+        "# - while lowering Apply: some former Apply holders are at GpoRead and the",
+        "#   filters are not granted yet, so the GPO may apply to no one;",
+        "# - while granting: some filters hold their level, others do not;",
+        "# - at the read-back, settings, status or links: everything before it is done.",
+        "# Inspect with Get-GPPermission -All, Get-GPRegistryValue and Get-GPInheritance,",
+        "# fix the cause the message names, and run the plan again: each step is",
+        "# idempotent. Nothing is linked until the read-back passes.",
         "#Requires -Modules GroupPolicy",
         "[CmdletBinding(SupportsShouldProcess=$true)]",
         "param([switch]$AdoptExistingGpo)",
         "$ErrorActionPreference = 'Stop'",
         f"$domain = {ps_literal(gpo.domain, 'Domain')}",
         f"$marker = {ps_literal(plan_binding_marker(gpo), 'Marker')}",
+        f"$trustMarker = {trust_marker}",
         "try { $resolved = [Microsoft.GroupPolicy.GPDomain]::new($domain) }",
         "catch { throw ('Domain ' + $domain + ' is not reachable, so nothing was changed: '"
         " + $_.Exception.Message) }",
-        "if ($resolved.DomainName -ne $domain) {",
+        f"if (-not [string]::Equals($resolved.DomainName, $domain, {_IGNORE_CASE})) {{",
         "    throw ('Domain ' + $domain + ' resolved to ' + $resolved.DomainName"
         " + ', so nothing was changed. Declare the DNS name of the domain.')",
         "}",
     ]
     lines += _link_target_checks(gpo)
     lines += _plan_principals(gpo)
-    if gpo.wmi_filter is not None:
-        lines.append(f"$wmiName = {ps_literal(gpo.wmi_filter.name, 'WmiFilter')}")
     lines += [
         "$all = @(Get-GPO -All -Domain $domain)",
         f"$byGuid = @($all | Where-Object {{ $_.Id -eq [guid]{ps_literal(gpo.guid, 'Guid')} }})",
-        f"$byName = @($all | Where-Object {{ $_.DisplayName -eq {name} }})",
+        f"$byName = @($all | Where-Object {{ [string]::Equals($_.DisplayName, {name},"
+        f" {_IGNORE_CASE}) }})",
         "$byMarker = @($all | Where-Object {",
-        "    @(([string]$_.Description) -split '\\r?\\n' | ForEach-Object { $_.Trim() }) -ccontains"
-        " $marker })",
+        "    @(([string]$_.Description) -split '\\r?\\n' | Where-Object {",
+        f"        [string]::Equals($_.Trim(), $marker, {_ORDINAL}) }}).Count -gt 0 }})",
         "$gpo = $null",
         "$marked = $false",
         "if ($byMarker.Count -gt 1) {",
@@ -563,14 +659,16 @@ def powershell_plan(gpo: GPO) -> str:
         f"        throw ('Another GPO in ' + $domain + ' has the workspace GUID or the name '"
         f" + {name} + ', so nothing was changed.')",
         "    }",
-        "    if (-not $marked -and -not $AdoptExistingGpo) {",
-        "        throw ('GPO ' + $gpo.DisplayName + ' (' + $gpo.Id + ') exists in ' + $domain"
-        " + ' and nothing ties it to this plan, so nothing was changed. To modify that GPO,"
-        " run the plan with -AdoptExistingGpo.')",
-        "    }",
-        f"    if (-not $marked -and $gpo.DisplayName -cne {name}) {{",
+        f"    $sameName = [string]::Equals($gpo.DisplayName, {name}, {_ORDINAL})",
+        "    if (-not $marked -and -not $sameName) {",
         "        throw ('GPO ' + $gpo.Id + ' is named ' + $gpo.DisplayName + '. The plan renames"
         " only a GPO it created, so nothing was changed.')",
+        "    }",
+        "    if (-not ($marked -and $trustMarker -and $sameName) -and -not $AdoptExistingGpo) {",
+        "        throw ('GPO ' + $gpo.DisplayName + ' (' + $gpo.Id + ') exists in ' + $domain"
+        " + ' and nothing ties it to this plan without -AdoptExistingGpo (it is unmarked,"
+        " would be renamed, or this workspace GUID came from imported data), so nothing was"
+        " changed. To modify that GPO, run the plan with -AdoptExistingGpo.')",
         "    }",
         "}",
         "else {",
@@ -585,17 +683,8 @@ def powershell_plan(gpo: GPO) -> str:
     ]
     if gpo.security_filters:
         lines += _plan_permission_preflight()
-    if gpo.wmi_filter is not None:
-        lines += [
-            "$wmiAssigned = $gpo.WmiFilter -and $gpo.WmiFilter.Name -ceq $wmiName",
-            "if (-not $created -and -not $wmiAssigned) {",
-            "    throw ('Assign the WMI filter ' + $wmiName + ' to GPO ' + $gpo.DisplayName"
-            " + ' in GPMC, then run the plan again. The plan cannot assign it, so nothing"
-            " was changed.')",
-            "}",
-        ]
     lines += [
-        f"if ($gpo.DisplayName -cne {name}) {{",
+        f"if (-not [string]::Equals($gpo.DisplayName, {name}, {_ORDINAL})) {{",
         f"    Rename-GPO -Guid $gpo.Id -TargetName {name} -Domain $domain | Out-Null",
         "}",
     ]
@@ -657,30 +746,12 @@ def powershell_plan(gpo: GPO) -> str:
             "}",
         ]
     )
-    if gpo.wmi_filter is not None:
-        wmi_name = _ps_sanitize_comment(gpo.wmi_filter.name)
-        wmi_query = _ps_sanitize_comment(gpo.wmi_filter.query)
-        lines += [
-            "",
-            f"# WMI filter: {wmi_name} ({wmi_query})",
-            "# The plan cannot assign a WMI filter. Assign it in GPMC (domain:"
-            f" {_ps_sanitize_comment(gpo.domain)}); until it is assigned the plan",
-            "# writes no link.",
-        ]
-        if gpo.links:
-            lines += [
-                "if (-not $wmiAssigned) {",
-                "    throw ('Assign the WMI filter ' + $wmiName + ' to GPO ' + $gpo.DisplayName"
-                " + ' in GPMC, then run the plan again to write its links. No link was"
-                " written.')",
-                "}",
-            ]
     if gpo.links:
         lines.extend(
             [
                 "",
                 "# Link intent, last: nothing is linked before filtering and status are in place.",
-                "# New-GPLink updates an existing link when present.",
+                "# Each target was resolved in the preflight; New-GPLink updates an existing link.",
             ]
         )
     for link in gpo.links:
@@ -692,7 +763,7 @@ def powershell_plan(gpo: GPO) -> str:
         )
         lines.extend(
             [
-                f"$existingLink = (Get-GPInheritance -Target {target} -Domain $domain).GpoLinks |",
+                f"$existingLink = $soms[{target}].GpoLinks |",
                 "    Where-Object { $_.GpoId -eq $gpo.Id }",
                 f"if ($existingLink) {{ Set-GPLink {common} | Out-Null }}",
                 f"else {{ New-GPLink {common} | Out-Null }}",

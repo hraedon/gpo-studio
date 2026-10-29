@@ -933,6 +933,10 @@ def test_a_capability_is_its_download(
     assert client.get(f"/api/gpos/{guid}/report.txt").status_code == 200
 
 
+#: Why a plan may be refused for a GPO that is otherwise exportable.
+_PLAN_REFUSALS = {"link_target_outside_domain", "wmi_filter_not_verifiable"}
+
+
 def test_the_release_fixture_gpos_export(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -949,6 +953,13 @@ def test_the_release_fixture_gpos_export(
         for row in rows:
             for route in ("plan.ps1", "export.zip", "gpmc-backup", "report.txt"):
                 response = client.get(f"/api/gpos/{row['guid']}/{route}")
+                if route in {"plan.ps1", "export.zip"} and response.status_code == 422:
+                    # The plan (also inside export.zip) refuses what it cannot
+                    # bind or verify (pre-1.1.1 review): a released GPO may now
+                    # get no plan, but only for one of these reasons.
+                    codes = {issue["code"] for issue in response.json()["error"]["issues"]}
+                    assert codes <= _PLAN_REFUSALS, (row["name"], route, codes)
+                    continue
                 assert response.status_code == 200, (row["name"], route, response.text[:300])
 
 

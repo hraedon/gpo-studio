@@ -153,7 +153,9 @@ def test_every_grouppolicy_call_names_the_declared_domain() -> None:
 def test_the_domain_is_asserted_before_any_grouppolicy_call() -> None:
     code = _code_lines(export.powershell_plan(_gpo()))
     resolve = next(i for i, line in enumerate(code) if "Microsoft.GroupPolicy.GPDomain" in line)
-    compare = next(i for i, line in enumerate(code) if "$resolved.DomainName -ne $domain" in line)
+    compare = next(
+        i for i, line in enumerate(code) if "[string]::Equals($resolved.DomainName, $domain" in line
+    )
     first_call = next(i for i, line in enumerate(code) if any(cmd in line for cmd in GP_CMDLETS))
     assert resolve < compare < first_call
     assert "throw" in code[resolve + 1] and "throw" in code[compare + 1]
@@ -165,13 +167,18 @@ def test_an_existing_gpo_needs_the_exact_marker_line_or_the_switch() -> None:
     marker = _marker(gpo)
     assert marker == f"GPO Studio binding: {GUID}"
     assert "param([switch]$AdoptExistingGpo)" in plan
-    # A whole, trimmed line, compared case-sensitively -- not a substring.
+    # A whole, trimmed line, compared ordinally -- not a substring, and not with
+    # culture rules (under which a zero-width space still matches).
     assert (
-        "    @(([string]$_.Description) -split '\\r?\\n' | ForEach-Object { $_.Trim() })"
-        " -ccontains $marker })"
+        "        [string]::Equals($_.Trim(), $marker, [StringComparison]::Ordinal) })"
+        ".Count -gt 0 })"
     ) in plan
+    assert "-ccontains" not in plan
     assert ".Contains($marker)" not in plan
-    assert "if (-not $marked -and -not $AdoptExistingGpo) {" in plan
+    assert (
+        "if (-not ($marked -and $trustMarker -and $sameName) -and -not $AdoptExistingGpo) {"
+    ) in plan
+    assert "$trustMarker = $true" in plan
     # The plan writes the marker into the comment of a GPO it creates.
     assert (
         "-Comment ('Pilot rollout' + [char]0x000A + [char]0x000A"
@@ -203,8 +210,8 @@ def test_authenticated_users_is_not_protected_from_the_filter() -> None:
     plan = export.powershell_plan(_gpo())
     assert "$protected" not in plan
     assert (
-        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName $who"
-        " -TargetType $type -Replace -Domain $domain | Out-Null"
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName $l[0]"
+        " -TargetType $l[1] -Replace -Domain $domain | Out-Null"
     ) in plan
     assert "-PermissionLevel None" not in plan
 
@@ -213,7 +220,10 @@ def test_a_stored_sid_is_checked_before_anything_changes() -> None:
     plan = export.powershell_plan(
         _gpo(security_filters=(SecurityFilter("f1", "SYNTHETIC\\PilotGroup", sid=PILOT_SID),))
     )
-    check = f"if ($sid -ne '{PILOT_SID}') {{"
+    check = (
+        f"if (-not [string]::Equals($sid, '{PILOT_SID}',"
+        " [StringComparison]::OrdinalIgnoreCase))"
+    )
     assert check in plan
     assert plan.index(check) < plan.index("$all = @(Get-GPO -All")
 
@@ -223,7 +233,7 @@ def test_preflight_comes_before_the_first_permission_write() -> None:
     preflight = next(i for i, line in enumerate(code) if "The plan cannot reduce" in line)
     first_write = next(i for i, line in enumerate(code) if "Set-GPPermission" in line)
     lower = next(
-        i for i, line in enumerate(code) if "-PermissionLevel GpoRead -TargetName $who" in line
+        i for i, line in enumerate(code) if "-PermissionLevel GpoRead -TargetName $l[0]" in line
     )
     grant = next(i for i, line in enumerate(code) if "-PermissionLevel $a[2]" in line)
     assert preflight < first_write == lower < grant
@@ -233,7 +243,7 @@ def test_filtering_and_status_come_before_links() -> None:
     code = _code_lines(export.powershell_plan(_gpo()))
     readback = max(i for i, line in enumerate(code) if "Stopping before links" in line)
     status = next(i for i, line in enumerate(code) if "$gpo.GpoStatus = " in line)
-    first_link = next(i for i, line in enumerate(code) if "Get-GPInheritance" in line)
+    first_link = next(i for i, line in enumerate(code) if "New-GPLink" in line)
     assert readback < first_link and status < first_link
 
 
@@ -247,7 +257,7 @@ def test_side_status_goes_through_should_process() -> None:
 
 def test_no_filters_authored_leaves_permissions_alone() -> None:
     plan = export.powershell_plan(_gpo(security_filters=()))
-    assert "GPPermission" not in plan
+    assert not any("GPPermission" in line for line in _code_lines(plan))
     assert "none authored" in plan
 
 
@@ -267,8 +277,16 @@ def test_read_only_filters_say_the_gpo_applies_to_no_one() -> None:
         f"CN=Users,{DOMAIN_DN}",
         "CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=root,DC=test",
         "DC=synthetic,DC=test",
+        f"CN=Default-First-Site-Name,CN=Sites,CN=Configuration,{DOMAIN_DN}",
     ],
-    ids=["other-domain", "child-domain", "container", "other-forest-site", "parent-domain"],
+    ids=[
+        "other-domain",
+        "child-domain",
+        "container",
+        "other-forest-site",
+        "parent-domain",
+        "own-forest-site",
+    ],
 )
 def test_a_link_target_outside_the_declared_domain_is_refused(target: str) -> None:
     gpo = _gpo(links=(GPOLink("l1", target),))
@@ -289,9 +307,8 @@ def test_a_link_target_outside_the_declared_domain_is_refused(target: str) -> No
         DOMAIN_DN,
         f"OU=Pilot,OU=Clients,{DOMAIN_DN}",
         "ou=pilot,dc=LAB,dc=Synthetic,dc=TEST",
-        f"CN=Default-First-Site-Name,CN=Sites,CN=Configuration,{DOMAIN_DN}",
     ],
-    ids=["domain", "nested-ou", "case", "forest-root-site"],
+    ids=["domain", "nested-ou", "case"],
 )
 def test_a_link_target_in_the_declared_domain_is_accepted(target: str) -> None:
     gpo = _gpo(links=(GPOLink("l1", target),))
@@ -306,7 +323,6 @@ def test_the_bound_plan_passes_egress() -> None:
         _gpo(security_filters=()),
         _gpo(description=""),
         _gpo(security_filters=(SecurityFilter("r", "SYNTHETIC\\Readers", permission="read"),)),
-        _gpo(wmi_filter=WmiFilter("w", "Servers", query="SELECT * FROM Win32_OperatingSystem")),
         _gpo(security_filters=(SecurityFilter("au", AU_SID, sid=AU_SID),)),
     ):
         assert egress.powershell_plan_problems(export.powershell_plan(gpo)) == []
@@ -432,7 +448,15 @@ function Get-GPRegistryValue { param($Guid, $Key, $Domain, $ErrorAction)
   _Log 'Get-GPRegistryValue' @{ domain = $Domain }; $null }
 function Get-GPInheritance { param($Target, $Domain, $ErrorAction)
   _Log 'Get-GPInheritance' @{ domain = $Domain; target = $Target }
-  [pscustomobject]@{ GpoLinks = @() } }
+  # As measured: a missing OU throws "There is no such object on the server";
+  # the path comes back lower-cased.
+  if ($S.MissingTargets -contains $Target) {
+    throw 'stand-in: There is no such object on the server.' }
+  $type = 'OU'
+  if ($Target -notmatch '(?i)^OU=') { $type = 'Domain' }
+  if ($S.WrongType -contains $Target) { $type = 'Site' }
+  [pscustomobject]@{ ContainerType = $type; Path = $Target.ToLowerInvariant();
+    GpoLinks = @() } }
 function New-GPLink { param($Guid, $Target, $LinkEnabled, $Enforced, $Order, $Domain,
   $ErrorAction)
   _Log 'New-GPLink' @{ domain = $Domain; guid = [string]$Guid; target = $Target } }
@@ -591,6 +615,8 @@ def _execute(
     whatif: bool = False,
     ignore_sid: str = "",
     lookup_fails: bool = False,
+    missing_targets: list[str] | None = None,
+    wrong_type: list[str] | None = None,
     plan: str | None = None,
 ) -> Run:
     name_map = {**_NAMES, **(names or {})}
@@ -600,6 +626,8 @@ def _execute(
         "Names": name_map,
         "IgnoreSid": ignore_sid,
         "LookupFails": lookup_fails,
+        "MissingTargets": missing_targets or [],
+        "WrongType": wrong_type or [],
     }
     path = tmp_path / "apply.ps1"
     path.write_text(
@@ -705,7 +733,7 @@ def test_an_estate_import_keeping_the_default_domain_policy_guid_is_refused(
     ddp = _existing(WELL_KNOWN_GUID, "Default Domain Policy")
     run = _execute(tmp_path, gpo, gpos=[ddp])
     assert run.returncode != 0
-    assert "nothing ties it to this plan" in run.error
+    assert "so nothing was changed" in run.error
     assert run.mutations == [], run.mutations
 
 
@@ -731,10 +759,16 @@ def test_the_switch_adopts_an_unmarked_gpo_of_the_same_name(tmp_path: Path) -> N
 
 
 @needs_pwsh
-def test_a_marked_gpo_found_by_guid_binds_and_is_renamed(tmp_path: Path) -> None:
+def test_a_marked_gpo_is_renamed_only_with_the_switch(tmp_path: Path) -> None:
+    """Round 3 (Opus S1): a marker binding that would also rename the GPO needs
+    -AdoptExistingGpo -- a rename is how a harvested marker took over a GPO."""
     gpo = _gpo(guid=GUID.strip("{}").lower())
     existing = _existing(GUID, "Old name", f"Pilot rollout\n\n{_marker(gpo)}")
     run = _execute(tmp_path, gpo, gpos=[existing])
+    assert run.returncode != 0
+    assert "would be renamed" in run.error
+    assert run.mutations == []
+    run = _execute(tmp_path, gpo, gpos=[existing], adopt=True)
     assert run.returncode == 0, run.output
     (renamed,) = run.called("Rename-GPO")
     assert renamed["name"] == "Pilot Browser Policy"
@@ -743,10 +777,11 @@ def test_a_marked_gpo_found_by_guid_binds_and_is_renamed(tmp_path: Path) -> None
 @needs_pwsh
 def test_the_gpo_the_plan_created_is_found_by_its_marker_after_a_rename(tmp_path: Path) -> None:
     """New-GPO assigns its own GUID, so a re-run after the workspace GPO was
-    renamed finds the GPO by neither GUID nor name -- only by its marker."""
+    renamed finds the GPO by neither GUID nor name -- only by its marker. The
+    rename back needs the switch (round 3)."""
     gpo = _gpo()
     mine = _existing(OTHER_ID, "Previous name", _marker(gpo))
-    run = _execute(tmp_path, gpo, gpos=[mine])
+    run = _execute(tmp_path, gpo, gpos=[mine], adopt=True)
     assert run.returncode == 0, run.output
     assert run.called("New-GPO") == []
     (renamed,) = run.called("Rename-GPO")
@@ -758,7 +793,7 @@ def test_an_unrelated_same_named_gpo_is_refused(tmp_path: Path) -> None:
     existing = _existing(OTHER_ID, "Pilot Browser Policy", "Somebody else's policy")
     run = _execute(tmp_path, _gpo(), gpos=[existing])
     assert run.returncode != 0
-    assert "nothing ties it to this plan, so nothing was changed" in run.error
+    assert "nothing ties it to this plan without -AdoptExistingGpo" in run.error
     assert "-AdoptExistingGpo" in run.error
     assert run.mutations == [], run.mutations
 
@@ -965,7 +1000,7 @@ def test_a_stored_sid_that_no_longer_matches_stops_the_plan(tmp_path: Path) -> N
     run = _execute(tmp_path, gpo)
     assert run.returncode != 0
     assert f"not the stored {READERS_SID}, so nothing was changed" in run.error
-    assert run.calls == []
+    assert run.mutations == [] and run.called("Get-GPO") == []
 
 
 @needs_pwsh
@@ -983,7 +1018,7 @@ def test_an_unresolvable_principal_stops_the_plan_before_any_change(tmp_path: Pa
     run = _execute(tmp_path, gpo, gpos=[marked], perms=perms)
     assert run.returncode != 0
     assert "Cannot resolve SYNTHETIC\\Missing, so nothing was changed" in run.error
-    assert run.calls == []
+    assert run.mutations == [] and run.called("Get-GPO") == []
 
 
 @pytest.mark.parametrize(
@@ -1059,7 +1094,7 @@ def test_whatif_changes_nothing_on_an_existing_gpo(tmp_path: Path) -> None:
     """``$gpo.GpoStatus = ...`` is a .NET property set, which ``-WhatIf`` does
     not reach: it went through regardless (Daybreak round 2)."""
     gpo = _gpo(computer_enabled=False)
-    marked = _existing(OTHER_ID, "Old name", _marker(gpo))
+    marked = _existing(OTHER_ID, gpo.name, _marker(gpo))
     run = _execute(tmp_path, gpo, gpos=[marked], whatif=True)
     assert run.returncode == 0, run.output
     assert run.mutations == []
@@ -1073,41 +1108,113 @@ def test_whatif_changes_nothing_on_an_existing_gpo(tmp_path: Path) -> None:
 def test_whatif_on_a_new_gpo_stops_after_reporting_the_creation(tmp_path: Path) -> None:
     run = _execute(tmp_path, _gpo(), whatif=True)
     assert run.returncode == 0, run.output
-    assert [c["cmd"] for c in run.calls if c["cmd"] != "Get-GPO"] == ["New-GPO"]
+    reads = {"Get-GPO", "Get-GPInheritance"}
+    assert [c["cmd"] for c in run.calls if c["cmd"] not in reads] == ["New-GPO"]
     assert run.mutations == []
     assert "What if: the GPO does not exist yet" in run.output
 
 
 # --- WMI filter ---------------------------------------------------------------
 
-_WMI = WmiFilter("w", "Servers only", query="SELECT * FROM Win32_OperatingSystem")
+
+def test_a_wmi_filtered_gpo_gets_no_plan() -> None:
+    """Round 3 (Daybreak): the plan checked an assigned filter by display name
+    only, so a different filter with the same name -- deleted and recreated, or
+    broader -- let it link the GPO. The GroupPolicy module exposes a filter's
+    name and path and an unmeasured query list, so the plan can verify neither
+    the filter nor assign one: it is not generated."""
+    wmi = WmiFilter("w", "Servers only", query="SELECT * FROM Win32_OperatingSystem")
+    gpo = _gpo(wmi_filter=wmi)
+    refusal = export.plan_refusal(gpo)
+    assert refusal is not None and refusal.code == "wmi_filter_not_verifiable"
+    with pytest.raises(ValidationError) as caught:
+        export.powershell_plan(gpo)
+    assert caught.value.issues[0].code == "wmi_filter_not_verifiable"
+    assert export.plan_refusal(_gpo(links=())) is None
+
+
+# --- round 3 ------------------------------------------------------------------
 
 
 @needs_pwsh
-def test_an_unassigned_wmi_filter_stops_the_plan_before_links(tmp_path: Path) -> None:
-    """Opus S3 (also on main): the filter was never assigned, yet the GPO was
-    linked -- applying to everything the filter was meant to exclude."""
-    run = _execute(tmp_path, _gpo(wmi_filter=_WMI))
+def test_a_missing_link_target_stops_the_plan_before_any_change(tmp_path: Path) -> None:
+    """Round 3 (Daybreak): the first directory lookup of a target was the link
+    step, after filtering, settings and status had changed."""
+    gpo = _gpo(links=(GPOLink("l1", f"OU=Missing,{DOMAIN_DN}"),))
+    marked = _existing(OTHER_ID, gpo.name, _marker(gpo))
+    run = _execute(tmp_path, gpo, gpos=[marked], missing_targets=[f"OU=Missing,{DOMAIN_DN}"])
     assert run.returncode != 0
-    assert "Assign the WMI filter Servers only" in run.error
-    assert "No link was written" in run.error
-    assert run.called("New-GPLink") == [] and run.called("Get-GPInheritance") == []
+    assert "cannot be read in lab.synthetic.test, so nothing was changed" in run.error
+    assert run.mutations == []
+    assert run.called("Get-GPO") == []
 
 
 @needs_pwsh
-def test_an_existing_gpo_without_its_wmi_filter_is_not_changed(tmp_path: Path) -> None:
-    gpo = _gpo(wmi_filter=_WMI)
-    marked = _existing(OTHER_ID, gpo.name, _marker(gpo), wmi="Another filter")
-    run = _execute(tmp_path, gpo, gpos=[marked])
+def test_a_link_target_of_the_wrong_type_stops_the_plan(tmp_path: Path) -> None:
+    gpo = _gpo()
+    target = f"OU=Pilot,{DOMAIN_DN}"
+    run = _execute(tmp_path, gpo, wrong_type=[target])
     assert run.returncode != 0
-    assert "nothing was changed" in run.error
+    assert "not the OU named, so nothing was changed" in run.error
     assert run.mutations == []
 
 
 @needs_pwsh
-def test_an_assigned_wmi_filter_lets_the_plan_link(tmp_path: Path) -> None:
-    gpo = _gpo(wmi_filter=_WMI)
-    marked = _existing(OTHER_ID, gpo.name, _marker(gpo), wmi="Servers only")
-    run = _execute(tmp_path, gpo, gpos=[marked])
+def test_each_target_is_read_once_before_anything_changes(tmp_path: Path) -> None:
+    gpo = _gpo(links=(GPOLink("l1", f"OU=Pilot,{DOMAIN_DN}"), GPOLink("l2", DOMAIN_DN, order=2)))
+    run = _execute(tmp_path, gpo)
     assert run.returncode == 0, run.output
-    assert run.called("New-GPLink")
+    names = [c["cmd"] for c in run.calls]
+    reads = [i for i, cmd in enumerate(names) if cmd == "Get-GPInheritance"]
+    first_change = next(i for i, cmd in enumerate(names) if cmd.split("-")[0] in {"New", "Set"})
+    assert len(reads) == 2 and max(reads) < first_change
+    assert len(run.called("New-GPLink")) == 2
+
+
+@needs_pwsh
+def test_a_harvested_marker_in_a_crafted_estate_import_does_not_bind(tmp_path: Path) -> None:
+    """Round 3 (Opus S1): GPO comments are readable by any authenticated user,
+    so a crafted estate can carry another Studio GPO's marker GUID as its own
+    workspace GUID. Such a GUID came from imported data, so its marker does not
+    bind without the switch -- even when the names agree."""
+    victim = _gpo(name="Payroll Lockdown")
+    crafted = _gpo(name="Payroll Lockdown", source_guid=victim.guid)
+    existing = _existing(OTHER_ID, "Payroll Lockdown", _marker(victim))
+    plan = export.powershell_plan(crafted)
+    assert "$trustMarker = $false" in plan
+    run = _execute(tmp_path, crafted, gpos=[existing])
+    assert run.returncode != 0
+    assert "came from imported data" in run.error
+    assert run.mutations == []
+    renamed = replace(crafted, name="Harmless Pilot")
+    run = _execute(tmp_path, renamed, gpos=[existing])
+    assert run.returncode != 0
+    assert run.mutations == []
+
+
+@needs_pwsh
+def test_an_orphaned_apply_trustee_stops_the_plan_before_any_change(tmp_path: Path) -> None:
+    """Round 3 (Opus S2): an unresolvable SID holding Apply stopped the plan
+    only when it was reached -- after Authenticated Users had been lowered, an
+    outage on a linked GPO that every re-run repeated."""
+    gpo = _gpo()
+    marked = _existing(OTHER_ID, gpo.name, _marker(gpo))
+    orphan = "S-1-5-21-1000-2000-3000-9999"
+    perms = [*_default_perms(), _perm(orphan, "", orphan, "GpoApply", "Unknown")]
+    run = _execute(tmp_path, gpo, gpos=[marked], perms=perms)
+    assert run.returncode != 0
+    assert f"lower GpoApply held by {orphan}" in run.error
+    assert run.mutations == []
+
+
+@pytest.mark.parametrize("hidden", ["\u200b", "\u00ad"], ids=["zero-width-space", "soft-hyphen"])
+@needs_pwsh
+def test_the_marker_is_compared_ordinally(tmp_path: Path, hidden: str) -> None:
+    """Round 3 (Opus): ``-ccontains`` compares with culture rules, under which a
+    zero-width space or a soft hyphen inside the line still matches."""
+    gpo = _gpo()
+    marker = _marker(gpo)
+    near = marker[:10] + hidden + marker[10:]
+    run = _execute(tmp_path, gpo, gpos=[_existing(OTHER_ID, gpo.name, near)])
+    assert run.returncode != 0
+    assert run.mutations == []

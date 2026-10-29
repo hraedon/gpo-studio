@@ -345,9 +345,9 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                 ValidationIssue(
                     "warning",
                     "link_target_outside_domain",
-                    f"Link target {scope}. The PowerShell plan links only inside the GPO's "
-                    "declared domain, so it is not generated: set the domain, or remove "
-                    "the link.",
+                    f"Link target {scope}. No PowerShell plan is generated for this GPO: "
+                    "a plan links only to the declared domain and its OUs. Set the "
+                    "domain, or remove the link.",
                     f"links/{link.id}/target",
                 )
             )

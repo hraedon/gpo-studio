@@ -4,7 +4,8 @@ Every statement the plan writer has, with every kind of hole it fills: each
 registry type and action, the value shapes each type takes (empty strings and
 lists included), links in every enabled/enforced combination, security filters
 apply-only, read-only and mixed over every target type, descriptions empty,
-one-line and multi-line, a WMI filter or none, and every side enablement.
+one-line and multi-line (no WMI filter: a filtered GPO gets no plan), every
+side enablement, and a workspace GUID taken from imported data.
 `tests/test_egress.py` requires every plan these produce to pass egress, and the
 plan grammar (`egress.PLAN_GRAMMAR`) to hold exactly the line shapes they use.
 """
@@ -14,7 +15,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Iterator
 
-from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter, WmiFilter
+from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter
 
 GUID = "{0B0D0080-0000-4000-8000-000000000000}"
 _VALUES: dict[str, list[object]] = {
@@ -101,7 +102,8 @@ def gpos() -> Iterator[GPO]:
         _filters(),
         _links(),
         ("", "One line", "Two\nlines"),
-        (None, WmiFilter("w", "Servers", query="SELECT * FROM Win32_OperatingSystem")),
+        # A WMI filter gets no plan (wmi_filter_not_verifiable), so none here.
+        (None,),
         itertools.product((True, False), repeat=2),
     ):
         yield GPO(
@@ -116,3 +118,6 @@ def gpos() -> Iterator[GPO]:
             user_enabled=sides[1],
         )
     yield GPO(guid=GUID, name="Empty")
+    # A workspace GUID taken from imported data (an estate import): its marker
+    # does not bind without -AdoptExistingGpo.
+    yield GPO(guid=GUID, name="Imported", source_guid=GUID)
