@@ -780,7 +780,14 @@ def _element_row_identity(
 
 
 def _is_stale_disable(row: _StoredReadBinding, plan: _PolicyReadPlan) -> bool:
-    """A disable's delete for this policy that no current element claimed."""
+    """A disable's delete for this policy, by its editor ID.
+
+    The caller passes only rows no current element binds: a row that binds as
+    something else (a list item of an element whose ID itself begins with
+    ``disabled-element-``) is not a stale disable.
+    """
+    if row.setting.action != "delete":
+        return False
     structured = row.structured
     if structured is not None:
         return (
@@ -821,13 +828,13 @@ def _observe_child_only_state(
 
     ``stale_disable`` reports a disable's delete, by its editor ID, for an
     element the current template no longer binds (its value name changed, or
-    it was removed). It is disabled evidence: on its own it cannot prove the
-    current state, and beside a value write it contradicts it.
+    it was removed). It only adds uncertainty: on its own it cannot prove the
+    current state, beside a value write it contradicts it, and it never
+    proves that the current rows are a disable (#148 review).
     """
     if not any(indices for _binding, indices in element_rows):
         return ("indeterminate", "no_complete_pattern") if stale_disable else None
-    enabled_evidence = False
-    disabled_evidence = stale_disable
+    enabled_evidence = disabled_evidence = False
     # Rows an enabled policy cannot write (a delete of a value it always sets).
     only_disable_explains = False
     complete_disable = True
@@ -873,7 +880,7 @@ def _observe_child_only_state(
             case _:
                 assert_never(row.setting.action)
     if enabled_evidence:
-        if disabled_evidence or only_disable_explains:
+        if disabled_evidence or only_disable_explains or stale_disable:
             return "indeterminate", "no_complete_pattern"
         return "enabled", None
     if not complete_disable:
@@ -1129,9 +1136,12 @@ def build_settings_browser(
                 index for index, row in enumerate(bound_rows)
                 if index not in claimed and _may_be_policy_state_record(row, plan)
             )
+            element_bound = {
+                index for _binding, indices in decoded.element_rows for index in indices
+            }
             stale_disables = frozenset(
                 index for index, row in enumerate(bound_rows)
-                if index not in claimed and _is_stale_disable(row, plan)
+                if index not in element_bound and _is_stale_disable(row, plan)
             )
             child_state = _observe_child_only_state(
                 bound_rows, decoded.element_rows, stale_disable=bool(stale_disables)
@@ -1163,6 +1173,8 @@ def build_settings_browser(
                     repairs[row_index],
                     setting_policy_owners(row.setting, catalogue) == ((qualified_id, side),),
                 )
+            elif row_index in stale_disables:
+                reason = "disable record for an element this template does not bind"
             elif row_index not in claimed and row.address not in plan.non_list_addresses and (
                 row.legacy_list_conflict or (
                     row.legacy_suffix is not None
@@ -1170,8 +1182,6 @@ def build_settings_browser(
                 )
             ):
                 reason = "ambiguous legacy policy component"
-            elif row_index in stale_disables:
-                reason = "disable record for an element this template does not bind"
             elif row_index in unmatched_state and row_index not in claimed:
                 reason = "unmatched policy state evidence"
             if reason is not None:

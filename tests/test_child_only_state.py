@@ -521,7 +521,7 @@ def _renamed(policy: PolicyDefinition, value_name: str) -> PolicyDefinition:
 @pytest.mark.parametrize(
     ("namespace", "reason"),
     [
-        (LEGACY_NS, "ambiguous legacy policy component"),
+        (LEGACY_NS, "disable record for an element this template does not bind"),
         # Its editor ID still binds it to Mode, but at the old address.
         (
             STRUCTURED_NS,
@@ -555,8 +555,7 @@ def test_a_disable_for_a_removed_element_blocks_enabled_but_not_disabled(namespa
     result = _read(new, [stale])
     assert _summary(result) == [("indeterminate", "no_complete_pattern", {})]
     assert [u.reason for u in result.unresolved] == [
-        "ambiguous legacy policy component" if namespace == LEGACY_NS
-        else "disable record for an element this template does not bind"
+        "disable record for an element this template does not bind"
     ]
     current = _enabled(new, {"Count": 3})
     assert _summary(_read(new, current)) == [("enabled", None, {"Count": 3})]
@@ -565,3 +564,43 @@ def test_a_disable_for_a_removed_element_blocks_enabled_but_not_disabled(namespa
     ]
     # A complete current disable beside it is still Disabled.
     assert _summary(_read(new, [stale, *_disabled(new)])) == [("disabled", None, {})]
+
+
+# --- review round 2 (#148) ---------------------------------------------------
+
+
+@pytest.mark.parametrize("namespace", [LEGACY_NS, STRUCTURED_NS], ids=["legacy", "structured"])
+def test_a_stale_disable_does_not_resolve_a_current_delete_enum_ambiguity(namespace: str) -> None:
+    # Sol r2: the stale delete seeded disabled evidence, so the imported
+    # delete-enum row (Disabled, or Enabled with "None") read as Disabled.
+    old = _policy(
+        PolicyElement(kind="text", id="OldText", registry_value_name="OldText"),
+        _delete_enum("Edge"),
+        namespace=namespace,
+    )
+    (stale,) = [row for row in _disabled(old) if row.value_name == "OldText"]
+    new = _policy(_delete_enum("Edge"), namespace=namespace)
+    (current,) = _imported(_disabled(new))
+    expected = [("indeterminate", "disabled_matches_enabled_deletes", {})]
+    assert _summary(_read(new, [current])) == expected
+    result = _read(new, [stale, current])
+    assert _summary(result) == expected
+    assert sorted(u.reason for u in result.unresolved) == sorted(
+        [INDETERMINATE_DELETE, "disable record for an element this template does not bind"]
+    )
+
+
+def test_a_list_item_of_an_element_named_like_a_disable_is_not_a_stale_disable() -> None:
+    # Sol r2: the prefix alone made this unorderable list item "disabled
+    # evidence"; it is a set, bound to the list, so the policy reads Enabled.
+    policy = _policy(
+        PolicyElement(kind="list", id="disabled-element-Entries", registry_key=KEY + r"\Entries")
+    )
+    item = RegistrySetting(
+        id=f"admx-{policy.qualified_id}-computer-disabled-element-Entries-\u00b2",
+        side="computer", hive="HKLM", key=KEY + r"\Entries",
+        value_name="1", registry_type="REG_SZ", value="entry",
+    )
+    result = _read(policy, [item])
+    assert [(g.state, g.state_reason) for g in result.resolved] == [("enabled", None)]
+    assert [u.reason for u in result.unresolved] == ["unsupported legacy list ordinal"]
