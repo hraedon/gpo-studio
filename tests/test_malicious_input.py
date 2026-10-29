@@ -34,6 +34,8 @@ def _sample_gpo() -> GPO:
             ),
         ),
         links=(GPOLink(id="link-1", target="OU=Lab,DC=example,DC=test"),),
+        # The plan (in every bundle) links only inside the declared domain.
+        domain="example.test",
     )
 
 
