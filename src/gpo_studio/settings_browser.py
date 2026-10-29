@@ -28,7 +28,11 @@ from .policy_config import (
 
 ObservedPolicyState = Literal["enabled", "disabled", "indeterminate"]
 ObservedStateReason = Literal[
-    "both_patterns_match", "no_complete_pattern", "no_state_evidence", "unsupported_state_pattern"
+    "both_patterns_match",
+    "disabled_matches_enabled_deletes",
+    "no_complete_pattern",
+    "no_state_evidence",
+    "unsupported_state_pattern",
 ]
 _NativeAddress = tuple[str, str, str, str]
 _NativeWrite = tuple[str, str, int | str]
@@ -618,16 +622,38 @@ def _setting_belongs_to_element(
     return bool(binding.value_name) and row.address[2] == binding.value_name
 
 
+@dataclass(frozen=True, slots=True)
+class _DecodedElements:
+    values: dict[str, bool | int | str | list[str]]
+    claimed: frozenset[int]
+    unsupported: frozenset[int]
+    repairs: dict[int, _RowRepairKind]
+    deletes: dict[int, _PendingDelete]
+    # Every element binding with the indices of the rows bound to it, in
+    # stored order. Child-only state observation reads its evidence from here.
+    element_rows: tuple[tuple[_ElementReadBinding, tuple[int, ...]], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingDelete:
+    """An element-level delete, read once the policy's state is observed.
+
+    In a disabled policy it is the expected removal and shows nothing. In an
+    enabled policy it selects an enum's ``<delete/>`` item; any other element
+    kind writes a value when enabled, so the row is reported. When the state is
+    indeterminate neither reading can be chosen, so the row is reported.
+    """
+
+    element: PolicyElement
+    # The row carries the disable's own identity (structured, or the exact
+    # legacy suffix), so it is never read as a selection.
+    disable_identity: bool
+
+
 def _decode_element_values(
     plan: _PolicyReadPlan,
     rows: tuple[_StoredReadBinding, ...],
-) -> tuple[
-    dict[str, bool | int | str | list[str]],
-    frozenset[int],
-    frozenset[int],
-    dict[int, _EnumRepairKind],
-    dict[int, tuple[str, _EnumDelete]],
-]:
+) -> _DecodedElements:
     # Keep source/ownership binding unchanged. Only rows whose existing list
     # binding would make int() fail are excluded from values and shown unresolved.
     unsupported = frozenset(
@@ -640,8 +666,9 @@ def _decode_element_values(
     )
     result: dict[str, bool | int | str | list[str]] = {}
     claimed: set[int] = set()
-    enum_repairs: dict[int, _EnumRepairKind] = {}
-    enum_deletes: dict[int, tuple[str, _EnumDelete]] = {}
+    repairs: dict[int, _RowRepairKind] = {}
+    deletes: dict[int, _PendingDelete] = {}
+    element_rows: list[tuple[_ElementReadBinding, tuple[int, ...]]] = []
     for binding in plan.elements:
         element = binding.element
         matching = [
@@ -650,17 +677,42 @@ def _decode_element_values(
             if not (element.kind == "list" and index in unsupported)
             and _setting_belongs_to_element(row, binding, plan)
         ]
-        bound_rows = [row for _index, row in matching]
-        if element.kind != "unknown":
-            claimed.update(index for index, _row in matching)
-        element_settings = [row.setting for row in bound_rows]
-        if not element_settings:
+        if element.kind == "unknown":
+            # Unparsed kinds have no value name: no decoding, and no state evidence.
+            continue
+        element_rows.append((binding, tuple(index for index, _row in matching)))
+        if not matching:
+            continue
+        claimed.update(index for index, _row in matching)
+        if element.kind == "list":
+            # A list writes one value per item, so every bound value row is an
+            # item. A row that writes no value cannot be one.
+            items = []
+            for index, row in matching:
+                if row.setting.action == "set":
+                    items.append(row)
+                else:
+                    repairs[index] = "list_row_not_a_value"
+            if items:
+                result[element.id] = [str(s.value) for s in _collect_list_items(element, items)]
+            continue
+        if len(matching) > 1:
+            # Every other kind writes exactly one value. Showing one of several
+            # rows would hide the others, so none is shown (#146).
+            repairs.update((index, "several_rows") for index, _row in matching)
+            continue
+        ((index, row),) = matching
+        setting = row.setting
+        if setting.action == "delete":
+            deletes[index] = _PendingDelete(element, _carries_disable_identity(row, element))
+            continue
+        if setting.action != "set":
+            repairs[index] = "not_a_value"
             continue
         if element.kind == "boolean":
-            result[element.id] = element_settings[0].value == 1
+            result[element.id] = setting.value == 1
         elif element.kind == "decimal":
-            s = element_settings[0]
-            v = s.value
+            v = setting.value
             if isinstance(v, int):
                 result[element.id] = v
             elif isinstance(v, str):
@@ -671,33 +723,142 @@ def _decode_element_values(
             else:
                 result[element.id] = 0
         elif element.kind == "text":
-            result[element.id] = str(element_settings[0].value)
+            result[element.id] = str(setting.value)
         elif element.kind == "multitext":
-            s = element_settings[0]
-            if isinstance(s.value, list):
-                result[element.id] = s.value
+            if isinstance(setting.value, list):
+                result[element.id] = setting.value
             else:
-                result[element.id] = [str(s.value)]
-        elif element.kind == "list":
-            items = _collect_list_items(element, bound_rows)
-            result[element.id] = [str(s.value) for s in items]
+                result[element.id] = [str(setting.value)]
         elif element.kind == "enum":
-            decoded = _decode_enum(element, bound_rows[0])
+            decoded = _decode_enum(element, row)
             if isinstance(decoded, _EnumRepair):
                 # Still claimed by this element, but never shown as a selection.
-                enum_repairs[matching[0][0]] = decoded.kind
-            elif isinstance(decoded, _EnumDelete):
-                enum_deletes[matching[0][0]] = (element.id, decoded)
-            elif decoded is not None:
+                repairs[index] = decoded.kind
+            else:
                 result[element.id] = decoded
-        elif element.kind == "unknown":
+        else:
+            assert_never(element.kind)
+    return _DecodedElements(
+        result, frozenset(claimed), unsupported, repairs, deletes, tuple(element_rows)
+    )
+
+
+def _carries_disable_identity(row: _StoredReadBinding, element: PolicyElement) -> bool:
+    structured = row.structured
+    return (structured is not None and structured.kind == "disabled-element") or (
+        structured is None and row.legacy_suffix == "disabled-element-" + element.id
+    )
+
+
+_ElementRowIdentity = Literal["element", "disabled-element", "none"]
+
+
+def _element_row_identity(
+    row: _StoredReadBinding, binding: _ElementReadBinding
+) -> _ElementRowIdentity:
+    """Which Studio write produced a bound row, when its editor ID proves it.
+
+    A structured ID always proves it. A legacy suffix proves it only when no
+    other element, level write or list item can spell the same suffix: an
+    element ID may itself begin with ``disabled-element-``, so a legacy
+    ``disabled-element-X`` can be element ``X``'s disable or another element's
+    write (#143). Imported rows carry no Studio identity.
+    """
+    structured = row.structured
+    if structured is not None:
+        return "disabled-element" if structured.kind == "disabled-element" else "element"
+    if binding.legacy_suffix_unambiguous:
+        if row.legacy_suffix == binding.element.id:
+            return "element"
+        if row.legacy_suffix == "disabled-element-" + binding.element.id:
+            return "disabled-element"
+    return "none"
+
+
+def _has_delete_item(element: PolicyElement) -> bool:
+    return element.kind == "enum" and any(item.action == "delete" for item in element.enum_items)
+
+
+def _observe_child_only_state(
+    rows: tuple[_StoredReadBinding, ...],
+    element_rows: tuple[tuple[_ElementReadBinding, tuple[int, ...]], ...],
+) -> tuple[ObservedPolicyState, ObservedStateReason | None] | None:
+    """Observe a policy with no policy-level writes from its element rows (#147).
+
+    Disabling writes a delete for every non-list element with a value name
+    (WI-020) and nothing else; enabling writes every element. So:
+
+    * a value write is only ever written by an enabled policy;
+    * a delete carrying the disable's identity is only written by a disabled one;
+    * a delete with no Studio identity (an imported ``**del.``) is written by a
+      disable, or by an enable that chose an enum's ``<delete/>`` item.
+
+    Disabled is reported only for a complete set of deletes that no enabled
+    configuration writes. When every element is an enum with a ``<delete/>``
+    item (inetres.admx ``NeedEdgeBrowser``), the imported disable is
+    byte-identical to enabling with that item chosen everywhere; only the
+    editor IDs of Studio's own writes tell them apart, so without them the
+    state is indeterminate. ``None`` means no row is bound to any element, and
+    the caller keeps its historical heuristic.
+    """
+    if not any(indices for _binding, indices in element_rows):
+        return None
+    enabled_evidence = disabled_evidence = False
+    # Rows an enabled policy cannot write (a delete of a value it always sets).
+    only_disable_explains = False
+    complete_disable = True
+    enabled_writes_only_deletes = True
+    for binding, indices in element_rows:
+        element = binding.element
+        if element.kind == "list":
+            # A disable writes nothing for a list; only an enabled list writes items.
+            enabled_evidence = enabled_evidence or any(
+                rows[index].setting.action == "set" for index in indices
+            )
             continue
-    return result, frozenset(claimed), unsupported, enum_repairs, enum_deletes
+        disable_deletes = bool(element.registry_value_name)
+        if disable_deletes and not _has_delete_item(element):
+            enabled_writes_only_deletes = False
+        if not indices:
+            complete_disable = complete_disable and not disable_deletes
+            continue
+        if len(indices) > 1:
+            return "indeterminate", "no_complete_pattern"
+        row = rows[indices[0]]
+        identity = _element_row_identity(row, binding)
+        match row.setting.action:
+            case "set":
+                if identity == "disabled-element":
+                    return "indeterminate", "no_complete_pattern"
+                enabled_evidence = True
+            case "delete":
+                if identity == "disabled-element":
+                    disabled_evidence = True
+                elif not _has_delete_item(element):
+                    if identity == "element":
+                        return "indeterminate", "no_complete_pattern"
+                    only_disable_explains = True
+                elif identity == "element":
+                    enabled_evidence = True
+            case "delete_all_values":
+                return "indeterminate", "unsupported_state_pattern"
+            case _:
+                assert_never(row.setting.action)
+    if enabled_evidence:
+        if disabled_evidence or only_disable_explains:
+            return "indeterminate", "no_complete_pattern"
+        return "enabled", None
+    if not complete_disable:
+        return "indeterminate", "no_complete_pattern"
+    if not disabled_evidence and enabled_writes_only_deletes:
+        return "indeterminate", "disabled_matches_enabled_deletes"
+    return "disabled", None
 
 
 def _collect_list_items(
     element: PolicyElement, rows: list[_StoredReadBinding]
 ) -> list[RegistrySetting]:
+    """Every bound item: ordered editor IDs first, then the others as stored."""
     synthetic_items: list[tuple[tuple[int, str], RegistrySetting]] = []
     fallback_items: list[RegistrySetting] = []
     for row in rows:
@@ -706,17 +867,18 @@ def _collect_list_items(
             digits = str(structured.ordinal)
             synthetic_items.append(((len(digits), digits), row.setting))
             continue
-        if row.legacy_suffix is not None:
-            ordinal = _list_sort_key(row.legacy_suffix, element.id)
-            # The decoding prepass retains unorderable rows as unresolved.
-            if ordinal is not None:
-                synthetic_items.append((ordinal, row.setting))
+        ordinal = (
+            _list_sort_key(row.legacy_suffix, element.id)
+            if row.legacy_suffix is not None else None
+        )
+        # The decoding prepass retains unorderable legacy rows as unresolved.
+        if ordinal is not None:
+            synthetic_items.append((ordinal, row.setting))
         else:
+            # Before #146 these were dropped whenever any item had an ordinal.
             fallback_items.append(row.setting)
-    if synthetic_items:
-        synthetic_items.sort(key=lambda x: x[0])
-        return [s for _, s in synthetic_items]
-    return fallback_items
+    synthetic_items.sort(key=lambda x: x[0])
+    return [s for _, s in synthetic_items] + fallback_items
 
 
 def _list_sort_key(suffix: str, element_id: str) -> tuple[int, str] | None:
@@ -735,50 +897,63 @@ def _list_sort_key(suffix: str, element_id: str) -> tuple[int, str] | None:
     return (len(digits), digits)
 
 
-_EnumRepairKind = Literal["wrong_type", "no_match", "no_items", "indeterminate_delete"]
+_RowRepairKind = Literal[
+    "wrong_type",
+    "no_match",
+    "no_items",
+    "indeterminate_delete",
+    "several_rows",
+    "not_a_value",
+    "list_row_not_a_value",
+    "value_deleted_when_enabled",
+    "disable_delete_when_enabled",
+    "indeterminate_value_delete",
+]
 
 
 @dataclass(frozen=True, slots=True)
 class _EnumRepair:
-    kind: _EnumRepairKind
+    kind: _RowRepairKind
 
 
-@dataclass(frozen=True, slots=True)
-class _EnumDelete:
-    """An element-level delete, read once the policy's state is observed.
+def _resolve_pending_delete(
+    pending: _PendingDelete, observed_state: ObservedPolicyState
+) -> tuple[str | None, _RowRepairKind | None]:
+    """The enum item a delete selects, or why the row is reported; or neither."""
+    element = pending.element
+    match observed_state:
+        case "disabled":
+            # Disabling a policy deletes its element values; nothing is shown.
+            return None, None
+        case "enabled":
+            if pending.disable_identity:
+                return None, "disable_delete_when_enabled"
+            if element.kind != "enum":
+                return None, "value_deleted_when_enabled"
+            deletes = [item.id for item in element.enum_items if item.action == "delete"]
+            if deletes:
+                return deletes[0], None
+            # A stray delete in an enabled policy selects nothing valid.
+            return None, "no_match" if element.enum_items else "no_items"
+        case "indeterminate":
+            # Claimed by its element, so it must not silently disappear.
+            return None, (
+                "indeterminate_delete" if element.kind == "enum" else "indeterminate_value_delete"
+            )
+        case _:
+            assert_never(observed_state)
 
-    In an enabled policy it selects the enum's ``<delete/>`` item, or needs
-    repair when the enum has none. In a disabled policy it is the expected
-    removal and selects nothing. When the state is indeterminate neither
-    reading can be chosen, so the row is reported.
-    """
 
-    item_id: str | None
-    repair: _EnumRepairKind
-
-
-def _decode_enum(
-    element: PolicyElement, row: _StoredReadBinding
-) -> str | _EnumRepair | _EnumDelete | None:
-    """The item id a stored enum row selects, or why the row needs repair.
+def _decode_enum(element: PolicyElement, row: _StoredReadBinding) -> str | _EnumRepair:
+    """The item id a stored enum value row selects, or why the row needs repair.
 
     A row selects an item only when its action, registry type and value all
     match exactly. Before #139 every real enum was written as ``REG_SZ``, so a
     stored ``"1"`` must not be read as the ``REG_DWORD`` item ``1``: it is
-    reported so that it can be repaired.
+    reported so that it can be repaired. Deletes are read by
+    :func:`_resolve_pending_delete` once the policy's state is known.
     """
     setting = row.setting
-    if setting.action != "set":
-        structured = row.structured
-        if (structured is not None and structured.kind == "disabled-element") or (
-            structured is None and row.legacy_suffix == "disabled-element-" + element.id
-        ):
-            # Disabling a policy deletes its element values; no item is selected.
-            return None
-        deletes = [item.id for item in element.enum_items if item.action == "delete"]
-        if setting.action == "delete" and deletes:
-            return _EnumDelete(deletes[0], "no_match")
-        return _EnumDelete(None, "no_match" if element.enum_items else "no_items")
     if not element.enum_items:
         return _EnumRepair("no_items")
     for item in element.enum_items:
@@ -797,7 +972,7 @@ def _decode_enum(
     return _EnumRepair("no_match")
 
 
-def _enum_repair_reason(kind: _EnumRepairKind, owned: bool) -> str:
+def _row_repair_reason(kind: _RowRepairKind, owned: bool) -> str:
     match kind:
         case "wrong_type":
             if owned:
@@ -819,6 +994,30 @@ def _enum_repair_reason(kind: _EnumRepairKind, owned: bool) -> str:
             return (
                 "enum value is deleted, but the policy state is indeterminate, so "
                 "this cannot be read as a choice or as a disabled policy"
+            )
+        case "indeterminate_value_delete":
+            return (
+                "element value is deleted, but the policy state is indeterminate, so "
+                "this cannot be read as a value or as a disabled policy"
+            )
+        case "several_rows":
+            return (
+                "more than one registry row is bound to this element, which writes one "
+                "value; none of them is shown"
+            )
+        case "not_a_value":
+            return "this registry action writes no element value"
+        case "list_row_not_a_value":
+            return "this registry action writes no list item"
+        case "value_deleted_when_enabled":
+            return (
+                "element value is deleted, but this element writes a value when the "
+                "policy is enabled"
+            )
+        case "disable_delete_when_enabled":
+            return (
+                "element value was deleted by disabling the policy, but the policy is "
+                "observed as enabled"
             )
         case _:
             assert_never(kind)
@@ -885,46 +1084,48 @@ def build_settings_browser(
         structured_ids = structured_policy_ids(policy)
         plan = _build_policy_read_plan(policy, side)
         bound_rows = tuple(_bind_stored_setting(plan, setting) for setting in raw)
-        element_values, claimed, unsupported, enum_repairs, enum_deletes = (
-            _decode_element_values(plan, bound_rows)
-        )
+        decoded = _decode_element_values(plan, bound_rows)
+        element_values, claimed, repairs = decoded.values, decoded.claimed, decoded.repairs
+        observed_state: ObservedPolicyState
+        state_reason: ObservedStateReason | None
         if policy.value_name or policy.enabled_list is not None or policy.disabled_list is not None:
             observed_state, state_reason, unmatched_state = _observe_policy_state(
                 policy, side, bound_rows, plan
             )
         else:
-            # Child-only schemas retain their heuristic unless unclaimed stored
-            # level framing supplies uncertainty about a historical state writer.
+            # Child-only schemas are observed from their element rows, unless
+            # unclaimed stored level framing supplies uncertainty about a
+            # historical state writer.
             unmatched_state = frozenset(
                 index for index, row in enumerate(bound_rows)
                 if index not in claimed and _may_be_policy_state_record(row, plan)
             )
+            child_state = _observe_child_only_state(bound_rows, decoded.element_rows)
             if unmatched_state:
                 observed_state, state_reason = "indeterminate", "no_complete_pattern"
+            elif child_state is not None:
+                observed_state, state_reason = child_state
             else:
+                # No row is bound to an element: keep the historical heuristic.
                 observed_state = _derive_state(policy, side, raw, structured_ids=structured_ids)
                 state_reason = None
-        for row_index, (element_id, pending) in enum_deletes.items():
-            if observed_state == "enabled":
-                if pending.item_id is not None:
-                    element_values[element_id] = pending.item_id
-                else:
-                    # A stray delete in an enabled policy selects nothing valid.
-                    enum_repairs[row_index] = pending.repair
-            elif observed_state == "indeterminate":
-                # Claimed by its element, so it must not silently disappear.
-                enum_repairs[row_index] = "indeterminate_delete"
+        for row_index, pending in decoded.deletes.items():
+            item_id, repair = _resolve_pending_delete(pending, observed_state)
+            if item_id is not None:
+                element_values[pending.element.id] = item_id
+            elif repair is not None:
+                repairs[row_index] = repair
         # Diagnose each row once within this group. Component decoding has its own
         # stronger explanation; a successfully decoded child remains available.
         for row_index, row in enumerate(bound_rows):
             if _structured_location_mismatch(row.setting, row.structured):
                 continue
             reason = None
-            if row_index in unsupported:
+            if row_index in decoded.unsupported:
                 reason = "unsupported legacy list ordinal"
-            elif row_index in enum_repairs:
-                reason = _enum_repair_reason(
-                    enum_repairs[row_index],
+            elif row_index in repairs:
+                reason = _row_repair_reason(
+                    repairs[row_index],
                     setting_policy_owners(row.setting, catalogue) == ((qualified_id, side),),
                 )
             elif row_index not in claimed and row.address not in plan.non_list_addresses and (

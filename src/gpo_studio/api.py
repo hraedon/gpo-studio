@@ -3377,8 +3377,9 @@ def configured_settings(
     ``state_reason``. Empty patterns provide no positive state evidence; policies
     without attributed records do not acquire fabricated configured rows.
     Stale possible level records expose uncertainty and unclaimed records remain
-    unresolved; decoded children remain available. Child-only inference retains
-    its heuristic unless unclaimed historical level evidence is present.
+    unresolved; decoded children remain available. Child-only policies are
+    observed from their element rows (#147); ``disabled_matches_enabled_deletes``
+    marks deletes that Disabled and an enabled choice both write.
     Indeterminate is not accepted by configure or bulk mutation requests.
 
     ``ambiguous`` is true when the policy matches multiple ADMX policies;
