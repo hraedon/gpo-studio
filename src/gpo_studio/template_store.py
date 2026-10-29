@@ -358,8 +358,8 @@ class _Pair:
 class _Budget:
     """Aggregate limits for one source; exceeding one refuses the source."""
 
-    def __init__(self, directory: Path) -> None:
-        self._directory = directory
+    def __init__(self, label: str) -> None:
+        self._directory = label
         self._entries = 0
         self._bytes = 0
 
@@ -399,13 +399,18 @@ def _read_template_file(fd: int, relative: str, budget: _Budget) -> bytes:
 
 
 @contextlib.contextmanager
-def _refuse_unsafe_entries(directory: Path) -> Iterator[None]:
+def _refuse_unsafe_entries(directory: Path, label: str) -> Iterator[None]:
     """Turn a ``safe_io`` refusal into a ``TemplateError`` naming the folder.
 
     A refusal is a link, junction, reparse point or special file, or a no-follow
     open that met one: ``ELOOP`` for a file, ``ENOTDIR`` for a directory opened
     with ``O_DIRECTORY | O_NOFOLLOW``. Any other ``OSError`` (permission, I/O)
     is re-raised unchanged so the caller reports the folder as unreadable.
+
+    The message names the folder as ``label``. ``safe_io``'s Windows walk can
+    name the full path it failed to open, so the opened path is replaced by
+    ``label`` in its text too: a caller that opened a resolved path reports
+    only the path it was given.
     """
     try:
         yield
@@ -417,18 +422,23 @@ def _refuse_unsafe_entries(directory: Path) -> Iterator[None]:
             and cause.errno not in (errno.ELOOP, errno.ENOTDIR)
         ):
             raise
-        if _is_windows_read_failure(str(error)):
+        detail = _redact(str(error), directory, label)
+        if _is_read_failure(error):
             raise TemplateError(
-                f"Cannot read template folder {directory}: {error}. Check that the "
+                f"Cannot read template folder {label}: {detail}. Check that the "
                 "folder is available and GPO Studio has permission to read it."
             ) from error
         raise TemplateError(
-            f"Refused template folder {directory}: {error}. {_LINK_REFUSAL}"
+            f"Refused template folder {label}: {detail}. {_LINK_REFUSAL}"
         ) from error
 
 
-_NT_STATUS = re.compile(r"NT status 0x([0-9A-Fa-f]{8})")
-_WIN32_ERROR = re.compile(r"Win32 error (\d+)")
+def _redact(text: str, directory: Path, label: str) -> str:
+    for spelling in sorted({str(directory.absolute()), str(directory)}, key=len, reverse=True):
+        text = text.replace(spelling, label)
+    return text
+
+
 #: STATUS_STOPPED_ON_SYMLINK, STATUS_IO_REPARSE_TAG_NOT_HANDLED and
 #: STATUS_REPARSE_POINT_ENCOUNTERED: an open that met a link or reparse point.
 _NT_LINK_STATUSES = frozenset({0x8000002D, 0xC0000279, 0xC000050B})
@@ -436,18 +446,19 @@ _NT_LINK_STATUSES = frozenset({0x8000002D, 0xC0000279, 0xC000050B})
 _WIN32_LINK_ERRORS = frozenset({681})
 
 
-def _is_windows_read_failure(message: str) -> bool:
-    """Whether a cause-less ``safe_io`` error is a Windows open/read failure.
+def _is_read_failure(error: SafeOpenError) -> bool:
+    """Whether a ``safe_io`` error is a Windows open/read failure, not a refusal.
 
-    ``safe_io``'s Windows walk reports a failed ``NtOpenFile`` or
-    ``CreateFileW`` by status code, with no chained ``OSError``. A sharing
-    violation or access denial is not a link and must not read as one; only
-    the statuses an open returns on meeting a link stay refusals.
+    ``safe_io``'s Windows walk carries the code of a failed ``NtOpenFile`` or
+    ``CreateFileW`` on the exception. A sharing violation or access denial is
+    not a link and must not read as one; only the codes an open returns on
+    meeting a link stay refusals. The message is never parsed: it can hold an
+    entry name, and a file named like a status code must not change the result.
     """
-    if (status := _NT_STATUS.search(message)) is not None:
-        return int(status.group(1), 16) not in _NT_LINK_STATUSES
-    if (code := _WIN32_ERROR.search(message)) is not None:
-        return int(code.group(1)) not in _WIN32_LINK_ERRORS
+    if error.nt_status is not None:
+        return error.nt_status not in _NT_LINK_STATUSES
+    if error.win32_error is not None:
+        return error.win32_error not in _WIN32_LINK_ERRORS
     return False
 
 
@@ -474,15 +485,13 @@ def _record_adml(
     )
 
 
-def _read_root(
-    directory: Path, root_fd: int, budget: _Budget, inventory: _Inventory
-) -> None:
+def _read_root(label: str, root_fd: int, budget: _Budget, inventory: _Inventory) -> None:
     for entry in iter_directory(root_fd):
         budget.add_entry()
         if entry.is_directory:
             if len(inventory.subdirectories) >= _MAX_TEMPLATE_SUBFOLDERS:
                 raise TemplateError(
-                    f"Template folder {directory} has more than "
+                    f"Template folder {label} has more than "
                     f"{_MAX_TEMPLATE_SUBFOLDERS} subfolders; the source was not ingested"
                 )
             # Keep the subfolder exactly as enumeration opened it, relative to
@@ -541,7 +550,7 @@ def _read_locale(
             )
 
 
-def _read_source(directory: Path) -> _Inventory:
+def _read_source(directory: Path, label: str) -> _Inventory:
     """Read a template folder once through the ``safe_io`` boundary.
 
     The folder and every path component above it are opened without following
@@ -556,11 +565,11 @@ def _read_source(directory: Path) -> _Inventory:
     ADML pairing follows ``admx.find_adml``: a sibling, then ``en-US``, then
     the first other subfolder in sorted order.
     """
-    budget = _Budget(directory)
+    budget = _Budget(label)
     inventory = _Inventory()
     try:
-        with _refuse_unsafe_entries(directory):
-            _read_tree(directory, budget, inventory)
+        with _refuse_unsafe_entries(directory, label):
+            _read_tree(directory, label, budget, inventory)
     finally:
         for handle in inventory.handles.values():
             with contextlib.suppress(OSError):
@@ -569,10 +578,10 @@ def _read_source(directory: Path) -> _Inventory:
     return inventory
 
 
-def _read_tree(directory: Path, budget: _Budget, inventory: _Inventory) -> None:
+def _read_tree(directory: Path, label: str, budget: _Budget, inventory: _Inventory) -> None:
     root_fd = open_directory(directory)
     try:
-        _read_root(directory, root_fd, budget, inventory)
+        _read_root(label, root_fd, budget, inventory)
     finally:
         os.close(root_fd)
     for admx_name in sorted(inventory.admx, key=_sort_key):
@@ -659,6 +668,8 @@ def ingest_source(
     kind: SourceKind,
     directory: Path,
     claimed_classification: ContentClassification | None = None,
+    *,
+    display_path: str | None = None,
 ) -> IngestResult:
     """Ingest a template source directory with per-file resilience.
 
@@ -674,11 +685,16 @@ def ingest_source(
     ``_MAX_TEMPLATE_FILE_SIZE``, or a folder over the aggregate byte or entry
     limit refuses the whole source with ``TemplateError``. ``directory`` is
     opened as given; a caller holding an operator-chosen path resolves it first.
-    """
-    if not directory.is_dir():
-        raise TemplateError(f"Template directory does not exist: {directory}")
 
-    inventory = _read_source(directory)
+    Every ``TemplateError`` names the folder as ``display_path`` when given
+    (default: ``directory``). A caller that resolved the path it was given
+    passes the unresolved one, so a refusal never reveals where a link points.
+    """
+    label = str(directory) if display_path is None else display_path
+    if not directory.is_dir():
+        raise TemplateError(f"Template directory does not exist: {label}")
+
+    inventory = _read_source(directory, label)
     files = _inventory_files(inventory)
     if claimed_classification == "in-repo":
         for file in files:

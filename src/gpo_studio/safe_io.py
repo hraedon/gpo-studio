@@ -22,7 +22,25 @@ from pathlib import Path
 
 
 class SafeOpenError(OSError):
-    """A path could not be opened without following links."""
+    """A path could not be opened without following links.
+
+    A Windows open or query that failed carries its code: ``nt_status`` (the
+    unsigned NTSTATUS) or ``win32_error`` (``GetLastError``). Callers classify
+    the failure from these, never from the message, which can hold an entry
+    name. Both are ``None`` for a refusal decided here (a link, a reparse
+    point, an unsupported type) and for every POSIX error, whose OS cause is
+    chained instead.
+    """
+
+    def __init__(
+        self,
+        *args: object,
+        nt_status: int | None = None,
+        win32_error: int | None = None,
+    ) -> None:
+        super().__init__(*args)
+        self.nt_status = nt_status
+        self.win32_error = win32_error
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,7 +353,8 @@ def _iter_directory_windows(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
         if unsigned_status != _STATUS_SUCCESS:
             raise SafeOpenError(
                 "Cannot enumerate directory safely: "
-                f"NT status 0x{unsigned_status:08X}"
+                f"NT status 0x{unsigned_status:08X}",
+                nt_status=unsigned_status,
             )
 
         returned = int(iosb.Information or 0)
@@ -400,7 +419,8 @@ def _iter_directory_windows(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
                 if child_status != _STATUS_SUCCESS:
                     raise SafeOpenError(
                         f"Cannot open directory entry {name!r} safely: "
-                        f"NT status 0x{child_status & 0xFFFFFFFF:08X}"
+                        f"NT status 0x{child_status & 0xFFFFFFFF:08X}",
+                        nt_status=child_status & 0xFFFFFFFF,
                     )
                 child_handle_value = child_handle.value
                 if child_handle_value is None:
@@ -575,7 +595,8 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
             last_error = ctypes.get_last_error()
             raise SafeOpenError(
                 "Cannot get stable file identity: "
-                f"Win32 error {last_error}"
+                f"Win32 error {last_error}",
+                win32_error=last_error,
             )
         volume_serial = int(info.VolumeSerialNumber)
         file_id = bytes(info.FileId.Identifier)
@@ -606,7 +627,8 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
     if not root_handle or root_handle == _INVALID_HANDLE:
         last_error = ctypes.get_last_error()
         raise SafeOpenError(
-            f"Cannot open path root {anchor!s}: Win32 error {last_error}"
+            f"Cannot open path root {anchor!s}: Win32 error {last_error}",
+            win32_error=last_error,
         )
 
     try:
@@ -667,7 +689,8 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
             if status != _STATUS_SUCCESS:
                 raise SafeOpenError(
                     f"NtOpenFile failed for {component!r}: "
-                    f"NT status 0x{status & 0xFFFFFFFF:08X}"
+                    f"NT status 0x{status & 0xFFFFFFFF:08X}",
+                    nt_status=status & 0xFFFFFFFF,
                 )
 
             # Convert child handle to fd BEFORE closing parent, so that
@@ -712,7 +735,8 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
         if not cw_handle or cw_handle == _INVALID_HANDLE:
             last_error = ctypes.get_last_error()
             raise SafeOpenError(
-                f"CreateFileW failed for {path!s}: Win32 error {last_error}"
+                f"CreateFileW failed for {path!s}: Win32 error {last_error}",
+                win32_error=last_error,
             )
 
         try:
@@ -865,7 +889,8 @@ def _open_or_create_regular_windows(path: Path, *, exclusive: bool) -> int:
         if unsigned_status != _STATUS_SUCCESS:
             raise SafeOpenError(
                 "Cannot safely open or create regular file: "
-                f"NT status 0x{unsigned_status:08X}"
+                f"NT status 0x{unsigned_status:08X}",
+                nt_status=unsigned_status,
             )
         handle_value = handle.value
         if handle_value is None:

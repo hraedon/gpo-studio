@@ -25,6 +25,7 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -604,7 +605,6 @@ def test_ingest_does_not_hang_on_a_fifo_swapped_in_before_open(
     """
     import threading
     from types import ModuleType
-    from typing import Any
 
     from gpo_studio import safe_io
 
@@ -723,7 +723,8 @@ def test_windows_open_failures_are_reported_by_cause(
 
     def failing(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
         raise template_store.SafeOpenError(
-            f"Cannot open directory entry 'good.admx' safely: NT status {status}"
+            f"Cannot open directory entry 'good.admx' safely: NT status {status}",
+            nt_status=int(status, 16),
         )
         yield  # pragma: no cover - makes this a generator
 
@@ -756,44 +757,211 @@ def test_api_does_not_disclose_where_an_escaping_path_resolves(
     assert "outside-secret-folder" not in message
 
 
-def test_api_serializes_template_ingests(
+@pytest.mark.parametrize(
+    "name",
+    ["NT status 0xC0000022.admx", "Win32 error 5.admx", "NT status 0xC0000043"],
+)
+def test_refusal_classification_ignores_entry_names_that_look_like_statuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    """The cause is the status the error carries, never text in its message.
+
+    A link refusal names the entry, so an entry named like a status code
+    must not turn the refusal into a read failure.
+    """
+    store = tmp_path / "store"
+    _write_pair(store, "good", "Synthetic.Test.Good", "GoodPolicy")
+
+    def failing(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
+        raise template_store.SafeOpenError(f"Link found in directory entry {name!r}")
+        yield  # pragma: no cover - makes this a generator
+
+    monkeypatch.setattr(template_store, "iter_directory", failing)
+    with pytest.raises(TemplateError, match="^Refused template folder"):
+        ingest_source("store", "local", store)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows sharing-violation test")
+def test_a_template_held_open_without_read_sharing_is_reported_as_unreadable(
+    tmp_path: Path,
+) -> None:
+    import ctypes
+
+    store = tmp_path / "store"
+    _write_pair(store, "held", "Synthetic.Test.Held", "HeldPolicy")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    kernel32.CreateFileW.restype = ctypes.c_void_p
+    kernel32.CreateFileW.argtypes = (
+        ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
+        ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
+    )
+    kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    # GENERIC_READ, share mode 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL.
+    handle = kernel32.CreateFileW(str(store / "held.admx"), 0x80000000, 0, None, 3, 0x80, None)
+    assert handle not in (None, ctypes.c_void_p(-1).value)
+    try:
+        with pytest.raises(TemplateError) as refusal:
+            ingest_source("store", "local", store)
+    finally:
+        kernel32.CloseHandle(handle)
+    assert str(refusal.value).startswith("Cannot read template folder")
+    cause = refusal.value.__cause__
+    assert isinstance(cause, template_store.SafeOpenError)
+    assert cause.nt_status == 0xC0000043  # STATUS_SHARING_VIOLATION
+
+
+# --- Review round 2 ------------------------------------------------------------
+
+
+def _post_ingest(client: TestClient, path: Path | str, name: str = "default") -> Any:
+    return client.post(
+        "/api/templates/ingest", json={"name": name, "kind": "local", "path": str(path)}
+    )
+
+
+@pytest.mark.usefixtures("symlink_privilege")
+@pytest.mark.parametrize(
+    "case",
+    [
+        "missing",
+        "linked-entry",
+        "oversized-file",
+        "byte-limit",
+        "entry-limit",
+        "subfolder-limit",
+        "windows-open-failure",
+        "windows-link-status",
+    ],
+)
+def test_no_refusal_discloses_where_the_submitted_path_resolves(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    """Every 422 an ingest can return names the submitted path, never its target.
+
+    Swept with no template root configured, so nothing refuses the path
+    before ingest reads it, through an alias that resolves somewhere else.
+    """
+    monkeypatch.delenv("GPO_STUDIO_TEMPLATE_ROOT")
+    secret = tmp_path / "resolved-secret-target"
+    alias = tmp_path / "submitted-alias"
+    if case != "missing":
+        _write_pair(secret, "good", "Synthetic.Test.Good", "GoodPolicy")
+    alias.symlink_to(secret, target_is_directory=True)
+    if case == "linked-entry":
+        (tmp_path / "elsewhere.admx").write_text("synthetic", encoding="utf-8")
+        (secret / "linked.admx").symlink_to(tmp_path / "elsewhere.admx")
+    elif case == "oversized-file":
+        monkeypatch.setattr(template_store, "_MAX_TEMPLATE_FILE_SIZE", 16)
+    elif case == "byte-limit":
+        monkeypatch.setattr(template_store, "_MAX_TEMPLATE_SOURCE_BYTES", 16)
+    elif case == "entry-limit":
+        monkeypatch.setattr(template_store, "_MAX_TEMPLATE_SOURCE_ENTRIES", 1)
+    elif case == "subfolder-limit":
+        monkeypatch.setattr(template_store, "_MAX_TEMPLATE_SUBFOLDERS", 0)
+    elif case.startswith("windows-"):
+        status = 0xC0000022 if case == "windows-open-failure" else 0x8000002D
+        resolved = str(secret.resolve())
+
+        def failing(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
+            # safe_io's Windows walk names the full path it failed to open.
+            raise template_store.SafeOpenError(
+                f"CreateFileW failed for {resolved}: NT status 0x{status:08X}",
+                nt_status=status,
+            )
+            yield  # pragma: no cover - makes this a generator
+
+        monkeypatch.setattr(template_store, "iter_directory", failing)
+
+    response = _post_ingest(client, alias)
+    assert response.status_code == 422, response.text
+    message = response.json()["error"]["message"]
+    assert "resolved-secret-target" not in message, message
+    # The only absolute path a message may name is the one submitted.
+    assert str(tmp_path) not in message.replace(str(alias), ""), message
+
+
+@pytest.fixture
+def blocking_ingest(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    """Make the next ingest wait until the test releases it."""
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+    original = template_store.ingest_source
+    threads: list[str] = []
+
+    def held(*args: Any, **kwargs: Any) -> template_store.IngestResult:
+        threads.append(threading.current_thread().name)
+        started.set()
+        assert release.wait(timeout=30)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(template_store, "ingest_source", held)
+    gate = type("Gate", (), {"started": started, "release": release, "threads": threads})
+    try:
+        yield gate
+    finally:
+        release.set()
+
+
+def test_a_second_ingest_while_one_runs_is_refused_with_409(
+    client: TestClient, tmp_path: Path, blocking_ingest: Any
+) -> None:
+    """Never queued: a queued request would hold a request thread it cannot give back."""
+    import threading
+
+    folder = tmp_path / "root" / "vendor"
+    _write_pair(folder, "good", "Synthetic.Test.Good", "GoodPolicy")
+    first: dict[str, Any] = {}
+    worker = threading.Thread(
+        target=lambda: first.setdefault("response", _post_ingest(client, folder, "one"))
+    )
+    worker.start()
+    assert blocking_ingest.started.wait(timeout=10)
+
+    second: dict[str, Any] = {}
+    racer = threading.Thread(
+        target=lambda: second.setdefault("response", _post_ingest(client, folder, "two"))
+    )
+    racer.start()
+    racer.join(timeout=10)
+    queued = racer.is_alive()
+    blocking_ingest.release.set()
+    worker.join(timeout=30)
+    racer.join(timeout=30)
+    assert not queued, "the second ingest waited instead of being refused"
+    assert second["response"].status_code == 409, second["response"].text
+    error = second["response"].json()["error"]
+    assert error["code"] == "template_ingest_in_progress"
+    assert first["response"].status_code == 201, first["response"].text
+    names = {item["name"] for item in client.get("/api/templates").json()["items"]}
+    assert "one" in names and "two" not in names
+    assert _post_ingest(client, folder, "two").status_code == 201
+
+
+def test_every_ingest_runs_on_the_one_dedicated_ingest_thread(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """One thread for all ingests, so they share one allocator arena."""
     import threading
-    import time
 
     folder = tmp_path / "root" / "vendor"
     _write_pair(folder, "good", "Synthetic.Test.Good", "GoodPolicy")
     original = template_store.ingest_source
-    active: list[int] = []
-    peak: list[int] = []
-    guard = threading.Lock()
+    seen: list[tuple[str, int]] = []
 
-    def slow_ingest(*args: object, **kwargs: object) -> template_store.IngestResult:
-        with guard:
-            active.append(1)
-            peak.append(len(active))
-        try:
-            time.sleep(0.3)
-            return original(*args, **kwargs)  # type: ignore[arg-type]
-        finally:
-            with guard:
-                active.pop()
+    def recording(*args: Any, **kwargs: Any) -> template_store.IngestResult:
+        thread = threading.current_thread()
+        seen.append((thread.name, thread.ident or 0))
+        return original(*args, **kwargs)
 
-    monkeypatch.setattr(template_store, "ingest_source", slow_ingest)
-    statuses: list[int] = []
-
-    def post(name: str) -> None:
-        response = client.post(
-            "/api/templates/ingest",
-            json={"name": name, "kind": "local", "path": str(folder)},
-        )
-        statuses.append(response.status_code)
-
-    workers = [threading.Thread(target=post, args=(f"src{i}",)) for i in range(3)]
-    for worker in workers:
-        worker.start()
-    for worker in workers:
-        worker.join(30)
-    assert statuses == [201, 201, 201]
-    assert max(peak) == 1
+    monkeypatch.setattr(template_store, "ingest_source", recording)
+    for index in range(4):
+        assert _post_ingest(client, folder, f"src{index}").status_code == 201
+    for name in ("admx_catalogue", "template_sources", "catalogue_snapshot"):
+        monkeypatch.delattr(app.state, name, raising=False)
+    with TestClient(app):  # the startup ingest runs there too
+        pass
+    assert len(seen) == 5
+    assert {ident for _, ident in seen} == {seen[0][1]}
+    assert all(name.startswith("gpo-studio-template-ingest") for name, _ in seen), seen
