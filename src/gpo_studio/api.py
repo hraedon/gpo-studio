@@ -2547,7 +2547,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             from .template_store import ingest_source
 
-            result = ingest_source("default", "local", Path(admx_dir))
+            # The configured folder is resolved once here, as the ingest route
+            # resolves its request path; ingest then follows no link inside it.
+            result = ingest_source("default", "local", Path(admx_dir).resolve())
             app.state.template_sources = [result]
             app.state.admx_catalogue = result.catalogue
         except Exception as error:

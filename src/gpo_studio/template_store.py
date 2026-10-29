@@ -8,8 +8,12 @@ never writes to SYSVOL or any domain path; ingest is read-only.
 from __future__ import annotations
 
 import contextlib
+import errno
+import fnmatch
 import hashlib
+import os
 import re
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, assert_never
@@ -19,9 +23,9 @@ from .admx import (
     AdmxError,
     build_catalogue,
     extract_namespaces,
-    find_adml,
 )
 from .evidence import ContentClassification
+from .safe_io import SafeOpenError, iter_directory, open_directory
 
 SourceKind = Literal["local", "central-store", "vendor-pack", "curated"]
 
@@ -272,79 +276,323 @@ def detect_central_store(root: Path) -> Path | None:
 
 
 _MAX_TEMPLATE_FILE_SIZE = 10 * 1024 * 1024
+#: Aggregate bytes read from one source, every ADMX and ADML in the folder and
+#: its locale subfolders counted. Measured 2026-10-29: the Windows Server 2025
+#: (10.0.26100) store at C:\Windows\PolicyDefinitions holds 446 files and
+#: 7,382,895 bytes (223 ADMX, 223 en-US ADML). 512 MiB is about 70 times that,
+#: room for a central store carrying many locales and vendor packs.
+_MAX_TEMPLATE_SOURCE_BYTES = 512 * 1024 * 1024
+#: Directory entries (files and folders) enumerated in the folder and its
+#: immediate subfolders. The same store has 447; 20,000 is about 45 times that.
+_MAX_TEMPLATE_SOURCE_ENTRIES = 20_000
+_READ_CHUNK = 64 * 1024
+
+_LINK_REFUSAL = (
+    "Template folders are read without following symbolic links, junctions or "
+    "other reparse points, and may hold only regular files and folders"
+)
 
 
-def _scan_directory(directory: Path, source_name: str) -> tuple[TemplateFile, ...]:
-    files: list[TemplateFile] = []
-    seen_adml: set[Path] = set()
-    for path in sorted(directory.glob("*.admx")):
-        try:
-            size = path.stat().st_size
-            if size > _MAX_TEMPLATE_FILE_SIZE:
+def _is_admx_name(name: str) -> bool:
+    # Path.glob("*.admx") semantics: case-sensitive on POSIX, not on Windows.
+    return fnmatch.fnmatch(name, "*.admx")
+
+
+def _is_adml_name(name: str) -> bool:
+    return fnmatch.fnmatch(name, "*.adml")
+
+
+def _sort_key(name: str) -> tuple[str, str]:
+    # Sibling paths sort by their normcase spelling (case-insensitively on
+    # Windows), which is the order the path-based reader used.
+    return os.path.normcase(name), name
+
+
+@dataclass(frozen=True, slots=True)
+class _Match:
+    """An entry located the way ``admx.find_adml`` locates one.
+
+    ``spelling`` is the name ``find_adml`` would have returned: the requested
+    spelling when the filesystem's own lookup matches it (so case-insensitively
+    on Windows), otherwise the on-disk name. Relative paths in the inventory,
+    and so the lock, keep that spelling.
+    """
+
+    spelling: str
+    name: str
+
+
+def _find_name(names: Iterable[str], wanted: str) -> _Match | None:
+    exact = os.path.normcase(wanted)
+    candidates = sorted(names, key=_sort_key)
+    for name in candidates:
+        if os.path.normcase(name) == exact:
+            return _Match(spelling=wanted, name=name)
+    folded = wanted.lower()
+    for name in candidates:
+        if name.lower() == folded:
+            return _Match(spelling=name, name=name)
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class _AdmlRead:
+    sha256: str
+    size: int
+    unpaired: tuple[ContentClassification, str] | None
+    """Classification as an unpaired ADML, for names ``*.adml`` matches."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Pair:
+    relative_path: str
+    directory: str | None
+    name: str
+    data: bytes
+
+
+class _Budget:
+    """Aggregate limits for one source; exceeding one refuses the source."""
+
+    def __init__(self, directory: Path) -> None:
+        self._directory = directory
+        self._entries = 0
+        self._bytes = 0
+
+    def add_entry(self) -> None:
+        self._entries += 1
+        if self._entries > _MAX_TEMPLATE_SOURCE_ENTRIES:
+            raise TemplateError(
+                f"Template folder {self._directory} has more than "
+                f"{_MAX_TEMPLATE_SOURCE_ENTRIES} files and folders; the source was "
+                "not ingested"
+            )
+
+    def add_bytes(self, count: int) -> None:
+        self._bytes += count
+        if self._bytes > _MAX_TEMPLATE_SOURCE_BYTES:
+            raise TemplateError(
+                f"Template folder {self._directory} holds more than "
+                f"{_MAX_TEMPLATE_SOURCE_BYTES} bytes of ADMX and ADML files; the "
+                "source was not ingested"
+            )
+
+
+def _read_template_file(fd: int, relative: str, budget: _Budget) -> bytes:
+    """Read one open template file, never more than one byte past the limit."""
+    data = bytearray()
+    while True:
+        chunk = os.read(fd, min(_READ_CHUNK, _MAX_TEMPLATE_FILE_SIZE + 1 - len(data)))
+        if not chunk:
+            return bytes(data)
+        data.extend(chunk)
+        budget.add_bytes(len(chunk))
+        if len(data) > _MAX_TEMPLATE_FILE_SIZE:
+            raise TemplateError(
+                f"Template file {relative} is larger than the "
+                f"{_MAX_TEMPLATE_FILE_SIZE}-byte limit; the source was not ingested"
+            )
+
+
+@contextlib.contextmanager
+def _refuse_unsafe_entries(directory: Path) -> Iterator[None]:
+    """Turn a ``safe_io`` refusal into a ``TemplateError`` naming the folder.
+
+    A refusal is a link, junction, reparse point or special file, or a no-follow
+    open that met one: ``ELOOP`` for a file, ``ENOTDIR`` for a directory opened
+    with ``O_DIRECTORY | O_NOFOLLOW``. Any other ``OSError`` (permission, I/O)
+    is re-raised unchanged so the caller reports the folder as unreadable.
+    """
+    try:
+        yield
+    except SafeOpenError as error:
+        cause = error.__cause__
+        if (
+            isinstance(cause, OSError)
+            and not isinstance(cause, SafeOpenError)
+            and cause.errno not in (errno.ELOOP, errno.ENOTDIR)
+        ):
+            raise
+        raise TemplateError(
+            f"Refused template folder {directory}: {error}. {_LINK_REFUSAL}"
+        ) from error
+
+
+@dataclass(slots=True)
+class _Inventory:
+    """Everything read from one source folder, each file read exactly once."""
+
+    admx: dict[str, bytes] = field(default_factory=dict)
+    root_adml: dict[str, bytes] = field(default_factory=dict)
+    subdirectories: list[str] = field(default_factory=list)
+    adml: dict[tuple[str | None, str], _AdmlRead] = field(default_factory=dict)
+    pairs: dict[str, _Pair] = field(default_factory=dict)
+
+
+def _record_adml(
+    inventory: _Inventory, subdirectory: str | None, name: str, data: bytes
+) -> None:
+    relative = name if subdirectory is None else str(Path(subdirectory, name))
+    unpaired = classify_template_file(relative, None, data) if _is_adml_name(name) else None
+    inventory.adml[(subdirectory, name)] = _AdmlRead(
+        sha256=_hash_bytes(data), size=len(data), unpaired=unpaired
+    )
+
+
+def _read_root(root_fd: int, budget: _Budget, inventory: _Inventory) -> None:
+    for entry in iter_directory(root_fd):
+        budget.add_entry()
+        if entry.is_directory:
+            inventory.subdirectories.append(entry.name)
+        elif _is_admx_name(entry.name):
+            inventory.admx[entry.name] = _read_template_file(entry.fd, entry.name, budget)
+        elif entry.name.lower().endswith(".adml"):
+            data = _read_template_file(entry.fd, entry.name, budget)
+            inventory.root_adml[entry.name] = data
+            _record_adml(inventory, None, entry.name, data)
+
+
+def _read_locale(
+    directory: Path,
+    subdirectory: str,
+    spelling: str,
+    budget: _Budget,
+    inventory: _Inventory,
+) -> None:
+    """Read every ADML in one subfolder; pair those still-unpaired ADMX need.
+
+    Subfolders are read in ``find_adml``'s precedence (en-US, then the rest
+    sorted), so only a candidate for a still-unpaired ADMX is kept in memory.
+    """
+    wanted = {
+        Path(name).stem.lower() + ".adml"
+        for name in inventory.admx
+        if name not in inventory.pairs
+    }
+    candidates: dict[str, bytes] = {}
+    dir_fd = open_directory(directory / subdirectory)
+    try:
+        for entry in iter_directory(dir_fd):
+            budget.add_entry()
+            if entry.is_directory or not entry.name.lower().endswith(".adml"):
                 continue
-            admx_data = path.read_bytes()
-        except OSError:
+            relative = str(Path(subdirectory, entry.name))
+            data = _read_template_file(entry.fd, relative, budget)
+            _record_adml(inventory, subdirectory, entry.name, data)
+            if entry.name.lower() in wanted:
+                candidates[entry.name] = data
+    finally:
+        os.close(dir_fd)
+    for admx_name in sorted(inventory.admx, key=_sort_key):
+        if admx_name in inventory.pairs:
             continue
-        relative = str(path.relative_to(directory))
-        adml_path = find_adml(path)
-        adml_data: bytes | None = None
-        if adml_path is not None:
-            try:
-                adml_size = adml_path.stat().st_size
-                if adml_size <= _MAX_TEMPLATE_FILE_SIZE:
-                    adml_data = adml_path.read_bytes()
-                    seen_adml.add(adml_path)
-            except OSError:
-                pass
-        classification, note = classify_template_file(relative, admx_data, adml_data)
+        match = _find_name(candidates, Path(admx_name).stem + ".adml")
+        if match is not None:
+            inventory.pairs[admx_name] = _Pair(
+                relative_path=str(Path(spelling, match.spelling)),
+                directory=subdirectory,
+                name=match.name,
+                data=candidates[match.name],
+            )
+
+
+def _read_source(directory: Path) -> _Inventory:
+    """Read a template folder once through the ``safe_io`` boundary.
+
+    The folder and every path component above it are opened without following
+    links; each entry of the folder and of its immediate subfolders is opened
+    relative to its retained parent and refused if it is a link, junction,
+    reparse point or special file. Every ADMX in the folder and every ADML in
+    it or a subfolder is read exactly once, through the handle that
+    enumeration opened, and those bytes feed both the hash and the parser.
+    ADML pairing follows ``admx.find_adml``: a sibling, then ``en-US``, then
+    the first other subfolder in sorted order.
+    """
+    budget = _Budget(directory)
+    inventory = _Inventory()
+    with _refuse_unsafe_entries(directory):
+        root_fd = open_directory(directory)
+        try:
+            _read_root(root_fd, budget, inventory)
+        finally:
+            os.close(root_fd)
+        for admx_name in sorted(inventory.admx, key=_sort_key):
+            match = _find_name(inventory.root_adml, Path(admx_name).stem + ".adml")
+            if match is not None:
+                inventory.pairs[admx_name] = _Pair(
+                    relative_path=match.spelling,
+                    directory=None,
+                    name=match.name,
+                    data=inventory.root_adml[match.name],
+                )
+        inventory.root_adml.clear()
+        en_us = _find_name(inventory.subdirectories, "en-US")
+        order: list[tuple[str, str]] = []
+        if en_us is not None:
+            order.append((en_us.name, en_us.spelling))
+        order.extend(
+            (name, name)
+            for name in sorted(inventory.subdirectories, key=_sort_key)
+            if en_us is None or name != en_us.name
+        )
+        for subdirectory, spelling in order:
+            _read_locale(directory, subdirectory, spelling, budget, inventory)
+    return inventory
+
+
+def _inventory_files(inventory: _Inventory) -> tuple[TemplateFile, ...]:
+    files: list[TemplateFile] = []
+    paired: set[tuple[str | None, str]] = set()
+    for admx_name in sorted(inventory.admx, key=_sort_key):
+        admx_data = inventory.admx[admx_name]
+        pair = inventory.pairs.get(admx_name)
+        classification, note = classify_template_file(
+            admx_name, admx_data, pair.data if pair is not None else None
+        )
         files.append(TemplateFile(
-            relative_path=relative,
+            relative_path=admx_name,
             sha256=_hash_bytes(admx_data),
             size=len(admx_data),
             content_classification=classification,
             license_note=note,
         ))
-        if adml_path is not None and adml_data is not None:
-            adml_relative = str(adml_path.relative_to(directory))
-            adml_classification = classification
-            adml_note = note
-            if (
-                adml_path.name.lower() in _MICROSOFT_FILE_NAMES
-                or _has_microsoft_copyright(adml_data)
-            ):
-                adml_classification = "hash-reference"
-                adml_note = f"Microsoft indicator in paired ADML {adml_relative}"
-            files.append(TemplateFile(
-                relative_path=adml_relative,
-                sha256=_hash_bytes(adml_data),
-                size=len(adml_data),
-                content_classification=adml_classification,
-                license_note=adml_note,
-            ))
-
-    adml_paths = sorted(directory.glob("*.adml"))
-    for child in sorted(directory.iterdir()) if directory.is_dir() else []:
-        if child.is_dir():
-            adml_paths.extend(sorted(child.glob("*.adml")))
-    for path in adml_paths:
-        if path in seen_adml:
+        if pair is None:
             continue
-        try:
-            size = path.stat().st_size
-            if size > _MAX_TEMPLATE_FILE_SIZE:
-                continue
-            data = path.read_bytes()
-        except OSError:
-            continue
-        relative = str(path.relative_to(directory))
-        classification, note = classify_template_file(relative, None, data)
+        paired.add((pair.directory, pair.name))
+        adml_classification = classification
+        adml_note = note
+        if (
+            Path(pair.relative_path).name.lower() in _MICROSOFT_FILE_NAMES
+            or _has_microsoft_copyright(pair.data)
+        ):
+            adml_classification = "hash-reference"
+            adml_note = f"Microsoft indicator in paired ADML {pair.relative_path}"
         files.append(TemplateFile(
-            relative_path=relative,
-            sha256=_hash_bytes(data),
-            size=len(data),
-            content_classification=classification,
-            license_note=note,
+            relative_path=pair.relative_path,
+            sha256=_hash_bytes(pair.data),
+            size=len(pair.data),
+            content_classification=adml_classification,
+            license_note=adml_note,
         ))
+
+    locations: list[str | None] = [None, *sorted(inventory.subdirectories, key=_sort_key)]
+    for location in locations:
+        names = sorted(
+            (name for (where, name) in inventory.adml if where == location),
+            key=_sort_key,
+        )
+        for name in names:
+            read = inventory.adml[(location, name)]
+            if read.unpaired is None or (location, name) in paired:
+                continue
+            classification, note = read.unpaired
+            files.append(TemplateFile(
+                relative_path=name if location is None else str(Path(location, name)),
+                sha256=read.sha256,
+                size=read.size,
+                content_classification=classification,
+                license_note=note,
+            ))
     return tuple(files)
 
 
@@ -361,11 +609,19 @@ def ingest_source(
     licensing; if ``claimed_classification`` is ``in-repo`` but any file is
     mechanically classified as non-``in-repo`` (e.g. Microsoft or vendor
     ADMX), ingestion is rejected.
+
+    The folder is read once (see ``_read_source``): the lock built from the
+    result attests exactly the bytes its catalogue was parsed from. A link,
+    junction or reparse point anywhere in the folder or its path, a file over
+    ``_MAX_TEMPLATE_FILE_SIZE``, or a folder over the aggregate byte or entry
+    limit refuses the whole source with ``TemplateError``. ``directory`` is
+    opened as given; a caller holding an operator-chosen path resolves it first.
     """
     if not directory.is_dir():
         raise TemplateError(f"Template directory does not exist: {directory}")
 
-    files = _scan_directory(directory, name)
+    inventory = _read_source(directory)
+    files = _inventory_files(inventory)
     if claimed_classification == "in-repo":
         for file in files:
             if file.content_classification != "in-repo":
@@ -402,27 +658,19 @@ def ingest_source(
     usings: list[NamespaceDeclaration] = []
     errors: list[IngestError] = []
 
-    for admx_path in sorted(directory.glob("*.admx")):
-        rel = str(admx_path.relative_to(directory))
-        try:
-            adml_path = find_adml(admx_path)
-        except OSError as exc:
-            errors.append(IngestError(relative_path=rel, message=str(exc), kind="io_error"))
-            continue
-        if adml_path is None:
+    for admx_name in sorted(inventory.admx, key=_sort_key):
+        pair = inventory.pairs.get(admx_name)
+        if pair is None:
             errors.append(IngestError(
-                relative_path=rel, message="No matching ADML found", kind="missing_adml"
+                relative_path=admx_name, message="No matching ADML found", kind="missing_adml"
             ))
             continue
         try:
-            admx_data = admx_path.read_bytes()
-            adml_data = adml_path.read_bytes()
-            catalogue = build_catalogue(admx_data, adml_data)
+            catalogue = build_catalogue(inventory.admx[admx_name], pair.data)
         except (AdmxError, ValueError) as exc:
-            errors.append(IngestError(relative_path=rel, message=str(exc), kind="parse_error"))
-            continue
-        except OSError as exc:
-            errors.append(IngestError(relative_path=rel, message=str(exc), kind="io_error"))
+            errors.append(IngestError(
+                relative_path=admx_name, message=str(exc), kind="parse_error"
+            ))
             continue
         policies.extend(catalogue.policies)
         categories.extend(catalogue.categories)

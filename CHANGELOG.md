@@ -332,6 +332,34 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   server error. Invalid requests leave workspace data unchanged; valid actor
   trimming and the identity library's argument errors are preserved (WI-090).
 
+### Security
+
+These ADMX template store defects predate `1.1.0` and are present in it.
+
+- **A template lock could attest bytes that were never loaded.** Ingest read
+  each ADMX/ADML once to hash it and again to parse it, so a pair replaced
+  between the two reads was loaded into the catalogue while the lock still
+  attested the replaced bytes. Each file is now read exactly once, through one
+  handle, and those bytes feed both the hash and the parser. For a store
+  without links or oversized files, the lock is unchanged: the same bytes give
+  the same lock hash, file list and catalogue (checked against the previous
+  reader on a Windows Server 2025 store).
+- **Template folders no longer follow links.** A template folder is read through
+  the same no-follow boundary as backup imports: a symbolic link, Windows
+  junction or other reparse point, or a special file such as a FIFO, in the
+  folder, its locale subfolders or its own path refuses the whole source (422,
+  `Refused template folder ...`), and the active catalogue is kept. Previously
+  a linked ADMX/ADML inside `GPO_STUDIO_TEMPLATE_ROOT` could load templates from
+  outside it. The ingest route and the startup `GPO_STUDIO_ADMX_DIR` load
+  resolve the folder the operator named once, then follow nothing inside it.
+- **Template ingest is bounded.** A file over the 10 MiB limit was skipped when
+  hashed but still read in full when parsed. It is now read at most one byte
+  past the limit and refuses the source, as does a source holding more than
+  512 MiB of ADMX/ADML files or more than 20,000 files and folders. A real
+  Windows Server 2025 store is 446 files and about 7.4 MB. Previously an
+  oversized file was left out of the lock silently; now no partial catalogue
+  is activated.
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the
