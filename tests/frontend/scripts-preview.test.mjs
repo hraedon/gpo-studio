@@ -31,6 +31,10 @@ class FakeElement {
   querySelector() {
     return null;
   }
+  // Outside any .dialog-head: the close button stands in for the footer Close.
+  closest() {
+    return null;
+  }
   get ownerDocument() {
     return globalThis.document;
   }
