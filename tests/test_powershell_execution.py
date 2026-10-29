@@ -141,16 +141,32 @@ namespace Microsoft.GroupPolicy {
     public GPDomain(string name) { DomainName = name; }
   }
 }
+namespace StudioStub {
+  public class Account {
+    public string Value { get; private set; }
+    public Account(string value) { Value = value; }
+    public Sid Translate(System.Type type) {
+      return new Sid("S-1-5-21-9-9-9-" + (Value.GetHashCode() & 0x7fffffff));
+    }
+  }
+  public class Sid {
+    public string Value { get; private set; }
+    public Sid(string value) { Value = value; }
+    public Account Translate(System.Type type) { return new Account("STUB\\\\" + Value); }
+  }
+}
 '@
+$script:granted = @{}
 function _Out($label, $value) {
   # To the console, not the pipeline: a stub's pipeline output is its return value.
   [Console]::Out.WriteLine($label + '=' + [Convert]::ToBase64String(
     [Text.Encoding]::UTF8.GetBytes([string]$value)))
 }
-function Get-GPO { param($Guid, $Name, $Domain, $ErrorAction) _Out 'GETNAME' $Name; $null }
+function Get-GPO { param($Guid, $Name, [switch]$All, $Domain, $ErrorAction) @() }
 function New-GPO { param($Name, $Comment, $Domain)
   _Out 'NAME' $Name; _Out 'COMMENT' $Comment
-  [pscustomobject]@{ Id = 'id'; DisplayName = $Name; GpoStatus = '' } }
+  [pscustomobject]@{ Id = [guid]::NewGuid(); DisplayName = $Name; GpoStatus = '';
+    WmiFilter = $null } }
 function Rename-GPO { param($Guid, $TargetName, $Domain) _Out 'RENAME' $TargetName }
 function Set-GPRegistryValue { param($Guid, $Key, $ValueName, $Type, $Value, $Domain)
   _Out 'KEY' $Key; _Out 'VALUENAME' $ValueName
@@ -162,18 +178,29 @@ function Get-GPInheritance { param($Target, $Domain) _Out 'TARGET' $Target
   [pscustomobject]@{ GpoLinks = @() } }
 function New-GPLink { param($Guid, $Target, $LinkEnabled, $Enforced, $Order, $Domain) }
 function Set-GPLink { param($Guid, $Target, $LinkEnabled, $Enforced, $Order, $Domain) }
-function Get-GPPermission { param($Guid, [switch]$All, $TargetName, $TargetType, $Domain) @() }
+function Get-GPPermission { param($Guid, [switch]$All, $TargetName, $TargetType, $Domain)
+  @(foreach ($name in $script:granted.Keys) {
+    [pscustomobject]@{ Permission = $script:granted[$name]; Denied = $false; Inherited = $false;
+      Trustee = [pscustomobject]@{ Domain = ''; Name = $name; SidType = 'Group';
+        Sid = [pscustomobject]@{ Value = ([StudioStub.Account]$name).Translate([string]).Value } } }
+  }) }
 function Set-GPPermission { param($Guid, $PermissionLevel, $TargetName, $TargetType,
-  [switch]$Replace, $Domain) _Out 'TRUSTEE' $TargetName }
+  [switch]$Replace, $Domain)
+  _Out 'TRUSTEE' $TargetName
+  $script:granted[$TargetName] = [string]$PermissionLevel }
 """
 
 
 def _runnable(plan: str) -> str:
-    """The plan with its module requirement removed and the stubs defined after
-    its ``param(...)`` block (which must stay the first statement)."""
+    """The plan with its module requirement removed, the stubs defined after
+    its ``param(...)`` block (which must stay the first statement), and the
+    SID/account types replaced by stubs (their translation needs Windows)."""
     lines = [line for line in plan.splitlines() if not line.startswith("#Requires")]
     index = lines.index("param([switch]$AdoptExistingGpo)")
-    return "\n".join([*lines[: index + 1], _STUBS, *lines[index + 1 :]]) + "\n"
+    text = "\n".join([*lines[: index + 1], _STUBS, *lines[index + 1 :]]) + "\n"
+    return text.replace("[System.Security.Principal.NTAccount]", "[StudioStub.Account]").replace(
+        "[System.Security.Principal.SecurityIdentifier]", "[StudioStub.Sid]"
+    )
 
 
 def _plan_gpo(text: str) -> GPO:

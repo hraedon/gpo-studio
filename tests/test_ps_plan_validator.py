@@ -16,6 +16,8 @@ def _sample_gpo() -> GPO:
         guid="11111111-2222-3333-4444-555555555555",
         name="Synthetic Policy",
         description="Fixture only",
+        # The plan links only inside the declared domain.
+        domain="synthetic.test",
         settings=(
             RegistrySetting(
                 id="s1", side="computer", hive="HKLM",

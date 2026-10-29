@@ -79,6 +79,13 @@ def _filters() -> Iterator[tuple[SecurityFilter, ...]]:
             for p in permissions
             for k in kinds
         )
+    # A SID principal, and a name principal with its stored SID: the plan
+    # resolves each and checks the stored SID before anything changes.
+    yield (
+        SecurityFilter("fsid", "S-1-5-11", sid="S-1-5-11"),
+        SecurityFilter("fstored", "CORPUS\\stored", sid="S-1-5-21-1-2-3-1001"),
+        SecurityFilter("fbare", "S-1-5-21-1-2-3-1002", permission="read"),
+    )
 
 
 def _links() -> Iterator[tuple[GPOLink, ...]]:

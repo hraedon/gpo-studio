@@ -57,9 +57,9 @@ The generated `apply.ps1` is a human review aid. The managed publisher does not
 accept it as input, and it must never become input by passing its text to a
 PowerShell process. It currently covers:
 
-- create-or-find GPO, bound to the declared domain and to the workspace GUID or
-  the plan's own binding marker (`-AdoptExistingGpo` to take over any other GPO
-  of the same name);
+- create-or-find GPO, bound to the declared domain and to the plan's own
+  binding marker (`-AdoptExistingGpo` to take over any other GPO with the
+  workspace GUID or the name, never renamed);
 - security filtering, lowering every other Apply holder to Read;
 - rename;
 - registry policy set/delete;

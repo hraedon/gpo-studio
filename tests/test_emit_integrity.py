@@ -145,7 +145,7 @@ def _plan_gpo(**changes: Any) -> GPO:
         settings=settings,
         links=(GPOLink("l1", "OU=Lab,DC=studio,DC=local"),),
         security_filters=(
-            SecurityFilter("f1", "EXAMPLE\\LabAdmins"),
+            SecurityFilter("f1", "EXAMPLE\\LabAdmins", sid="S-1-5-21-1-2-3-1001"),
             SecurityFilter("f2", "EXAMPLE\\Readers", permission="read"),
         ),
         wmi_filter=WmiFilter("w1", "Servers", query="SELECT * FROM Win32_OperatingSystem"),

@@ -156,12 +156,13 @@ needs the `GroupPolicy` PowerShell module and delegated GPO rights on the
 target Windows host.
 
 The plan names its declared domain on every GroupPolicy call and stops unless
-that domain is reachable under that name. It modifies only the GPO with the
-workspace GUID or a same-named GPO whose comment carries the plan's binding
-marker, unless the operator passes `-AdoptExistingGpo`. The marker is accident
+that domain is reachable under that name and every link target is in it. It
+modifies only a GPO whose comment carries the plan's binding marker, unless the
+operator passes `-AdoptExistingGpo`, and it checks principals (by SID) and
+existing permissions before it changes anything. The marker is accident
 prevention, not authentication. Authored security filters are the GPO's whole
 apply set: any other `GpoApply`, Authenticated Users included, is lowered to
-`GpoRead`. See
+`GpoRead`. `-WhatIf` changes nothing. See
 [`docs/capability-matrix.md`](docs/capability-matrix.md#powershell-plan-accuracy).
 
 ## References

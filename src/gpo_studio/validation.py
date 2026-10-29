@@ -25,6 +25,7 @@ from .gpp import (
 from .identity_values import (
     date_problem,
     dn_problem,
+    link_target_scope_problem,
     name_problem,
     principal_problem,
     sid_problem,
@@ -332,6 +333,21 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                     "invalid_link_target",
                     "Link target must be a domain or OU distinguished name; this one "
                     f"{target_problem}.",
+                    f"links/{link.id}/target",
+                )
+            )
+        elif (scope := link_target_scope_problem(link.target, gpo.domain.strip())) is not None:
+            # A warning, not an error: an error here would also refuse the GPMC
+            # backup (which carries no links) and an estate import of a real
+            # multi-domain estate. The PowerShell plan, which does write
+            # links, refuses it (`export._plan_precondition`).
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "link_target_outside_domain",
+                    f"Link target {scope}. The PowerShell plan links only inside the GPO's "
+                    "declared domain, so it is not generated: set the domain, or remove "
+                    "the link.",
                     f"links/{link.id}/target",
                 )
             )
