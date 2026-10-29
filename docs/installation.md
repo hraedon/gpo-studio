@@ -214,6 +214,19 @@ The dialog shows counts and per-file issues. A missing/unreadable directory keep
 the previous source; a valid empty or wholly malformed folder can replace it with
 an empty catalogue, reported explicitly in the dialog.
 
+Studio reads the folder and its immediate locale subfolders (such as `en-US`)
+without following links. Entries below a locale subfolder are counted but never
+read. A symbolic link, junction or other reparse point, or a special file,
+anywhere in that boundary refuses the whole folder and keeps the previous
+source, as does a folder over the limits in
+[`import-resource-limits.md`](import-resource-limits.md). To use a domain
+central store, **load a local copy**. On a domain controller the per-domain
+folder under `SYSVOL` is a junction, so a central store opened by UNC path is
+refused. Set `GPO_STUDIO_TEMPLATE_ROOT` to confine loads to one directory tree.
+Hard links and bind mounts inside that tree are not detected (see
+[`SECURITY.md`](../SECURITY.md#admx-template-folders)), so keep it writable only
+by trusted administrators.
+
 Loading affects every tab connected to this Studio process. If the catalogue
 changes while a policy editor is open, applying its old mapping is refused and
 the entered values stay available. Close the editor and review the policy from

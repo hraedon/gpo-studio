@@ -22,7 +22,25 @@ from pathlib import Path
 
 
 class SafeOpenError(OSError):
-    """A path could not be opened without following links."""
+    """A path could not be opened without following links.
+
+    A Windows open or query that failed carries its code: ``nt_status`` (the
+    unsigned NTSTATUS) or ``win32_error`` (``GetLastError``). Callers classify
+    the failure from these, never from the message, which can hold an entry
+    name. Both are ``None`` for a refusal decided here (a link, a reparse
+    point, an unsupported type) and for every POSIX error, whose OS cause is
+    chained instead.
+    """
+
+    def __init__(
+        self,
+        *args: object,
+        nt_status: int | None = None,
+        win32_error: int | None = None,
+    ) -> None:
+        super().__init__(*args)
+        self.nt_status = nt_status
+        self.win32_error = win32_error
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +60,14 @@ class SafeDirectoryEntry:
 _O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _O_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
+# A file can be swapped for a FIFO or device between inspection and open, and a
+# blocking open of a FIFO waits for a writer forever. Final components are
+# therefore opened non-blocking (and never as a controlling terminal), checked
+# with fstat on the handle, and only a regular file is switched back to
+# blocking I/O before it is returned.
+_O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+_O_NOCTTY = getattr(os, "O_NOCTTY", 0)
+_O_FILE_OPEN = _O_NOFOLLOW | _O_CLOEXEC | _O_NONBLOCK | _O_NOCTTY
 
 _windows_test_hook_phase2: Callable[[], None] | None = None
 
@@ -82,7 +108,7 @@ def _open_regular_posix(path: Path) -> int:
     try:
         fd = os.open(
             parts[-1],
-            os.O_RDONLY | _O_NOFOLLOW | _O_CLOEXEC,
+            os.O_RDONLY | _O_FILE_OPEN,
             dir_fd=parent_fd,
         )
     except OSError as error:
@@ -92,6 +118,7 @@ def _open_regular_posix(path: Path) -> int:
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise SafeOpenError("Path does not name a regular file")
+        os.set_blocking(fd, True)
         return fd
     except BaseException:
         os.close(fd)
@@ -105,7 +132,7 @@ def _open_or_create_regular_posix(
     if not parts:
         raise SafeOpenError("Path does not name a regular file")
     parent_fd = _open_directory_posix(Path(anchor, *parts[:-1]))
-    flags = os.O_RDWR | os.O_CREAT | _O_NOFOLLOW | _O_CLOEXEC
+    flags = os.O_RDWR | os.O_CREAT | _O_FILE_OPEN
     if exclusive:
         flags |= os.O_EXCL
     try:
@@ -119,6 +146,7 @@ def _open_or_create_regular_posix(
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise SafeOpenError("Path does not name a regular file")
+        os.set_blocking(fd, True)
         return fd
     except BaseException:
         os.close(fd)
@@ -173,7 +201,7 @@ def _iter_directory_posix(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
                 flags = os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW | _O_CLOEXEC
                 is_directory = True
             elif stat.S_ISREG(before.st_mode):
-                flags = os.O_RDONLY | _O_NOFOLLOW | _O_CLOEXEC
+                flags = os.O_RDONLY | _O_FILE_OPEN
                 is_directory = False
             else:
                 raise SafeOpenError(
@@ -194,6 +222,8 @@ def _iter_directory_posix(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
                     )
                 if not is_directory and not stat.S_ISREG(after.st_mode):
                     raise SafeOpenError(f"File entry {name!r} changed while opening")
+                if not is_directory:
+                    os.set_blocking(child_fd, True)
                 yield SafeDirectoryEntry(
                     name=name,
                     is_directory=is_directory,
@@ -323,7 +353,8 @@ def _iter_directory_windows(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
         if unsigned_status != _STATUS_SUCCESS:
             raise SafeOpenError(
                 "Cannot enumerate directory safely: "
-                f"NT status 0x{unsigned_status:08X}"
+                f"NT status 0x{unsigned_status:08X}",
+                nt_status=unsigned_status,
             )
 
         returned = int(iosb.Information or 0)
@@ -388,7 +419,8 @@ def _iter_directory_windows(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
                 if child_status != _STATUS_SUCCESS:
                     raise SafeOpenError(
                         f"Cannot open directory entry {name!r} safely: "
-                        f"NT status 0x{child_status & 0xFFFFFFFF:08X}"
+                        f"NT status 0x{child_status & 0xFFFFFFFF:08X}",
+                        nt_status=child_status & 0xFFFFFFFF,
                     )
                 child_handle_value = child_handle.value
                 if child_handle_value is None:
@@ -563,7 +595,8 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
             last_error = ctypes.get_last_error()
             raise SafeOpenError(
                 "Cannot get stable file identity: "
-                f"Win32 error {last_error}"
+                f"Win32 error {last_error}",
+                win32_error=last_error,
             )
         volume_serial = int(info.VolumeSerialNumber)
         file_id = bytes(info.FileId.Identifier)
@@ -594,7 +627,8 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
     if not root_handle or root_handle == _INVALID_HANDLE:
         last_error = ctypes.get_last_error()
         raise SafeOpenError(
-            f"Cannot open path root {anchor!s}: Win32 error {last_error}"
+            f"Cannot open path root {anchor!s}: Win32 error {last_error}",
+            win32_error=last_error,
         )
 
     try:
@@ -655,7 +689,8 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
             if status != _STATUS_SUCCESS:
                 raise SafeOpenError(
                     f"NtOpenFile failed for {component!r}: "
-                    f"NT status 0x{status & 0xFFFFFFFF:08X}"
+                    f"NT status 0x{status & 0xFFFFFFFF:08X}",
+                    nt_status=status & 0xFFFFFFFF,
                 )
 
             # Convert child handle to fd BEFORE closing parent, so that
@@ -700,7 +735,8 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
         if not cw_handle or cw_handle == _INVALID_HANDLE:
             last_error = ctypes.get_last_error()
             raise SafeOpenError(
-                f"CreateFileW failed for {path!s}: Win32 error {last_error}"
+                f"CreateFileW failed for {path!s}: Win32 error {last_error}",
+                win32_error=last_error,
             )
 
         try:
@@ -853,7 +889,8 @@ def _open_or_create_regular_windows(path: Path, *, exclusive: bool) -> int:
         if unsigned_status != _STATUS_SUCCESS:
             raise SafeOpenError(
                 "Cannot safely open or create regular file: "
-                f"NT status 0x{unsigned_status:08X}"
+                f"NT status 0x{unsigned_status:08X}",
+                nt_status=unsigned_status,
             )
         handle_value = handle.value
         if handle_value is None:

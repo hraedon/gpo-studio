@@ -358,6 +358,105 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   server error. Invalid requests leave workspace data unchanged; valid actor
   trimming and the identity library's argument errors are preserved (WI-090).
 
+### Security
+
+These ADMX template store defects predate `1.1.0` and are present in it.
+
+- **A template lock could attest bytes that were never loaded.** Ingest read
+  each ADMX/ADML once to hash it and again to parse it, so a pair replaced
+  between the two reads was loaded into the catalogue while the lock still
+  attested the replaced bytes. Each file is now read exactly once, through one
+  handle, and those bytes feed both the hash and the parser. Locale subfolders
+  are read through the handles that enumerating the template folder opened,
+  never reopened by path, so a folder swapped mid-ingest cannot pair an ADMX
+  from one tree with an ADML from another.
+
+  For a store without links or oversized files, the lock format and hash input
+  are unchanged, and the same bytes give the same lock hash, file list and
+  catalogue. This was checked against the previous reader on a Windows Server
+  2025 store and on every store in `tests/fixtures`. One Linux-only edge case
+  differs: a folder holding two ADMLs whose names differ only by case (possible
+  only on a case-sensitive filesystem). The previous reader paired whichever
+  the directory listing returned first; the new reader picks deterministically,
+  in sorted order, so such a store can get a different lock than before.
+- **Template folders no longer follow links.** A template folder is read through
+  the same no-follow boundary as backup imports. That boundary covers the
+  folder's own path, the folder, and its immediate (locale) subfolders. Entries
+  below a locale subfolder are counted against the entry limit but never
+  entered or read. Within that boundary a symbolic link, Windows junction or
+  other reparse point, or a special file such as a FIFO refuses the whole
+  source (422, `Refused template folder ...`), and the active catalogue is kept.
+  Previously a linked ADMX/ADML inside `GPO_STUDIO_TEMPLATE_ROOT` could load
+  templates from outside it. The ingest route and the startup
+  `GPO_STUDIO_ADMX_DIR` load resolve the folder the operator named once, then
+  follow nothing inside it. A Windows open that fails for another reason, such
+  as a sharing violation or access denied, is reported as
+  `Cannot read template folder ...` with its NT status, not as a link refusal.
+- **Behaviour change: a central store opened by UNC path is refused.** On a
+  domain controller the per-domain folder under the `SYSVOL` share is a
+  junction to a folder outside the share. Seen over SMB it is a reparse point
+  that path resolution cannot canonicalise, so
+  `\\<domain>\SYSVOL\<domain>\Policies\PolicyDefinitions` is now refused. This
+  is deliberate (fail closed). Ingest a local copy of the central store
+  instead.
+- **Not detected: hard links and bind mounts.** A hard link or bind mount
+  inside the template folder is an ordinary file or folder to every check above,
+  so it can make a file outside the template root readable under a name inside
+  it. Refusing files with more than one link is not an option: on Windows
+  Server 2025 every one of the 446 files in the stock
+  `C:\Windows\PolicyDefinitions` is also hard-linked into the component store
+  (`C:\Windows\WinSxS`), so such a check would refuse the stock store.
+  A hard link must be on the same volume as its target. On Linux with
+  `fs.protected_hardlinks`, creating one also needs ownership of the target
+  or read and write access to it. NTFS has no such check: on Windows Server
+  2025, `mklink /H` linked a file its creator was denied write access to.
+  Creating a bind mount needs mount privileges in the process's mount
+  namespace. Keep the template root writable only by trusted administrators.
+- **Template ingest is bounded.** A file over the 10 MiB limit was skipped when
+  hashed but still read in full when parsed. It is now read at most one byte
+  past the limit and refuses the source. So does a source holding more than
+  512 MiB of ADMX/ADML files, more than 20,000 files and folders, or more than
+  256 subfolders. A real Windows Server 2025 store is 446 files, about 7.4 MB
+  and one locale subfolder. Previously an oversized file was left out of the
+  lock silently; now no partial catalogue is activated.
+- **Template ingests run one at a time, on one thread.** Behaviour change:
+  `POST /api/templates/ingest` now answers 409 (`template_ingest_in_progress`)
+  while another ingest runs. It is not queued, because a queued request would
+  hold a request thread it could not give back. Every ingest, the startup one
+  included, runs on a single dedicated thread. On Linux, glibc keeps a separate
+  allocator arena per thread and holds on to what an ingest freed there, so
+  ingests spread over the request threads each left their memory resident.
+  Measured on Linux (glibc) with sources of 50 files just under 10 MiB each:
+  - Before this change, four simultaneous ingests peaked at 1,847 MiB resident
+    and kept 1,748 MiB afterwards.
+  - Now, four simultaneous requests ingest one source and refuse three (409),
+    with a peak of 584 MiB.
+  - Eight ingests in a row peak at 610 MiB, and between ingests the process
+    keeps 430 to 550 MiB resident without growing.
+  - With `MALLOC_ARENA_MAX=1` the retained figure fell to 63 MiB.
+
+  Windows was not measured.
+- **A file swapped for a FIFO could hang an open.** The no-follow file opens
+  shared by template ingest and backup imports (`safe_io`) inspected an entry,
+  then opened it blocking. A regular file replaced by a FIFO in between blocked
+  the open forever, which at startup kept the server from coming up. POSIX
+  file opens are now non-blocking, the handle's type is checked before any
+  read, and only a regular file is switched back to blocking I/O. This edits a
+  lane-bound file: the refreeze `fdeploy` verdict is parked in
+  `pending_requalification` until the requalification batch re-runs it.
+- **Template ingest errors no longer disclose where a path resolves.** The
+  ingest route resolves the submitted path before reading it, and its errors
+  named the resolved target. That included `Path escapes template root`, and
+  refusals such as `Template directory does not exist` when no template root
+  is set, so a submitted link revealed where it pointed. Every error the route
+  returns now names only the submitted path, including any path a Windows
+  open failure reports.
+- **Windows open failures are classified by their status code.** A refusal
+  used to be told apart from a read failure by searching the error message,
+  which also holds the entry name, so a file named like a status code could
+  change the result. `safe_io` now carries the NT status or Win32 error on the
+  exception, and template ingest classifies on that.
+
 ## [1.1.0] - 2026-10-20
 
 > **Final release.** 1.1.0 promotes the `1.1.0-rc.1` candidate and adds the

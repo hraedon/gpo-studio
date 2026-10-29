@@ -39,6 +39,9 @@ rejected, not truncated.
 | SDDL text | 256 KiB |
 | SDDL ACEs | 10,000 |
 | ADMX or ADML file | 10 MiB |
+| ADMX/ADML bytes per template folder | 512 MiB |
+| Files and folders per template folder (folder plus locale subfolders) | 20,000 |
+| Locale subfolders per template folder | 256 |
 | ADMX/ADML XML elements | 100,000 |
 | ADMX/ADML XML depth | 100 |
 | WMI catalogue file | 50 MiB |
