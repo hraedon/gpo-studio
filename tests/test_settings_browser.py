@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from gpo_studio.admx import (
@@ -10,11 +12,12 @@ from gpo_studio.admx import (
     EnumItem,
     PolicyDefinition,
     PolicyElement,
+    PolicyValue,
     SupportedOnDefinition,
 )
 from gpo_studio.api import app
 from gpo_studio.model import RegistrySetting
-from gpo_studio.policy_config import PolicyState
+from gpo_studio.policy_config import PolicyConfiguration, PolicyState, resolve_policy
 from gpo_studio.settings_browser import (
     SettingsBrowserResult,
     build_category_tree,
@@ -882,3 +885,378 @@ def test_api_category_tree(tmp_path, monkeypatch) -> None:
         child = root["children"][0]
         assert child["id"] == "BrowserChild"
         assert child["policy_count"] == 2
+
+
+# --- enum rows written before #139 -------------------------------------------
+
+
+def _dword_enum_policy() -> PolicyDefinition:
+    return _policy(
+        elements=(
+            PolicyElement(
+                kind="enum",
+                id="Mode",
+                registry_value_name="TestValue",
+                enum_items=(
+                    EnumItem(id="1", display_name="One", value=1, registry_type="REG_DWORD"),
+                    EnumItem(id="2", display_name="Two", value=2, registry_type="REG_DWORD"),
+                ),
+            ),
+        ),
+    )
+
+
+def test_enum_row_with_the_wrong_registry_type_is_flagged_not_decoded() -> None:
+    """Issue #142: a pre-#139 REG_SZ "1" must not read as the REG_DWORD item 1."""
+    policy = _dword_enum_policy()
+    qid = policy.qualified_id
+    mistyped = _setting(id=_admx_id(qid, "computer", "Mode"), value="1", registry_type="REG_SZ")
+    result = build_settings_browser(_catalogue(policies=(policy,)), [mistyped])
+    assert result.resolved[0].element_values == {}
+    assert result.resolved[0].raw_settings == (mistyped,)
+    assert [(u.setting, u.reason) for u in result.unresolved] == [
+        (
+            mistyped,
+            "enum value has the wrong registry type; reconfigure the policy to repair it",
+        )
+    ]
+
+
+def test_enum_row_matching_no_item_is_flagged() -> None:
+    policy = _dword_enum_policy()
+    stray = _setting(id=_admx_id(policy.qualified_id, "computer", "Mode"), value=7)
+    result = build_settings_browser(_catalogue(policies=(policy,)), [stray])
+    assert result.resolved[0].element_values == {}
+    assert [(u.setting, u.reason) for u in result.unresolved] == [
+        (stray, "enum value matches no template item")
+    ]
+
+
+def test_enum_row_for_an_itemless_enum_is_flagged() -> None:
+    # Before #139 every real enum parsed with no items and stored free text.
+    policy = _policy(
+        elements=(PolicyElement(kind="enum", id="Mode", registry_value_name="TestValue"),)
+    )
+    row = _setting(
+        id=_admx_id(policy.qualified_id, "computer", "Mode"), value="Z:", registry_type="REG_SZ"
+    )
+    result = build_settings_browser(_catalogue(policies=(policy,)), [row])
+    assert result.resolved[0].element_values == {}
+    assert [(u.setting, u.reason) for u in result.unresolved] == [
+        (row, "enum template has no readable items")
+    ]
+
+
+def test_correctly_typed_enum_row_decodes_without_a_repair_flag() -> None:
+    policy = _dword_enum_policy()
+    row = _setting(id=_admx_id(policy.qualified_id, "computer", "Mode"), value=2)
+    result = build_settings_browser(_catalogue(policies=(policy,)), [row])
+    assert result.resolved[0].element_values == {"Mode": "2"}
+    assert result.unresolved == ()
+
+
+_ADMX_ENUM_REPAIR = _ADMX_BROWSER.replace(
+    b'<boolean id="CompOption" valueName="CompOption" />',
+    b'<enum id="CompMode" valueName="CompMode">'
+    b'<item displayName="$(string.ComputerPolicy)"><value><decimal value="1" /></value></item>'
+    b'<item displayName="$(string.ComputerPolicy)"><value><decimal value="2" /></value></item>'
+    b"</enum>",
+)
+
+
+def test_api_flags_a_mistyped_enum_row_until_the_policy_is_reconfigured(
+    tmp_path, monkeypatch
+) -> None:
+    assert _ADMX_ENUM_REPAIR != _ADMX_BROWSER
+    _setup_browser_env(tmp_path, monkeypatch)
+    (tmp_path / "browser_admx" / "browser.admx").write_bytes(_ADMX_ENUM_REPAIR)
+    qid = f"{_BROWSER_QID}%3AComputerPolicy"
+
+    def configure(gpo: dict[str, Any]) -> dict[str, Any]:
+        response = client.post(
+            f"/api/admx/policies/{qid}/configure",
+            json={
+                "gpo_guid": gpo["guid"],
+                "side": "computer",
+                "values": {"CompMode": "1"},
+                "state": "enabled",
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "Configure",
+            },
+        )
+        assert response.status_code == 200, response.text
+        return client.get(f"/api/gpos/{gpo['guid']}").json()["gpo"]
+
+    with TestClient(app) as client:
+        gpo = configure(client.post("/api/gpos", json={"name": "Enum repair"}).json()["gpo"])
+        store: WorkspaceStore = app.state.store
+        stored = store.get_gpo(gpo["guid"])
+        (row,) = [s for s in stored.settings if s.value_name == "CompMode"]
+        assert (row.registry_type, row.value) == ("REG_DWORD", 1)
+        # What the pre-#139 writer stored for the same choice.
+        store.put_settings(
+            gpo["guid"],
+            stored.revision,
+            [replace(row, registry_type="REG_SZ", value="1")],
+            identity="tester",
+            reason="Seed a pre-fix enum row",
+        )
+        data = client.get(f"/api/gpos/{gpo['guid']}/configured-settings").json()
+        assert data["resolved"][0]["element_values"] == {}
+        assert [(u["value_name"], u["registry_type"], u["reason"]) for u in data["unresolved"]] == [
+            (
+                "CompMode",
+                "REG_SZ",
+                "enum value has the wrong registry type; reconfigure the policy to repair it",
+            )
+        ]
+
+        # Reconfiguring rewrites the row with the template's type.
+        gpo = configure(client.get(f"/api/gpos/{gpo['guid']}").json()["gpo"])
+        (repaired,) = [s for s in store.get_gpo(gpo["guid"]).settings if s.value_name == "CompMode"]
+        assert (repaired.registry_type, repaired.value) == ("REG_DWORD", 1)
+        data = client.get(f"/api/gpos/{gpo['guid']}/configured-settings").json()
+        assert data["resolved"][0]["element_values"] == {"CompMode": "1"}
+        assert data["unresolved"] == []
+
+
+def _delete_item_enum(*, value_name: str = "") -> PolicyDefinition:
+    # The shape of inetres.admx NeedEdgeBrowser: "None" is a <delete/> item.
+    return _policy(
+        value_name=value_name,
+        enabled_value=PolicyValue("decimal", "1", "REG_DWORD") if value_name else None,
+        elements=(
+            PolicyElement(
+                kind="enum",
+                id="Mode",
+                registry_value_name="TestValue",
+                enum_items=(
+                    EnumItem(
+                        id="item-0", display_name="None", value="", registry_type="REG_SZ",
+                        action="delete",
+                    ),
+                    EnumItem(id="1", display_name="One", value=1, registry_type="REG_DWORD"),
+                ),
+            ),
+        ),
+    )
+
+
+@pytest.mark.parametrize("value_name", ["", "State"], ids=["child-only", "with-state"])
+def test_enabled_delete_item_round_trips_through_configure_and_read(value_name: str) -> None:
+    """Issue #142: selecting a <delete/> item writes a delete that reads back as it."""
+    policy = _delete_item_enum(value_name=value_name)
+    rows = resolve_policy(policy, PolicyConfiguration("computer", {"Mode": "item-0"}))
+    (child,) = [row for row in rows if row.value_name == "TestValue"]
+    assert (child.action, child.registry_type, child.value) == ("delete", "REG_SZ", "")
+    result = build_settings_browser(_catalogue(policies=(policy,)), rows)
+    assert [(group.state, group.element_values) for group in result.resolved] == [
+        ("enabled", {"Mode": "item-0"})
+    ]
+    assert result.unresolved == ()
+
+
+def test_disabled_policy_delete_is_not_read_as_the_delete_item() -> None:
+    policy = _delete_item_enum(value_name="State")
+    policy = replace(policy, disabled_value=PolicyValue("decimal", "0", "REG_DWORD"))
+    rows = resolve_policy(policy, PolicyConfiguration("computer", {}, state="disabled"))
+    result = build_settings_browser(_catalogue(policies=(policy,)), rows)
+    assert [(group.state, group.element_values) for group in result.resolved] == [
+        ("disabled", {})
+    ]
+    assert result.unresolved == ()
+
+
+def test_stray_enum_delete_in_an_enabled_policy_is_flagged() -> None:
+    # Sol's converse case: the enum has no <delete/> item, so an element-level
+    # delete in an enabled policy selects nothing the template defines.
+    policy = replace(
+        _dword_enum_policy(), value_name="State",
+        enabled_value=PolicyValue("decimal", "1", "REG_DWORD"),
+    )
+    rows = resolve_policy(policy, PolicyConfiguration("computer", {"Mode": "1"}))
+    stray = [
+        replace(row, action="delete", registry_type="REG_SZ", value="")
+        if row.value_name == "TestValue" else row
+        for row in rows
+    ]
+    result = build_settings_browser(_catalogue(policies=(policy,)), stray)
+    assert [(group.state, group.element_values) for group in result.resolved] == [
+        ("enabled", {})
+    ]
+    assert [u.reason for u in result.unresolved] == ["enum value matches no template item"]
+
+
+def test_mistyped_enum_row_with_a_foreign_id_says_to_replace_the_row() -> None:
+    # Issue #142 review: reconfigure refuses a row it does not own
+    # (conflicting_retained_setting), so "reconfigure" would be the wrong hint.
+    policy = _dword_enum_policy()
+    foreign = _setting(id="imported-row", value="1", registry_type="REG_SZ")
+    result = build_settings_browser(_catalogue(policies=(policy,)), [foreign])
+    assert result.resolved[0].element_values == {}
+    assert [(u.setting, u.reason) for u in result.unresolved] == [
+        (
+            foreign,
+            "enum value has the wrong registry type; remove or replace this raw "
+            "row before reconfiguring the policy",
+        )
+    ]
+
+
+_ADMX_DELETE_ITEM = _ADMX_BROWSER.replace(
+    b'<boolean id="CompOption" valueName="CompOption" />',
+    b'<enum id="CompMode" valueName="CompMode">'
+    b'<item displayName="$(string.ComputerPolicy)"><value><delete /></value></item>'
+    b'<item displayName="$(string.ComputerPolicy)"><value><decimal value="1" /></value></item>'
+    b"</enum>",
+)
+
+
+def test_api_delete_item_and_foreign_mistyped_row(tmp_path, monkeypatch) -> None:
+    assert _ADMX_DELETE_ITEM != _ADMX_BROWSER
+    _setup_browser_env(tmp_path, monkeypatch)
+    (tmp_path / "browser_admx" / "browser.admx").write_bytes(_ADMX_DELETE_ITEM)
+    qid = f"{_BROWSER_QID}%3AComputerPolicy"
+    with TestClient(app) as client:
+        detail = client.get(f"/api/admx/policies/{qid}").json()
+        assert [(i["id"], i["action"]) for i in detail["elements"][0]["enum_items"]] == [
+            ("item-0", "delete"),
+            ("1", "set"),
+        ]
+        gpo = client.post("/api/gpos", json={"name": "Delete item"}).json()["gpo"]
+        body = {
+            "gpo_guid": gpo["guid"],
+            "side": "computer",
+            "values": {"CompMode": "item-0"},
+            "state": "enabled",
+            "expected_revision": gpo["revision"],
+            "actor": "tester",
+            "reason": "Choose None",
+        }
+        response = client.post(f"/api/admx/policies/{qid}/configure", json=body)
+        assert response.status_code == 200, response.text
+        store: WorkspaceStore = app.state.store
+        head = store.get_gpo(gpo["guid"])
+        (row,) = [s for s in head.settings if s.value_name == "CompMode"]
+        assert (row.action, row.registry_type, row.value) == ("delete", "REG_SZ", "")
+        data = client.get(f"/api/gpos/{gpo['guid']}/configured-settings").json()
+        assert data["resolved"][0]["element_values"] == {"CompMode": "item-0"}
+        assert data["unresolved"] == []
+
+        # A mistyped row under a foreign id cannot be repaired by reconfiguring.
+        foreign = replace(row, id="imported-row", action="set", value="1")
+        head = store.put_settings(
+            head.guid, head.revision, [foreign], identity="tester", reason="Import a row"
+        )
+        head = store.replace_selected_settings(
+            head.guid,
+            head.revision,
+            frozenset(i for i, s in enumerate(head.settings) if s.id == row.id),
+            [],
+            identity="tester",
+            reason="Leave only the foreign row",
+        )
+        data = client.get(f"/api/gpos/{gpo['guid']}/configured-settings").json()
+        assert [u["reason"] for u in data["unresolved"]] == [
+            "enum value has the wrong registry type; remove or replace this raw "
+            "row before reconfiguring the policy"
+        ]
+        retry = client.post(
+            f"/api/admx/policies/{qid}/configure",
+            json={**body, "values": {"CompMode": "1"}, "expected_revision": head.revision},
+        )
+        assert retry.status_code == 422
+        assert retry.json()["error"]["issues"][0]["code"] == "conflicting_retained_setting"
+
+
+def _with_state(policy: PolicyDefinition) -> PolicyDefinition:
+    return replace(
+        policy,
+        value_name="State",
+        enabled_value=PolicyValue("decimal", "1", "REG_DWORD"),
+        disabled_value=PolicyValue("decimal", "0", "REG_DWORD"),
+    )
+
+
+def _state_row(policy: PolicyDefinition, value: int) -> RegistrySetting:
+    row = _setting(id=_admx_id(policy.qualified_id, "computer", "state"), value=value)
+    return replace(row, value_name="State")
+
+
+@pytest.mark.parametrize("has_delete_item", [True, False])
+def test_enum_delete_beside_an_indeterminate_state_is_reported(has_delete_item: bool) -> None:
+    # Issue #142 review: the delete was claimed by its element, staged, and
+    # then dropped because only an enabled state resolved staged deletes.
+    policy = _with_state(_delete_item_enum() if has_delete_item else _dword_enum_policy())
+    delete = _setting(
+        id=_admx_id(policy.qualified_id, "computer", "Mode"),
+        action="delete", registry_type="REG_SZ", value="",
+    )
+    result = build_settings_browser(
+        _catalogue(policies=(policy,)), [_state_row(policy, 7), delete]
+    )
+    assert [(group.state, group.element_values) for group in result.resolved] == [
+        ("indeterminate", {})
+    ]
+    assert (
+        delete,
+        "enum value is deleted, but the policy state is indeterminate, so "
+        "this cannot be read as a choice or as a disabled policy",
+    ) in [(u.setting, u.reason) for u in result.unresolved]
+
+
+def test_disabled_element_delete_is_never_read_as_the_delete_item() -> None:
+    # Pins the disabled-element guard in _decode_enum on its own: this
+    # child-only policy is (wrongly, #147) observed as enabled, so only that
+    # guard keeps the disable's delete from reading as the "None" choice.
+    policy = _delete_item_enum()
+    rows = resolve_policy(policy, PolicyConfiguration("computer", {}, state="disabled"))
+    (row,) = rows
+    assert row.action == "delete" and "disabled-element" in row.id
+    result = build_settings_browser(_catalogue(policies=(policy,)), rows)
+    assert [group.element_values for group in result.resolved] == [{}]
+    assert result.unresolved == ()
+
+
+@pytest.mark.parametrize("has_delete_item", [True, False])
+def test_imported_delete_in_a_disabled_policy_selects_nothing(has_delete_item: bool) -> None:
+    # Pins the enabled-state guard on its own: an imported **del. row has no
+    # disabled-element identity, so only the observed disabled state keeps it
+    # from reading as the delete item (or from being flagged as stray).
+    policy = _with_state(_delete_item_enum() if has_delete_item else _dword_enum_policy())
+    imported = _setting(id="imported-del", action="delete", registry_type="REG_SZ", value="")
+    result = build_settings_browser(
+        _catalogue(policies=(policy,)), [_state_row(policy, 0), imported]
+    )
+    assert [(group.state, group.element_values) for group in result.resolved] == [
+        ("disabled", {})
+    ]
+    assert result.unresolved == ()
+
+
+@pytest.mark.parametrize(
+    ("registry_type", "value", "reason"),
+    [
+        pytest.param(
+            "REG_QWORD", 1,
+            "enum value has the wrong registry type; reconfigure the policy to repair it",
+            id="qword-against-dword-item",
+        ),
+        pytest.param(
+            "REG_DWORD", True, "enum value matches no template item", id="bool-against-int-item"
+        ),
+    ],
+)
+def test_enum_match_needs_registry_and_python_types(
+    registry_type: str, value: object, reason: str
+) -> None:
+    # Issue #142 review: removing either type check left every test green.
+    policy = _dword_enum_policy()
+    row = _setting(
+        id=_admx_id(policy.qualified_id, "computer", "Mode"),
+        registry_type=registry_type, value=value,  # type: ignore[arg-type]
+    )
+    result = build_settings_browser(_catalogue(policies=(policy,)), [row])
+    assert result.resolved[0].element_values == {}
+    assert [(u.setting, u.reason) for u in result.unresolved] == [(row, reason)]

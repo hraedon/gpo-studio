@@ -472,6 +472,10 @@ def _resolve_enabled(
     hive = _hive_for(config.side)
     for element in policy.elements:
         if element.id not in config.values:
+            if element.kind == "unknown" or (element.kind == "enum" and not element.enum_items):
+                # The editor offers no field for an element it cannot write, so
+                # report that element as unsupported whatever value is missing.
+                _resolve_value(element, "")
             raise ValidationError(
                 [
                     ValidationIssue(
@@ -483,9 +487,16 @@ def _resolve_enabled(
                 ]
             )
         key = element.registry_key if element.registry_key else policy.key
-        for suffix, value_name, reg_type, reg_value in _resolve_writes(
-            element, config.values[element.id]
-        ):
+        writes = _resolve_writes(element, config.values[element.id])
+        # A <delete/> enum item removes the value instead of writing one.
+        action: Literal["set", "delete"] = next(
+            (
+                item.action for item in element.enum_items
+                if element.kind == "enum" and item.id == config.values[element.id]
+            ),
+            "set",
+        )
+        for suffix, value_name, reg_type, reg_value in writes:
             settings.append(
                 RegistrySetting(
                     id=_write_id(
@@ -499,7 +510,7 @@ def _resolve_enabled(
                     value_name=value_name,
                     registry_type=reg_type,
                     value=reg_value,
-                    action="set",
+                    action=action,
                     comment="",
                 )
             )

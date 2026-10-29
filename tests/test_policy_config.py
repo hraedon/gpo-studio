@@ -262,6 +262,17 @@ def test_missing_element_value_raises() -> None:
     assert exc_info.value.issues[0].code == "missing_element_value"
 
 
+@pytest.mark.parametrize("kind", ["unknown", "enum"])
+def test_missing_value_for_an_unwritable_element_names_it_unsupported(kind: str) -> None:
+    # Issue #142: the editor offers no field for an itemless enum (or an unknown
+    # kind), so its absent value must report the real reason, not an omission.
+    policy = _policy((_element(kind, "Mode", value_name="Mode"),))
+    config = PolicyConfiguration(side="computer", values={})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert [issue.code for issue in exc_info.value.issues] == ["unsupported_element_kind"]
+
+
 def test_decimal_rejects_bool() -> None:
     policy = _policy((_element("decimal", "Threshold", value_name="Threshold"),))
     config = PolicyConfiguration(side="computer", values={"Threshold": True})
