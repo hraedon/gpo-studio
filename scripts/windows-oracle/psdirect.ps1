@@ -305,8 +305,11 @@ function New-HostSession {
     for ($i = 1; $i -le $Attempts; $i++) {
         $left = if ($Teardown) { Get-TotalSecondsLeft } else { Get-WorkSecondsLeft }
         if ($left -lt 5) { throw (New-DeadlineError 'opening the host session') }
-        # OpenTimeout bounds the open itself; New-PSSessionOption is absent
-        # from the Linux build, so the option object is built directly.
+        # OpenTimeout is meant to bound the open; New-PSSessionOption is absent
+        # from the Linux build, so the option object is built directly. It did
+        # NOT bound a Negotiate open stuck in Kerberos (measured 2026-10-29: the
+        # realm-case hang below ran to the backstop), so the deadline and the
+        # backstop remain the real limits on a hung open.
         $option = [System.Management.Automation.Remoting.PSSessionOption]::new()
         $option.OpenTimeout = [TimeSpan]::FromSeconds([Math]::Min(60, $left))
         try {
@@ -1202,10 +1205,24 @@ public static class PsDirectBackstop {
 [PsDirectBackstop]::Arm(($DeadlineSeconds + $script:BackstopGraceSeconds) * 1000, 124,
     "psdirect deadline: backstop fired $($script:BackstopGraceSeconds) s after the $DeadlineSeconds s budget; exiting 124.")
 
+# A brokered host identity in UPN form keeps its realm in whatever case the
+# broker holds. From Linux pwsh, Negotiate goes through MIT Kerberos, which
+# rejects an AS reply whose realm differs in case from the one it asked for
+# ("KDC reply did not match expectations") -- and New-PSSession then HANGS
+# rather than failing. Measured 2026-10-29: user@ad.<domain> hung past 40 s,
+# user@AD.<domain> connected at once. An AD realm is its DNS domain upper-cased,
+# so the suffix is upper-cased here; DOMAIN\user is left alone. This fixes
+# case only: an alternate UPN suffix that is not the realm is still sent as
+# that suffix, and its Kerberos routing is the KDC's business.
+$hostUser = $env:HYPERV_CONTROL_USERNAME
+if ($hostUser -match '^(?<name>[^@\\]+)@(?<realm>[^@\\]+)$') {
+    $hostUser = "$($Matches['name'])@$($Matches['realm'].ToUpperInvariant())"
+}
+
 $script:HostConnection = @{
     ComputerName = $LabHost
     Credential   = [System.Management.Automation.PSCredential]::new(
-        $env:HYPERV_CONTROL_USERNAME,
+        $hostUser,
         (ConvertTo-SecureString $env:HYPERV_CONTROL_PASSWORD -AsPlainText -Force))
 }
 

@@ -699,6 +699,7 @@ _E2E_HARNESS = r"""
 param($Psdirect, $Work, $Scenario)
 $ErrorActionPreference = 'Stop'
 $env:HYPERV_CONTROL_USERNAME = 'LAB\control'
+if ($Scenario -like 'upn*') { $env:HYPERV_CONTROL_USERNAME = 'control@lab.example.test' }
 $env:HYPERV_CONTROL_PASSWORD = 'not-a-secret'
 $env:GUEST_BOOTSTRAP_USERNAME = 'LAB\bootstrap'
 $env:GUEST_BOOTSTRAP_PASSWORD = 'not-a-secret'
@@ -713,6 +714,7 @@ Compress-Archive -Path (Join-Path $source '*') -DestinationPath $global:Zip
 
 function global:New-PSSession {
     [CmdletBinding()] param($ComputerName, $Credential, $Authentication, $SessionOption)
+    Set-Content -LiteralPath (Join-Path $Work 'host-user.txt') -Value $Credential.UserName
     [pscustomobject] @{ Name = 'stand-in' }
 }
 function global:Remove-PSSession { [CmdletBinding()] param([Parameter(Position = 0)] $Session) }
@@ -795,6 +797,24 @@ def test_end_to_end_a_clean_pull_reports_success(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     assert f"PULLED={tmp_path / 'pulled'}" in completed.stdout
     assert (tmp_path / "pulled" / "result.json").is_file()
+
+
+def test_end_to_end_a_upn_host_identity_reaches_the_host_with_its_realm_upper_cased(
+    tmp_path: Path,
+) -> None:
+    """MIT Kerberos (Linux pwsh's Negotiate) hangs on a realm whose case
+    differs from the KDC's; an AD realm is the upper-cased DNS domain."""
+    completed = _run_e2e(tmp_path, "upn-exec")
+    assert completed.returncode == 0, completed.stderr
+    host_user = (tmp_path / "host-user.txt").read_text(encoding="utf-8").strip()
+    assert host_user == "control@LAB.EXAMPLE.TEST"
+
+
+def test_end_to_end_a_down_level_host_identity_is_passed_unchanged(tmp_path: Path) -> None:
+    completed = _run_e2e(tmp_path, "exec")
+    assert completed.returncode == 0, completed.stderr
+    host_user = (tmp_path / "host-user.txt").read_text(encoding="utf-8").strip()
+    assert host_user == "LAB\\control"
 
 
 def test_end_to_end_a_teardown_timeout_exits_124_without_a_success_marker(
