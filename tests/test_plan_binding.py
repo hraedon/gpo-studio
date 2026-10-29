@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -437,8 +438,7 @@ def _execute(
         timeout=120,
         check=False,
         env={
-            "PATH": "/usr/bin:/bin",
-            "HOME": str(tmp_path),
+            **os.environ,
             "STUB_RESOLVES_TO": resolves,
             "STUB_SCENARIO": base64.b64encode(json.dumps(scenario).encode()).decode(),
         },
