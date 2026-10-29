@@ -103,3 +103,9 @@ dialog{max-height:calc(100dvh - 30px);overflow:hidden}dialog form{display:grid;g
 .table-card{position:relative}
 .registry-repair-row{min-width:0;margin:1rem 0}
 .registry-repair-row pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}
+/* "Discard your changes?" asks over its editing dialog; the dialog's content is inert meanwhile. */
+.discard-prompt{position:absolute;inset:0;z-index:1;display:grid;place-items:center;padding:16px;background:var(--backdrop)}
+.discard-prompt-panel{width:min(380px,100%);background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:20px}
+.discard-prompt-panel h3{font-size:17px;margin-bottom:6px}.discard-prompt-panel p{margin-bottom:0}
+.discard-prompt-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:18px}
+@media(max-width:600px){.discard-prompt-actions>*{flex:1 1 100%}}

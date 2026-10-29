@@ -15,6 +15,12 @@ test("creation can be cancelled with invalid required fields @smoke", async ({
     if (action === "Escape") await page.keyboard.press("Escape");
     else
       await dialog.getByRole("button", { name: action, exact: true }).click();
+    // Clearing the reason is a change: Esc and × ask first, Cancel does not.
+    if (action !== "Cancel")
+      await dialog
+        .getByRole("alertdialog", { name: "Discard your changes?" })
+        .getByRole("button", { name: "Discard" })
+        .click();
     await expect(dialog).toBeHidden();
     await expect(opener).toBeFocused();
   }
