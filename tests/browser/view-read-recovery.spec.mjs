@@ -134,6 +134,15 @@ async function overlay(page, surface) {
   await description.fill("Synthetic protected unfinished draft");
   return { dialog, description };
 }
+// The unfinished draft is a change, so Esc asks before discarding it.
+async function discardWithEscape(page, dialog) {
+  await page.keyboard.press("Escape");
+  await dialog
+    .getByRole("alertdialog", { name: "Discard your changes?" })
+    .getByRole("button", { name: "Discard" })
+    .click();
+  await expect(dialog).toBeHidden();
+}
 async function warningAndFocus(page, target) {
   await page.evaluate(async (message) => {
     (await import("/assets/js/api.mjs")).showPersistentError(message);
@@ -197,8 +206,7 @@ for (const surface of Object.keys(surfaces))
           `Error: ${warning}`,
         );
         expect(delayed.count()).toBe(1); // no read recovery over the top editor
-        await page.keyboard.press("Escape");
-        await expect(dialog).toBeHidden();
+        await discardWithEscape(page, dialog);
         const returnFocus = page.locator(
           surface === "starter" ? "#create-starter-gpo" : spec.tab,
         );
@@ -239,9 +247,9 @@ for (const surface of ["history", "admx"]) {
     try {
       await page.locator(spec.tab).click();
       await delayed.entered;
-      const { description } = await overlay(page, surface);
+      const { dialog, description } = await overlay(page, surface);
       await warningAndFocus(page, description);
-      await page.keyboard.press("Escape");
+      await discardWithEscape(page, dialog);
       const focus = page.locator(spec.tab);
       await focus.focus();
       await delayed.release();

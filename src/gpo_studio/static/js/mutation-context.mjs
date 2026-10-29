@@ -6,9 +6,14 @@ import {
 } from "./state.mjs";
 import { showPersistentError } from "./api.mjs";
 import { showFormErrors } from "./errors.mjs";
+import { refreshDialogPrompt } from "./dialog-guard.mjs";
 
 const pendingForms = new WeakMap();
 const pendingAnnouncements = new WeakMap();
+// Every request between beginMutation() and its own endMutation(). Unlike
+// pendingForms, a reopened editor does not release it: the request is still
+// in flight after its form has moved on to a new editing session.
+const inFlight = new Set();
 
 export function captureMutation(form = null) {
   const dialog = form?.closest("dialog") || null;
@@ -28,7 +33,7 @@ export function captureMutation(form = null) {
 
 export function resetEditor(form) {
   const pending = pendingForms.get(form);
-  if (pending) endMutation(pending);
+  if (pending) releaseForm(pending);
   const dialog = form.closest("dialog");
   if (dialog) dialog.editorSession = Symbol("editor reset");
 }
@@ -87,6 +92,7 @@ export function beginMutation(form, { target = null, workspace = false } = {}) {
     .map((control) => ({ control, disabled: control.disabled }));
   context.busy = form.getAttribute("aria-busy");
   pendingForms.set(form, context);
+  inFlight.add(context);
   const pendingMessage = document.createElement("p");
   pendingMessage.className = "form-pending form-hint";
   pendingMessage.setAttribute("role", "note");
@@ -107,6 +113,17 @@ export function beginMutation(form, { target = null, workspace = false } = {}) {
     announcement.textContent = pendingMessage.textContent;
   }
   return context;
+}
+
+// The form's current editor is waiting for its own save.
+export function isMutationPending(form) {
+  return pendingForms.has(form);
+}
+
+// Any save started from this form is unresolved, whichever editor owns it now.
+export function hasMutationInFlight(form) {
+  for (const context of inFlight) if (context.form === form) return true;
+  return false;
 }
 
 export function isCurrentEditor(context) {
@@ -158,7 +175,14 @@ export async function mutationFailed(context, error, onFormError) {
   else showPersistentError(`${context.name}: ${error.message}`);
 }
 
+// Called once the request has settled.
 export function endMutation(context) {
+  inFlight.delete(context);
+  releaseForm(context);
+}
+
+// Give the form back to its editor: the request may still be in flight.
+function releaseForm(context) {
   const form = context.form;
   if (!form || pendingForms.get(form) !== context) return;
   pendingForms.delete(form);
@@ -175,4 +199,5 @@ export function endMutation(context) {
   });
   if (context.busy === null) form.removeAttribute("aria-busy");
   else form.setAttribute("aria-busy", context.busy);
+  if (context.dialog) refreshDialogPrompt(context.dialog);
 }

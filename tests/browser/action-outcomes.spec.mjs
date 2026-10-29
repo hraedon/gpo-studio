@@ -124,7 +124,14 @@ for (const newer of [false, true])
       .fill(`Synthetic Committed Late Write ${Date.now()}`);
     await page.locator("#gpo-submit").click();
     await ready;
+    // A change still asks while its save is in flight; discard it explicitly.
     await page.keyboard.press("Escape");
+    await page
+      .locator("#gpo-dialog")
+      .getByRole("alertdialog", { name: "Discard your changes?" })
+      .getByRole("button", { name: "Discard" })
+      .click();
+    await expect(page.locator("#gpo-dialog")).toBeHidden();
     if (newer) {
       await page.unroute(`**/api/gpos/${failed.guid}`);
       await page.route(`**/api/gpos/${failed.guid}`, (route) =>
