@@ -1136,6 +1136,60 @@ def test_a_wmi_filtered_gpo_gets_no_plan() -> None:
 # --- round 3 ------------------------------------------------------------------
 
 
+def _bundle_members(data: bytes) -> dict[str, bytes]:
+    import io
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        return {name: archive.read(name) for name in archive.namelist()}
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"wmi_filter": WmiFilter("w", "Servers only", query="SELECT * FROM Win32_Service")},
+        {"links": (GPOLink("l1", "OU=Victims,DC=trusted,DC=test"),)},
+    ],
+    ids=["wmi-filter", "foreign-link"],
+)
+def test_a_plan_only_refusal_still_writes_the_bundle_without_the_plan(
+    changes: dict[str, Any],
+) -> None:
+    """Refusing the plan must not withhold the Registry.pol files a 1.0.0
+    workspace always exported: the bundle omits apply.ps1 and says why."""
+    gpo = _gpo(**changes)
+    data = egress.checked_studio_bundle(gpo)
+    members = _bundle_members(data)
+    assert "apply.ps1" not in members and "Machine/Registry.pol" in members
+    record = json.loads(members["manifest.json"])["powershell_plan"]
+    assert record["included"] is False
+    assert record["code"] == export.plan_refusal(gpo).code  # type: ignore[union-attr]
+    # A plan that is not refused is always in the bundle, and the manifest
+    # carries no record.
+    plain = _bundle_members(egress.checked_studio_bundle(_gpo()))
+    assert "apply.ps1" in plain
+    assert "powershell_plan" not in json.loads(plain["manifest.json"])
+
+
+def test_egress_refuses_a_bundle_missing_its_plan_without_the_record() -> None:
+    import io
+    import zipfile
+
+    from gpo_studio.deterministic_zip import deterministic_zip
+
+    gpo = _gpo()
+    members = _bundle_members(export.export_bundle(gpo))
+    del members["apply.ps1"]
+    problems = egress.zip_problems(deterministic_zip(members), "studio", gpo)
+    assert any("without a recorded plan-only refusal" in p.problem for p in problems)
+    manifest = json.loads(members["manifest.json"])
+    manifest["powershell_plan"] = {"included": False, "code": "wmi_filter_not_verifiable"}
+    members["manifest.json"] = json.dumps(manifest).encode()
+    problems = egress.zip_problems(deterministic_zip(members), "studio", gpo)
+    assert any("the GPO's plan is not refused" in p.problem for p in problems)
+    assert zipfile and io  # imported for the archive helpers above
+
+
 @needs_pwsh
 def test_a_missing_link_target_stops_the_plan_before_any_change(tmp_path: Path) -> None:
     """Round 3 (Daybreak): the first directory lookup of a target was the link

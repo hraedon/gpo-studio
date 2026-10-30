@@ -953,10 +953,10 @@ def test_the_release_fixture_gpos_export(
         for row in rows:
             for route in ("plan.ps1", "export.zip", "gpmc-backup", "report.txt"):
                 response = client.get(f"/api/gpos/{row['guid']}/{route}")
-                if route in {"plan.ps1", "export.zip"} and response.status_code == 422:
-                    # The plan (also inside export.zip) refuses what it cannot
-                    # bind or verify (pre-1.1.1 review): a released GPO may now
-                    # get no plan, but only for one of these reasons.
+                if route == "plan.ps1" and response.status_code == 422:
+                    # The plan refuses what it cannot bind or verify (pre-1.1.1
+                    # review): a released GPO may now get no plan, but only for
+                    # one of these reasons -- and export.zip is still written.
                     codes = {issue["code"] for issue in response.json()["error"]["issues"]}
                     assert codes <= _PLAN_REFUSALS, (row["name"], route, codes)
                     continue

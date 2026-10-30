@@ -1331,6 +1331,12 @@ soft hyphen still matches).
   records no filter ID. A check by name alone let a different filter with the
   same name pass. Apply such a GPO through the GPMC backup and `Import-GPO`,
   and assign the filter in GPMC.
+- **The Studio bundle.** When only the plan is refused (a WMI filter, or a
+  link outside the declared domain), `export.zip` is still written without
+  `apply.ps1`, and `manifest.json` records why under `powershell_plan`
+  (`included: false`, with the refusal's code and message). Egress accepts a
+  bundle without `apply.ps1` only on that record, and only when the GPO's plan
+  really is refused.
 - **`-WhatIf`.** Every change goes through a cmdlet's or the plan's own
   `ShouldProcess`, side status included, so `-WhatIf` changes nothing. A dry
   run on a GPO that does not exist yet stops after reporting its creation.

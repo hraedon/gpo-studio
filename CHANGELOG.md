@@ -399,6 +399,9 @@ Pre-1.1.1 security review, three rounds. Both original findings predate 1.1.0.
 - **A GPO with a WMI filter gets no plan** (`wmi_filter_not_verifiable`). The
   plan can neither assign nor verify a filter, and used to link the GPO with
   the filter unassigned. Apply such a GPO through the GPMC backup.
+- When only the plan is refused (a WMI filter, or a link outside the declared
+  domain), `export.zip` is still written, without `apply.ps1`; its
+  `manifest.json` records the refusal under `powershell_plan`.
 - **`-WhatIf` changes nothing.** Side status (`GpoStatus`) is set through
   `ShouldProcess`; the read-back is skipped under `-WhatIf`.
 - Filtering and side status run before links, so nothing is linked while a new

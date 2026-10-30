@@ -580,6 +580,40 @@ _GPMC_REQUIRED = (
 )
 
 
+def _omitted_plan_problems(
+    where: str, archive: zipfile.ZipFile, names: list[str], model: Any
+) -> list[EmitProblem]:
+    """A Studio bundle without ``apply.ps1`` is valid only when its manifest
+    records a plan-only refusal (`export.PLAN_ONLY_REFUSALS`) -- and, given the
+    GPO, the one its plan really has (pre-1.1.1 review, round 3)."""
+    from . import export
+
+    if names.count("manifest.json") != 1:
+        return []  # reported as a missing required member
+    try:
+        record = json.loads(archive.read("manifest.json")).get("powershell_plan")
+    except (ValueError, AttributeError):
+        record = None
+    code = record.get("code") if isinstance(record, dict) else None
+    if not isinstance(record, dict) or record.get("included") is not False or (
+        code not in export.PLAN_ONLY_REFUSALS
+    ):
+        return [
+            EmitProblem(
+                where, "member", "apply.ps1", "is missing without a recorded plan-only refusal"
+            )
+        ]
+    if model is not None:
+        refusal = export.plan_only_refusal(model)
+        if refusal is None or refusal.code != code:
+            return [
+                EmitProblem(
+                    where, "member", "apply.ps1", "is missing, but the GPO's plan is not refused"
+                )
+            ]
+    return []
+
+
 def zip_problems(
     data: bytes,
     kind: Literal["studio", "gpmc"],
@@ -613,7 +647,12 @@ def zip_problems(
         names = [info.filename for info in infos]
         for name in sorted({n for n in names if names.count(n) > 1}):
             problems.append(EmitProblem(where, "member name", name, "appears more than once"))
+        plan_omitted = kind == "studio" and "apply.ps1" not in names
+        if plan_omitted:
+            problems += _omitted_plan_problems(where, archive, names, model)
         for pattern in required:
+            if plan_omitted and pattern.pattern == r"apply\.ps1":
+                continue
             if sum(1 for name in names if pattern.fullmatch(name)) != 1:
                 problems.append(
                     EmitProblem(where, "member", pattern.pattern, "is not present exactly once")

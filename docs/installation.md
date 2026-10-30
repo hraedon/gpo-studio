@@ -248,7 +248,7 @@ browser saves to its download folder:
 
 | Endpoint | Format | Content |
 |----------|--------|---------|
-| `GET /api/gpos/{guid}/export.zip` | ZIP | Studio publication bundle: `manifest.json`, `apply.ps1`, `Machine/Registry.pol`, `User/Registry.pol`, and GPP XML. |
+| `GET /api/gpos/{guid}/export.zip` | ZIP | Studio publication bundle: `manifest.json`, `apply.ps1` (left out, with the reason under `powershell_plan` in the manifest, when no plan can be generated), `Machine/Registry.pol`, `User/Registry.pol`, and GPP XML. |
 | `GET /api/gpos/{guid}/plan.ps1` | text | PowerShell publication plan (`apply.ps1` standalone). |
 | `GET /api/gpos/{guid}/report.txt` | text | Human-readable policy report. |
 | `GET /api/gpos/{guid}/gpmc-backup` | ZIP | Native GPMC backup: `manifest.xml`, `{BACKUP_ID}/Backup.xml`, nested `bkupInfo.xml`, lowercase `registry.pol`, and verified GPP XML under `DomainSysvol/GPO`. |

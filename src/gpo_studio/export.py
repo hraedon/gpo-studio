@@ -772,13 +772,38 @@ def powershell_plan(gpo: GPO) -> str:
     return "\n".join(lines) + "\n"
 
 
+#: Plan refusals that concern only the PowerShell plan: the Studio bundle is
+#: still written, without ``apply.ps1``, and its manifest says why
+#: (``powershell_plan``). Pre-1.1.1 review, round 3: refusing the whole bundle
+#: for a WMI filter or an out-of-domain link would also have withheld the
+#: Registry.pol files a 1.0.0 workspace always exported.
+PLAN_ONLY_REFUSALS = frozenset({"link_target_outside_domain", "wmi_filter_not_verifiable"})
+
+
+def plan_only_refusal(gpo: GPO) -> ValidationIssue | None:
+    """The plan-only refusal for *gpo*, or ``None``: one in `PLAN_ONLY_REFUSALS`,
+    for a GPO with no validation error (which refuses the bundle as before)."""
+    refusal = _plan_precondition(gpo)
+    if refusal is None or refusal.code not in PLAN_ONLY_REFUSALS:
+        return None
+    if any(issue.severity == "error" for issue in validate_gpo(gpo)):
+        return None
+    return refusal
+
+
 def export_bundle(gpo: GPO) -> bytes:
-    """Return a deterministic ZIP containing manifest, PReg files, and plan."""
+    """Return a deterministic ZIP containing manifest, PReg files, and plan.
+
+    Without the plan when it alone is refused (`plan_only_refusal`): the
+    manifest then carries ``powershell_plan`` with the refusal's code and
+    message, and egress accepts the missing ``apply.ps1`` only on that record.
+    """
     unwritable = _text_refusal(gpo)
     if unwritable is not None:
         raise ValidationError([unwritable])
     issues = validate_gpo(gpo)
-    manifest = {
+    plan_refused = plan_only_refusal(gpo)
+    manifest: dict[str, object] = {
         "schema_version": 2,
         "kind": "gpo-studio-publication-bundle",
         "gpo": gpo.to_dict(),
@@ -788,14 +813,21 @@ def export_bundle(gpo: GPO) -> bytes:
         "canonical_schema_version": CANONICAL_SCHEMA_VERSION,
         "canonical_model": policy_semantic_dict(gpo),
     }
+    if plan_refused is not None:
+        manifest["powershell_plan"] = {
+            "included": False,
+            "code": plan_refused.code,
+            "message": plan_refused.message,
+        }
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
     entries: dict[str, bytes] = {
         "manifest.json": json.dumps(manifest, indent=2, sort_keys=True).encode(),
-        "apply.ps1": powershell_plan(gpo).encode("utf-8-sig"),
         "Machine/Registry.pol": serialize(computer),
         "User/Registry.pol": serialize(user),
     }
+    if plan_refused is None:
+        entries["apply.ps1"] = powershell_plan(gpo).encode("utf-8-sig")
     for col in gpo.gpp_collections:
         side_dir = "Machine" if col.scope == "computer" else "User"
         for filename, content in serialize_gpp(col).items():
