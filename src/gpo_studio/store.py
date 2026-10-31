@@ -873,6 +873,10 @@ class WorkspaceStore:
         with self._lock:
             self._require_healthy()
             try:
+                # Its own transaction: the bare INSERT opened an implicit one
+                # that was never committed, so the cache was not durable and the
+                # next BEGIN IMMEDIATE failed and degraded the store (#148 review).
+                self._connection.execute("BEGIN IMMEDIATE")
                 self._connection.execute(
                     """
                     INSERT INTO estate_discovery(kind, key, data_json, source_dc, collected_at)
@@ -884,8 +888,13 @@ class WorkspaceStore:
                     """,
                     (kind, key, data_json, source_dc, collected_at),
                 )
-            except sqlite3.Error as error:
-                self._map_sqlite_error(error)
+                self._connection.execute("COMMIT")
+            except BaseException as error:
+                with contextlib.suppress(sqlite3.Error):
+                    self._connection.execute("ROLLBACK")
+                if isinstance(error, sqlite3.Error):
+                    self._map_sqlite_error(error)
+                raise
 
     def get_discovery(self, kind: str, key: str) -> dict[str, Any]:
         """Return a cached discovery snapshot by kind and key."""

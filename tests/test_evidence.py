@@ -486,6 +486,32 @@ def test_invalid_side_type_raises_packerror() -> None:
         parse_pack(raw)
 
 
+@pytest.mark.parametrize("value", [[], ["computer"], {}, {"a": 1}], ids=repr)
+@pytest.mark.parametrize(
+    ("where", "field", "message"),
+    [
+        ("record", "outcome", "outcome"),
+        ("record", "classification", "classification"),
+        ("record", "evidence_kind", "evidence_kind"),
+        ("record", "side", "side"),
+        ("estate", "role", "estate role"),
+        ("content", "classification", "invalid classification"),
+    ],
+)
+def test_unhashable_enum_values_raise_packerror(
+    where: str, field: str, message: str, value: object
+) -> None:
+    # #148 review: a list or object raised TypeError (unhashable) from the
+    # membership test instead of PackError.
+    raw = _pack([RECORD_REGISTRY])
+    target = {
+        "record": raw["records"][0], "estate": raw["estate"], "content": raw["content"][0]
+    }[where]
+    target[field] = value
+    with pytest.raises(PackError, match=message):
+        parse_pack(raw)
+
+
 def test_licensing_complete_with_empty_content_accepted() -> None:
     raw = _pack([RECORD_REGISTRY])
     raw["content"] = []

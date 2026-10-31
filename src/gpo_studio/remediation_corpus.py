@@ -30,11 +30,12 @@ independent of the delivery layer.
 from __future__ import annotations
 
 import hashlib
-import json
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, assert_never, cast
+
+from .json_input import JsonInputError, loads_untrusted
 
 SCENARIO_SCHEMA_VERSION = "1"
 PLATFORM_SCHEMA_VERSION = "1"
@@ -213,21 +214,11 @@ def _require_str_list(data: dict[str, object], key: str, context: str) -> tuple[
     return tuple(value)
 
 
-def _refuse_json_constant(name: str) -> object:
-    # NaN and Infinity are Python extensions, not JSON.
-    raise ValueError(f"{name} is not a JSON number")
-
-
 def _load_json(path: Path) -> dict[str, object]:
     try:
-        raw: object = json.loads(
-            path.read_text(encoding="utf-8-sig"), parse_constant=_refuse_json_constant
-        )
-    except (OSError, ValueError) as error:
-        # ValueError covers decoding errors and the refused constants.
+        raw = loads_untrusted(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, JsonInputError) as error:
         raise _err(str(path), f"unreadable or invalid JSON: {error}") from error
-    except RecursionError:
-        raise _err(str(path), "unreadable or invalid JSON: nested too deeply") from None
     if not isinstance(raw, dict):
         raise _err(str(path), "top level must be a JSON object")
     return raw

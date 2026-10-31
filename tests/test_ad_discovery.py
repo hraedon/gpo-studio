@@ -722,3 +722,26 @@ def test_store_search_principals_domain_filter_fallback(tmp_path) -> None:
     results = store.search_principals("alice", domain="ad.hraedon.com")
     assert len(results) == 1
     assert results[0]["domain"] == "ad.hraedon.com"
+
+
+def test_cached_discovery_is_committed_and_leaves_no_open_transaction(tmp_path) -> None:
+    # #148 review: the bare INSERT opened an implicit transaction that was never
+    # committed. The cache was lost on close, and the next mutation's BEGIN
+    # IMMEDIATE failed and degraded the workspace (every later request 503).
+    path = tmp_path / "discovery.db"
+    store = WorkspaceStore(path)
+    try:
+        info = parse_forest(_VALID_FOREST)
+        store.cache_discovery(
+            "forest", info.name, json.dumps(info.to_dict(), sort_keys=True)
+        )
+        assert not store._connection.in_transaction
+        store.create_gpo("Created after discovery", identity="tester", reason="After discovery")
+        assert not store.is_degraded
+    finally:
+        store.close()
+    reopened = WorkspaceStore(path)
+    try:
+        assert reopened.get_discovery("forest", info.name)["name"] == info.name
+    finally:
+        reopened.close()

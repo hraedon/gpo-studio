@@ -141,6 +141,87 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   `BITS_SetTransferPolicyOnCostedNetwork`, four WindowsMediaPlayer.admx proxy
   and buffering policies, and ten inetres.admx zone template policies.
 
+- A disabled child-only ADMX policy no longer reads as enabled in the settings
+  browser (#147). A child-only policy has no policy-level `valueName` or value
+  list; disabling it writes a delete for each of its elements, and the browser
+  never looked at those deletes. It now reads the element rows: a value write
+  means Enabled, a delete under a disable's editor ID means Disabled, and a
+  complete set of deletes that no enabled choice writes means Disabled.
+  Partial or mixed sets read as Indeterminate (`no_complete_pattern`). Where
+  every element is an enum with a `<delete/>` item, as in inetres.admx
+  `NeedEdgeBrowser`, an imported disable is byte-identical to enabling the
+  policy with that item chosen everywhere. Without GPO Studio's own editor IDs
+  the two cannot be told apart, so such rows read as Indeterminate
+  (`disabled_matches_enabled_deletes`, explained in the browser) and each
+  delete is listed as unresolved; GPO Studio's own writes read back as the
+  state it wrote. Of the 1,261 child-only policies in the 223 Windows Server
+  2025 templates, a disable written by GPO Studio now reads as Disabled for
+  all 1,221 that write rows (main read all of them as Enabled), and an imported
+  disable for 1,220; `NeedEdgeBrowser` is the one Indeterminate. The other
+  40 have only list elements, for which disabling writes no row at all, so
+  there is nothing to read back (unchanged). A disabled policy also no longer
+  shows its element deletes as values (`""`, `0`, `False` or `[""]`). A list
+  item whose legacy ordinal cannot be ordered still counts as a value write,
+  and a disable's delete for an element the template has since renamed or
+  removed makes the state Indeterminate rather than Enabled. Such a stale
+  delete only adds uncertainty; it never proves that the current rows are a
+  disable.
+
+- The settings browser reads every row bound to an element (#146). It decoded
+  only the first, so a second row for the same element was invisible. When a
+  single-value element (boolean, decimal, text, multi-text or enum) has more
+  than one row, no value is shown and each row is listed as unresolved. A list
+  shows every item: an item without an ordinal editor ID was dropped whenever
+  another item had one. A list row that writes no value, a delete of a value
+  an enabled policy always writes, and a disable's delete in a policy observed
+  as enabled are listed as unresolved instead of being shown as a value or
+  dropped.
+
+- Every loader of untrusted JSON refuses malformed input with its own error
+  (#145), through one shared parser. An integer literal longer than Python's
+  4,300-digit limit raised an uncaught `ValueError` from evidence packs,
+  oracle recipes, trust anchors, signature sidecars and the WMI filter
+  catalogue (which stopped the server starting); the signature sidecar and
+  the WMI catalogue also raised `RecursionError` on deep nesting. These loaders,
+  the remediation platform registry and backup metadata now refuse the same
+  set: such integers, deep nesting, `NaN`, `Infinity` and a float that
+  overflows (`1e400`). Before, only the platform registry refused `NaN` and
+  `Infinity`, and none refused `1e400`. A request body with
+  such an integer, or nesting deep enough to raise `RecursionError`, or bytes
+  that are not text, returned a generic 400; a body nested deeper than the
+  request text check could walk (about 1,000 levels) returned a 500. All now
+  return the normal 422 `json_invalid` response, and request bodies may nest
+  at most 100 arrays and objects. `NaN` and `Infinity` in a request body are
+  still reported as field errors where the request model types the field
+  (no request model has a float field). A body that admits any JSON value —
+  the six discovery imports, `/api/diff` and `/api/estate/import` — now
+  refuses them as `json_invalid`: an OU link `order` of `1e400` reached
+  `int(inf)` and returned a 500. An evidence pack whose outcome,
+  classification, evidence kind, side or role is a list or object is refused
+  with `PackError` instead of raising `TypeError`. Discovery imports check
+  their fields: an OU link `order` must be a JSON integer from 1 to
+  2,147,483,647 (`"NaN"`, `null`, `[]` or `{}` returned a 500, and `"7"` or
+  `7.9` were coerced), and link `enabled`/`enforced` and trust `transitive`
+  must be JSON booleans (`"false"` read as true).
+- The generated discovery scripts now print what their importers accept;
+  a test runs each one under `pwsh` with stand-in directory objects and
+  imports its output. The forest script read `Transitive`, a property no
+  .NET trust type has, so every trust printed `null`; it now derives
+  transitivity from the trust type (parent-child, tree-root, shortcut and
+  forest trusts are transitive, external trusts are not) and stops on a
+  trust type that does not decide it. The domain script assigned the domain
+  object to its `[string]` `$Domain` parameter, which turned it back into its
+  name, so the script failed before printing anything. The principal search
+  printed a single SID-history value as a string instead of a list.
+- A discovery import is now committed. Its cache write opened a transaction
+  that was never committed, so the cache was lost when the workspace closed,
+  and the next change to the workspace failed and marked it degraded: every
+  later request returned 503 until restart.
+  - A bulk policy-state change interrupted after its last chunk had committed
+    reported "N policies changed before the remaining bulk change failed",
+    although nothing remained. It now says "N policies changed, then the bulk
+    change stopped".
+
 - Keep workspace accessibility checks within their existing time limit as
   other browser tests add policies, by filtering the sidebar to their own fixture.
 

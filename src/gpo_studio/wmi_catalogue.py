@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .json_input import JsonInputError, loads_untrusted
 from .model import StudioError
 from .safe_io import SafeOpenError, open_regular_file
 
@@ -60,8 +60,8 @@ def load_wmi_catalogue(path: Path) -> WmiCatalogue:
         raise WmiCatalogueError(f"WMI catalogue file not found: {path}")
     raw = _read_file_safe(path)
     try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as error:
+        data = loads_untrusted(raw)
+    except JsonInputError as error:
         raise WmiCatalogueError(f"Invalid JSON in WMI catalogue: {error}") from error
     if not isinstance(data, dict):
         raise WmiCatalogueError("WMI catalogue root must be a JSON object")

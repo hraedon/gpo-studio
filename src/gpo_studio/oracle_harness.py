@@ -12,7 +12,6 @@ before a live lab run.
 
 from __future__ import annotations
 
-import json
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -20,6 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .json_input import JsonInputError, loads_untrusted
 from .oracle_evidence import (
     MANIFEST_SCHEMA_VERSION,
     NORMALIZER_VERSION,
@@ -163,13 +163,11 @@ def parse_recipe(raw: object) -> FixtureRecipe:
 def load_recipe(path: Path) -> FixtureRecipe:
     """Load and validate a fixture recipe from a JSON file."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        raw = loads_untrusted(path.read_text(encoding="utf-8-sig"))
     except OSError as exc:
         raise RecipeError(f"cannot read recipe {path}: {exc}") from exc
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, JsonInputError) as exc:
         raise RecipeError(f"invalid JSON in recipe {path}: {exc}") from exc
-    except RecursionError:
-        raise RecipeError(f"invalid JSON in recipe {path}: nested too deeply") from None
     return parse_recipe(raw)
 
 

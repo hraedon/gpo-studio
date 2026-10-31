@@ -185,7 +185,12 @@ async function saved(request, guid) {
 async function trace(
   page,
   gpo,
-  { failAt = -1, holdFirst = false, switchAfterFirst = null } = {},
+  {
+    failAt = -1,
+    holdFirst = false,
+    holdAt = holdFirst ? 0 : -1,
+    switchAfterFirst = null,
+  } = {},
 ) {
   const calls = [],
     arrived = deferred(),
@@ -210,7 +215,7 @@ async function trace(
       call.revision = result.gpo?.revision;
       call.error = result.error;
       if (index === 0 && switchAfterFirst) await switchAfterFirst();
-      if (index === 0 && holdFirst) {
+      if (index === holdAt) {
         arrived.resolve();
         await release.promise;
       }
@@ -448,6 +453,33 @@ test("a deletion observed during a chunk stops the bulk change with a message", 
       "This policy was deleted",
     );
     expect(pending.calls).toHaveLength(1);
+  } finally {
+    pending.release();
+  }
+});
+
+test("a deletion observed during the last chunk does not claim a remainder failed", async ({
+  page,
+  request,
+}) => {
+  // Issue #145: every selected policy had changed, yet the message read
+  // "… changed before the remaining bulk change failed".
+  const gpo = await seed(request, 101, "deleted in last chunk");
+  await openSelected(page, gpo, 101);
+  const pending = await trace(page, gpo, { holdAt: 3 });
+  try {
+    await page.locator('[data-bulk-state="disabled"]').click();
+    await pending.arrived;
+    await page.evaluate(async (guid) => {
+      const { observeGpoDeleted } = await import("/assets/js/state.mjs");
+      observeGpoDeleted(guid);
+    }, gpo.guid);
+    pending.release();
+    await expect(page.locator("#error-summary")).toContainText(
+      "202 policies changed, then the bulk change stopped: This policy was deleted",
+    );
+    await expect(page.locator("#error-summary")).not.toContainText("remaining");
+    expect(pending.calls).toHaveLength(4);
   } finally {
     pending.release();
   }
