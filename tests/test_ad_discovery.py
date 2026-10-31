@@ -199,7 +199,8 @@ def test_discovery_script_principal_search_content() -> None:
     assert "objectSid" in script
     assert "gpo-studio-discovery-principals" in script
     assert "alice" in script
-    assert "objectClass=$ObjectClass" in script
+    # The class is escaped like the search term (#148 live review).
+    assert "(objectClass=$(ConvertTo-LdapFilterValue $ObjectClass))" in script
 
 
 def test_parse_forest_valid() -> None:
@@ -544,8 +545,10 @@ def test_model_to_dict_round_trip() -> None:
 def test_principal_search_script_includes_ldap_escape() -> None:
     """Blocker 1: the generated script must escape LDAP filter special chars."""
     script = discovery_script_principal_search("alice", "ad.hraedon.com", "user")
-    assert "function Escape-LdapFilter" in script
-    assert "Escape-LdapFilter $SearchTerm" in script
+    # Renamed from Escape-LdapFilter; its filters are executed against an
+    # RFC 4515 checker in test_discovery_script_output.py.
+    assert "function ConvertTo-LdapFilterValue" in script
+    assert "ConvertTo-LdapFilterValue $SearchTerm" in script
     # The old naive single-quote replace must be gone.
     assert "$SearchTerm -replace" not in script
 
@@ -554,7 +557,8 @@ def test_ous_script_uses_regex_matches_for_gplink() -> None:
     """Blockers 2/3: gPLink parsing must use [regex]::Matches, not -split ']]'."""
     script = discovery_script_ous("ad.hraedon.com", "DC=ad,DC=hraedon,DC=com")
     assert "[regex]::Matches" in script
-    assert "$order" in script
+    # Link order is counted from the end of gPLink (#148 live review).
+    assert "order = $linkMatches.Count - $i" in script
     # The old broken split must be gone.
     assert "-split '\\]\\]'" not in script
 
@@ -745,3 +749,107 @@ def test_cached_discovery_is_committed_and_leaves_no_open_transaction(tmp_path) 
         assert reopened.get_discovery("forest", info.name)["name"] == info.name
     finally:
         reopened.close()
+
+
+# --- #148 live review: nulls, text types and IPv6 subnets -------------------
+
+
+def _with(base: dict[str, Any], path: tuple[Any, ...], value: object) -> dict[str, Any]:
+    copy = json.loads(json.dumps(base))
+    target = copy
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    return copy
+
+
+@pytest.mark.parametrize(
+    ("parse", "base", "path", "read"),
+    [
+        (parse_domain, _VALID_DOMAIN, ("netbios_name",), lambda r: r.netbios_name),
+        (
+            lambda d: parse_sites(d)[0][0], _VALID_SITES, ("sites", 0, "description"),
+            lambda r: r.description,
+        ),
+        (
+            lambda d: parse_sites(d)[1][0], _VALID_SITES, ("subnets", 0, "description"),
+            lambda r: r.description,
+        ),
+        (lambda d: parse_ous(d)[0], _VALID_OUS, ("ous", 0, "description"), lambda r: r.description),
+        (lambda d: parse_ous(d)[0], _VALID_OUS, ("ous", 0, "parent_dn"), lambda r: r.parent_dn),
+        (
+            lambda d: parse_ous(d)[0].gpo_links[0], _VALID_OUS,
+            ("ous", 0, "gpo_links", 0, "target"), lambda r: r.target,
+        ),
+        *(
+            (
+                lambda d: parse_principals(d)[0], _VALID_PRINCIPALS, ("principals", 0, field),
+                lambda r, f=field: getattr(r, f),
+            )
+            for field in (
+                "sam_account_name", "display_name", "canonical_name", "distinguished_name",
+                "domain", "source_dc", "collected_at",
+            )
+        ),
+    ],
+)
+def test_a_null_optional_field_is_empty_text_not_none(
+    parse: Any, base: dict[str, Any], path: tuple[Any, ...], read: Any
+) -> None:
+    # str(None) stored the text "None" (live: netbios_name, display_name).
+    assert read(parse(_with(base, path, None))) == ""
+
+
+def test_a_null_resolution_state_keeps_its_default() -> None:
+    principal = parse_principals(
+        _with(_VALID_PRINCIPALS, ("principals", 0, "resolution_state"), None)
+    )[0]
+    assert principal.resolution_state == "resolved"
+
+
+@pytest.mark.parametrize("value", [7, 1.5, True, [], {}])
+@pytest.mark.parametrize(
+    ("parse", "base", "path"),
+    [
+        (parse_forest, _VALID_FOREST, ("name",)),
+        (parse_forest, _VALID_FOREST, ("domains", 0)),
+        (parse_domain, _VALID_DOMAIN, ("netbios_name",)),
+        (parse_domain, _VALID_DOMAIN, ("functional_level",)),
+        (parse_sites, _VALID_SITES, ("sites", 0, "subnets", 0)),
+        (parse_sites, _VALID_SITES, ("sites", 0, "site_links", 0)),
+        (parse_ous, _VALID_OUS, ("ous", 0, "description")),
+        (parse_gpos_discovery, _VALID_GPOS, ("gpos", 0, "guid")),
+        (parse_principals, _VALID_PRINCIPALS, ("principals", 0, "display_name")),
+        (parse_principals, _VALID_PRINCIPALS, ("principals", 0, "sid_history", 0)),
+    ],
+)
+def test_a_text_field_holding_another_type_is_refused(
+    parse: Any, base: dict[str, Any], path: tuple[Any, ...], value: object
+) -> None:
+    # str() turned these into "7", "[]" and so on.
+    with pytest.raises(ValidationError) as exc_info:
+        parse(_with(base, path, value))
+    assert exc_info.value.issues[0].code in (
+        "invalid_string_field", "invalid_guid_format", "invalid_sid_format"
+    )
+
+
+@pytest.mark.parametrize(
+    "cidr", ["192.0.2.0/24", "2001:db8::/32", "2001:db8:1:2::/64", "10.0.0.0/8", "::/0"]
+)
+def test_ipv4_and_ipv6_site_subnets_are_accepted(cidr: str) -> None:
+    sites = _with(_with(_VALID_SITES, ("sites", 0, "subnets"), [cidr, "192.0.2.0/24"]),
+                  ("subnets", 0, "cidr"), cidr)
+    site_info, subnets = parse_sites(sites)
+    assert site_info[0].subnets == (cidr, "192.0.2.0/24")
+    assert subnets[0].cidr == cidr
+
+
+@pytest.mark.parametrize(
+    "cidr", ["192.0.2.1/24", "2001:db8::1/64", "192.0.2.0", "2001:db8::", "300.0.0.0/8",
+             "192.0.2.0/33", "2001:db8::/129", "", "192.0.2.0/024x"],
+)
+def test_malformed_site_subnets_are_refused(cidr: str) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        parse_sites(_with(_VALID_SITES, ("subnets", 0, "cidr"), cidr))
+    assert exc_info.value.issues[0].code == "invalid_cidr_format"

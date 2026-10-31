@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 
 import pytest
@@ -641,3 +642,15 @@ def test_parse_estate_normalises_comment_line_breaks() -> None:
     estate = json.loads(json.dumps(_VALID_ESTATE))
     estate["gpos"][0]["description"] = "a\r\nb"
     assert parse_estate(estate)[0].description == "a\nb"
+
+
+@pytest.mark.parametrize("guid", [None, 7, ["x"]])
+def test_a_missing_or_non_text_guid_is_not_reported_as_none(tmp_path, guid) -> None:
+    # #148 live review: str(None) put the text "None" in the refusal.
+    estate = copy.deepcopy(_VALID_ESTATE)
+    estate["gpos"][0]["guid"] = guid
+    with pytest.raises(ValidationError) as exc_info:
+        parse_estate(estate)
+    (issue,) = exc_info.value.issues
+    assert issue.code == "invalid_guid_format"
+    assert "'None'" not in issue.message and "'7'" not in issue.message

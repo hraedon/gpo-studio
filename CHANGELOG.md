@@ -41,6 +41,36 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Fixed
 
+- Discovery, from a read-only run of every generated script against a lab
+  domain (#148 review, round 4):
+  - OU discovery read the `gPLink` option bit `0x1` as *enabled*; it means
+    the link is **disabled** (`0x2` is enforced). Every enabled link imported
+    as disabled and every disabled link as enabled (#160).
+  - Link `order` counted from the start of `gPLink`; the last entry is link
+    order 1 (GPMC adds a new link first, at the lowest precedence). Order is
+    now counted from the end.
+  - The domain head's own links (the Default Domain Policy) were never
+    discovered: the search matched only OUs. The domain head is now included.
+  - The principal search wrapped its class filter in a second pair of
+    parentheses, `(&((objectClass=user))…)`, and a name search always added
+    `(objectSid=)`, which AD refuses, so every search by name failed. Filters
+    are now well formed, the object class is escaped like the search term
+    (RFC 4515), and an empty search term is refused.
+  - A missing attribute printed `null`, which the importer stored as the text
+    `"None"` (NetBIOS name, display name). Missing attributes now print as
+    empty text, and the importers refuse a non-text value in a text field
+    instead of converting it with `str()`.
+  - The NetBIOS name was read from the domain object; it is read from the
+    domain's crossRef in the configuration partition.
+  - `object_class` was always empty under Windows PowerShell 5.1, which cannot
+    index a search result value collection with `-1`.
+  - IPv6 site subnets were refused; subnets are validated as IPv4 or IPv6
+    networks.
+  - A Windows Server 2025 domain reported its functional level as `Unknown`;
+    it reports `Windows2025Domain`, and any other level .NET cannot name is
+    reported as `Level N`.
+  - An estate import whose GPO GUID was null reported it as `'None'`.
+
 - **Editing dialogs ask before Esc or × discards a change** (#140). After a
   field is changed, or a row is added, removed or reordered, closing one of the
   seventeen editing dialogs with Esc or its × button asks "Discard your
