@@ -965,3 +965,119 @@ def test_every_ingest_runs_on_the_one_dedicated_ingest_thread(
     assert len(seen) == 5
     assert {ident for _, ident in seen} == {seen[0][1]}
     assert all(name.startswith("gpo-studio-template-ingest") for name, _ in seen), seen
+
+
+# --- Review round 3 ------------------------------------------------------------
+
+
+def _assert_names_only(body: str, alias: Path, tmp_path: Path) -> None:
+    """No part of the resolved target, and no absolute path but the alias."""
+    assert "resolved-secret-target" not in body, body
+    assert str(tmp_path) not in body.replace(str(alias), ""), body
+
+
+@pytest.mark.usefixtures("symlink_privilege")
+@pytest.mark.parametrize("root", ["unset", "set"])
+def test_a_successful_ingest_reports_the_submitted_path_not_its_target(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, root: str
+) -> None:
+    """The 201 body and the source list name the submitted path, never its target.
+
+    With a template root set, both the alias and its target lie inside it.
+    """
+    base = tmp_path / "root"
+    if root == "unset":
+        monkeypatch.delenv("GPO_STUDIO_TEMPLATE_ROOT")
+        base = tmp_path
+    secret = base / "resolved-secret-target"
+    _write_pair(secret, "good", "Synthetic.Test.Good", "GoodPolicy")
+    alias = base / "submitted-alias"
+    alias.symlink_to(secret, target_is_directory=True)
+
+    response = _post_ingest(client, alias, "vendor")
+    assert response.status_code == 201, response.text
+    assert response.json()["path"] == str(alias)
+    _assert_names_only(response.text, alias, tmp_path)
+    listing = client.get("/api/templates")
+    vendor = next(item for item in listing.json()["items"] if item["name"] == "vendor")
+    assert vendor["path"] == str(alias)
+    _assert_names_only(listing.text, alias, tmp_path)
+
+
+@pytest.mark.usefixtures("symlink_privilege")
+def test_the_startup_source_reports_the_configured_path_not_its_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = tmp_path / "resolved-secret-target"
+    _write_pair(secret, "good", "Synthetic.Test.Good", "GoodPolicy")
+    alias = tmp_path / "submitted-alias"
+    alias.symlink_to(secret, target_is_directory=True)
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    monkeypatch.setenv("GPO_STUDIO_ADMX_DIR", str(alias))
+    names = ("admx_catalogue", "template_sources", "catalogue_snapshot")
+    for name in names:
+        monkeypatch.delattr(app.state, name, raising=False)
+    try:
+        with TestClient(app) as started:
+            listing = started.get("/api/templates")
+    finally:
+        store.close()
+        for name in names:
+            if hasattr(app.state, name):
+                delattr(app.state, name)
+    assert [item["path"] for item in listing.json()["items"]] == [str(alias)]
+    _assert_names_only(listing.text, alias, tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="stubs the Win32 layer on POSIX")
+@pytest.mark.usefixtures("symlink_privilege")
+@pytest.mark.parametrize(
+    "failure",
+    ["none", "component-denied", "component-link", "reopen-denied", "entry-denied"],
+)
+def test_the_windows_walk_never_names_a_resolved_component(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """Drive safe_io's real Windows walk (stubbed OS calls) through an alias.
+
+    The route resolves the alias; the Windows walk then opens every component
+    of the resolved path by name. A failure there used to put that component
+    in the 422 ("NtOpenFile failed for 'resolved-secret-target'"). Public text
+    is now built from the status code and the submitted path only.
+    """
+    from fake_windows_io import FakeWindows
+
+    monkeypatch.delenv("GPO_STUDIO_TEMPLATE_ROOT")
+    secret = tmp_path / "resolved-secret-target"
+    _write_pair(secret, "good", "Synthetic.Test.Good", "GoodPolicy")
+    alias = tmp_path / "submitted-alias"
+    alias.symlink_to(secret, target_is_directory=True)
+    fake = FakeWindows()
+    if failure == "component-denied":
+        fake.nt_open_failures["resolved-secret-target"] = 0xC0000022
+    elif failure == "component-link":
+        fake.nt_open_failures["resolved-secret-target"] = 0x8000002D
+    elif failure == "reopen-denied":
+        fake.create_file_failures.append(
+            (lambda path: path.endswith("resolved-secret-target"), 5)
+        )
+    elif failure == "entry-denied":
+        fake.nt_open_failures["good.admx"] = 0xC0000022
+    fake.install(monkeypatch)
+
+    response = _post_ingest(client, alias, "vendor")
+    _assert_names_only(response.text, alias, tmp_path)
+    if failure == "none":
+        assert response.status_code == 201, response.text
+        assert response.json()["policy_count"] == 1
+        listing = client.get("/api/templates")
+        _assert_names_only(listing.text, alias, tmp_path)
+        return
+    assert response.status_code == 422, response.text
+    message = response.json()["error"]["message"]
+    expected = "Refused" if failure == "component-link" else "Cannot read"
+    assert message.startswith(f"{expected} template folder {alias}"), message
+    if failure == "entry-denied":
+        assert "'good.admx'" in message

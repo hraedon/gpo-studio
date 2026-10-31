@@ -48,6 +48,7 @@ class TemplateSource:
     name: str
     kind: SourceKind
     path: str
+    """The folder as the caller named it (``display_path``), not as opened."""
     content_classification: ContentClassification
     license_note: str
     files: tuple[TemplateFile, ...] = field(default_factory=tuple)
@@ -398,19 +399,29 @@ def _read_template_file(fd: int, relative: str, budget: _Budget) -> bytes:
             )
 
 
+@dataclass(slots=True)
+class _Progress:
+    """How far reading got, so a failure can be described without OS text."""
+
+    root_open: bool = False
+    subfolder: str | None = None
+
+
 @contextlib.contextmanager
-def _refuse_unsafe_entries(directory: Path, label: str) -> Iterator[None]:
-    """Turn a ``safe_io`` refusal into a ``TemplateError`` naming the folder.
+def _refuse_unsafe_entries(label: str, progress: _Progress) -> Iterator[None]:
+    """Turn a ``safe_io`` failure into a ``TemplateError`` naming the folder.
 
     A refusal is a link, junction, reparse point or special file, or a no-follow
     open that met one: ``ELOOP`` for a file, ``ENOTDIR`` for a directory opened
-    with ``O_DIRECTORY | O_NOFOLLOW``. Any other ``OSError`` (permission, I/O)
-    is re-raised unchanged so the caller reports the folder as unreadable.
+    with ``O_DIRECTORY | O_NOFOLLOW``. Any other POSIX ``OSError`` (permission,
+    I/O) is re-raised unchanged so the caller reports the folder as unreadable.
 
-    The message names the folder as ``label``. ``safe_io``'s Windows walk can
-    name the full path it failed to open, so the opened path is replaced by
-    ``label`` in its text too: a caller that opened a resolved path reports
-    only the path it was given.
+    The public message is built only from ``label`` (the path the caller was
+    given), ``progress``, and the error's structured fields: its NT status or
+    Win32 error and the entry name, which is relative to the folder being
+    listed. The error's own text is never forwarded: ``safe_io``'s Windows walk
+    names the components of the path it opened, and the caller may have opened
+    a resolved path whose components must not be revealed.
     """
     try:
         yield
@@ -422,21 +433,50 @@ def _refuse_unsafe_entries(directory: Path, label: str) -> Iterator[None]:
             and cause.errno not in (errno.ELOOP, errno.ENOTDIR)
         ):
             raise
-        detail = _redact(str(error), directory, label)
-        if _is_read_failure(error):
-            raise TemplateError(
-                f"Cannot read template folder {label}: {detail}. Check that the "
-                "folder is available and GPO Studio has permission to read it."
-            ) from error
-        raise TemplateError(
-            f"Refused template folder {label}: {detail}. {_LINK_REFUSAL}"
-        ) from error
+        raise _public_failure(error, label, progress) from error
 
 
-def _redact(text: str, directory: Path, label: str) -> str:
-    for spelling in sorted({str(directory.absolute()), str(directory)}, key=len, reverse=True):
-        text = text.replace(spelling, label)
-    return text
+def _public_failure(error: SafeOpenError, label: str, progress: _Progress) -> TemplateError:
+    if error.nt_status is not None:
+        code: str | None = f"NT status 0x{error.nt_status:08X}"
+    elif error.win32_error is not None:
+        code = f"Win32 error {error.win32_error}"
+    else:
+        code = None
+    place = (
+        "the folder"
+        if progress.subfolder is None
+        else f"locale subfolder {progress.subfolder!r}"
+    )
+    if error.entry is not None:
+        entry = (
+            error.entry
+            if progress.subfolder is None
+            else str(Path(progress.subfolder, error.entry))
+        )
+        action, refusal = (
+            f"opening entry {entry!r}",
+            f"entry {entry!r} is a symbolic link, junction or other reparse point, a "
+            "special file or an unsafe name, or it changed while being opened",
+        )
+    elif not progress.root_open:
+        action, refusal = (
+            "opening the folder",
+            "the folder, or a folder in its path, is a symbolic link, junction or "
+            "other reparse point, or is not a folder",
+        )
+    else:
+        action, refusal = (
+            f"listing {place}",
+            f"listing {place} returned an entry that cannot be read safely",
+        )
+    if _is_read_failure(error):
+        return TemplateError(
+            f"Cannot read template folder {label}: {action} failed with {code}. Check "
+            "that the folder is available and GPO Studio has permission to read it."
+        )
+    detail = f" ({code})" if code is not None else ""
+    return TemplateError(f"Refused template folder {label}: {refusal}{detail}. {_LINK_REFUSAL}")
 
 
 #: STATUS_STOPPED_ON_SYMLINK, STATUS_IO_REPARSE_TAG_NOT_HANDLED and
@@ -512,6 +552,7 @@ def _read_locale(
     spelling: str,
     budget: _Budget,
     inventory: _Inventory,
+    progress: _Progress,
 ) -> None:
     """Read every ADML in one subfolder; pair those still-unpaired ADMX need.
 
@@ -524,6 +565,7 @@ def _read_locale(
         if name not in inventory.pairs
     }
     candidates: dict[str, bytes] = {}
+    progress.subfolder = subdirectory
     dir_fd = inventory.handles.pop(subdirectory)
     try:
         for entry in iter_directory(dir_fd):
@@ -567,9 +609,10 @@ def _read_source(directory: Path, label: str) -> _Inventory:
     """
     budget = _Budget(label)
     inventory = _Inventory()
+    progress = _Progress()
     try:
-        with _refuse_unsafe_entries(directory, label):
-            _read_tree(directory, label, budget, inventory)
+        with _refuse_unsafe_entries(label, progress):
+            _read_tree(directory, label, budget, inventory, progress)
     finally:
         for handle in inventory.handles.values():
             with contextlib.suppress(OSError):
@@ -578,8 +621,11 @@ def _read_source(directory: Path, label: str) -> _Inventory:
     return inventory
 
 
-def _read_tree(directory: Path, label: str, budget: _Budget, inventory: _Inventory) -> None:
+def _read_tree(
+    directory: Path, label: str, budget: _Budget, inventory: _Inventory, progress: _Progress
+) -> None:
     root_fd = open_directory(directory)
+    progress.root_open = True
     try:
         _read_root(label, root_fd, budget, inventory)
     finally:
@@ -604,7 +650,7 @@ def _read_tree(directory: Path, label: str, budget: _Budget, inventory: _Invento
         if en_us is None or name != en_us.name
     )
     for subdirectory, spelling in order:
-        _read_locale(subdirectory, spelling, budget, inventory)
+        _read_locale(subdirectory, spelling, budget, inventory, progress)
 
 
 def _inventory_files(inventory: _Inventory) -> tuple[TemplateFile, ...]:
@@ -686,9 +732,10 @@ def ingest_source(
     limit refuses the whole source with ``TemplateError``. ``directory`` is
     opened as given; a caller holding an operator-chosen path resolves it first.
 
-    Every ``TemplateError`` names the folder as ``display_path`` when given
-    (default: ``directory``). A caller that resolved the path it was given
-    passes the unresolved one, so a refusal never reveals where a link points.
+    ``display_path`` (default: ``directory``) is the only name this function
+    gives the folder: in every ``TemplateError`` and in ``TemplateSource.path``.
+    A caller that resolved the path it was given passes the unresolved one, so
+    neither a refusal nor a loaded source reveals where a link points.
     """
     label = str(directory) if display_path is None else display_path
     if not directory.is_dir():
@@ -712,7 +759,7 @@ def ingest_source(
     source = TemplateSource(
         name=name,
         kind=kind,
-        path=str(directory),
+        path=label,
         content_classification=aggregate_classification,
         license_note=aggregate_note,
         files=files,
