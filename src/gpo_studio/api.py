@@ -1801,10 +1801,12 @@ _CATALOGUE_LOCK = threading.RLock()
 #: hold up to the template store's aggregate byte limit, and glibc keeps a
 #: separate malloc arena per thread that retains what an ingest freed, so
 #: ingests spread over the request threadpool each left that much resident.
-#: A second ingest while one runs is refused (409) rather than queued: a
-#: queued request would hold a threadpool token it could not give back, and
-#: lock waits cannot be cancelled. The lock is released when the ingest itself
-#: finishes, not when its request does.
+#: A second ingest while one runs is refused (409) rather than queued. A
+#: running ingest cannot be cancelled and has no bound on its duration (a slow
+#: or stalled share can hold it for as long as reads block), so a queue would
+#: grow without limit behind it, each waiter only to replace the source the
+#: one before it loaded. Refusing tells the caller at once. The lock is
+#: released when the ingest itself finishes, not when its request does.
 _TEMPLATE_INGEST_LOCK = threading.Lock()
 _TEMPLATE_INGEST_EXECUTOR = ThreadPoolExecutor(
     max_workers=1, thread_name_prefix="gpo-studio-template-ingest"
