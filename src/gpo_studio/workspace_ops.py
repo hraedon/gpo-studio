@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import cast
 
 from . import __version__
+from .json_input import JsonInputError, loads_untrusted
 from .model import WorkspaceError
 from .safe_io import (
     SafeOpenError,
@@ -269,8 +270,8 @@ def _read_backup_metadata(path: Path) -> BackupMetadata:
         os.close(fd)
 
     try:
-        parsed: object = json.loads(raw_bytes)
-    except (ValueError, UnicodeDecodeError, RecursionError):
+        parsed = loads_untrusted(raw_bytes)
+    except JsonInputError:
         raise WorkspaceError(
             "Cannot read backup metadata — the sidecar may be corrupted"
         ) from None

@@ -17,7 +17,7 @@ import time
 import uuid as uuid_module
 import zipfile
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -28,6 +28,7 @@ from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, Response
 from fastapi.responses import JSONResponse as _FastAPIJSONResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import (
     BaseModel,
@@ -163,6 +164,7 @@ from .import_export import (
     extract_side_settings,
     resolve_gpo,
 )
+from .json_input import JsonInputError, loads_untrusted
 from .lifecycle import (
     SCOPE_DIMENSIONS,
     SCOPE_SURVIVAL,
@@ -2287,6 +2289,77 @@ class JSONResponse(_FastAPIJSONResponse):
             ).encode("ascii")
 
 
+# Request handling (``unwritable_text``, error rendering) recurses over the
+# body, so nesting is bounded well below Python's recursion limit. No request
+# model nests anywhere near this deep.
+_MAX_REQUEST_JSON_DEPTH = 100
+
+
+class _UntrustedJsonRequest(Request):
+    """A request whose JSON body is parsed by :func:`loads_untrusted` (#145).
+
+    FastAPI reports a ``JSONDecodeError`` as its normal 422 ``json_invalid``
+    response, but any other parse failure (an integer longer than Python's
+    int-string limit, nesting deep enough to raise ``RecursionError``, bytes
+    that are not text) became a generic 400, and nesting that parsed but was
+    too deep for the text check below became a 500.
+
+    ``NaN``, ``Infinity`` and overflowing floats are kept only for a body
+    whose schema types every value, so validation reports them as field
+    errors. A body that admits ``Any`` (the discovery imports) would hand them
+    to code that does ``int(inf)``, or store them where no response can render
+    them, so for such a route they are refused here.
+    """
+
+    allow_non_finite = True
+
+    async def json(self) -> Any:
+        if not hasattr(self, "_json"):
+            try:
+                self._json = loads_untrusted(
+                    await self.body(),
+                    allow_non_finite=self.allow_non_finite,
+                    max_depth=_MAX_REQUEST_JSON_DEPTH,
+                )
+            except JsonInputError as error:
+                raise json.JSONDecodeError(error.reason, "", error.pos or 0) from None
+        return self._json
+
+
+class _FiniteJsonRequest(_UntrustedJsonRequest):
+    allow_non_finite = False
+
+
+def _admits_any(annotation: object, seen: set[type[BaseModel]] | None = None) -> bool:
+    """Whether a body annotation lets an untyped JSON value through validation."""
+    if annotation is Any or annotation is object:
+        return True
+    seen = set() if seen is None else seen
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation in seen:
+            return False
+        seen.add(annotation)
+        return any(
+            _admits_any(field.annotation, seen) for field in annotation.model_fields.values()
+        )
+    return any(_admits_any(argument, seen) for argument in get_args(annotation))
+
+
+class _UntrustedJsonRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+        request_class = (
+            _FiniteJsonRequest
+            if any(_admits_any(field.field_info.annotation) for field in self.dependant.body_params)
+            else _UntrustedJsonRequest
+        )
+
+        async def untrusted_json_handler(request: Request) -> Response:
+            return await handler(request_class(request.scope, request.receive))
+
+        return untrusted_json_handler
+
+
 async def _reject_unwritable_request_text(request: Request) -> None:
     """Refuse a JSON body holding text XML cannot carry, before any handler runs.
 
@@ -2303,8 +2376,10 @@ async def _reject_unwritable_request_text(request: Request) -> None:
     if not body:
         return
     try:
-        data = json.loads(body)
-    except ValueError:
+        data = loads_untrusted(
+            body, allow_non_finite=True, max_depth=_MAX_REQUEST_JSON_DEPTH
+        )
+    except JsonInputError:
         return  # the body model reports malformed JSON itself
     # Request paths are not model paths, so CR is judged by the store's model
     # check (`validation.text_issues`), which knows where CR survives.
@@ -2606,6 +2681,8 @@ app = FastAPI(
     default_response_class=JSONResponse,
     dependencies=[Depends(_reject_unwritable_request_text)],
 )
+# Before any route is declared: every route parses its body as untrusted JSON.
+app.router.route_class = _UntrustedJsonRoute
 app.add_middleware(HostValidationMiddleware)
 app.add_middleware(OriginValidationMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)
@@ -3334,8 +3411,9 @@ def configured_settings(
     ``state_reason``. Empty patterns provide no positive state evidence; policies
     without attributed records do not acquire fabricated configured rows.
     Stale possible level records expose uncertainty and unclaimed records remain
-    unresolved; decoded children remain available. Child-only inference retains
-    its heuristic unless unclaimed historical level evidence is present.
+    unresolved; decoded children remain available. Child-only policies are
+    observed from their element rows (#147); ``disabled_matches_enabled_deletes``
+    marks deletes that Disabled and an enabled choice both write.
     Indeterminate is not accepted by configure or bulk mutation requests.
 
     ``ambiguous`` is true when the policy matches multiple ADMX policies;

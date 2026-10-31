@@ -279,6 +279,7 @@ function renderBrowser(data) {
 
 const observationReasons = {
   both_patterns_match: "Enabled and Disabled write the same observed policy-level pattern.",
+  disabled_matches_enabled_deletes: "These deletes are what Disabled writes, and also what Enabled writes when every option is set to its delete choice. Records without GPO Studio's own editor IDs, such as imported ones, cannot tell the two apart.",
   no_complete_pattern: "The registry records do not match a complete Enabled or Disabled policy-level pattern.",
   no_state_evidence: "These records contain no positive policy-level state evidence. An empty pattern does not establish an authoring choice.",
   unsupported_state_pattern: "This policy-level pattern cannot be determined safely from the available registry records.",
@@ -553,10 +554,14 @@ async function applyBulkState(targetState) {
       error.code === "catalogue_conflict"
         ? catalogueReviewMessage
         : error.message;
+    const changed = `${completed.length} ${completed.length === 1 ? "policy" : "policies"} changed`;
     showPersistentError(
-      completed.length
-        ? `${completed.length} ${completed.length === 1 ? "policy" : "policies"} changed before the remaining bulk change failed: ${message}`
-        : message,
+      !completed.length
+        ? message
+        : completed.length < selected.length
+          ? `${changed} before the remaining bulk change failed: ${message}`
+          : // The last chunk committed; nothing remained to fail (#145).
+            `${changed}, then the bulk change stopped: ${message}`,
     );
   } finally {
     bulkApplying = false;

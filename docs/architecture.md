@@ -71,8 +71,19 @@ ownership helper intentionally retains its catalogue parameter for call compatib
 does not use current catalogue addresses to infer a historical producer. Policies
 with no attributed records are absent from this configured-only view: empty
 patterns cannot prove historical Enabled, Disabled or Not configured intent.
-Child-only policies retain the existing inference heuristic unless an unclaimed
-possible historical policy-level record exposes uncertainty. Actual stored state
+Child-only policies (no policy-level writes) are observed from their element rows
+(#147): a value write is only written by Enabled, and a delete carrying a disable's
+editor ID only by Disabled. A complete set of element deletes that no enabled choice
+writes is Disabled. Where every element is an enum with a `<delete/>` item
+(inetres.admx `NeedEdgeBrowser`), an imported disable is byte-identical to enabling
+it with that item chosen everywhere, so without Studio's editor IDs it is
+`indeterminate` (`disabled_matches_enabled_deletes`); partial or mixed sets are
+`indeterminate` (`no_complete_pattern`). A legacy `disabled-element-X` suffix is
+identity only when no element ID can also spell it. Only when no row is bound to
+an element does the older heuristic remain, and an unclaimed possible historical
+policy-level record still exposes uncertainty. Each single-value element reads
+exactly one row: several rows bound to it, or a delete an enabled policy cannot
+write, are listed as unresolved instead of decoded (#146). Actual stored state
 frames outside current pattern addresses cannot prove a current state, regardless
 of today's identity family; unclaimed rows remain visible as unresolved evidence.
 Structured rows whose stored side or hive disagrees with their editor identity
