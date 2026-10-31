@@ -466,8 +466,9 @@ def test_powershell_plan_security_filter_exempts_no_trustee() -> None:
     plan = powershell_plan(gpo)
     assert "$protected" not in plan
     code = [line for line in plan.splitlines() if not line.lstrip().startswith("#")]
+    # No trustee is exempted by name (a refusal's message may name them).
     for name in ("Domain Admins", "Enterprise Admins", "SYSTEM", "Administrators"):
-        assert not any(name in line for line in code), name
+        assert not any(f"'{name}'" in line for line in code), name
     assert "    if ($perm.Permission -eq 'GpoApply' -and -not $perm.Denied -and" in plan
 
 

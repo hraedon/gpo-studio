@@ -170,7 +170,7 @@ def test_an_existing_gpo_needs_the_exact_marker_line_or_the_switch() -> None:
     # A whole, trimmed line, compared ordinally -- not a substring, and not with
     # culture rules (under which a zero-width space still matches).
     assert (
-        "        [string]::Equals($_.Trim(), $marker, [StringComparison]::Ordinal) })"
+        "        [string]::Equals($_, $marker, [StringComparison]::Ordinal) })"
         ".Count -gt 0 })"
     ) in plan
     assert "-ccontains" not in plan
@@ -366,6 +366,44 @@ namespace Microsoft.GroupPolicy {
   }
 }
 namespace StudioStub {
+  // A directory object's objectGUID, read through an ADSI path as the plan
+  // does: STUB_SWAP_DN names a DN replaced after its first read (a same-DN
+  // replacement between the preflight and the link); STUB_NO_GUID_DN one whose
+  // objectGUID cannot be read.
+  public class Entry {
+    static readonly Dictionary<string, int> Reads = new Dictionary<string, int>(
+      StringComparer.OrdinalIgnoreCase);
+    readonly string dn;
+    readonly int read;
+    public Entry(string path) {
+      dn = path.Substring(path.IndexOf('/', 7) + 1).Replace("\\/", "/");
+      int seen;
+      Reads.TryGetValue(dn, out seen);
+      read = seen + 1;
+      Reads[dn] = read;
+      Console.Out.WriteLine("ENTRY=" + Convert.ToBase64String(
+        System.Text.Encoding.UTF8.GetBytes(dn)));
+    }
+    public Guid Guid {
+      get {
+        if (string.Equals(dn, Environment.GetEnvironmentVariable("STUB_NO_GUID_DN"),
+            StringComparison.OrdinalIgnoreCase)) {
+          throw new Exception("There is no such object on the server.");
+        }
+        string key = dn.ToLowerInvariant();
+        if (read > 1 && string.Equals(dn, Environment.GetEnvironmentVariable("STUB_SWAP_DN"),
+            StringComparison.OrdinalIgnoreCase)) { key = "replaced " + key; }
+        return new Guid(System.Security.Cryptography.MD5.HashData(
+          System.Text.Encoding.UTF8.GetBytes(key)));
+      }
+    }
+  }
+  public class Identity {
+    public Sid User { get {
+      return new Sid(Environment.GetEnvironmentVariable("STUB_CURRENT_USER")
+        ?? "S-1-5-21-1000-2000-3000-1500"); } }
+    public static Identity GetCurrent() { return new Identity(); }
+  }
   static class Directory {
     public static Dictionary<string, string> Names() {
       var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -558,10 +596,16 @@ def _runnable(plan: str) -> str:
     # is the round-0 plan's, so the same harness runs it (red-before-green).
     index = next(i for i, line in enumerate(lines) if line.startswith("param("))
     text = "\n".join([*lines[: index + 1], _STANDIN, *lines[index + 1 :], _FOOTER]) + "\n"
-    # SID <-> account translation needs Windows: the stub types stand in.
-    return text.replace("[System.Security.Principal.NTAccount]", "[StudioStub.Account]").replace(
-        "[System.Security.Principal.SecurityIdentifier]", "[StudioStub.Sid]"
-    )
+    # SID <-> account translation, the running account and ADSI need Windows:
+    # stub types stand in.
+    for real, stub in (
+        ("[System.Security.Principal.NTAccount]", "[StudioStub.Account]"),
+        ("[System.Security.Principal.SecurityIdentifier]", "[StudioStub.Sid]"),
+        ("[System.Security.Principal.WindowsIdentity]", "[StudioStub.Identity]"),
+        ("[System.DirectoryServices.DirectoryEntry]", "[StudioStub.Entry]"),
+    ):
+        text = text.replace(real, stub)
+    return text
 
 
 class Run:
@@ -588,6 +632,12 @@ class Run:
         )
         status = [line for line in lines if line.startswith("STATUS=")]
         self.status = status[0].split("=", 1)[1] if status else None
+        #: Each DN whose objectGUID the plan read, in order.
+        self.entries = [
+            base64.b64decode(line.split("=", 1)[1]).decode("utf-8")
+            for line in lines
+            if line.startswith("ENTRY=")
+        ]
 
     def called(self, cmd: str) -> list[dict[str, Any]]:
         return [call for call in self.calls if call["cmd"] == cmd]
@@ -617,6 +667,9 @@ def _execute(
     lookup_fails: bool = False,
     missing_targets: list[str] | None = None,
     wrong_type: list[str] | None = None,
+    swap_dn: str = "",
+    no_guid_dn: str = "",
+    current_user: str = "S-1-5-21-1000-2000-3000-1500",
     plan: str | None = None,
 ) -> Run:
     name_map = {**_NAMES, **(names or {})}
@@ -649,6 +702,9 @@ def _execute(
             **os.environ,
             "STUB_RESOLVES_TO": resolves,
             "STUB_NAMES": "\n".join(f"{k}\t{v}" for k, v in name_map.items()),
+            "STUB_SWAP_DN": swap_dn,
+            "STUB_NO_GUID_DN": no_guid_dn,
+            "STUB_CURRENT_USER": current_user,
             "STUB_SCENARIO": base64.b64encode(json.dumps(scenario).encode()).decode(),
         },
     )
@@ -801,7 +857,7 @@ def test_an_unrelated_same_named_gpo_is_refused(tmp_path: Path) -> None:
 @needs_pwsh
 def test_a_rerun_finds_the_gpo_it_created_by_its_marker(tmp_path: Path) -> None:
     gpo = _gpo()
-    existing = _existing(OTHER_ID, gpo.name, f"Pilot rollout\r\n\r\n  {_marker(gpo)}  ")
+    existing = _existing(OTHER_ID, gpo.name, f"Pilot rollout\r\n\r\n{_marker(gpo)}\r\n")
     run = _execute(tmp_path, gpo, gpos=[existing])
     assert run.returncode == 0, run.output
     assert run.called("New-GPO") == []
@@ -1163,7 +1219,9 @@ def test_a_plan_only_refusal_still_writes_the_bundle_without_the_plan(
     assert "apply.ps1" not in members and "Machine/Registry.pol" in members
     record = json.loads(members["manifest.json"])["powershell_plan"]
     assert record["included"] is False
-    assert record["code"] == export.plan_refusal(gpo).code  # type: ignore[union-attr]
+    assert [entry["code"] for entry in record["refusals"]] == [
+        export.plan_refusal(gpo).code  # type: ignore[union-attr]
+    ]
     # A plan that is not refused is always in the bundle, and the manifest
     # carries no record.
     plain = _bundle_members(egress.checked_studio_bundle(_gpo()))
@@ -1183,10 +1241,13 @@ def test_egress_refuses_a_bundle_missing_its_plan_without_the_record() -> None:
     problems = egress.zip_problems(deterministic_zip(members), "studio", gpo)
     assert any("without a recorded plan-only refusal" in p.problem for p in problems)
     manifest = json.loads(members["manifest.json"])
-    manifest["powershell_plan"] = {"included": False, "code": "wmi_filter_not_verifiable"}
+    manifest["powershell_plan"] = {
+        "included": False,
+        "refusals": [{"code": "wmi_filter_not_verifiable", "message": "forged"}],
+    }
     members["manifest.json"] = json.dumps(manifest).encode()
     problems = egress.zip_problems(deterministic_zip(members), "studio", gpo)
-    assert any("the GPO's plan is not refused" in p.problem for p in problems)
+    assert any("not refused for the recorded reasons" in p.problem for p in problems)
     assert zipfile and io  # imported for the archive helpers above
 
 
@@ -1272,3 +1333,174 @@ def test_the_marker_is_compared_ordinally(tmp_path: Path, hidden: str) -> None:
     run = _execute(tmp_path, gpo, gpos=[_existing(OTHER_ID, gpo.name, near)])
     assert run.returncode != 0
     assert run.mutations == []
+
+
+# --- round 4 ------------------------------------------------------------------
+
+
+@needs_pwsh
+def test_a_link_target_replaced_after_the_preflight_is_not_linked(tmp_path: Path) -> None:
+    """Round 4 (Daybreak): the preflight read the target once and the link step
+    resolved the DN again, so a same-DN replacement in between linked a
+    different object. Its objectGUID is now read in the preflight and again
+    just before the link."""
+    target = f"OU=Pilot,{DOMAIN_DN}"
+    run = _execute(tmp_path, _gpo(), swap_dn=target)
+    assert run.returncode != 0
+    assert "is no longer the object checked before any change" in run.error
+    assert run.called("New-GPLink") == [] and run.called("Set-GPLink") == []
+    assert run.entries == [target, target]
+
+
+@needs_pwsh
+def test_an_unchanged_link_target_is_read_twice_and_linked(tmp_path: Path) -> None:
+    target = f"OU=Pilot,{DOMAIN_DN}"
+    run = _execute(tmp_path, _gpo())
+    assert run.returncode == 0, run.output
+    assert run.entries == [target, target]
+    names = [c["cmd"] for c in run.calls]
+    assert names.index("New-GPLink") > names.index("Get-GPInheritance")
+
+
+@needs_pwsh
+def test_a_link_target_without_a_readable_object_guid_stops_before_any_change(
+    tmp_path: Path,
+) -> None:
+    target = f"OU=Pilot,{DOMAIN_DN}"
+    run = _execute(tmp_path, _gpo(), no_guid_dn=target)
+    assert run.returncode != 0
+    assert "has no readable objectGUID" in run.error
+    assert run.mutations == [] and run.called("Get-GPO") == []
+
+
+@pytest.mark.parametrize(
+    "principal",
+    [DA_SID, "S-1-5-21-1000-2000-3000-519", "S-1-5-18", "S-1-5-21-1000-2000-3000-1500"],
+    ids=["domain-admins", "enterprise-admins", "system", "running-account"],
+)
+@needs_pwsh
+def test_a_default_editor_named_by_a_filter_stops_the_plan_before_new_gpo(
+    tmp_path: Path, principal: str
+) -> None:
+    """Round 4 (Opus N4): such a filter was refused only after New-GPO, leaving
+    an unlinked GPO. Every new GPO gives these edit rights, so it is refused
+    before anything changes."""
+    gpo = _gpo(security_filters=(SecurityFilter("e", principal, sid=principal),))
+    names = {"Editor": principal}
+    run = _execute(tmp_path, gpo, names=names)
+    assert run.returncode != 0
+    assert "has edit rights on every new GPO" in run.error
+    assert run.mutations == [] and run.called("Get-GPO") == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["  {marker}", "{marker} ", "{marker}\u00a0", "\t{marker}"],
+    ids=["leading-spaces", "trailing-space", "trailing-nbsp", "leading-tab"],
+)
+@needs_pwsh
+def test_the_marker_line_must_hold_nothing_else(tmp_path: Path, line: str) -> None:
+    """Round 4 (Daybreak): the match trimmed the line, so a marker surrounded by
+    (non-breaking) spaces bound. Only the line break itself is not part of it
+    (lines are split on CRLF or LF)."""
+    gpo = _gpo()
+    text = f"Pilot rollout\r\n\r\n{line.format(marker=_marker(gpo))}"
+    run = _execute(tmp_path, gpo, gpos=[_existing(OTHER_ID, gpo.name, text)])
+    assert run.returncode != 0
+    assert run.mutations == []
+
+
+def test_every_refusal_reason_is_weighed() -> None:
+    """Round 4 (Opus N3): only the first reason was checked, so a deny filter
+    beside a WMI filter shipped a plan-less bundle while a deny alone refused
+    it. Every reason is weighed now: one that refuses the whole bundle does."""
+    wmi = WmiFilter("w", "Servers only", query="SELECT * FROM Win32_Service")
+    deny = SecurityFilter("d", "SYNTHETIC\\Readers", deny=True)
+    both = _gpo(wmi_filter=wmi, security_filters=(deny,))
+    assert export.plan_only_refusals(both) == ()
+    with pytest.raises(ValidationError):
+        export.export_bundle(both)
+    two = _gpo(wmi_filter=wmi, links=(GPOLink("l1", "OU=Victims,DC=trusted,DC=test"),))
+    record = json.loads(_bundle_members(export.export_bundle(two))["manifest.json"])
+    assert [entry["code"] for entry in record["powershell_plan"]["refusals"]] == [
+        "link_target_outside_domain",
+        "wmi_filter_not_verifiable",
+    ]
+
+
+def test_the_export_capability_matches_the_route() -> None:
+    """Round 4 (Daybreak): a WMI-filtered GPO was advertised as
+    ``studio_export.enabled: false`` while the route built its plan-less ZIP."""
+    from gpo_studio import api as api_module
+
+    wmi = WmiFilter("w", "Servers only", query="SELECT * FROM Win32_Service")
+    api_module._REFUSAL_CACHE.clear()
+    caps = api_module._gpo_payload(_gpo(wmi_filter=wmi))["artifact_capabilities"]
+    assert caps["studio_export"]["enabled"] is True
+    assert caps["studio_export"]["plan_included"] is False
+    assert "WMI filter" in caps["studio_export"]["plan_reason"]
+    assert caps["powershell_plan"]["enabled"] is False
+    plain = api_module._gpo_payload(_gpo())["artifact_capabilities"]["studio_export"]
+    assert plain["enabled"] is True and plain["plan_included"] is True
+    assert plain["plan_reason"] == ""
+    deny = _gpo(security_filters=(SecurityFilter("d", "SYNTHETIC\\Readers", deny=True),))
+    denied = api_module._gpo_payload(deny)["artifact_capabilities"]["studio_export"]
+    assert denied["enabled"] is False and denied["plan_included"] is False
+
+
+class _Routed:
+    """What the export route returns: the body, and the GPO it was built from."""
+
+    def __init__(self, body: bytes, model: GPO | None) -> None:
+        self.body = body
+        if model is not None:
+            self.egress_model = model
+
+
+def test_the_plan_record_is_checked_both_ways() -> None:
+    """Round 4 (Daybreak, Opus N1/N2): a plan beside a refusal record passed, and
+    the route backstop took a refusal record on the manifest's word."""
+    from gpo_studio.deterministic_zip import deterministic_zip
+    from gpo_studio.emit_integrity import EmitError
+
+    wmi = _gpo(wmi_filter=WmiFilter("w", "Servers only", query="SELECT * FROM Win32_Service"))
+    refused = _bundle_members(export.export_bundle(wmi))
+    plan_text = export.powershell_plan(_gpo()).encode("utf-8-sig")
+    # A plan beside the record.
+    both = deterministic_zip({**refused, "apply.ps1": plan_text})
+    assert egress.zip_problems(both, "studio")
+    # A plan for a GPO whose plan is refused, with no record.
+    manifest = json.loads(refused["manifest.json"])
+    del manifest["powershell_plan"]
+    sneaked = deterministic_zip(
+        {**refused, "manifest.json": json.dumps(manifest).encode(), "apply.ps1": plan_text}
+    )
+    assert any("plan is refused" in p.problem for p in egress.zip_problems(sneaked, "studio", wmi))
+    # The route backstop: with the model the genuine plan-less bundle passes;
+    # without it a missing plan is refused, record or not.
+    genuine = deterministic_zip(refused)
+    egress.check("zip-studio", _Routed(genuine, wmi))
+    with pytest.raises(EmitError):
+        egress.check("zip-studio", _Routed(genuine, None))
+    # A forged record on a GPO whose plan is not refused.
+    plain = _bundle_members(export.export_bundle(_gpo()))
+    forged_manifest = json.loads(plain["manifest.json"])
+    forged_manifest["powershell_plan"] = export.plan_record(export._plan_refusals(wmi))
+    del plain["apply.ps1"]
+    forged = deterministic_zip({**plain, "manifest.json": json.dumps(forged_manifest).encode()})
+    with pytest.raises(EmitError):
+        egress.check("zip-studio", _Routed(forged, _gpo()))
+
+
+def test_the_object_guid_is_read_through_psbase() -> None:
+    """Measured on the estate (2026-10-31): through Windows PowerShell's ADSI
+    adapter ``DirectoryEntry.Guid`` is shadowed by the ADSI ``guid`` string
+    property (``8c217e2ac9dd...``, no dashes), so the re-check compared a string
+    with the stored GUID and refused an unchanged target. ``psbase`` reaches
+    the .NET property. The stand-in cannot model the adapter, so this pins it."""
+    plan = export.powershell_plan(_gpo())
+    reads = [line for line in plan.splitlines() if "DirectoryServices.DirectoryEntry" in line]
+    assert len(reads) == 2
+    assert all(").psbase.Guid }" in line for line in reads)
+    # A missing object reads as $null instead of throwing (measured): refused.
+    assert "    if ($null -eq $read -or $read -eq [guid]::Empty) {" in plan

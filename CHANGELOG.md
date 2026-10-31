@@ -453,11 +453,14 @@ Pre-1.1.1 security review, three rounds. Both original findings predate 1.1.0.
   domain, a container, a site) is a validation warning
   (`link_target_outside_domain`) and no plan is generated. The plan reads each
   target with `Get-GPInheritance` before its first change and stops on a
-  missing target or one of the wrong type. Site links are made in GPMC.
+  missing target or one of the wrong type; it binds each target's `objectGUID`
+  then and checks it again immediately before writing the link, so a same-DN
+  replacement in between is not linked. Site links are made in GPMC.
 - **The plan modifies only the GPO it is bound to.** It lists the domain's
   GPOs (a lookup error stops it) and binds, without `-AdoptExistingGpo`, only
   the GPO whose comment has the exact line `GPO Studio binding: <workspace
-  GUID>` -- and only when it would not rename it and the workspace GUID did not
+  GUID>`, with nothing else on the line -- and only when it would not rename it
+  and the workspace GUID did not
   come from imported data (an estate import keeps its file's GUIDs, so a
   crafted estate could carry another Studio GPO's marker). Any other existing
   GPO with the workspace GUID or the name -- the Default Domain Policy named by
@@ -466,7 +469,9 @@ Pre-1.1.1 security review, three rounds. Both original findings predate 1.1.0.
   accidents and is not authentication. `source_guid` never selects a GPO.
 - **Security filtering no longer fails open.** When filters are authored they
   are the GPO's whole apply set. Every principal is resolved to its SID before
-  anything changes, and a stored SID that no longer matches stops the plan. On
+  anything changes, and a stored SID that no longer matches stops the plan, as
+  does -- before a GPO is created -- a principal every new GPO gives edit rights
+  to (Domain/Enterprise Admins, SYSTEM, the account running the plan). On
   an existing GPO the plan stops before changing it if an authored principal
   holds edit rights, a custom level, an inherited entry or a deny; if another
   trustee holds an inherited `GpoApply` or a `GpoCustom` level; or if a trustee
@@ -480,9 +485,12 @@ Pre-1.1.1 security review, three rounds. Both original findings predate 1.1.0.
 - **A GPO with a WMI filter gets no plan** (`wmi_filter_not_verifiable`). The
   plan can neither assign nor verify a filter, and used to link the GPO with
   the filter unassigned. Apply such a GPO through the GPMC backup.
-- When only the plan is refused (a WMI filter, or a link outside the declared
-  domain), `export.zip` is still written, without `apply.ps1`; its
-  `manifest.json` records the refusal under `powershell_plan`.
+- When every reason the plan is refused is plan-only (a WMI filter, a link
+  outside the declared domain), `export.zip` is still written, without
+  `apply.ps1`; its `manifest.json` records every reason under `powershell_plan`
+  (`refusals`), egress checks that record against the GPO both ways, and the
+  API's `studio_export` capability stays enabled and reports `plan_included`.
+  A reason that refuses the whole bundle (a deny filter) still does.
 - **`-WhatIf` changes nothing.** Side status (`GpoStatus`) is set through
   `ShouldProcess`; the read-back is skipped under `-WhatIf`.
 - Filtering and side status run before links, so nothing is linked while a new

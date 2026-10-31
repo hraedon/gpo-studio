@@ -2170,6 +2170,13 @@ def _build_gpo_payload(gpo: Any) -> dict[str, Any]:
                 "enabled": not blocked and studio_blocked is None,
                 "format": "zip",
                 "reason": studio_reason,
+                # The bundle is written without apply.ps1 when only the plan
+                # is refused (export.plan_only_refusals): recorded here apart
+                # from the export's own refusal (pre-1.1.1 review, round 4).
+                "plan_included": not blocked
+                and studio_blocked is None
+                and plan_blocked is None,
+                "plan_reason": plan_reason if studio_blocked is None else "",
             },
             "gpmc_export": {
                 "enabled": not blocked and unknown_cse is None and backup_blocked is None,
@@ -4546,7 +4553,10 @@ def bundle(
     content = checked_studio_bundle(gpo)
     headers = _reviewed_export_headers(gpo, review_hash, content)
     headers["Content-Disposition"] = f'attachment; filename="{fname}"'
-    return Response(content, media_type="application/zip", headers=headers)
+    response = Response(content, media_type="application/zip", headers=headers)
+    # Egress checks a plan-less bundle's refusal record against this model.
+    setattr(response, "egress_model", gpo)  # noqa: B010
+    return response
 
 
 @app.get("/api/gpos/{guid}/plan.ps1")

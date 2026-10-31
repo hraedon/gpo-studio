@@ -1306,13 +1306,22 @@ soft hyphen still matches).
   the plan also checks each target lexically and then reads it with
   `Get-GPInheritance`, which must answer with a container of the expected type
   (`Domain` or `OU`) and the same path; a missing OU ("There is no such object
-  on the server", measured) or a mismatch stops the plan. The answers are
-  reused when the links are written. Site links are not written by plans:
+  on the server", measured) or a mismatch stops the plan. The plan also reads
+  each target's `objectGUID` then (through ADSI, `DirectoryEntry`, which needs
+  no RSAT module) and again immediately before writing its link, and stops
+  without linking if it changed -- a same-DN replacement in between is not the
+  object that was checked. Measured on WS2025: the GUID read matches
+  `Get-ADObject`'s `objectGUID`; Windows PowerShell's ADSI adapter shadows
+  `DirectoryEntry.Guid` with a string, so the plan reads it through `psbase`;
+  a missing object reads as nothing rather than failing, which the plan
+  refuses. The `Get-GPInheritance` answers are reused when the links are
+  written. Site links are not written by plans:
   `Get-GPInheritance` answers only for a domain or an OU (measured: "Only a
   domain or an organizational unit (OU) may be targeted"). Link a site in GPMC.
 - **GPO.** The plan lists every GPO in the domain (`Get-GPO -All`), so a lookup
   error stops it rather than reading as "absent". The GPO whose comment has a
-  line exactly `GPO Studio binding: <workspace GUID>` -- which the plan writes
+  line exactly `GPO Studio binding: <workspace GUID>`, with nothing else on the
+  line (lines split at CRLF or LF; no trimming) -- which the plan writes
   into the comment of a GPO it creates -- binds without `-AdoptExistingGpo`
   only if the plan would not rename it and the workspace GUID did not come
   from imported data (an estate import keeps the GUID its file names, so a
@@ -1331,12 +1340,17 @@ soft hyphen still matches).
   records no filter ID. A check by name alone let a different filter with the
   same name pass. Apply such a GPO through the GPMC backup and `Import-GPO`,
   and assign the filter in GPMC.
-- **The Studio bundle.** When only the plan is refused (a WMI filter, or a
-  link outside the declared domain), `export.zip` is still written without
-  `apply.ps1`, and `manifest.json` records why under `powershell_plan`
-  (`included: false`, with the refusal's code and message). Egress accepts a
-  bundle without `apply.ps1` only on that record, and only when the GPO's plan
-  really is refused.
+- **The Studio bundle.** When every reason the plan is refused is plan-only (a
+  WMI filter, a link outside the declared domain), `export.zip` is still
+  written without `apply.ps1`, and `manifest.json` records every reason under
+  `powershell_plan` (`included: false`, `refusals`: code and message each). A
+  reason that refuses the whole bundle -- a deny filter, say -- does so whatever
+  else is refused. Egress checks the record both ways: a missing `apply.ps1`
+  needs the record and the GPO's plan refused for exactly those reasons, and an
+  `apply.ps1` beside a record, or for a GPO whose plan is refused, is refused;
+  without the GPO a missing plan is refused outright. The API's
+  `studio_export` capability is enabled for such a GPO and says separately
+  whether the plan is included (`plan_included`, `plan_reason`).
 - **`-WhatIf`.** Every change goes through a cmdlet's or the plan's own
   `ShouldProcess`, side status included, so `-WhatIf` changes nothing. A dry
   run on a GPO that does not exist yet stops after reporting its creation.
@@ -1346,7 +1360,10 @@ soft hyphen still matches).
 - **No filters authored:** the plan leaves permissions alone. A new GPO keeps
   the Windows default, Authenticated Users with `GpoApply`.
 - **Filters authored:** they are the GPO's whole apply set. Before anything
-  changes, every principal is resolved to its SID; where the filter stores a
+  changes, every principal is resolved to its SID, and a principal every new
+  GPO gives edit rights to -- Domain Admins or Enterprise Admins (RID 512 or
+  519), SYSTEM, or the account running the plan -- stops the plan before it
+  creates anything; where the filter stores a
   SID (an import does), a different one stops the plan -- a group deleted and
   recreated under the same name is not the group the filter was authored for.
   On an existing GPO, the plan then stops before changing it if an authored
@@ -1367,12 +1384,14 @@ soft hyphen still matches).
 ### When the plan stops partway
 
 The plan is not transactional. Everything it can check, it checks before the
-first change; after that, a stop leaves the GPO in one of these states (the
-plan's header lists them too):
+first change -- including, before `New-GPO`, everything that could refuse a
+new GPO's default permissions; only the new GPO's own permission listing is
+read after it is created. After that, a stop leaves the GPO in one of these
+states (the plan's header lists them too):
 
 | Stopped | State left behind |
 |---|---|
-| after `New-GPO` (a later check, or `-WhatIf`) | the GPO exists, unlinked, with the Windows default permissions and its marker |
+| after `New-GPO` (`-WhatIf`, or a check no new GPO is expected to fail) | the GPO exists, unlinked, with the Windows default permissions and its marker |
 | while lowering Apply | some former Apply holders are at `GpoRead`, the filters are not granted yet: the GPO may apply to no one, including where it is already linked |
 | while granting | some filters hold their level, others do not |
 | at the read-back | filtering as Windows left it; no settings, status or links written |
@@ -1394,6 +1413,16 @@ Users to `GpoRead` by the name `NT AUTHORITY\Authenticated Users` and granted a
 SID-authored principal; re-ran idempotently; changed nothing under `-WhatIf`;
 refused the GPO once its marker was removed; and adopted it with
 `-AdoptExistingGpo`. `New-GPO` itself refuses a second GPO with an existing name.
+A third estate run (2026-10-31, same rules) measured, on the real cmdlets: an
+authored SID with no account stopped the plan ("Cannot resolve", nothing
+created; on the existing marked GPO, nothing changed); `-WhatIf` of a plan that
+would change a setting and the side status changed nothing; a re-run bound the
+same GPO by its marker (no trimming; Windows stores the comment's line breaks
+as LF); and the plan's own target preflight and re-check read the same
+`objectGUID` for an existing OU that `Get-ADObject` reports, and stopped on a
+missing OU. A first version read `DirectoryEntry.Guid` directly and stopped,
+correctly, on an unchanged target: the ADSI adapter returned a string.
+
 A second estate run (same rules) found a link to a missing OU stopped the plan
 before any change: with no GPO yet, nothing was created; on the existing marked
 GPO, its permissions, setting, status, comment and versions were byte-identical

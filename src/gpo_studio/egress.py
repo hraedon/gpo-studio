@@ -239,7 +239,8 @@ PLAN_GRAMMAR: frozenset[str] = frozenset(
         "        -not ($seen.ContainsKey($held) -and $seen[$held] -eq <s>)) {",
         "        -not [string]::Equals([string]$som.Path, $target, [StringComparison]::OrdinalIgnoreCase)) {",  # noqa: E501
         "        <s>",
-        "        [string]::Equals($_.Trim(), $marker, [StringComparison]::Ordinal) }).Count -gt <n> })",  # noqa: E501
+        "        @($editors | Where-Object { [string]::Equals($_, $a[0], [StringComparison]::OrdinalIgnoreCase) }).Count -gt <n>) {",  # noqa: E501
+        "        [string]::Equals($_, $marker, [StringComparison]::Ordinal) }).Count -gt <n> })",
         "        catch { $named = <s> }",
         "        if ($held.Count -ne <n> -or [string]$held[0].Permission -ne $a[2]) {",
         "        if ($perm.Denied -or $perm.Inherited -or",
@@ -248,6 +249,7 @@ PLAN_GRAMMAR: frozenset[str] = frozenset(
         "        if ($perm.Trustee.SidType -eq <s>) { $type = <s> }",
         "        if (-not $held -or -not [string]::Equals($named, $held, [StringComparison]::OrdinalIgnoreCase)) {",  # noqa: E501
         "        return",
+        "        throw ($a[1] + <s>)",
         "        throw (<s> + $a[0] + <s>)",
         "        throw (<s> + $domain + <s> + <s> + <s>)",
         "        throw (<s> + $gpo.DisplayName + <s> + $gpo.Id + <s> + $domain + <s>)",
@@ -266,7 +268,9 @@ PLAN_GRAMMAR: frozenset[str] = frozenset(
         "    $kind = <s>",
         "    $marked = $true",
         "    $now = @(Get-GPPermission -Guid $gpo.Id -All -Domain $domain)",
+        "    $objectGuids[$target] = $read",
         "    $outside = -not $isDomain -and",
+        "    $read = $null",
         "    $sameName = [string]::Equals($gpo.DisplayName, <s>, [StringComparison]::Ordinal)",
         "    $seen[$a[0]] = $a[2]",
         "    $soms[$target] = $som",
@@ -276,11 +280,14 @@ PLAN_GRAMMAR: frozenset[str] = frozenset(
         "    Set-GPPermission -Guid $gpo.Id -PermissionLevel $a[2] -TargetName $a[1] -TargetType $a[3] -Replace -Domain $domain | Out-Null",  # noqa: E501
         "    Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName $l[0] -TargetType $l[1] -Replace -Domain $domain | Out-Null",  # noqa: E501
         "    Where-Object { $_.GpoId -eq $gpo.Id }",
+        "    catch { $read = $null }",
         "    catch { throw (<s> + $target + <s> + $domain + <s> + $_.Exception.Message) }",
         "    elseif (-not $perm.Denied -and ($perm.Permission -eq <s> -or",
         "    foreach ($a in $authored) {",
         "    foreach ($perm in $now) {",
+        "    if ($a[0] -match <s> -or",
         "    if ($isDomain) { $kind = <s> }",
+        "    if ($null -eq $read -or $read -eq [guid]::Empty) {",
         "    if ($outside -or $target.Substring(<n>, [Math]::Max(<n>, $target.Length - $domainDn.Length)) -imatch <s>) {",  # noqa: E501
         "    if ($perm.Permission -eq <s> -and -not $perm.Denied -and",
         "    if ($seen.ContainsKey($a[0])) {",
@@ -293,6 +300,8 @@ PLAN_GRAMMAR: frozenset[str] = frozenset(
         "    throw (<s> + $domain + <s> + $resolved.DomainName + <s>)",
         "    throw (<s> + $domain + <s>)",
         "    throw (<s> + <s> + <s> + $domain + <s>)",
+        "    throw (<s> + <s> + <s> + $objectGuids[<s>] + <s> + $current + <s>)",
+        "    try { $read = [System.DirectoryServices.DirectoryEntry]::new(<s> + $domain + <s> + $target.Replace(<s>, <s>)).psbase.Guid }",  # noqa: E501
         "    try { $som = Get-GPInheritance -Target $target -Domain $domain }",
         "    }",
         "#",
@@ -304,8 +313,10 @@ PLAN_GRAMMAR: frozenset[str] = frozenset(
         "$byMarker = @($all | Where-Object {",
         "$byName = @($all | Where-Object { [string]::Equals($_.DisplayName, <s>, [StringComparison]::OrdinalIgnoreCase) })",  # noqa: E501
         "$created = $false",
+        "$current = $null",
         "$domain = <s>",
         "$domainDn = <s> + (($resolved.DomainName -split <s>) -join <s>)",
+        "$editors = @(<s>, [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value)",
         "$existing = @(Get-GPPermission -Guid $gpo.Id -All -Domain $domain)",
         "$existingLink = $soms[<s>].GpoLinks |",
         "$existingValues = Get-GPRegistryValue -Guid $gpo.Id -Key <s> -Domain $domain -ErrorAction SilentlyContinue",  # noqa: E501
@@ -314,6 +325,7 @@ PLAN_GRAMMAR: frozenset[str] = frozenset(
         "$marked = $false",
         "$marker = <s>",
         "$name = <s>",
+        "$objectGuids = [System.Collections.Generic.Dictionary[string, guid]]::new([StringComparer]::OrdinalIgnoreCase)",  # noqa: E501
         "$seen = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::OrdinalIgnoreCase)",  # noqa: E501
         "$sid = ([System.Security.Principal.SecurityIdentifier]<s>).Value",
         "$soms = [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::OrdinalIgnoreCase)",  # noqa: E501
@@ -328,6 +340,7 @@ PLAN_GRAMMAR: frozenset[str] = frozenset(
         "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type QWord -Value <n> -Domain $domain",  # noqa: E501
         "Set-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName <s> -Type String -Value <s> -Domain $domain",  # noqa: E501
         "[CmdletBinding(SupportsShouldProcess=$true)]",
+        "catch { $current = $null }",
         "catch { throw (<s> + $domain + <s> + $_.Exception.Message) }",
         "catch { throw (<s> + <s> + <s> + $_.Exception.Message) }",
         "else {",
@@ -352,10 +365,12 @@ PLAN_GRAMMAR: frozenset[str] = frozenset(
         "if ($existingLink) { Set-GPLink -Guid $gpo.Id -Target <s> -LinkEnabled Yes -Enforced Yes -Order <n> -Domain $domain | Out-Null }",  # noqa: E501
         "if ($existingValues) { $existingValues | ForEach-Object { Remove-GPRegistryValue -Guid $gpo.Id -Key <s> -ValueName $_.ValueName -Domain $domain -ErrorAction SilentlyContinue } }",  # noqa: E501
         "if ($gpo) {",
+        "if ($null -eq $current -or $current -ne $objectGuids[<s>]) {",
         "if (-not [string]::Equals($gpo.DisplayName, <s>, [StringComparison]::Ordinal)) {",
         "if (-not [string]::Equals($resolved.DomainName, $domain, [StringComparison]::OrdinalIgnoreCase)) {",  # noqa: E501
         "if (-not [string]::Equals($sid, <s>, [StringComparison]::OrdinalIgnoreCase)) { throw ($name + <s> + $sid + <s> + <s> + <s>) }",  # noqa: E501
         "param([switch]$AdoptExistingGpo)",
+        "try { $current = [System.DirectoryServices.DirectoryEntry]::new(<s> + $domain + <s> + (<s>).Replace(<s>, <s>)).psbase.Guid }",  # noqa: E501
         "try { $name = ([System.Security.Principal.SecurityIdentifier]<s>).Translate([System.Security.Principal.NTAccount]).Value }",  # noqa: E501
         "try { $resolved = [Microsoft.GroupPolicy.GPDomain]::new($domain) }",
         "try { $sid = ([System.Security.Principal.NTAccount]<s>).Translate([System.Security.Principal.SecurityIdentifier]).Value }",  # noqa: E501
@@ -580,12 +595,20 @@ _GPMC_REQUIRED = (
 )
 
 
-def _omitted_plan_problems(
+def _plan_record_problems(
     where: str, archive: zipfile.ZipFile, names: list[str], model: Any
 ) -> list[EmitProblem]:
-    """A Studio bundle without ``apply.ps1`` is valid only when its manifest
-    records a plan-only refusal (`export.PLAN_ONLY_REFUSALS`) -- and, given the
-    GPO, the one its plan really has (pre-1.1.1 review, round 3)."""
+    """``apply.ps1`` and the manifest's ``powershell_plan`` record must agree,
+    both ways (pre-1.1.1 review, rounds 3 and 4).
+
+    * Without ``apply.ps1``, the manifest must record ``included: false`` with
+      plan-only refusals (`export.PLAN_ONLY_REFUSALS`), and the GPO's plan must
+      really be refused for exactly those reasons. Without the GPO -- bytes no
+      checked builder produced, reaching only the route backstop -- a missing
+      plan is refused outright: a record alone proves nothing.
+    * With ``apply.ps1``, the manifest must carry no record, and (given the
+      GPO) the GPO's plan must not be refused.
+    """
     from . import export
 
     if names.count("manifest.json") != 1:
@@ -593,24 +616,50 @@ def _omitted_plan_problems(
     try:
         record = json.loads(archive.read("manifest.json")).get("powershell_plan")
     except (ValueError, AttributeError):
-        record = None
-    code = record.get("code") if isinstance(record, dict) else None
-    if not isinstance(record, dict) or record.get("included") is not False or (
-        code not in export.PLAN_ONLY_REFUSALS
+        record = "unreadable"
+    present = "apply.ps1" in names
+    expected = export.plan_only_refusals(model) if model is not None else None
+    if present:
+        if record is not None:
+            return [EmitProblem(where, "member", "apply.ps1", "is present beside a refusal record")]
+        if expected:
+            return [
+                EmitProblem(
+                    where, "member", "apply.ps1", "is present, but the GPO's plan is refused"
+                )
+            ]
+        return []
+    codes: list[object] = []
+    if isinstance(record, dict) and isinstance(record.get("refusals"), list):
+        codes = [
+            entry.get("code") if isinstance(entry, dict) else None for entry in record["refusals"]
+        ]
+    if (
+        not isinstance(record, dict)
+        or record.get("included") is not False
+        or not codes
+        or any(code not in export.PLAN_ONLY_REFUSALS for code in codes)
     ):
         return [
             EmitProblem(
                 where, "member", "apply.ps1", "is missing without a recorded plan-only refusal"
             )
         ]
-    if model is not None:
-        refusal = export.plan_only_refusal(model)
-        if refusal is None or refusal.code != code:
-            return [
-                EmitProblem(
-                    where, "member", "apply.ps1", "is missing, but the GPO's plan is not refused"
-                )
-            ]
+    if expected is None:
+        return [
+            EmitProblem(
+                where, "member", "apply.ps1", "is missing, and without the GPO nothing confirms why"
+            )
+        ]
+    if [issue.code for issue in expected] != codes:
+        return [
+            EmitProblem(
+                where,
+                "member",
+                "apply.ps1",
+                "is missing, but the GPO's plan is not refused for the recorded reasons",
+            )
+        ]
     return []
 
 
@@ -648,8 +697,8 @@ def zip_problems(
         for name in sorted({n for n in names if names.count(n) > 1}):
             problems.append(EmitProblem(where, "member name", name, "appears more than once"))
         plan_omitted = kind == "studio" and "apply.ps1" not in names
-        if plan_omitted:
-            problems += _omitted_plan_problems(where, archive, names, model)
+        if kind == "studio":
+            problems += _plan_record_problems(where, archive, names, model)
         for pattern in required:
             if plan_omitted and pattern.pattern == r"apply\.ps1":
                 continue
@@ -918,7 +967,15 @@ def check(format: Format, result: Any) -> None:
             problems = report_text_problems(_body(result).decode("utf-8"))
         case "zip-studio":
             body = _body(result)
-            problems = zip_problems(body, "studio", strict_elements=not _was_checked(body))
+            # The route attaches the GPO it built from (`api.bundle`), so a
+            # plan-less bundle's refusal record is checked against the model
+            # here too, not taken on the manifest's word (round 4).
+            problems = zip_problems(
+                body,
+                "studio",
+                getattr(result, "egress_model", None),
+                strict_elements=not _was_checked(body),
+            )
         case "zip-gpmc":
             body = _body(result)
             problems = zip_problems(body, "gpmc", strict_elements=not _was_checked(body))
@@ -1068,22 +1125,31 @@ def checked_gpmc_backup(gpo: Any, scripts: Mapping[str, Any] | None = None) -> b
     return data
 
 
-def _refusal(build: Callable[[], Any], gpo: Any, path: str, *, blocked_first: bool) -> Any:
+def _refusal(
+    build: Callable[[], Any],
+    gpo: Any,
+    path: str,
+    *,
+    blocked_first: bool,
+    whole_only: bool = False,
+) -> Any:
     """Why *build* would refuse, or ``None`` -- by running it.
 
     Never builds for a GPO with a validation error: that refusal is
     validation's, and building the artifact anyway would write stored content
     a current rule refuses into bytes, sent or not (Sol final-r16 B1).
-    ``blocked_first`` adds the plan's own precondition, checked first.
+    ``blocked_first`` adds the plan's own precondition, checked first;
+    ``whole_only`` limits it to the refusals that take a whole bundle (not
+    `export.PLAN_ONLY_REFUSALS`).
     """
-    from .export import _plan_precondition, _writer_refusal
+    from .export import PLAN_ONLY_REFUSALS, _plan_refusals, _writer_refusal
     from .model import ValidationError
     from .validation import validate_gpo
 
     if blocked_first:
-        precondition = _plan_precondition(gpo)
-        if precondition is not None:
-            return precondition
+        for precondition in _plan_refusals(gpo):
+            if not whole_only or precondition.code not in PLAN_ONLY_REFUSALS:
+                return precondition
     errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
     if errors:
         # The plan and bundle leave it to the caller's `blocked`; the backup
@@ -1121,8 +1187,16 @@ def plan_refusal(gpo: Any) -> Any:
 
 
 def studio_export_refusal(gpo: Any) -> Any:
-    """Why `checked_studio_bundle` refuses this GPO, or ``None``."""
-    return _refusal(lambda: checked_studio_bundle(gpo), gpo, "export.zip", blocked_first=True)
+    """Why `checked_studio_bundle` refuses this GPO, or ``None``.
+
+    A plan-only refusal (a WMI filter, an out-of-domain link) does not refuse
+    the bundle -- it is written without ``apply.ps1`` -- so only a refusal that
+    takes the whole bundle is answered here first (round 4: the capability
+    said ``enabled: false`` while the route built the plan-less ZIP). Whether
+    the plan is included is the capability's ``plan_included``."""
+    return _refusal(
+        lambda: checked_studio_bundle(gpo), gpo, "export.zip", blocked_first=True, whole_only=True
+    )
 
 
 def gpmc_backup_refusal(gpo: Any, scripts: Mapping[str, Any] | None = None) -> Any:

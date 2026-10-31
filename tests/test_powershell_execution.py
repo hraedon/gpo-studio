@@ -142,6 +142,16 @@ namespace Microsoft.GroupPolicy {
   }
 }
 namespace StudioStub {
+  public class Entry {
+    readonly string dn;
+    public Entry(string path) { dn = path.Substring(path.IndexOf('/', 7) + 1); }
+    public System.Guid Guid { get { return new System.Guid(
+      System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(dn))); } }
+  }
+  public class Identity {
+    public Sid User { get { return new Sid("S-1-5-21-9-9-9-1500"); } }
+    public static Identity GetCurrent() { return new Identity(); }
+  }
   public class Account {
     public string Value { get; private set; }
     public Account(string value) { Value = value; }
@@ -200,9 +210,14 @@ def _runnable(plan: str) -> str:
     lines = [line for line in plan.splitlines() if not line.startswith("#Requires")]
     index = lines.index("param([switch]$AdoptExistingGpo)")
     text = "\n".join([*lines[: index + 1], _STUBS, *lines[index + 1 :]]) + "\n"
-    return text.replace("[System.Security.Principal.NTAccount]", "[StudioStub.Account]").replace(
-        "[System.Security.Principal.SecurityIdentifier]", "[StudioStub.Sid]"
-    )
+    for real, stub in (
+        ("[System.Security.Principal.NTAccount]", "[StudioStub.Account]"),
+        ("[System.Security.Principal.SecurityIdentifier]", "[StudioStub.Sid]"),
+        ("[System.Security.Principal.WindowsIdentity]", "[StudioStub.Identity]"),
+        ("[System.DirectoryServices.DirectoryEntry]", "[StudioStub.Entry]"),
+    ):
+        text = text.replace(real, stub)
+    return text
 
 
 def _plan_gpo(text: str) -> GPO:
