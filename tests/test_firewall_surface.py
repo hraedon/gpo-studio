@@ -550,7 +550,8 @@ def test_other_routes_errors_are_unchanged(client: TestClient) -> None:
 @pytest.mark.parametrize(
     ("shape", "status"),
     [
-        ("invalid-utf8-json", 400),
+        # FastAPI's generic 400 before #145; now the normal json_invalid 422.
+        ("invalid-utf8-json", 422),
         ("oversized", 413),
         ("chunked", 400),
         ("origin", 403),

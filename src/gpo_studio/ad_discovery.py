@@ -205,7 +205,46 @@ def _parse_resolution_state(value: str) -> ResolutionState:
     ])
 
 
-def _parse_gpo_link(raw: dict[str, Any]) -> GPOLink:
+_MAX_LINK_ORDER = 2**31 - 1
+
+
+def _bool_field(data: dict[str, Any], name: str, default: bool, path: str) -> bool:
+    # bool("false") is True: only a JSON boolean is a boolean.
+    value = data.get(name, default)
+    if type(value) is not bool:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="invalid_boolean_field",
+                message=f"Field {name!r} must be true or false.",
+                path=path,
+            )
+        ])
+    return value
+
+
+def _parse_gpo_link(raw: object) -> GPOLink:
+    if not isinstance(raw, dict):
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="invalid_gpo_link_entry",
+                message="Each GPO link must be a JSON object.",
+                path="gpo_links",
+            )
+        ])
+    order = raw.get("order", 1)
+    # int() accepted "7", 7.9 and True, and raised on "NaN", null, [] or {}
+    # (a 500, #148 review): the order is a JSON integer from 1.
+    if type(order) is not int or not 1 <= order <= _MAX_LINK_ORDER:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="invalid_gpo_link_order",
+                message=f"GPO link order must be an integer from 1 to {_MAX_LINK_ORDER}.",
+                path="gpo_links.order",
+            )
+        ])
     link_id = str(raw.get("id", ""))
     if not link_id:
         raise ValidationError([
@@ -219,9 +258,9 @@ def _parse_gpo_link(raw: dict[str, Any]) -> GPOLink:
     return GPOLink(
         id=link_id,
         target=str(raw.get("target", "")),
-        enabled=bool(raw.get("enabled", True)),
-        enforced=bool(raw.get("enforced", False)),
-        order=int(raw.get("order", 1)),
+        enabled=_bool_field(raw, "enabled", True, "gpo_links.enabled"),
+        enforced=_bool_field(raw, "enforced", False, "gpo_links.enforced"),
+        order=order,
     )
 
 
@@ -234,25 +273,42 @@ def discovery_script_forest() -> str:
         "$domains = @($forest.Domains | ForEach-Object { $_.Name })",
         "$globalCatalogs = @($forest.GlobalCatalogs | ForEach-Object { $_.Name })",
         "$trusts = @($forest.GetAllTrustRelationships() | ForEach-Object {",
-        "    $direction = switch ($_.TrustDirection.ToString()) {",
+        # Inside a switch $_ is the switch value, not the trust.
+        "    $trust = $_",
+        "    $direction = switch ($trust.TrustDirection.ToString()) {",
         "        'Inbound' { 'inbound' }",
         "        'Outbound' { 'outbound' }",
         "        'Bidirectional' { 'bidirectional' }",
         "        default { 'unknown' }",
         "    }",
-        "    $trustType = switch ($_.TrustType.ToString()) {",
+        "    $trustType = switch ($trust.TrustType.ToString()) {",
         "        'ParentChild' { 'parent-child' }",
         "        'CrossLink' { 'cross-link' }",
         "        'External' { 'external' }",
         "        'Forest' { 'forest' }",
         "        default { 'unknown' }",
         "    }",
+        # Neither TrustRelationshipInformation type has a Transitive property,
+        # so $_.Transitive was always null (#148 review). The trust type
+        # decides it: parent-child, tree-root, shortcut (cross-link) and
+        # forest trusts are transitive; an external trust never is. A
+        # Kerberos realm trust carries it in trustAttributes, which this
+        # script does not read, so it stops instead of guessing.
+        "    $transitive = switch ($trust.TrustType.ToString()) {",
+        "        'ParentChild' { $true }",
+        "        'TreeRoot' { $true }",
+        "        'CrossLink' { $true }",
+        "        'Forest' { $true }",
+        "        'External' { $false }",
+        "        default { throw \"Cannot tell whether the $($trust.TrustType) trust to "
+        "$($trust.TargetName) is transitive\" }",
+        "    }",
         "    @{",
-        "        source = $_.SourceName",
-        "        target = $_.TargetName",
+        "        source = $trust.SourceName",
+        "        target = $trust.TargetName",
         "        direction = $direction",
         "        trust_type = $trustType",
-        "        transitive = $_.Transitive",
+        "        transitive = $transitive",
         "    }",
         "})",
         "$result = @{",
@@ -310,7 +366,7 @@ def parse_trust(data: dict[str, Any]) -> TrustInfo:
         target=_str_field(data, "target"),
         direction=_parse_trust_direction(_str_field(data, "direction")),
         trust_type=_parse_trust_type(_str_field(data, "trust_type")),
-        transitive=bool(data.get("transitive", True)),
+        transitive=_bool_field(data, "transitive", True, "trusts.transitive"),
     )
 
 
@@ -321,15 +377,18 @@ def discovery_script_domain(domain: str = "") -> str:
         "# Generated by GPO Studio. Run on a domain-joined machine; output is JSON to stdout.",
         f"param([string]$Domain = {domain_param})",
         "$ErrorActionPreference = 'Stop'",
+        # $Domain is a [string] parameter: assigning the Domain object to it
+        # converted it back to its name, so every property below was null
+        # (#148 review). The object gets its own variable.
         "if ($Domain -eq '') { "
-        "$Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain() }",
+        "$adDomain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain() }",
         "else {",
         "    $ctx = New-Object "
         "System.DirectoryServices.ActiveDirectory.DirectoryContext('Domain', $Domain)",
-        "    $Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($ctx)",
+        "    $adDomain = [System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($ctx)",
         "}",
-        "$domainControllers = @($Domain.DomainControllers | ForEach-Object { $_.Name })",
-        "$root = $Domain.GetDirectoryEntry()",
+        "$domainControllers = @($adDomain.DomainControllers | ForEach-Object { $_.Name })",
+        "$root = $adDomain.GetDirectoryEntry()",
         "$searcher = New-Object System.DirectoryServices.DirectorySearcher($root)",
         "$searcher.Filter = '(objectClass=domain)'",
         "$searcher.PropertiesToLoad.Add('nETBIOSName') | Out-Null",
@@ -338,13 +397,13 @@ def discovery_script_domain(domain: str = "") -> str:
         "{ $domainEntry.Properties['nETBIOSName'][0] } else { '' }",
         "$result = @{",
         "    kind = 'gpo-studio-discovery-domain'",
-        "    dns_name = $Domain.Name",
+        "    dns_name = $adDomain.Name",
         "    netbios_name = $netbios",
         "    domain_controllers = $domainControllers",
-        "    pdc_emulator = $Domain.PdcRoleOwner.Name",
-        "    rid_master = $Domain.RidRoleOwner.Name",
-        "    infrastructure_master = $Domain.InfrastructureRoleOwner.Name",
-        "    functional_level = $Domain.DomainMode.ToString()",
+        "    pdc_emulator = $adDomain.PdcRoleOwner.Name",
+        "    rid_master = $adDomain.RidRoleOwner.Name",
+        "    infrastructure_master = $adDomain.InfrastructureRoleOwner.Name",
+        "    functional_level = $adDomain.DomainMode.ToString()",
         "}",
         "ConvertTo-Json -InputObject $result -Depth 10",
     ]
@@ -779,8 +838,10 @@ def discovery_script_principal_search(
         "$_.Properties['objectSid'][0], 0)",
         "    $sidHistory = @()",
         "    if ($_.Properties['sIDHistory']) {",
-        "        $sidHistory = $_.Properties['sIDHistory'] | ForEach-Object { "
-        "(New-Object System.Security.Principal.SecurityIdentifier($_, 0)).Value }",
+        # @(): a single value would otherwise be emitted as a string, and
+        # the importer requires a list (#148 review).
+        "        $sidHistory = @($_.Properties['sIDHistory'] | ForEach-Object { "
+        "(New-Object System.Security.Principal.SecurityIdentifier($_, 0)).Value })",
         "    }",
         "    $objectClass = if ($_.Properties['objectClass']) "
         "{ $_.Properties['objectClass'][-1] } else { '' }",

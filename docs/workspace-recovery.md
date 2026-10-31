@@ -689,8 +689,10 @@ Policy-state observations compare complete native scalar-marker/list patterns.
 An old state row at a moved address is not evidence of either current state;
 unclaimed possible state records remain unresolved, and the policy can be
 Indeterminate while its raw records and independently eligible exports remain
-available. Child-only inference retains its heuristic except when unclaimed
-historical level records expose uncertainty. Reads never repair these records.
+available. Child-only policies are observed from their element rows, and are
+Indeterminate when the rows cannot prove one state (see `architecture.md`);
+unclaimed historical level records still expose uncertainty. Reads never repair
+these records.
 
 These are local editor/storage guarantees; they do not qualify native Windows
 policy behavior.
