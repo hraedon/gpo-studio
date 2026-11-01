@@ -1094,21 +1094,28 @@ def writer_boundary(where: str) -> Iterator[None]:
 
 
 def refusal_issues(
-    gpo: Any, artifact: Any, validation: Sequence[Any] | None = None
+    gpo: Any,
+    artifact: Any,
+    validation: Sequence[Any] | None = None,
+    *,
+    scripts: Mapping[str, Any] | None = None,
+    target: str = "both",
 ) -> list[Any]:
     """`export.refusal_issues`: THE refusal decision, re-exported for the
-    routes and capabilities (round 7)."""
+    routes and capabilities (rounds 7 and 8)."""
     from .export import refusal_issues as decide
 
-    return decide(gpo, artifact, validation)
+    return decide(gpo, artifact, validation, scripts=scripts, target=target)
 
 
-def _require_valid(gpo: Any, artifact: Any) -> None:
+def _require_valid(
+    gpo: Any, artifact: Any, scripts: Mapping[str, Any] | None = None
+) -> None:
     """Every checked builder refuses before building anything (Sol final-r18
     B2), with every reason at once (`refusal_issues`)."""
     from .model import ValidationError
 
-    issues = refusal_issues(gpo, artifact)
+    issues = refusal_issues(gpo, artifact, scripts=scripts)
     if issues:
         raise ValidationError(issues)
 
@@ -1141,9 +1148,7 @@ def checked_studio_bundle(gpo: Any) -> bytes:
 def checked_gpmc_backup(gpo: Any, scripts: Mapping[str, Any] | None = None) -> bytes:
     from . import export
 
-    _require_valid(
-        gpo, "gpmc-backup-with-scripts" if scripts and any(scripts.values()) else "gpmc-backup"
-    )
+    _require_valid(gpo, _gpmc_kind(scripts), scripts)
     with writer_boundary("gpmc-backup"):
         data = export.gpmc_backup_bundle(gpo, scripts=scripts)
     problems = zip_problems(data, "gpmc", gpo)
@@ -1153,15 +1158,25 @@ def checked_gpmc_backup(gpo: Any, scripts: Mapping[str, Any] | None = None) -> b
     return data
 
 
-def _refusal(build: Callable[[], Any], gpo: Any, artifact: Any) -> Any:
+def _gpmc_kind(scripts: Mapping[str, Any] | None) -> str:
+    return "gpmc-backup-with-scripts" if scripts and any(scripts.values()) else "gpmc-backup"
+
+
+def _refusal(
+    build: Callable[[], Any],
+    gpo: Any,
+    artifact: Any,
+    scripts: Mapping[str, Any] | None = None,
+) -> Any:
     """A capability's refusal: `refusal_issues`, named in one issue
     (`export.refusal_summary`), or -- only when nothing refuses the GPO -- the
-    writer's own refusal, found by building it. The builder never runs for a
-    refused GPO (Sol final-r16 B1)."""
+    writer's own WRITER-STAGE refusal, found by building it, with every one of
+    its reasons (`export._writer_refusal`, round 8). The builder never runs for
+    a refused GPO (Sol final-r16 B1)."""
     from .export import _writer_refusal, refusal_summary
     from .model import ValidationError
 
-    issues = refusal_issues(gpo, artifact)
+    issues = refusal_issues(gpo, artifact, scripts=scripts)
     if issues:
         return refusal_summary(issues)
     try:
@@ -1203,5 +1218,4 @@ def studio_export_refusal(gpo: Any) -> Any:
 
 def gpmc_backup_refusal(gpo: Any, scripts: Mapping[str, Any] | None = None) -> Any:
     """Why `checked_gpmc_backup` refuses this GPO, or ``None``."""
-    kind = "gpmc-backup-with-scripts" if scripts and any(scripts.values()) else "gpmc-backup"
-    return _refusal(lambda: checked_gpmc_backup(gpo, scripts), gpo, kind)
+    return _refusal(lambda: checked_gpmc_backup(gpo, scripts), gpo, _gpmc_kind(scripts), scripts)

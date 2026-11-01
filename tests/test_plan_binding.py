@@ -1812,9 +1812,20 @@ def test_the_guards_raise_every_reason_with_the_validation_errors(combination: s
 
 # --- round 7: one decision, every artifact, every surface ----------------------
 
+import contextlib  # noqa: E402
 import itertools  # noqa: E402
 import types  # noqa: E402
+from collections.abc import Iterator  # noqa: E402
 
+from gpo_studio import gpp as gpp_module  # noqa: E402
+from gpo_studio import publication as publication_module  # noqa: E402
+from gpo_studio.fdeploy import encode_fdeploy, read_fdeploy  # noqa: E402
+from gpo_studio.gpp import (  # noqa: E402
+    GppCollection,
+    GppGroup,
+    GppRegistry,
+    GppRegistryValue,
+)
 from gpo_studio.model import CseMetadataEntry  # noqa: E402
 from gpo_studio.script_policy import ScriptEntry, ScriptPolicy  # noqa: E402
 
@@ -1832,14 +1843,58 @@ _REASONS: dict[str, dict[str, Any]] = {
     "foreign-link": {"links": (_FOREIGN_LINK,)},
     "deny": {"security_filters": _DENY},
     "disabled-side": {"user_enabled": False},
+    # Round 8: the writers' own model-level refusals, and an empty domain.
+    "cpassword": {"gpp_collections": (
+        GppCollection(scope="computer", groups=(GppGroup(name="G", unknown_attrs=(
+            ("cpassword", "x"),)),)),
+    )},
+    "fdeploy": {"fdeploy": read_fdeploy(encode_fdeploy(
+        "[version]\r\nversion=100\r\n[Folder_Redirection]\r\n"
+        "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}=s-1-1-0;\r\n"
+        "[{FDD39AD0-238F-46AF-ADB4-6C85480369C7}_s-1-1-0]\r\n"
+        "FullPath=\\\\synthetic\\share\r\nFlags=1021\r\n"
+    ))},
+    "gpp-registry-default": {"gpp_collections": (
+        GppCollection(scope="computer", registry=(GppRegistry(
+            key="Software\\Synthetic", value=GppRegistryValue(name="", value="x", default=True)
+        ),)),
+    )},
+    "unverified-family": {"gpp_collections": (
+        GppCollection(
+            scope="user",
+            environment=(gpp_module.GppEnvironment(name="SYNTHETIC", value="x"),),
+        ),
+    )},
+    "empty-domain": {"domain": ""},
 }
+
+
+def _merge_collections(
+    existing: tuple[GppCollection, ...], added: tuple[GppCollection, ...]
+) -> tuple[GppCollection, ...]:
+    by_scope = {collection.scope: collection for collection in existing}
+    for collection in added:
+        current = by_scope.get(collection.scope)
+        if current is None:
+            by_scope[collection.scope] = collection
+            continue
+        by_scope[collection.scope] = replace(current, **{
+            name: getattr(current, name) + getattr(collection, name)
+            for name in ("groups", "registry", "environment")
+        })
+    return tuple(by_scope[scope] for scope in sorted(by_scope))
 
 
 def _combined(names: tuple[str, ...]) -> GPO:
     changes: dict[str, Any] = {}
     for name in names:
         for key, value in _REASONS[name].items():
-            changes[key] = changes.get(key, ()) + value if key == "links" else value
+            if key == "links":
+                changes[key] = changes.get(key, ()) + value
+            elif key == "gpp_collections":
+                changes[key] = _merge_collections(changes.get(key, ()), value)
+            else:
+                changes[key] = value
     return _gpo(**changes)
 
 
@@ -1847,7 +1902,48 @@ _MATRIX = [
     combo
     for size in (0, 1, 2, 3)
     for combo in itertools.combinations(sorted(_REASONS), size)
+] + [
+    # Round 8 (Sol): a default-value GPP Registry item and Folder Redirection,
+    # with an empty domain and unknown CSE content beside them.
+    ("empty-domain", "fdeploy", "gpp-registry-default", "unknown-cse"),
+    ("cpassword", "empty-domain", "fdeploy", "unknown-cse"),
+    ("cpassword", "fdeploy", "gpp-registry-default", "unverified-family"),
 ]
+
+#: Every artifact serializer, at each module that calls it (round 8). None may
+#: run for a GPO the decision refuses. Validation's own read of what the GPP
+#: writer would write (`validation.serialized_identity_issues`, through
+#: `gpp._written_for`) is validation, not an artifact writer; the digest's use
+#: of `_written_for` is pinned on its own (`test_the_review_digest_...`).
+_SERIALIZERS: tuple[tuple[Any, str], ...] = (
+    (export, "serialize"),
+    (export, "serialize_gpp"),
+    (export, "_gpmc_preg_bytes"),
+    (export, "_gpp_family_files"),
+    (export, "_native_export_files"),
+    (export, "_native_scripts_files"),
+    (export, "_studio_manifest"),
+    (export, "deterministic_zip"),
+    (publication_module, "serialize_gpp"),
+    (publication_module, "_build_registry_pol_content"),
+    (gpp_module, "serialize_gpp"),
+)
+
+
+@contextlib.contextmanager
+def _counting_serializers(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
+    calls: list[str] = []
+    with monkeypatch.context() as patch:
+        for module, name in _SERIALIZERS:
+            real = getattr(module, name)
+
+            def counting(*args: Any, _real: Any = real, _name: str = name, **kw: Any) -> Any:
+                calls.append(_name)
+                return _real(*args, **kw)
+
+            patch.setattr(module, name, counting)
+        gpp_module._RETAINED_RENDERINGS.clear()
+        yield calls
 
 
 class _OneGpoStore:
@@ -1919,9 +2015,56 @@ def test_one_refusal_decision_for_every_artifact_and_surface(combo: tuple[str, .
         assert _raised(api_module._reviewed_export, request, gpo.guid, None, None, kind) == (
             expect(kind)
         ), kind
-    assert _raised(api_module.publication_plan_preview, request, gpo.guid) == expect(
-        "publication-plan"
-    )
+    # Publication (round 8): a refusal the planner states as a refused step
+    # gets its refused plan, naming exactly those; any other is a 422 naming
+    # every reason, the planner's included.
+    published = decided["publication-plan"]
+    if any(code not in publication_module.PLANNER_REFUSALS for code in published):
+        assert _raised(api_module.publication_plan_preview, request, gpo.guid) == published
+    else:
+        answer = api_module.publication_plan_preview(request, gpo.guid)
+        assert answer["refused"] is bool(published)
+        assert {
+            issue["check"] for issue in answer["issues"] if issue["level"] == "error"
+        } == set(published)
+
+    # No serializer runs for a refused artifact, on any surface (round 8).
+    surfaces: dict[str, list[Any]] = {
+        "plan.ps1": [
+            lambda: export.powershell_plan(gpo),
+            lambda: egress.checked_plan(gpo),
+            lambda: api_module._reviewed_export(request, gpo.guid, None, None, "plan.ps1"),
+        ],
+        "export.zip": [
+            lambda: export.export_bundle(gpo),
+            lambda: egress.checked_studio_bundle(gpo),
+            lambda: api_module._reviewed_export(request, gpo.guid, None, None, "export.zip"),
+        ],
+        "gpmc-backup": [
+            lambda: export.gpmc_backup_bundle(gpo),
+            lambda: egress.checked_gpmc_backup(gpo),
+            lambda: export.native_backup_id(gpo),
+            lambda: api_module._reviewed_export(request, gpo.guid, None, None, "gpmc-backup"),
+        ],
+        "gpmc-backup-with-scripts": [
+            lambda: export.gpmc_backup_bundle(gpo, scripts=scripts),
+            lambda: egress.checked_gpmc_backup(gpo, scripts=scripts),
+        ],
+        "publication-plan": [
+            lambda: api_module.publication_plan_preview(request, gpo.guid),
+            lambda: publication_module.generate_publication_plan(gpo),
+        ],
+    }
+    for kind, calls_of_kind in surfaces.items():
+        if not decided[kind]:
+            continue
+        for surface in calls_of_kind:
+            with (
+                _counting_serializers(pytest.MonkeyPatch()) as calls,
+                contextlib.suppress(ValidationError),
+            ):
+                surface()
+            assert calls == [], (kind, calls)
 
     api_module._REFUSAL_CACHE.clear()
     caps = api_module._gpo_payload(gpo)["artifact_capabilities"]
@@ -2072,3 +2215,278 @@ def test_only_the_deciding_builder_reaches_the_backup_codec() -> None:
         if "_gpmc_backup_codec(" in line and "def _gpmc_backup_codec(" not in line
     ]
     assert callers == [("export.py", callers[0][1])] and len(callers) == 1
+
+
+# --- round 8: one digest, and the writers' own refusals in the decision -------
+
+from gpo_studio import canonical as canonical_module  # noqa: E402
+
+_BAD_LINK = GPOLink("bad", "bad-target", order=0)
+
+
+def _retained_groups_gpo(**changes: Any) -> GPO:
+    """An ordinary Groups collection exported and imported again, so its items
+    carry retained ``native_xml`` records (Sol's round-7 repro), as the store
+    holds it: a stored collection has no verbatim ``source_files``."""
+    collection = gpp_module.parse_gpp_collection(
+        "computer",
+        gpp_module.serialize_gpp(
+            GppCollection(scope="computer", groups=(GppGroup("SyntheticGroup", id="grp"),))
+        ),
+    )
+    collection = replace(collection, source_files=())
+    assert all(item.native_xml for item in collection.groups)
+    return _gpo(revision=3, gpp_collections=(collection,), **changes)
+
+
+@pytest.fixture
+def one_gpo_client(monkeypatch: pytest.MonkeyPatch) -> Any:
+    from fastapi.testclient import TestClient
+
+    from gpo_studio import api as api_module
+
+    def make(gpo: GPO) -> TestClient:
+        monkeypatch.setattr(api_module.app.state, "store", _OneGpoStore(gpo), raising=False)
+        monkeypatch.setattr(api_module.app.state, "owns_store", False, raising=False)
+        api_module._REFUSAL_CACHE.clear()
+        gpp_module._RETAINED_RENDERINGS.clear()
+        return TestClient(api_module.app)
+
+    return make
+
+
+def _fresh_tokens(client: Any, gpo: GPO) -> dict[str, Any]:
+    read = client.get(f"/api/gpos/{gpo.guid}")
+    assert read.status_code == 200, read.text
+    payload = read.json()
+    assert payload["review_model_sha256"] is not None
+    return {
+        "expected_revision": payload["gpo"]["revision"],
+        "expected_review_hash": payload["review_model_sha256"],
+    }
+
+
+@pytest.mark.parametrize("kind", ["plan.ps1", "export.zip", "gpmc-backup"])
+def test_a_fresh_review_of_a_refused_gpo_with_retained_records_is_not_stale(
+    one_gpo_client: Any, kind: str
+) -> None:
+    """Round 8 (Sol): the guard hashed without the payload's raw-records
+    policy, so a GPO with a validation error and a retained GPP record had a
+    review hash the guard never reproduced. Its fresh revision and hash were
+    answered 409, and again on every reload. They are now its refusal."""
+    gpo = _retained_groups_gpo(links=(_BAD_LINK,))
+    client = one_gpo_client(gpo)
+    for _reload in range(2):
+        response = client.get(f"/api/gpos/{gpo.guid}/{kind}", params=_fresh_tokens(client, gpo))
+        assert response.status_code == 422, response.text
+        assert [issue["code"] for issue in response.json()["error"]["issues"]] == _codes(
+            export.refusal_issues(gpo, kind)  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize("kind", ["export.zip", "gpmc-backup"])
+def test_a_fresh_review_of_an_exportable_gpo_with_retained_records_downloads(
+    one_gpo_client: Any, kind: str
+) -> None:
+    """The control: without the validation error the same GPO's fresh review
+    downloads (its records are hashed as written, by design)."""
+    gpo = _retained_groups_gpo()
+    client = one_gpo_client(gpo)
+    response = client.get(f"/api/gpos/{gpo.guid}/{kind}", params=_fresh_tokens(client, gpo))
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize("kind", ["plan.ps1", "export.zip", "gpmc-backup"])
+def test_the_review_digest_of_a_refused_gpo_reaches_no_writer(
+    one_gpo_client: Any, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    """Round 8 (Sol): a trap on the writer the canonical form calls to see
+    what a retained record writes made the reviewed export a 500. Neither the
+    payload nor the guard hashes a refused GPO's records through it now."""
+    real = canonical_module.retained_rendering
+    calls: list[str] = []
+
+    def guarded(key: str, item: Any, scope: Any) -> str:
+        def trap(*args: Any, **kwargs: Any) -> Any:
+            calls.append(key)
+            raise RuntimeError("the hashing writer ran")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(gpp_module, "_written_for", trap)
+            return real(key, item, scope)
+
+    monkeypatch.setattr(canonical_module, "retained_rendering", guarded)
+    gpo = _retained_groups_gpo(links=(_BAD_LINK,))
+    client = one_gpo_client(gpo)
+    response = client.get(f"/api/gpos/{gpo.guid}/{kind}", params=_fresh_tokens(client, gpo))
+    assert response.status_code == 422, response.text
+    assert calls == []
+
+
+@pytest.mark.parametrize("refusal", ["validation", "cpassword"])
+def test_the_one_digest_runs_no_writer_on_refused_content(
+    monkeypatch: pytest.MonkeyPatch, refusal: str
+) -> None:
+    """`api._gpo_digests` is the payload's digest and the guard's: for content
+    a current rule refuses -- a validation error, a cpassword the exports
+    refuse -- no writer runs to hash a retained record."""
+    from gpo_studio import api as api_module
+
+    if refusal == "validation":
+        gpo = _retained_groups_gpo(links=(_BAD_LINK,))
+    else:
+        gpo = _retained_groups_gpo()
+        collection = gpo.gpp_collections[0]
+        group = replace(collection.groups[0], unknown_attrs=(("cpassword", "x"),))
+        gpo = replace(gpo, gpp_collections=(replace(collection, groups=(group,)),))
+        assert export.gpp_cpassword_refusals(gpo)
+    validation = validate_gpo(gpo)
+    gpp_module._RETAINED_RENDERINGS.clear()
+    calls: list[str] = []
+
+    def trap(*args: Any, **kwargs: Any) -> Any:
+        calls.append("written")
+        raise RuntimeError("the hashing writer ran")
+
+    monkeypatch.setattr(gpp_module, "_written_for", trap)
+    digests = api_module._gpo_digests(gpo, validation)
+    assert calls == []
+    assert None not in digests
+    monkeypatch.undo()
+    assert api_module._gpo_payload(gpo)["review_model_sha256"] == digests[1]
+
+
+def test_the_writers_keep_their_checks_and_report_every_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round 8 (Daybreak): a writer's refusal kept only ``issues[0]``, so the
+    capability for a cpassword AND Folder Redirection named the cpassword
+    alone. With the decision's model-level checks taken away, the writers'
+    own checks (defence in depth) still refuse, and every reason is named."""
+    from gpo_studio import api as api_module
+
+    gpo = _combined(("cpassword", "fdeploy"))
+    monkeypatch.setattr(export, "native_backup_model_refusals", lambda *a, **k: [])
+    monkeypatch.setattr(export, "gpp_cpassword_refusals", lambda gpo: [])
+    assert export.refusal_issues(gpo, "gpmc-backup") == []
+    with pytest.raises(ValidationError) as caught:
+        export.gpmc_backup_bundle(gpo)
+    assert set(_codes(caught.value.issues)) == {
+        "cpassword_detected",
+        "folder_redirection_not_exportable",
+    }
+    with pytest.raises(ValidationError) as studio:
+        export.export_bundle(gpo)
+    assert _codes(studio.value.issues) == ["cpassword_detected"]
+    api_module._REFUSAL_CACHE.clear()
+    reason = api_module._gpo_payload(gpo)["artifact_capabilities"]["gpmc_export"]["reason"]
+    for issue in caught.value.issues:
+        assert issue.message in reason, issue.code
+
+
+_MODEL_LEVEL = ("cpassword", "fdeploy", "gpp-registry-default", "unverified-family")
+
+
+@pytest.mark.parametrize(
+    "combo",
+    [c for size in (1, 2, 3, 4) for c in itertools.combinations(_MODEL_LEVEL, size)],
+    ids=lambda c: "+".join(c),
+)
+def test_the_decision_names_everything_the_writer_would(combo: tuple[str, ...]) -> None:
+    """Round 8: every refusal the GPMC writer and the Studio bundle writer
+    make on what they write is one the decision already made from the model,
+    word for word, so a writer-stage refusal of these is never the first
+    anyone hears of it."""
+    gpo = _combined(combo)
+    decided = export.refusal_issues(gpo, "gpmc-backup")
+    with pytest.raises(ValidationError) as caught:
+        export._native_export_files(gpo)
+    assert set(caught.value.issues) <= set(decided)
+    if "cpassword" in combo:
+        assert set(export.gpp_cpassword_refusals(gpo)) <= set(
+            export.refusal_issues(gpo, "export.zip")
+        )
+
+
+@pytest.mark.parametrize("reason", ["fdeploy", "gpp-registry-default", "unverified-family"])
+def test_a_refused_publication_plan_names_its_files_and_writes_none(
+    monkeypatch: pytest.MonkeyPatch, reason: str
+) -> None:
+    """Round 8 (Daybreak): the planner serialized Registry.pol and the GPP
+    files, then refused. A refused plan now names the same files from the
+    model, with no content digest, and serializes nothing."""
+    groups = GppCollection(scope="computer", groups=(GppGroup("SyntheticGroup", id="grp"),))
+    gpo = _combined((reason,))
+    gpo = replace(gpo, gpp_collections=_merge_collections(gpo.gpp_collections, (groups,)))
+    unrefused = publication_module.generate_publication_plan(replace(
+        gpo, fdeploy=None, gpp_collections=(groups,)
+    ))
+    with _counting_serializers(monkeypatch) as calls:
+        plan = publication_module.generate_publication_plan(gpo)
+    assert calls == []
+    refused = {issue.check for issue in publication_module.validate_publication_plan(plan)}
+    assert refused & publication_module.PLANNER_REFUSALS
+    writes = [s for s in plan.steps if s.operation in ("write_registry_pol", "copy_gpp_xml")]
+    assert writes and all(step.artifact_ids == () for step in writes)
+    assert {s.sysvol_path for s in writes} >= {
+        s.sysvol_path
+        for s in unrefused.steps
+        if s.operation in ("write_registry_pol", "copy_gpp_xml")
+    }
+
+
+def test_a_cpassword_refuses_publication_before_the_planner(
+    one_gpo_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round 8: publication copied a GPP file carrying a cpassword into its
+    plan. It is refused (422) with every reason, the planner's included."""
+    gpo = _combined(("cpassword", "disabled-side"))
+    expected = _codes(export.refusal_issues(gpo, "publication-plan"))
+    assert {"cpassword_detected", "unsupported_side_status"} <= set(expected)
+    with _counting_serializers(monkeypatch) as calls:
+        response = one_gpo_client(gpo).get(f"/api/gpos/{gpo.guid}/publication-plan")
+        with pytest.raises(ValidationError):
+            publication_module.generate_publication_plan(gpo)
+    assert calls == []
+    assert response.status_code == 422, response.text
+    assert [issue["code"] for issue in response.json()["error"]["issues"]] == expected
+
+
+@pytest.mark.parametrize(
+    "combo", [(), ("cpassword",), ("gpp-registry-default",), ("unverified-family",)],
+    ids=lambda c: "+".join(c) or "groups",
+)
+def test_extension_registration_reads_the_model(
+    monkeypatch: pytest.MonkeyPatch, combo: tuple[str, ...]
+) -> None:
+    """The families `extension_registration` registers come from the model's
+    file list (`gpp.gpp_file_names`), the same files and families the
+    serializing path derives, and no serializer runs for them."""
+    gpo = _combined(combo)
+    groups = GppCollection(scope="computer", groups=(GppGroup("SyntheticGroup", id="grp"),))
+    gpo = replace(gpo, gpp_collections=_merge_collections(gpo.gpp_collections, (groups,)))
+    with contextlib.suppress(ValidationError):
+        written = [entry[:3] for entry in export._gpp_family_files(gpo)]
+        assert list(export._gpp_families(gpo)) == written
+    with _counting_serializers(monkeypatch) as calls:
+        export.extension_registration(gpo)
+    assert calls == []
+
+
+def test_a_script_state_with_no_native_encoding_is_in_the_decision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round 8 (Daybreak): the Scripts route made a second decision
+    (`native_backup_refusal`) after the shared one. A policy state with no
+    native encoding is now in `refusal_issues`, beside the GPO's reasons, and
+    nothing is serialized for it."""
+    gpo = _gpo(settings=(), security_filters=(), links=())
+    scripts = {"computer": ScriptPolicy(
+        startup=(ScriptEntry("s1", "a1", "run.cmd", execution="asynchronous"),)
+    )}
+    decided = _codes(export.refusal_issues(gpo, "gpmc-backup-with-scripts", scripts=scripts))
+    assert "inexpressible_native_script_state" in decided
+    with _counting_serializers(monkeypatch) as calls:
+        assert _raised(export.gpmc_backup_bundle, gpo, scripts=scripts) == decided
+        assert _raised(egress.checked_gpmc_backup, gpo, scripts=scripts) == decided
+    assert calls == []

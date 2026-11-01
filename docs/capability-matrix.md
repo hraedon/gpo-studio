@@ -1399,16 +1399,65 @@ soft hyphen still matches).
 ### One refusal decision
 
 `export.refusal_issues(gpo, artifact)` is the only place an export refusal is
-decided, for the plan (`plan.ps1`), the Studio bundle (`export.zip`), the GPMC
-backup, the GPMC backup with scripts and the publication plan. It returns
-everything that refuses that artifact -- validation errors (text XML cannot
-carry among them), preserved unknown CSE content, plan reasons and the Scripts
-lane's GPO shape -- de-duplicated and in one canonical order, with no early
-return, and it runs no artifact writer. The raw writers, the checked builders,
-the routes' guards (the review digest is computed only after it) and the API's
-capabilities all ask it; a capability adds only its writer's own refusal, found
-by building the artifact when nothing refuses the GPO. What a request asks of
-the scripts export (a user side, shutdown scripts) is added by that route.
+decided. It covers the plan (`plan.ps1`), the Studio bundle (`export.zip`), the
+GPMC backup, the GPMC backup with scripts and the publication plan. It returns
+everything that refuses that artifact, de-duplicated and in one canonical order
+(by code, path and message), with no early return:
+
+| Reason | Refuses |
+|---|---|
+| validation errors, text XML cannot carry among them | every artifact |
+| plan reasons: a link outside the domain, a WMI filter, a deny filter | the plan; the bundle only beside an error or a whole-bundle reason (otherwise it is written without `apply.ps1`) |
+| a GPP file that would carry a `cpassword` | the bundle, both backups, the publication plan |
+| preserved unknown CSE content | both backups |
+| a GPP family with no measured native extension pair; an unmeasured GPP Registry item shape; Folder Redirection | both backups |
+| a script state with no native encoding (asynchronous entries, the logon/logoff sync flags) | the backup with scripts |
+| the Scripts lane's GPO shape (registry or preference content beside scripts) | the backup with scripts |
+| the publication planner's refusals for the target: preserved CSE content (SYSVOL), Folder Redirection, an unmeasured GPP Registry item shape, an unmeasured GPP family, extension lists a SYSVOL-only plan cannot write, a disabled side | the publication plan |
+
+It is decided from the model, and no artifact writer runs to decide it: the
+`cpassword` check reads every store the GPP writer copies verbatim (unknown
+attributes and children, raw filter predicates, retained `native_xml` and
+`task_xml`, verbatim source files) rather than the bytes written, and the GPP
+families come from the writer's own file list rather than its output. One
+thing precedes it and is not an artifact writer: validation itself checks
+every value the GPP writer *would* write against the writer's table, by
+rendering the preferences in memory (`validation.serialized_identity_issues`).
+That predates the decision and runs for every GPO.
+
+Every surface asks it: the raw writers, the checked builders, the routes'
+guards, the publication planner and the API's capabilities. A refused GPO
+reaches no serializer -- no `Registry.pol` encoder, GPP file writer, backup
+document, manifest, ZIP or publication digest
+(`tests/test_plan_binding.py`'s matrix instruments every one, on every
+surface, for every combination of up to three reasons).
+
+- **Reviewed exports** decide first, then hash with the payload's own digest
+  (`api._gpo_digests`, which reads retained GPP records raw for a GPO with a
+  validation error or a `cpassword`), then raise in this order: unhashable
+  legacy text, a stale review (409), the refusal (422).
+- **The publication plan** answers a refusal the planner states as a refused
+  step (the last row above) with its refused plan (200, `refused: true`). That
+  plan names the files it would write from the model and carries no content
+  digest for them, because nothing is serialized. Any other reason is a 422
+  naming every reason, the planner's included.
+- **The scripts export** adds what the request asks (a user side, shutdown,
+  logon or logoff scripts, the PowerShell order, `ScriptPolicy` validation) to
+  the same 422.
+
+#### Writer-stage refusals
+
+These need a writer's output to decide, so they stay in the writer. A writer
+reaches them only when the decision above is empty, and reports every one
+(not just the first). When nothing refuses a GPO, its capability builds the
+artifact and names every writer-stage reason.
+
+| Refusal | Raised by | What it reads |
+|---|---|---|
+| `cpassword_detected` | the Studio bundle and GPMC backup writers | the GPP bytes written. Defence in depth: the decision's model check reads every store these bytes can come from, so this firing means a store was missed (a defect) |
+| `unsupported_native_gpp_extension`, `unmeasured_gpp_registry_shape`, `folder_redirection_not_exportable`, `inexpressible_native_script_state` | the GPMC backup writer | the same checks as the decision, built by the same functions (defence in depth) |
+| `gpp_not_serializable` | the GPMC backup writer | the GPP writer's own refusal of a value as it writes it. Validation reports the same values first (`unwritable_preferences` and per-value issues) |
+| `unwritable_artifact_value` / an emit error | every checked builder and the publication planner | the output's integrity checks: the plan's PowerShell validator, the ZIPs' member, manifest and XML/INI value checks, the `Registry.pol` encoder |
 
 ### When the plan stops partway
 

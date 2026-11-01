@@ -26,7 +26,14 @@ from .emit_integrity import (
     ps_literal,
     scripts_ini_problems,
 )
-from .gpp import GppError, contains_cpassword, gpp_registry_unmeasured_shapes, serialize_gpp
+from .gpp import (
+    GppError,
+    contains_cpassword,
+    gpp_file_names,
+    gpp_files_carrying_cpassword,
+    gpp_registry_unmeasured_shapes,
+    serialize_gpp,
+)
 from .identity_values import dn_problem, link_target_scope_problem
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord, serialize
@@ -161,7 +168,10 @@ def _writer_refusal(error: Exception, path: str) -> ValidationIssue:
     a read or a mutation response must never raise because stored data is
     something a writer will not emit."""
     if isinstance(error, ValidationError) and error.issues:
-        return error.issues[0]
+        # Every reason, named in one issue (round 8: this kept issues[0]).
+        summary = refusal_summary(_canonical(error.issues))
+        assert summary is not None
+        return summary
     return ValidationIssue(
         severity="error",
         code="unwritable_artifact_value",
@@ -995,26 +1005,42 @@ def plan_refusals(
 
 
 def refusal_issues(
-    gpo: GPO, artifact: ArtifactKind, validation: Sequence[ValidationIssue] | None = None
+    gpo: GPO,
+    artifact: ArtifactKind,
+    validation: Sequence[ValidationIssue] | None = None,
+    *,
+    scripts: Mapping[str, ScriptPolicy] | None = None,
+    target: str = "both",
 ) -> list[ValidationIssue]:
     """THE refusal decision: everything that refuses *artifact* for *gpo*,
     complete, de-duplicated and in one canonical order, or ``[]``.
 
-    Every surface asks this and nothing else (pre-1.1.1 review, round 7): the
-    writers (`powershell_plan`, `export_bundle`, `gpmc_backup_bundle`,
+    Every surface asks this and nothing else (pre-1.1.1 review, rounds 7 and
+    8): the writers (`powershell_plan`, `export_bundle`, `gpmc_backup_bundle`,
     `native_backup_id`), the checked builders and the routes' guards
-    (`egress`, `api`), and the API's capabilities. It runs no artifact writer,
-    so a refused GPO never reaches one; nothing returns early, so no reason
-    hides another.
+    (`egress`, `api`), the publication planner, and the API's capabilities.
+    It is decided from the MODEL: no artifact writer runs, so a refused GPO
+    never reaches one; nothing returns early, so no reason hides another.
 
     * ``plan.ps1``: the validation errors (text XML cannot carry among them)
       and every plan reason -- out-of-domain links, a WMI filter, a deny.
-    * ``export.zip``: the same, but only when an error or a whole-bundle reason
-      is among them; plan-only reasons alone leave the bundle written without
-      its plan (`PlanRefusals.bundle_without_plan`).
-    * ``gpmc-backup``: the validation errors and preserved unknown CSE content.
-    * ``gpmc-backup-with-scripts``: those, and the Scripts lane's GPO shape.
-    * ``publication-plan``: the validation errors.
+    * ``export.zip``: those and a GPP file that would carry a cpassword
+      (`gpp_cpassword_refusals`), but only when an error, a cpassword or a
+      whole-bundle reason is among them; plan-only reasons alone leave the
+      bundle written without its plan (`PlanRefusals.bundle_without_plan`).
+    * ``gpmc-backup``: the validation errors, preserved unknown CSE content
+      and the backup writer's model-level refusals
+      (`native_backup_model_refusals`: cpassword, unmeasured GPP extension
+      pair or Registry item shape, Folder Redirection).
+    * ``gpmc-backup-with-scripts``: those, the Scripts lane's GPO shape, and
+      any state of *scripts* (the request's policies) with no native encoding.
+      A request's own input checks -- the lane's measured request shape and
+      `ScriptPolicy.validate` -- are the route's, reported in the same 422.
+    * ``publication-plan``: the validation errors, a cpassword, and the
+      planner's refusals for *target* (`publication.publication_refusals`).
+
+    What remains to a writer is only what needs its output to decide; the
+    capability matrix lists those writer-stage refusals.
     """
     refused = plan_refusals(gpo, validation)
     errors = list(refused.errors)
@@ -1023,14 +1049,20 @@ def refusal_issues(
         case "plan.ps1":
             found = errors + list(refused.reasons)
         case "export.zip":
-            found = errors + list(refused.reasons) if errors or refused.whole else []
+            secrets = gpp_cpassword_refusals(gpo)
+            whole = errors or refused.whole or secrets
+            found = errors + list(refused.reasons) + secrets if whole else []
         case "gpmc-backup" | "gpmc-backup-with-scripts":
             unknown = unknown_cse_refusal(gpo)
             found = errors + ([unknown] if unknown is not None else [])
+            found += native_backup_model_refusals(gpo, scripts)
             if artifact == "gpmc-backup-with-scripts":
                 found += scripts_gpo_refusals(gpo)
         case "publication-plan":
-            found = errors
+            from .publication import publication_refusal_issues
+
+            found = errors + gpp_cpassword_refusals(gpo)
+            found += publication_refusal_issues(gpo, target)
         case _:
             assert_never(artifact)
     return _canonical(found)
@@ -1111,14 +1143,9 @@ def export_bundle(gpo: GPO) -> bytes:
         side_dir = "Machine" if col.scope == "computer" else "User"
         for filename, content in serialize_gpp(col).items():
             if contains_cpassword(content):
-                raise ValidationError([
-                    ValidationIssue(
-                        severity="error",
-                        code="cpassword_detected",
-                        message=f"GPP file {filename} contains a cpassword attribute.",
-                        path=f"gpp_collections/{filename}",
-                    )
-                ])
+                # Defence in depth: the decision read the model
+                # (`gpp_cpassword_refusals`); this reads the bytes written.
+                raise ValidationError([_cpassword_issue(filename)])
             entries[f"{side_dir}/Preferences/{filename}"] = content
     # Platform-identical bytes (members sorted, STORED, fixed metadata).
     return deterministic_zip(entries)
@@ -1428,7 +1455,7 @@ def _gpp_family_files(gpo: GPO) -> Iterator[tuple[str, str, str, bytes]]:
             files = serialize_gpp(col)
         except GppError as error:
             # A saved model the writer refuses is a refusal (422), never a
-            # crash: `native_backup_refusal` runs on every GPO read, so an
+            # crash: a capability builds the backup on every GPO read, so an
             # exception here made the GPO unreadable (batch-2 review).
             raise ValidationError([
                 ValidationIssue(
@@ -1478,7 +1505,7 @@ def extension_registration(
     script_policies = scripts or {}
     profiles: dict[str, set[str]] = {"Machine": set(), "User": set()}
     unverified: set[str] = set()
-    for side_dir, family, _filename, _content in _gpp_family_files(gpo):
+    for side_dir, family, _filename in _gpp_families(gpo):
         if family in _GPP_EXTENSION_PROFILES:
             profiles[side_dir].add(family)
         else:
@@ -1500,6 +1527,115 @@ def extension_registration(
     )
 
 
+def _gpp_families(gpo: GPO) -> Iterator[tuple[str, str, str]]:
+    """Yield ``(side_dir, family, filename)`` for every GPP file, from the
+    MODEL (`gpp.gpp_file_names`): the files `serialize_gpp` writes, without
+    writing them (round 8). The family is derived from the path as
+    `_gpp_family_files` derives it, so the two cannot disagree."""
+    for col in gpo.gpp_collections:
+        side_dir = "Machine" if col.scope == "computer" else "User"
+        for filename in gpp_file_names(col):
+            normalized = filename.replace("\\", "/")
+            yield side_dir, normalized.split("/", 1)[0], normalized
+
+
+def _cpassword_issue(filename: str) -> ValidationIssue:
+    return ValidationIssue(
+        severity="error",
+        code="cpassword_detected",
+        message=f"GPP file {filename} contains a cpassword attribute.",
+        path=f"gpp_collections/{filename}",
+    )
+
+
+def _unsupported_extension_issue(families: set[str]) -> ValidationIssue:
+    return ValidationIssue(
+        severity="error",
+        code="unsupported_native_gpp_extension",
+        message=(
+            "Native backup extension metadata has not been verified for: "
+            f"{', '.join(sorted(families))}. Use the Studio publication bundle instead."
+        ),
+        path="gpp_collections",
+    )
+
+
+def _unmeasured_shape_issue(shapes: Sequence[str]) -> ValidationIssue:
+    return ValidationIssue(
+        severity="error",
+        code="unmeasured_gpp_registry_shape",
+        message=(
+            "No Windows capture backs the native form of these GPP Registry "
+            f"items: {'; '.join(shapes)}. Use the Studio publication bundle "
+            "instead (WI-075)."
+        ),
+        path="gpp_collections",
+    )
+
+
+def _fdeploy_issue() -> ValidationIssue:
+    return ValidationIssue(
+        severity="error",
+        code="folder_redirection_not_exportable",
+        message=(
+            "GPO carries an imported Folder Redirection file (fdeploy1.ini). "
+            "Studio reads it but cannot write it, so it cannot be emitted as "
+            "a GPMC backup. Keep the original backup."
+        ),
+        path="fdeploy",
+    )
+
+
+def gpp_cpassword_refusals(gpo: GPO) -> list[ValidationIssue]:
+    """``cpassword_detected`` for every GPP file that would carry one, decided
+    from the model (`gpp.gpp_files_carrying_cpassword`), so no writer runs to
+    find it (round 8)."""
+    return [
+        _cpassword_issue(filename.replace("\\", "/"))
+        for col in gpo.gpp_collections
+        for filename in gpp_files_carrying_cpassword(col)
+    ]
+
+
+def native_backup_model_refusals(
+    gpo: GPO, scripts: Mapping[str, ScriptPolicy] | None = None
+) -> list[ValidationIssue]:
+    """The GPMC backup writer's refusals (`_native_export_files`), decided from
+    the model before anything is serialized (round 8): a cpassword, a GPP
+    family with no measured extension pair, an unmeasured GPP Registry item
+    shape, a script policy with no native encoding, and Folder Redirection.
+    The writer keeps the same checks on what it writes, as defence in depth;
+    each is built by the same constructor, so the two cannot word it apart."""
+    issues: list[ValidationIssue] = []
+    carrying: set[tuple[str, str]] = set()
+    for col in gpo.gpp_collections:
+        side_dir = "Machine" if col.scope == "computer" else "User"
+        for filename in gpp_files_carrying_cpassword(col):
+            carrying.add((side_dir, filename.replace("\\", "/")))
+            issues.append(_cpassword_issue(filename.replace("\\", "/")))
+    # As the writer does: a file refused for its cpassword is not also asked
+    # for its family's extension pair.
+    unsupported = {
+        family
+        for side_dir, family, filename in _gpp_families(gpo)
+        if (side_dir, filename) not in carrying and family not in _GPP_EXTENSION_PROFILES
+    }
+    if unsupported:
+        issues.append(_unsupported_extension_issue(unsupported))
+    shapes = _unmeasured_shapes(gpo)
+    if shapes:
+        issues.append(_unmeasured_shape_issue(shapes))
+    for scope in _SCRIPT_SIDES:
+        policy = (scripts or {}).get(scope)
+        if policy is not None:
+            refusal = _native_scripts_refusal(scope, policy)
+            if refusal is not None:
+                issues.append(refusal)
+    if gpo.fdeploy is not None:
+        issues.append(_fdeploy_issue())
+    return issues
+
+
 def _unmeasured_shapes(gpo: GPO) -> tuple[str, ...]:
     return tuple(
         shape
@@ -1514,13 +1650,13 @@ def _native_export_files(
 ) -> tuple[dict[str, bytes], dict[str, set[str]]]:
     """Build the native backup's SYSVOL files, or refuse with EVERY reason.
 
-    Each check records its refusal and the function raises once, at the end,
-    with the issues ordered most-relevant first: a cpassword (a secret would be
-    shipped), then GPP content with no measured extension or wire form, then
-    Scripts, then the Folder Redirection carry-over. Callers that show one
-    reason (`native_backup_refusal`) show the first; the rest stay on the
-    error. Raising at the first check used to report the fdeploy refusal for a
-    GPO that also carried a cpassword (review N6).
+    Reached only after the decision (`refusal_issues`), which makes each of
+    these checks from the model first (`native_backup_model_refusals`, round
+    8); they stay here, on what is written, as defence in depth, built by the
+    same constructors. Each check records its refusal and the function raises
+    once, at the end, with every reason (review N6: raising at the first check
+    hid a cpassword behind the fdeploy refusal); a capability names them all
+    (`_writer_refusal`).
     """
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
@@ -1535,14 +1671,7 @@ def _native_export_files(
     unsupported: set[str] = set()
     for side_dir, family, filename, content in _gpp_family_files(gpo):
         if contains_cpassword(content):
-            issues.append(
-                ValidationIssue(
-                    severity="error",
-                    code="cpassword_detected",
-                    message=f"GPP file {filename} contains a cpassword attribute.",
-                    path=f"gpp_collections/{filename}",
-                )
-            )
+            issues.append(_cpassword_issue(filename))
             continue
         if family not in _GPP_EXTENSION_PROFILES:
             unsupported.add(family)
@@ -1551,32 +1680,10 @@ def _native_export_files(
         files[f"{side_dir}/Preferences/{filename}"] = content
 
     if unsupported:
-        names = ", ".join(sorted(unsupported))
-        issues.append(
-            ValidationIssue(
-                severity="error",
-                code="unsupported_native_gpp_extension",
-                message=(
-                    "Native backup extension metadata has not been verified for: "
-                    f"{names}. Use the Studio publication bundle instead."
-                ),
-                path="gpp_collections",
-            )
-        )
+        issues.append(_unsupported_extension_issue(unsupported))
     shapes = _unmeasured_shapes(gpo)
     if shapes:
-        issues.append(
-            ValidationIssue(
-                severity="error",
-                code="unmeasured_gpp_registry_shape",
-                message=(
-                    "No Windows capture backs the native form of these GPP Registry "
-                    f"items: {'; '.join(shapes)}. Use the Studio publication bundle "
-                    "instead (WI-075)."
-                ),
-                path="gpp_collections",
-            )
-        )
+        issues.append(_unmeasured_shape_issue(shapes))
 
     script_policies = scripts or {}
     for scope in _SCRIPT_SIDES:
@@ -1594,22 +1701,10 @@ def _native_export_files(
     # text alone is not a measured write either: it would also need the Folder
     # Redirection extension registration, and whether Windows needs the empty
     # fdeploy.ini marker beside it is unmeasured. A backup without the file
-    # would silently drop the redirection, so refuse. Checked here rather than
-    # in the route so `native_backup_refusal` advertises the same refusal.
-    # Recorded LAST: it is the least specific of the refusals (review N6).
+    # would silently drop the redirection, so refuse. Decided first from the
+    # model (`native_backup_model_refusals`); kept here as defence in depth.
     if gpo.fdeploy is not None:
-        issues.append(
-            ValidationIssue(
-                severity="error",
-                code="folder_redirection_not_exportable",
-                message=(
-                    "GPO carries an imported Folder Redirection file (fdeploy1.ini). "
-                    "Studio reads it but cannot write it, so it cannot be emitted as "
-                    "a GPMC backup. Keep the original backup."
-                ),
-                path="fdeploy",
-            )
-        )
+        issues.append(_fdeploy_issue())
     if issues:
         raise ValidationError(issues)
     return files, profiles
@@ -1841,12 +1936,12 @@ def native_backup_refusal(
     `validate_gpo` reported nothing and `preserved_files` stayed 0. (An
     unmeasured GPP Registry item shape still refuses the same way, WI-075.)
 
-    RUNS THE REAL CODE rather than restating its conditions: it builds the
-    backup and catches whatever the writers refuse (the backup documents' own
-    emit check included, final-r9), so a new refusal is advertised the day it
-    lands instead of the day someone remembers to mirror it. Restating the
-    conditions is precisely how the deny case drifted (WI-044), so the same
-    mistake is not repeated one capability along.
+    Asks the route's own function (`egress.gpmc_backup_refusal`): the one
+    decision (`refusal_issues`, which since round 8 holds the writer's
+    model-level checks too) and, only when that is empty, the backup built
+    and every writer-stage refusal it raises (the backup documents' own emit
+    check included, final-r9). Restating conditions is how the deny case
+    drifted (WI-044); the decision and the writer share their constructors.
     """
     from .egress import gpmc_backup_refusal
 
@@ -1874,7 +1969,9 @@ def gpmc_backup_bundle(
     is serialized for it.
     """
     issues = refusal_issues(
-        gpo, "gpmc-backup-with-scripts" if scripts and any(scripts.values()) else "gpmc-backup"
+        gpo,
+        "gpmc-backup-with-scripts" if scripts and any(scripts.values()) else "gpmc-backup",
+        scripts=scripts,
     )
     if issues:
         raise ValidationError(issues)

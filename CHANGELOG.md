@@ -441,7 +441,7 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Security
 
-Pre-1.1.1 security review, seven rounds. Both original findings predate 1.1.0.
+Pre-1.1.1 security review, eight rounds. Both original findings predate 1.1.0.
 
 - **The PowerShell plan (`plan.ps1`, `apply.ps1`) is bound to the GPO's
   declared domain.** Every GroupPolicy cmdlet names `-Domain`, and before any
@@ -502,11 +502,26 @@ Pre-1.1.1 security review, seven rounds. Both original findings predate 1.1.0.
   overflowing numbers).
 - **One refusal decision for every export.** `export.refusal_issues` decides,
   completely and in one order, what refuses the plan, the Studio bundle, the
-  GPMC backup (with or without scripts) and the publication plan --
-  validation errors, text XML cannot carry, unknown CSE content, plan reasons
-  and the Scripts lane's GPO shape -- and the writers, the checked builders,
-  the routes' guards and the API's capabilities all ask it. It runs before
-  any writer, so refused content is never serialized, not even into memory.
+  GPMC backup (with or without scripts) and the publication plan. That
+  covers validation errors, text XML cannot carry, unknown CSE content, plan
+  reasons, the Scripts lane's GPO shape, a GPP `cpassword`, the GPMC
+  writer's own refusals (an unmeasured GPP family or Registry item shape,
+  Folder Redirection, a script state with no native encoding) and the
+  publication planner's. The writers, the checked builders, the routes'
+  guards, the publication planner and the API's capabilities all ask it. It
+  is decided from the model, so no artifact writer runs for refused content.
+  The checks that need a writer's output stay in the writer, which now
+  reports every one of them; `docs/capability-matrix.md` lists them. Before,
+  the GPMC backup, the Studio bundle and the publication planner serialized
+  `Registry.pol` and preference files before refusing, `native_backup_id`
+  accepted a GPO whose backup was refused, a capability named only a
+  writer's first reason, and publication copied a preference file carrying a
+  `cpassword` into its plan.
+- **A fresh export review is no longer reported stale.** The export guard
+  hashed a GPO with a validation error and an imported preference record
+  differently from the GPO it served, so every review of it was answered 409
+  "changed after this export review", even after a reload. Both now use one
+  digest.
 - **`-WhatIf` changes nothing.** Side status (`GpoStatus`) is set through
   `ShouldProcess`; the read-back is skipped under `-WhatIf`.
 - Filtering and side status run before links, so nothing is linked while a new
