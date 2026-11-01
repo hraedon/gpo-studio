@@ -20,7 +20,9 @@ Redirection panels, and the sticky row actions of wide tables. The 1.0.0
 session covered none of the 1.1 additions. For 1.1.0 this session was required
 before final approval, against a `v1.1.0-rc.N` candidate; on 2026-10-17 the
 owner waived it for 1.1.0, and the release evidence records it as not run.
-The runbook stands for the next release that runs it.
+On 2026-11-01 the owner waived it for 1.2.0 as well: the dialogs changed, but
+no NVDA pass was performed, and the 1.2.0 release evidence records it as not
+run. The runbook stands for the next release that runs it.
 
 ## Scope and pass rule
 
