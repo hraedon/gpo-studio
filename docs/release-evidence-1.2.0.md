@@ -445,8 +445,10 @@ Gaps, stated rather than implied:
 
 ## Upgrade and rollback
 
-- Workspace schema stays 4, as in 1.1.0. Opening a 1.1.0 workspace with 1.2.0
-  migrates nothing.
+- Workspace schema stays 4, as in 1.1.0. AD discovery data cached by earlier
+  builds is cleared the first time 1.2.0 opens a workspace (and is not served
+  if an earlier build writes it again later), so re-run discovery after
+  upgrading. Nothing else is migrated.
 - Moving from 1.0.0 is as for 1.1.0: the in-place migration from schema 1 to
   4, without a backup, held by `tests/test_release_upgrade_from_1_0_0.py` and
   rehearsed by `scripts/rehearse_upgrade_rollback.py` (see the
@@ -457,8 +459,8 @@ Gaps, stated rather than implied:
   is listed as unresolved instead of shown as valid, a policy whose stored
   rows share an editor ID can no longer be edited, and a setting written by
   1.1.0 or earlier whose policy or element ID contains `-user-` or
-  `-computer-` is refused on reconfigure. Nothing is rewritten; the changelog
-  says how to recover each.
+  `-computer-` is refused on reconfigure. None of those rows is rewritten; the
+  changelog says how to recover each.
 - Operator procedure: [Windows quickstart](windows-quickstart.md#upgrade-to-another-release)
   and [workspace recovery](workspace-recovery.md#upgrading-and-rolling-back-across-a-schema-change).
 

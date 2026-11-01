@@ -22,8 +22,10 @@ Current version: `1.2.0`. The previous final release was `1.1.0`.
 > `1.1.x` patch because `SECURITY.md` limits a patch to fixes. From 1.2.0,
 > `1.2.x` is the only supported line: `1.1.x` is no longer supported and no
 > `1.1.x` patch is planned, so upgrade to 1.2.0 (see `SECURITY.md`). The
-> workspace schema is still 4: a 1.1.0 workspace opens unchanged and nothing
-> is migrated.
+> workspace schema is still 4. AD discovery data cached by earlier builds is
+> cleared the first time 1.2.0 opens the workspace (and is not served if an
+> earlier build writes it again later), so re-run discovery after upgrading.
+> Nothing else is migrated.
 >
 > The release's live evidence (the requalification of every lane at the
 > release's freeze commit) is in the

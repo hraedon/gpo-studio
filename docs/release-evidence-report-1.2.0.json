@@ -184,7 +184,7 @@
       "from_release": "1.1.0",
       "from_schema": 4,
       "to_schema": 4,
-      "migration": "none: the schema is unchanged",
+      "migration": "the schema stays 4; AD discovery data cached by earlier builds is cleared the first time 1.2.0 opens the workspace (and is not served if an earlier build writes it again later), so re-run discovery after upgrading; nothing else is migrated",
       "rollback": "restore the pre-upgrade backup; running 1.1.0 against a workspace 1.2.0 has written is not claimed",
       "upgrade_from_1_0_0": "as for 1.1.0: tests/test_release_upgrade_from_1_0_0.py and scripts/rehearse_upgrade_rollback.py, schema 1 to 4"
     },

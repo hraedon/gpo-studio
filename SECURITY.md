@@ -34,8 +34,10 @@ minor release rather than a `1.1.x` patch because it adds features and changes
 behaviour (see the [1.2.0 evidence manifest](docs/release-evidence-1.2.0.md)).
 Moving from `1.1.x`:
 
-- The workspace schema stays 4, so `1.2.0` opens a `1.1.x` workspace and
-  migrates nothing. Some stored data reads differently, and some edits and
+- The workspace schema stays 4. AD discovery data cached by earlier builds is
+  cleared the first time `1.2.0` opens a workspace (and is not served if an
+  earlier build writes it again later); re-run discovery after upgrading.
+  Nothing else is migrated. Some stored data reads differently, and some edits and
   template folders are refused that `1.1.x` accepted; the changelog marks each
   behaviour change. Back up first: rolling back means restoring that backup,
   and running `1.1.x` against a workspace `1.2.x` has written is not tested.
