@@ -380,25 +380,70 @@ def _plan_principals(gpo: GPO) -> list[str]:
         "    }",
         "    $seen[$a[0]] = $a[2]",
         "}",
-        # Every new GPO gives these edit rights, which `-Replace` would
-        # silently take away (the permission preflight's rule); checked here,
-        # before New-GPO, so a plan that will be refused changes nothing at all
-        # (pre-1.1.1 review, round 4). Domain/Enterprise Admins and SYSTEM are
-        # the measured defaults; the running account covers a delegated
-        # creator, who owns the GPO it makes.
-        "$editors = @('S-1-5-18',"
-        " [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value)",
-        "foreach ($a in $authored) {",
-        "    if ($a[0] -match '^S-1-5-21-[0-9]+-[0-9]+-[0-9]+-(512|519)$' -or",
-        "        @($editors | Where-Object {"
-        f" [string]::Equals($_, $a[0], {_IGNORE_CASE}) }}).Count -gt 0) {{",
-        "        throw ($a[1] + ' has edit rights on every new GPO (Domain Admins, Enterprise"
-        " Admins, SYSTEM or the account running this plan), so a security filter cannot"
-        " name it. Nothing was changed.')",
-        "    }",
-        "}",
     ]
     return lines
+
+
+def _plan_new_gpo_editor_check() -> list[str]:
+    """Before ``New-GPO``: stop if a filter names a principal every new GPO
+    gives edit rights to, so a plan that would be refused creates nothing.
+
+    The measured defaults (WS2025, wp0 permissions.txt) are SYSTEM, the
+    declared domain's Domain Admins (RID 512) and the forest root's
+    Enterprise Admins (RID 519). Both domain SIDs are read live, from the
+    declared domain's RootDSE naming contexts and their ``objectSid`` -- never
+    from the authored data, and never by RID alone (round 5: any trusted
+    domain's RID-512 group was refused). Through ``psbase``, as the ADSI
+    adapter needs (measured).
+    """
+    root = "[System.DirectoryServices.DirectoryEntry]::new('LDAP://' + $domain + '/RootDSE')"
+    return [
+        "    try {",
+        f"        $rootDse = {root}",
+        "        $domainNc = [string]$rootDse.psbase.Properties['defaultNamingContext'].Value",
+        "        $rootNc = [string]$rootDse.psbase.Properties['rootDomainNamingContext'].Value",
+        "        $domainSid = [System.Security.Principal.SecurityIdentifier]::new([byte[]]("
+        "[System.DirectoryServices.DirectoryEntry]::new('LDAP://' + $domain + '/' + $domainNc)"
+        ".psbase.Properties['objectSid'].Value), 0).Value",
+        "        $rootSid = [System.Security.Principal.SecurityIdentifier]::new([byte[]]("
+        "[System.DirectoryServices.DirectoryEntry]::new('LDAP://' + $domain + '/' + $rootNc)"
+        ".psbase.Properties['objectSid'].Value), 0).Value",
+        "    }",
+        "    catch { throw ('Cannot read the SIDs of ' + $domain + ' and its forest root, so"
+        " nothing was changed: ' + $_.Exception.Message) }",
+        "    $editors = @('S-1-5-18', ($domainSid + '-512'), ($rootSid + '-519'))",
+        "    foreach ($a in $authored) {",
+        "        if (@($editors | Where-Object {"
+        f" [string]::Equals($_, $a[0], {_IGNORE_CASE}) }}).Count -gt 0) {{",
+        "            throw ($a[1] + ' has edit rights on every new GPO (SYSTEM, the Domain"
+        " Admins of ' + $domain + ' or the Enterprise Admins of its forest), so a security"
+        " filter cannot name it. Nothing was changed.')",
+        "        }",
+        "    }",
+    ]
+
+
+def _plan_new_gpo_owner_check() -> list[str]:
+    """Right after ``New-GPO``, before any other change: stop if a filter names
+    the new GPO's owner, whose rights ``-Replace`` would take.
+
+    The owner is whom AD records -- read from the new GPO (``$gpo.Owner``, an
+    account name, measured as ``LAB\\Domain Admins`` for an administrator
+    creator) -- not the local token (``WindowsIdentity.GetCurrent()``), which
+    differs under ``runas /netonly`` (round 5). This is the one check that can
+    only run after the GPO exists: a stop here leaves it, unlinked, with the
+    Windows default permissions.
+    """
+    return [
+        "    try { $ownerSid = ([System.Security.Principal.NTAccount][string]$gpo.Owner)"
+        ".Translate([System.Security.Principal.SecurityIdentifier]).Value }",
+        "    catch { throw ('Cannot resolve ' + $gpo.Owner + ', the owner of the new GPO. The plan"
+        " stops: the GPO exists, unlinked, with the Windows default permissions.') }",
+        "    if ($seen.ContainsKey($ownerSid)) {",
+        "        throw ($gpo.Owner + ' owns the new GPO, so a security filter cannot name it. The"
+        " plan stops: the GPO exists, unlinked, with the Windows default permissions.')",
+        "    }",
+    ]
 
 
 def _plan_permission_preflight() -> list[str]:
@@ -620,12 +665,9 @@ def powershell_plan(gpo: GPO) -> str:
     listed in the plan's header and in ``docs/capability-matrix.md``.
     ``source_guid`` never selects a GPO.
     """
-    errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
-    refusal = _plan_precondition(gpo)
-    if refusal is not None:
-        errors.insert(0, refusal)
-    if errors:
-        raise ValidationError(errors)
+    refused = plan_refusals(gpo)
+    if refused.refused:
+        raise ValidationError(refused.issues)
     name = ps_literal(gpo.name, "Name")
     trust_marker = "$false" if _guid_from_imported_data(gpo) else "$true"
     lines = [
@@ -647,10 +689,12 @@ def powershell_plan(gpo: GPO) -> str:
         "# not authentication: anyone who can edit the comment can write it.",
         "# Run with -WhatIf to see the changes without making them.",
         "# Nothing changes before every check above has passed, except that a GPO the",
-        "# plan creates is created before its own permissions can be read.",
+        "# plan creates is created before its owner and permissions can be read: the",
+        "# owner is whom AD records (for an administrator, the Domain Admins group),",
+        "# not necessarily the account running the plan.",
         "# The plan is not transactional. If it stops after its checks:",
         "# - after New-GPO: the GPO exists, unlinked, with Windows default permissions",
-        "#   (no check that runs after New-GPO is expected to stop on a new GPO);",
+        "#   (it stops there if a filter names the new GPO's owner);",
         "# - while lowering Apply: some former Apply holders are at GpoRead and the",
         "#   filters are not granted yet, so the GPO may apply to no one;",
         "# - while granting: some filters hold their level, others do not;",
@@ -718,6 +762,10 @@ def powershell_plan(gpo: GPO) -> str:
         "    }",
         "}",
         "else {",
+    ]
+    if gpo.security_filters:
+        lines += _plan_new_gpo_editor_check()
+    lines += [
         f"    $gpo = New-GPO -Name {name} -Comment {ps_literal(_plan_comment(gpo), 'Comment')}"
         " -Domain $domain",
         "    if (-not $gpo) {",
@@ -725,6 +773,10 @@ def powershell_plan(gpo: GPO) -> str:
         "        return",
         "    }",
         "    $created = $true",
+    ]
+    if gpo.security_filters:
+        lines += _plan_new_gpo_owner_check()
+    lines += [
         "}",
     ]
     if gpo.security_filters:
@@ -840,16 +892,72 @@ def powershell_plan(gpo: GPO) -> str:
 PLAN_ONLY_REFUSALS = frozenset({"link_target_outside_domain", "wmi_filter_not_verifiable"})
 
 
+@dataclass(frozen=True, slots=True)
+class PlanRefusals:
+    """Every reason a GPO's plan is refused: THE one answer every surface asks
+    -- the plan writer, the bundle builder, egress (both ways), the plan and
+    export routes and the API's capabilities (pre-1.1.1 review, round 5:
+    egress asked a narrower question and accepted a plan for a deny filter).
+
+    ``reasons`` are the plan's own refusals (`_plan_refusals`), ``errors`` the
+    GPO's validation errors, which refuse everything."""
+
+    reasons: tuple[ValidationIssue, ...]
+    errors: tuple[ValidationIssue, ...]
+
+    @property
+    def issues(self) -> list[ValidationIssue]:
+        """What a refused plan or bundle raises: the reasons, then the errors."""
+        return [*self.reasons, *self.errors]
+
+    @property
+    def refused(self) -> bool:
+        return bool(self.reasons or self.errors)
+
+    @property
+    def whole(self) -> tuple[ValidationIssue, ...]:
+        """The reasons that refuse the whole bundle, not just its plan."""
+        return tuple(r for r in self.reasons if r.code not in PLAN_ONLY_REFUSALS)
+
+    @property
+    def bundle_without_plan(self) -> bool:
+        """The bundle is written, without ``apply.ps1``: every reason is
+        plan-only and the GPO has no validation error."""
+        return bool(self.reasons) and not self.whole and not self.errors
+
+    def record(self) -> dict[str, object] | None:
+        """The manifest's ``powershell_plan`` record, exactly, or ``None``."""
+        return plan_record(self.reasons) if self.bundle_without_plan else None
+
+    def summary(self) -> ValidationIssue | None:
+        """One issue naming every reason (the API's capability ``reason``)."""
+        issues = self.issues
+        if not issues:
+            return None
+        if len(issues) == 1:
+            return issues[0]
+        return ValidationIssue(
+            severity="error",
+            code=issues[0].code,
+            message=" ".join(f"({n}) {issue.message}" for n, issue in enumerate(issues, 1)),
+            path=issues[0].path,
+        )
+
+
+def plan_refusals(gpo: GPO) -> PlanRefusals:
+    """Every reason *gpo*'s plan is refused (`PlanRefusals`)."""
+    return PlanRefusals(
+        reasons=tuple(_plan_refusals(gpo)),
+        errors=tuple(issue for issue in validate_gpo(gpo) if issue.severity == "error"),
+    )
+
+
 def plan_only_refusals(gpo: GPO) -> tuple[ValidationIssue, ...]:
     """Every reason *gpo*'s plan is refused when ALL of them are plan-only (in
     `PLAN_ONLY_REFUSALS`) and the GPO has no validation error; otherwise ``()``
     -- no refusal, or one that refuses the whole bundle as before."""
-    refusals = _plan_refusals(gpo)
-    if not refusals or any(refusal.code not in PLAN_ONLY_REFUSALS for refusal in refusals):
-        return ()
-    if any(issue.severity == "error" for issue in validate_gpo(gpo)):
-        return ()
-    return tuple(refusals)
+    refused = plan_refusals(gpo)
+    return refused.reasons if refused.bundle_without_plan else ()
 
 
 def plan_record(refusals: Sequence[ValidationIssue]) -> dict[str, object]:
@@ -872,7 +980,7 @@ def export_bundle(gpo: GPO) -> bytes:
     if unwritable is not None:
         raise ValidationError([unwritable])
     issues = validate_gpo(gpo)
-    plan_refused = plan_only_refusals(gpo)
+    refused = plan_refusals(gpo)
     manifest: dict[str, object] = {
         "schema_version": 2,
         "kind": "gpo-studio-publication-bundle",
@@ -883,8 +991,9 @@ def export_bundle(gpo: GPO) -> bytes:
         "canonical_schema_version": CANONICAL_SCHEMA_VERSION,
         "canonical_model": policy_semantic_dict(gpo),
     }
-    if plan_refused:
-        manifest["powershell_plan"] = plan_record(plan_refused)
+    record = refused.record()
+    if record is not None:
+        manifest["powershell_plan"] = record
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
     entries: dict[str, bytes] = {
@@ -892,7 +1001,8 @@ def export_bundle(gpo: GPO) -> bytes:
         "Machine/Registry.pol": serialize(computer),
         "User/Registry.pol": serialize(user),
     }
-    if not plan_refused:
+    if record is None:
+        # Raises every reason when the whole bundle is refused.
         entries["apply.ps1"] = powershell_plan(gpo).encode("utf-8-sig")
     for col in gpo.gpp_collections:
         side_dir = "Machine" if col.scope == "computer" else "User"

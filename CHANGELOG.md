@@ -471,7 +471,9 @@ Pre-1.1.1 security review, three rounds. Both original findings predate 1.1.0.
   are the GPO's whole apply set. Every principal is resolved to its SID before
   anything changes, and a stored SID that no longer matches stops the plan, as
   does -- before a GPO is created -- a principal every new GPO gives edit rights
-  to (Domain/Enterprise Admins, SYSTEM, the account running the plan). On
+  to (SYSTEM, and the declared domain's Domain Admins and its forest root's
+  Enterprise Admins, read live from the domain), and -- right after it is
+  created -- the new GPO's owner as AD records it. On
   an existing GPO the plan stops before changing it if an authored principal
   holds edit rights, a custom level, an inherited entry or a deny; if another
   trustee holds an inherited `GpoApply` or a `GpoCustom` level; or if a trustee
@@ -488,9 +490,11 @@ Pre-1.1.1 security review, three rounds. Both original findings predate 1.1.0.
 - When every reason the plan is refused is plan-only (a WMI filter, a link
   outside the declared domain), `export.zip` is still written, without
   `apply.ps1`; its `manifest.json` records every reason under `powershell_plan`
-  (`refusals`), egress checks that record against the GPO both ways, and the
-  API's `studio_export` capability stays enabled and reports `plan_included`.
-  A reason that refuses the whole bundle (a deny filter) still does.
+  (`refusals`), egress checks that record against the GPO both ways and field
+  for field, and the API's `studio_export` capability stays enabled and
+  reports `plan_included`. A reason that refuses the whole bundle (a deny
+  filter) still does. One function decides for the plan, the bundle, egress
+  and the API, and each names every reason.
 - **`-WhatIf` changes nothing.** Side status (`GpoStatus`) is set through
   `ShouldProcess`; the read-back is skipped under `-WhatIf`.
 - Filtering and side status run before links, so nothing is linked while a new

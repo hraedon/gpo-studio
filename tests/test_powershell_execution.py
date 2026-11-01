@@ -147,6 +147,16 @@ namespace StudioStub {
     public Entry(string path) { dn = path.Substring(path.IndexOf('/', 7) + 1); }
     public System.Guid Guid { get { return new System.Guid(
       System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(dn))); } }
+    public System.Collections.Generic.Dictionary<string, Prop> Properties { get {
+      var props = new System.Collections.Generic.Dictionary<string, Prop>();
+      props["defaultNamingContext"] = new Prop("DC=stub");
+      props["rootDomainNamingContext"] = new Prop("DC=stub");
+      props["objectSid"] = new Prop(new byte[] { 1 });
+      return props; } }
+  }
+  public class Prop {
+    public object Value { get; private set; }
+    public Prop(object value) { Value = value; }
   }
   public class Identity {
     public Sid User { get { return new Sid("S-1-5-21-9-9-9-1500"); } }
@@ -162,6 +172,7 @@ namespace StudioStub {
   public class Sid {
     public string Value { get; private set; }
     public Sid(string value) { Value = value; }
+    public Sid(byte[] data, int offset) { Value = "S-1-5-21-9-9-8"; }
     public Account Translate(System.Type type) { return new Account("STUB\\\\" + Value); }
   }
 }
@@ -176,7 +187,7 @@ function Get-GPO { param($Guid, $Name, [switch]$All, $Domain, $ErrorAction) @() 
 function New-GPO { param($Name, $Comment, $Domain)
   _Out 'NAME' $Name; _Out 'COMMENT' $Comment
   [pscustomobject]@{ Id = [guid]::NewGuid(); DisplayName = $Name; GpoStatus = '';
-    WmiFilter = $null } }
+    WmiFilter = $null; Owner = 'STUB\\Domain Admins' } }
 function Rename-GPO { param($Guid, $TargetName, $Domain) _Out 'RENAME' $TargetName }
 function Set-GPRegistryValue { param($Guid, $Key, $ValueName, $Type, $Value, $Domain)
   _Out 'KEY' $Key; _Out 'VALUENAME' $ValueName

@@ -1345,10 +1345,13 @@ soft hyphen still matches).
   written without `apply.ps1`, and `manifest.json` records every reason under
   `powershell_plan` (`included: false`, `refusals`: code and message each). A
   reason that refuses the whole bundle -- a deny filter, say -- does so whatever
-  else is refused. Egress checks the record both ways: a missing `apply.ps1`
-  needs the record and the GPO's plan refused for exactly those reasons, and an
-  `apply.ps1` beside a record, or for a GPO whose plan is refused, is refused;
-  without the GPO a missing plan is refused outright. The API's
+  else is refused. One function (`export.plan_refusals`) answers for every
+  surface: the plan writer and `plan.ps1`, the bundle builder and
+  `export.zip`, egress and the API's capabilities, each naming every reason.
+  Egress checks the record both ways against it: an `apply.ps1` is refused for
+  a GPO whose plan is refused for any reason, or beside a record; a missing
+  `apply.ps1` needs a record equal, field for field, to the one the GPO
+  produces; without the GPO a missing plan is refused outright. The API's
   `studio_export` capability is enabled for such a GPO and says separately
   whether the plan is included (`plan_included`, `plan_reason`).
 - **`-WhatIf`.** Every change goes through a cmdlet's or the plan's own
@@ -1360,10 +1363,18 @@ soft hyphen still matches).
 - **No filters authored:** the plan leaves permissions alone. A new GPO keeps
   the Windows default, Authenticated Users with `GpoApply`.
 - **Filters authored:** they are the GPO's whole apply set. Before anything
-  changes, every principal is resolved to its SID, and a principal every new
-  GPO gives edit rights to -- Domain Admins or Enterprise Admins (RID 512 or
-  519), SYSTEM, or the account running the plan -- stops the plan before it
-  creates anything; where the filter stores a
+  changes, every principal is resolved to its SID. Before creating a GPO, a
+  principal every new GPO gives edit rights to stops the plan: SYSTEM, the
+  declared domain's Domain Admins and the forest root's Enterprise Admins,
+  whose SIDs the plan reads live from the domain's RootDSE naming contexts
+  (`objectSid`), not from the authored data and not by RID alone -- another
+  domain's RID-512 group is an ordinary principal. Right after `New-GPO`, and
+  before any other change, a filter naming the new GPO's owner stops it too:
+  the owner is read from the GPO, because the account running the plan is not
+  whom AD records (measured: run as `LAB\claude`, the owner was
+  `LAB\Domain Admins`; under `runas /netonly` the local token and the network
+  identity differ by design). That stop leaves the new GPO, unlinked, with the
+  Windows default permissions. Where the filter stores a
   SID (an import does), a different one stops the plan -- a group deleted and
   recreated under the same name is not the group the filter was authored for.
   On an existing GPO, the plan then stops before changing it if an authored
@@ -1384,14 +1395,14 @@ soft hyphen still matches).
 ### When the plan stops partway
 
 The plan is not transactional. Everything it can check, it checks before the
-first change -- including, before `New-GPO`, everything that could refuse a
-new GPO's default permissions; only the new GPO's own permission listing is
-read after it is created. After that, a stop leaves the GPO in one of these
+first change -- including, before `New-GPO`, the default editors every new GPO
+has; only the new GPO's owner and permission listing are read after it is
+created. After that, a stop leaves the GPO in one of these
 states (the plan's header lists them too):
 
 | Stopped | State left behind |
 |---|---|
-| after `New-GPO` (`-WhatIf`, or a check no new GPO is expected to fail) | the GPO exists, unlinked, with the Windows default permissions and its marker |
+| after `New-GPO` (`-WhatIf`, or a filter naming the new GPO's owner) | the GPO exists, unlinked, with the Windows default permissions and its marker |
 | while lowering Apply | some former Apply holders are at `GpoRead`, the filters are not granted yet: the GPO may apply to no one, including where it is already linked |
 | while granting | some filters hold their level, others do not |
 | at the read-back | filtering as Windows left it; no settings, status or links written |
@@ -1413,6 +1424,14 @@ Users to `GpoRead` by the name `NT AUTHORITY\Authenticated Users` and granted a
 SID-authored principal; re-ran idempotently; changed nothing under `-WhatIf`;
 refused the GPO once its marker was removed; and adopted it with
 `-AdoptExistingGpo`. `New-GPO` itself refuses a second GPO with an existing name.
+A fourth estate run (2026-11-01, same rules): a filter naming the declared
+domain's Domain Admins (its SID read live from RootDSE) stopped the plan
+before `New-GPO`, nothing created; the plan created the GPO, whose owner read
+`LAB\Domain Admins` while the running account was `LAB\claude`; `-WhatIf`
+changed nothing; a re-run bound the same GPO by its marker; and the Domain
+Admins filter on the existing GPO stopped in the permission preflight with
+nothing changed.
+
 A third estate run (2026-10-31, same rules) measured, on the real cmdlets: an
 authored SID with no account stopped the plan ("Cannot resolve", nothing
 created; on the existing marked GPO, nothing changed); `-WhatIf` of a plan that
