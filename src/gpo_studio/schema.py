@@ -282,6 +282,45 @@ def _data_migrations(conn: sqlite3.Connection) -> None:
     from .provenance_migration import migrate_retained_provenance
 
     migrate_retained_provenance(conn)
+    _clear_earlier_discovery_cache(conn)
+
+
+# The discovery cache's format. Raise it when a change makes records written by
+# earlier builds wrong, so that every workspace drops them once.
+DISCOVERY_CACHE_VERSION = "2"
+DISCOVERY_CACHE_KEY = "discovery_cache_version"
+
+
+def _clear_earlier_discovery_cache(conn: sqlite3.Connection) -> None:
+    """Drop every discovery-cache record written by an earlier build, once.
+
+    Records cached before version 2 are wrong, not just old (#160, #164): OU
+    links carry an inverted enabled flag and reversed order, missing values
+    were stored as the text "None", and some keys (an inventory under "None",
+    an upper-case IPv6 subnet) are ones re-running discovery never overwrites.
+    The cache only mirrors the directory, nothing else refers to its rows, and
+    re-running discovery rebuilds it, so clearing it is the one way to leave no
+    such record behind. Runs inside the caller's transaction, keyed by its own
+    ``workspace_meta`` entry; not a schema bump, as the table is unchanged.
+    """
+    tables = {
+        str(row[0])
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    if not {"workspace_meta", "estate_discovery"} <= tables:
+        return
+    row = conn.execute(
+        "SELECT value FROM workspace_meta WHERE key=?", (DISCOVERY_CACHE_KEY,)
+    ).fetchone()
+    if row is not None and str(row[0]).isdecimal() and int(row[0]) >= int(
+        DISCOVERY_CACHE_VERSION
+    ):
+        return  # this format, or a newer build's: never clear a cache we cannot judge
+    conn.execute("DELETE FROM estate_discovery")
+    conn.execute(
+        "INSERT OR REPLACE INTO workspace_meta(key, value) VALUES (?, ?)",
+        (DISCOVERY_CACHE_KEY, DISCOVERY_CACHE_VERSION),
+    )
 
 
 def _get_app_version() -> str:

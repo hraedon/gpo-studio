@@ -86,18 +86,23 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
     whole OU discovery run with an error naming the OU, and no output is
     printed for any OU.
   - A principal search for an SDDL alias such as `DA` or `BA` also matched
-    that well-known principal by SID. Only a literal `S-1-…` term is
-    searched as a SID.
-  - **Re-run discovery after upgrading.** Records cached by earlier builds
-    keep what those builds stored (the text `"None"` for missing values, and
-    OU links with the enabled flag inverted and the order reversed) until an
-    import of the same kind replaces them. An import overwrites the records
-    it covers. A sites or GPO inventory import also drops, in the same
-    transaction, the cached records of its kinds that the current importer
-    would refuse or spell differently, such as an inventory cached under the
-    key `"None"` or an IPv6 subnet cached in upper case. A record that no new
-    import covers (an OU since deleted, a principal not searched again) keeps
-    its old values.
+    that well-known principal by SID. Only a literal SID (`S-1-…`, in either
+    case, with a decimal or `0x` hexadecimal authority and at least one
+    subauthority) is searched as a SID.
+  - A sites import wrote its sites and its subnets in separate transactions,
+    so a failed subnet write left the new sites cached behind an error. Both
+    are now written in one transaction.
+  - **Discovery data cached by earlier builds is cleared on upgrade; re-run
+    discovery.** Those records are wrong, not just old: OU links with the
+    enabled flag inverted and the order reversed, the text `"None"` for
+    missing values, and keys (an inventory under `"None"`, an upper-case IPv6
+    subnet) that re-running discovery never overwrites. When a workspace is
+    first opened by this version, every cached discovery record is deleted
+    in one transaction, and `workspace_meta` records
+    `discovery_cache_version` `2` so it happens once. Nothing else in the
+    workspace refers to the discovery cache. A workspace whose discovery
+    cache an earlier version writes to after this one has opened it is not
+    cleared again.
 
 - **Editing dialogs ask before Esc or × discards a change** (#140). After a
   field is changed, or a row is added, removed or reordered, closing one of the

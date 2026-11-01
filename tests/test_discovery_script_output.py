@@ -161,7 +161,8 @@ function New-StandInSid { param($a)
     $v = if ($a -is [array]) { $a[0] } else { $a }
     # Like the real constructor, it also accepts SDDL aliases such as DA or BA.
     if ($v -cin @('DA', 'BA', 'AU', 'SY', 'WD')) { $v = 'S-1-5-32-544' }
-    if ($v -isnot [string] -or -not $v.StartsWith('S-1-')) { throw 'not a SID' }
+    # Case-insensitive, like the real constructor.
+    if ($v -isnot [string] -or $v -notlike 'S-1-*') { throw 'not a SID' }
     $sid = [pscustomobject]@{ Value = $v; BinaryLength = 2 }
     $sid | Add-Member ScriptMethod GetBinaryForm {
         param($buffer, $offset) $buffer[$offset] = 1; $buffer[$offset + 1] = 5 }
@@ -587,3 +588,27 @@ def test_a_hexadecimal_identifier_authority_is_searched_as_a_sid(tmp_path: Path)
     assert filters == [
         f"(&(objectCategory=*)(|(sAMAccountName={term})(cn={term})(objectSid=\\01\\05)))"
     ]
+
+
+@pytest.mark.parametrize("term", ["s-1-5-21-1-2-3-1001", "S-1-0X010000000000-1", "s-1-12-1"])
+def test_a_literal_sid_in_any_case_is_searched_as_a_sid(tmp_path: Path, term: str) -> None:
+    # #164 review: MS-DTYP's ABNF strings are case-insensitive and Windows
+    # accepts "s-1-..."; the case-sensitive gate searched these by name.
+    _output, filters = _run_script(
+        ad_discovery.discovery_script_principal_search(term), tmp_path, "sid-case",
+        _RESULTS["principals"],
+    )
+    assert filters == [
+        f"(&(objectCategory=*)(|(sAMAccountName={term})(cn={term})(objectSid=\\01\\05)))"
+    ]
+
+
+@pytest.mark.parametrize("term", ["S-1-5", "s-1-5", "DA", "ba"])
+def test_aliases_and_sids_without_a_subauthority_stay_name_only(
+    tmp_path: Path, term: str
+) -> None:
+    _output, filters = _run_script(
+        ad_discovery.discovery_script_principal_search(term), tmp_path, "sid-name",
+        _RESULTS["principals"],
+    )
+    assert filters == [f"(&(objectCategory=*)(|(sAMAccountName={term})(cn={term})))"]

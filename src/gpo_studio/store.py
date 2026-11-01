@@ -870,24 +870,14 @@ class WorkspaceStore:
         collected_at: str = "",
     ) -> None:
         """Cache a read-only AD topology snapshot, replacing any prior entry for kind+key."""
-        self.replace_discovery(kind, [(key, data_json, source_dc, collected_at)])
+        self.cache_discovery_batch([(kind, key, data_json, source_dc, collected_at)])
 
-    def replace_discovery(
-        self,
-        kind: DiscoveryKind,
-        entries: Iterable[tuple[str, str, str, str]],
-        *,
-        is_stale: Callable[[str, str], bool] | None = None,
-    ) -> int:
-        """Cache ``(key, data_json, source_dc, collected_at)`` entries of one kind.
-
-        In the same transaction, drop every existing entry of the kind for
-        which ``is_stale(key, data_json)`` holds: a record an earlier build
-        stored under a key the current importer would refuse or spell
-        differently (the GPO inventory under "None", an upper-case IPv6
-        subnet). An upsert alone left those beside the record that replaces
-        them (#164 review). Returns how many entries were dropped.
-        """
+    def cache_discovery_batch(
+        self, entries: Iterable[tuple[DiscoveryKind, str, str, str, str]]
+    ) -> None:
+        """Cache ``(kind, key, data_json, source_dc, collected_at)`` entries in ONE
+        transaction, so an import that writes several kinds (sites and subnets)
+        changes nothing when any write fails (#164 review)."""
         rows = list(entries)
         with self._lock:
             self._require_healthy()
@@ -896,19 +886,6 @@ class WorkspaceStore:
                 # that was never committed, so the cache was not durable and the
                 # next BEGIN IMMEDIATE failed and degraded the store (#148 review).
                 self._connection.execute("BEGIN IMMEDIATE")
-                stale: list[str] = []
-                if is_stale is not None:
-                    stale = [
-                        row["key"]
-                        for row in self._connection.execute(
-                            "SELECT key, data_json FROM estate_discovery WHERE kind=?", (kind,)
-                        ).fetchall()
-                        if is_stale(row["key"], row["data_json"])
-                    ]
-                    self._connection.executemany(
-                        "DELETE FROM estate_discovery WHERE kind=? AND key=?",
-                        [(kind, key) for key in stale],
-                    )
                 self._connection.executemany(
                     """
                     INSERT INTO estate_discovery(kind, key, data_json, source_dc, collected_at)
@@ -918,7 +895,7 @@ class WorkspaceStore:
                         source_dc=excluded.source_dc,
                         collected_at=excluded.collected_at
                     """,
-                    [(kind, *row) for row in rows],
+                    rows,
                 )
                 self._connection.execute("COMMIT")
             except BaseException as error:
@@ -927,7 +904,6 @@ class WorkspaceStore:
                 if isinstance(error, sqlite3.Error):
                     self._map_sqlite_error(error)
                 raise
-        return len(stale)
 
     def get_discovery(self, kind: str, key: str) -> dict[str, Any]:
         """Return a cached discovery snapshot by kind and key."""

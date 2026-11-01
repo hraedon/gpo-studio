@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ipaddress
-import json
 import re
 from typing import Any, cast
 
@@ -987,7 +986,9 @@ def discovery_script_principal_search(
         # matched Domain Admins or BUILTIN\Administrators by SID (#164 review).
         # An identifier authority of 2^32 or more is written in hexadecimal
         # (MS-DTYP 2.4.2.1, "S-1-0x010000000000-1"); the constructor checks it.
-        "if ($SearchTerm -cmatch '^S-1-(0[xX][0-9A-Fa-f]{1,12}|[0-9]+)(-[0-9]+)+$') {",
+        # Case-insensitive: MS-DTYP's ABNF strings are, and Windows accepts
+        # "s-1-..." (#164 review). "S-1-5", with no subauthority, is not a SID.
+        "if ($SearchTerm -match '^S-1-(0x[0-9A-F]{1,12}|[0-9]+)(-[0-9]+)+$') {",
         "    try {",
         "        $sid = New-Object System.Security.Principal.SecurityIdentifier($SearchTerm)",
         "        $sidBytes = New-Object byte[] $sid.BinaryLength",
@@ -1135,59 +1136,4 @@ __all__ = [
     "parse_principals",
     "parse_trust",
     "discovery_kind_from_data",
-    "stale_gpos_record",
-    "stale_site_record",
-    "stale_subnet_record",
 ]
-
-
-# --- Records earlier builds cached under keys the importers now refuse ------
-#
-# Re-running discovery upserts on (kind, key). A record stored under a key the
-# current importer would refuse or spell differently is never overwritten:
-# after an upgrade the GPO inventory cached under "None" (str(None) of a null
-# domain) stayed beside the real one, and an IPv6 subnet cached in upper case
-# beside its lower-case key (#164 review). These say which cached records of a
-# kind to drop when that kind is imported again. Stored data is the workspace's
-# own JSON; anything that no longer reads back as the current importer's output
-# is stale.
-
-
-def _stored_object(data_json: str) -> dict[str, Any] | None:
-    try:
-        data = json.loads(data_json)
-    except (ValueError, RecursionError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def stale_gpos_record(key: str, data_json: str) -> bool:
-    data = _stored_object(data_json)
-    if data is None:
-        return True
-    try:
-        domain: str = parse_gpos_discovery(data)["domain"]
-    except ValidationError:
-        return True
-    return domain != key
-
-
-def stale_subnet_record(key: str, data_json: str) -> bool:
-    data = _stored_object(data_json)
-    if data is None:
-        return True
-    try:
-        return _parse_subnet(data).cidr != key
-    except ValidationError:
-        return True
-
-
-def stale_site_record(key: str, data_json: str) -> bool:
-    data = _stored_object(data_json)
-    if data is None:
-        return True
-    try:
-        site = _parse_site(data)
-    except ValidationError:
-        return True
-    return site.name != key or list(site.subnets) != data.get("subnets")

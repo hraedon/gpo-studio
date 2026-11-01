@@ -944,60 +944,124 @@ def test_gpo_inventory_is_cached_by_its_validated_domain(tmp_path, monkeypatch) 
         store.close()
 
 
-def test_rediscovery_drops_records_earlier_builds_cached_under_refused_keys(
+def _seed_earlier_build_cache(path) -> None:
+    """A workspace whose discovery cache an earlier build wrote (no version marker)."""
+    store = WorkspaceStore(path)
+    store.close()
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("DELETE FROM workspace_meta WHERE key='discovery_cache_version'")
+        guid_only = [{"guid": f"{{{index:08X}-0000-0000-0000-000000000000}}"}
+                     for index in range(2600)]
+        rows = [
+            ("gpos", "None", {"kind": "gpo-studio-discovery-gpos", "domain": None, "gpos": []}),
+            # 5,204 nodes as an earlier build stored it; 10,404 once revalidated.
+            ("gpos", "big.example.test", {"kind": "gpo-studio-discovery-gpos",
+                                          "domain": "big.example.test", "gpos": guid_only}),
+            ("site", "Other", {"name": "Other", "description": "",
+                               "subnets": ["2001:DB8:1::/64"], "site_links": []}),
+            ("subnet", "2001:DB8:1::/64", {"cidr": "2001:DB8:1::/64", "site_name": "Other",
+                                           "description": "None"}),
+            ("ou", "OU=Two,DC=example,DC=test", {
+                "distinguished_name": "OU=Two,DC=example,DC=test", "name": "Two",
+                "parent_dn": "", "description": "None",
+                "gpo_links": [{"id": "x", "target": "x", "enabled": False, "enforced": False,
+                               "order": 1}],
+            }),
+            ("principal", "11111111-2222-3333-4444-555555555555", {"display_name": "None"}),
+        ]
+        conn.executemany(
+            "INSERT INTO estate_discovery(kind, key, data_json, source_dc, collected_at)"
+            " VALUES(?,?,?,'','')",
+            [(kind, key, json.dumps(data)) for kind, key, data in rows],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_upgrade_clears_the_discovery_cache_earlier_builds_wrote(
     tmp_path, monkeypatch
 ) -> None:
-    """#164 review: re-running discovery upserted on (kind, key), so a record an
-    earlier build cached under a key the importer now refuses or spells
-    differently stayed beside the record that replaces it."""
-    store = WorkspaceStore(tmp_path / "upgrade.db")
+    """#164 review: records earlier builds cached are wrong (inverted enabled
+    flags, reversed order, "None"), and some sit under keys re-running
+    discovery never overwrites. Opening the workspace clears them once."""
+    path = tmp_path / "upgrade.db"
+    _seed_earlier_build_cache(path)
+    store = WorkspaceStore(path)
     monkeypatch.setattr(app.state, "store", store, raising=False)
     monkeypatch.setattr(app.state, "owns_store", False, raising=False)
-    old_inventory = {"kind": "gpo-studio-discovery-gpos", "domain": None, "gpos": []}
-    seeded = [
-        # What earlier builds stored: str(None) and str(5) as inventory keys...
-        ("gpos", "None", old_inventory),
-        ("gpos", "5", {**old_inventory, "domain": 5}),
-        # ...an IPv6 subnet in upper case, and IPv4 names AD would refuse...
-        ("subnet", "2001:DB8:1::/64", {"cidr": "2001:DB8:1::/64", "site_name": "Site",
-                                       "description": ""}),
-        ("subnet", "10.0.0.1/8", {"cidr": "10.0.0.1/8", "site_name": "Site",
-                                  "description": "None"}),
-        ("site", "Site", {"name": "Site", "description": "", "subnets": ["2001:DB8:1::/64"],
-                          "site_links": []}),
-        # ...and records the current importer accepts, which must be kept.
-        ("gpos", "other.example.test", {**old_inventory, "domain": "other.example.test"}),
-        ("subnet", "203.0.113.0/24", {"cidr": "203.0.113.0/24", "site_name": "Other",
-                                      "description": ""}),
-        ("site", "Other", {"name": "Other", "description": "", "subnets": ["203.0.113.0/24"],
-                           "site_links": []}),
-    ]
     try:
-        for kind, key, data in seeded:
-            store.cache_discovery(kind, key, json.dumps(data))
+        assert list(store._connection.execute("SELECT kind, key FROM estate_discovery")) == []
+        assert store.workspace_meta()["discovery_cache_version"] == "2"
+        # Records this build writes are kept: another domain's inventory no
+        # longer removes one (the import-time purge did, #164 round 3).
         client = TestClient(app, base_url="http://127.0.0.1")
-        sites = _with(
-            _with(_VALID_SITES, ("sites", 0), {
-                "name": "Site", "description": "", "subnets": ["2001:db8:1::/64"],
-                "site_links": [],
-            }),
-            ("subnets", 0), {"cidr": "2001:DB8:1::/64", "site_name": "Site", "description": ""},
-        )
+        for domain in ("big.example.test", "other.example.test"):
+            body = _with(_VALID_GPOS, ("domain",), domain)
+            body["gpos"] = [{"guid": f"{{{index:08X}-0000-0000-0000-000000000000}}"}
+                            for index in range(2600)]
+            assert client.post("/api/discovery/gpos", json=body).status_code == 200
+        sites = _with(_VALID_SITES, ("subnets", 0, "cidr"), "2001:DB8:1::/64")
+        sites["sites"][0]["subnets"] = ["2001:db8:1::/64"]
         assert client.post("/api/discovery/sites", json=sites).status_code == 200
-        assert client.post("/api/discovery/gpos", json=_VALID_GPOS).status_code == 200
-        keys = sorted(
+    finally:
+        store.close()
+    reopened = WorkspaceStore(path)
+    try:
+        assert sorted(
             (row[0], row[1])
-            for row in store._connection.execute("SELECT kind, key FROM estate_discovery")
-        )
-        assert keys == [
-            ("gpos", _VALID_GPOS["domain"]),
+            for row in reopened._connection.execute("SELECT kind, key FROM estate_discovery")
+        ) == [
+            ("gpos", "big.example.test"),
             ("gpos", "other.example.test"),
-            ("site", "Other"),
-            ("site", "Site"),
+            ("site", _VALID_SITES["sites"][0]["name"]),
             ("subnet", "2001:db8:1::/64"),
-            ("subnet", "203.0.113.0/24"),
         ]
+    finally:
+        reopened.close()
+
+
+def test_a_newer_builds_discovery_cache_is_left_alone(tmp_path) -> None:
+    path = tmp_path / "newer.db"
+    store = WorkspaceStore(path)
+    store.cache_discovery("gpos", "example.test", json.dumps({"domain": "example.test"}))
+    store.close()
+    conn = sqlite3.connect(path)
+    conn.execute("UPDATE workspace_meta SET value='3' WHERE key='discovery_cache_version'")
+    conn.commit()
+    conn.close()
+    reopened = WorkspaceStore(path)
+    try:
+        assert [row[0] for row in reopened._connection.execute(
+            "SELECT key FROM estate_discovery"
+        )] == ["example.test"]
+    finally:
+        reopened.close()
+
+
+def test_a_sites_import_is_one_transaction(tmp_path, monkeypatch) -> None:
+    """#164 review: sites were committed before subnets were written, so a
+    failed subnet write left the new sites behind a 409."""
+    store = WorkspaceStore(tmp_path / "atomic-sites.db")
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    try:
+        client = TestClient(app, base_url="http://127.0.0.1")
+        assert client.post("/api/discovery/sites", json=_VALID_SITES).status_code == 200
+        store._connection.execute(
+            "CREATE TRIGGER fail_subnet BEFORE INSERT ON estate_discovery"
+            " WHEN NEW.kind = 'subnet' BEGIN SELECT RAISE(ABORT, 'injected'); END"
+        )
+        before = list(store._connection.iterdump())
+        changed = _with(_with(_VALID_SITES, ("sites", 0, "description"), "changed"),
+                        ("subnets", 0, "cidr"), "198.51.100.0/24")
+        changed["sites"][0]["subnets"] = ["198.51.100.0/24"]
+        response = client.post("/api/discovery/sites", json=changed)
+        assert response.status_code >= 400
+        assert list(store._connection.iterdump()) == before
         assert not store._connection.in_transaction
+        assert not store.is_degraded
     finally:
         store.close()
 
