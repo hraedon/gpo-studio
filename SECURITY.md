@@ -16,39 +16,54 @@ reporting.
 
 ## Supported versions
 
-The stable line is `1.1.x`. Security fixes land on `main` and ship in the next
-`1.1.x` patch. Only the latest patch is supported.
+From `1.2.0`, the stable line is `1.2.x`. Security fixes land on `main` and
+ship in the next `1.2.x` patch. Only the latest patch is supported.
 
 | Version | Supported |
 |---------|-----------|
-| 1.1.x (latest patch)   | Yes |
-| Older 1.1.x patches    | No — upgrade to the latest patch |
-| 1.1.0 release candidates (`1.1.0rc1`) | No — superseded by `1.1.0`; upgrade |
-| 1.0.x                  | No — upgrade to the latest `1.1.x` patch |
+| 1.2.x (latest patch)   | Yes |
+| Older 1.2.x patches    | No — upgrade to the latest patch |
+| 1.1.x                  | No — upgrade to the latest `1.2.x` patch |
+| 1.1.0 release candidates (`1.1.0rc1`) | No — superseded by `1.1.0`; upgrade to the latest `1.2.x` patch |
+| 1.0.x                  | No — upgrade to the latest `1.2.x` patch |
 | < 1.0 (dev builds, release candidates) | No |
 
-`1.1.x` became the stable line with `1.1.0`, and `1.0.x` is no longer a
-supported line. Two compatibility facts matter to anyone moving from `1.0.x`
-(see the [1.1.0 evidence manifest](docs/release-evidence-1.1.0.md)):
+`1.2.x` replaces `1.1.x` as the stable line with `1.2.0`. `1.1.x` and `1.0.x`
+are no longer supported lines, and no `1.1.x` patch is planned. `1.2.0` is a
+minor release rather than a `1.1.x` patch because it adds features and changes
+behaviour (see the [1.2.0 evidence manifest](docs/release-evidence-1.2.0.md)).
+Moving from `1.1.x`:
 
-- `1.1.0` migrates a `1.0.x` workspace in place from schema 1 to schema 4,
-  without making a backup, and `1.0.x` then refuses the file. Back up with
-  `1.0.x` first; rolling back means restoring that backup, not downgrading.
+- The workspace schema stays 4. AD discovery data cached by earlier builds is
+  cleared the first time `1.2.0` opens a workspace (and is not served if an
+  earlier build writes it again later); re-run discovery after upgrading.
+  Nothing else is migrated. Some stored data reads differently, and some edits and
+  template folders are refused that `1.1.x` accepted; the changelog marks each
+  behaviour change. Back up first: rolling back means restoring that backup,
+  and running `1.1.x` against a workspace `1.2.x` has written is not tested.
+
+Two compatibility facts matter to anyone moving from `1.0.x` (see the
+[1.1.0 evidence manifest](docs/release-evidence-1.1.0.md)):
+
+- `1.1.0` and later migrate a `1.0.x` workspace in place from schema 1 to
+  schema 4, without making a backup, and `1.0.x` then refuses the file. Back up
+  with `1.0.x` first; rolling back means restoring that backup, not
+  downgrading.
 - Some exported bytes and review digests differ from what `1.0.0` produced for
   the same content (the `Registry.pol` record order, archive layout, GPP
   Registry wire values, and digests of GPOs with preference items). None of
   these loses data; the changelog lists each one.
 
-### Compatibility and deprecation in 1.1.x
+### Compatibility and deprecation in 1.2.x
 
-- `1.1.x` patches contain fixes only. They add no workspace schema migrations,
+- `1.2.x` patches contain fixes only. They add no workspace schema migrations,
   change no export or bundle format, and remove no documented CLI or API
   surface.
-- Every later `1.1.x` release can read workspace databases and exported
-  artifacts produced by any earlier `1.1.x` release.
+- Every later `1.2.x` release can read workspace databases and exported
+  artifacts produced by any earlier `1.2.x` release.
 - A deprecation is announced in the changelog, naming the replacement, at
   least one minor release before removal. Nothing is both deprecated and
-  removed within `1.1.x`.
+  removed within `1.2.x`.
 
 ## Trust boundary
 

@@ -1,0 +1,205 @@
+{
+  "report_type": "GPO Studio release evidence report",
+  "report_version": 3,
+  "version": "1.2.0",
+  "status": "candidate",
+  "manifest": "docs/release-evidence-1.2.0.md",
+  "workspace_schema_version": 4,
+  "artifact_hashes": {
+    "wheel_sha256": "resolved by the tagged release workflow",
+    "sdist_sha256": "resolved by the tagged release workflow",
+    "sbom_sha256": "resolved by the tagged release workflow"
+  },
+  "freeze": null,
+  "evidence": {
+    "requalification": "pending: every lane live at the freeze commit F (26: WP-0's manifest and 25 lane verdicts) re-run at F in one batch; the banking commit B replaces this entry with the batch's record (note, batch_manifest, executed_utc, frozen_commit, lanes_started, runs_passed, not_passed, successors, runs, post_batch_directory_check, retired, pending_requalification) and sets freeze",
+    "qualification_before_freeze": {
+      "release": "1.1.0",
+      "note": "docs/plan-033/release110-refreeze-batch.md",
+      "batch_manifest": "docs/plan-033/release110-refreeze-batch.json",
+      "frozen_commit": "5ffa026516830139f8607ef5706f2bf8f4e002d5",
+      "lanes": 26,
+      "pending_requalification": 25,
+      "pending_reason": "changes merged after 1.1.0 edited files the lanes bind: scripts/windows-oracle/psdirect.ps1 (the realm fix, #157), which all 25 lane verdicts bind; src/gpo_studio/export.py (the measured user-side Scripts tool GUID), which six bind; and src/gpo_studio/safe_io.py (non-blocking opens), which fdeploy binds. docs/plan-033/verdict-registry.json holds the list, and the gate requires the batch at F to retire every one",
+      "runs": [
+        {
+          "name": "wp0",
+          "run_id": "live-synthetic-registry-basic-20261020072705-9695",
+          "checks": "pass",
+          "state": "live until the batch at F (WP-0 binds by commit, so it is not in pending_requalification)"
+        },
+        {
+          "name": "wp1b",
+          "run_id": "wp1b-writer-20261020072808-8446",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "wp2",
+          "run_id": "wp2-native-import-20261020072858-5525",
+          "checks": "18/18",
+          "state": "pending requalification"
+        },
+        {
+          "name": "wp3-member",
+          "run_id": "wp3-security-template-20261020072938-4029",
+          "checks": "20/20",
+          "state": "pending requalification"
+        },
+        {
+          "name": "wp3-dc",
+          "run_id": "wp3-security-template-20261020072911-9635",
+          "checks": "20/20",
+          "state": "pending requalification"
+        },
+        {
+          "name": "object-security",
+          "run_id": "object-security-20261020073052-3290",
+          "checks": "20/20",
+          "state": "pending requalification"
+        },
+        {
+          "name": "scripts-metadata",
+          "run_id": "scripts-r10-20261020073126-4216",
+          "checks": "20/20",
+          "state": "pending requalification"
+        },
+        {
+          "name": "publication",
+          "run_id": "publication-completeness-20261020073202-7563",
+          "checks": "21/21",
+          "state": "pending requalification"
+        },
+        {
+          "name": "lifecycle",
+          "run_id": "lifecycle-20261020073233-9178-40aaabfb07a44f6d",
+          "checks": "73/73",
+          "state": "pending requalification"
+        },
+        {
+          "name": "report-parity",
+          "run_id": "report-parity-20261020073320-2127",
+          "checks": "26/26",
+          "state": "pending requalification"
+        },
+        {
+          "name": "firewall",
+          "run_id": "firewall-20261020073459-2222842",
+          "checks": "36/36",
+          "state": "pending requalification"
+        },
+        {
+          "name": "fdeploy",
+          "run_id": "fd-20261020073719-5157",
+          "checks": "29/29",
+          "state": "pending requalification"
+        },
+        {
+          "name": "endpoint",
+          "run_id": "endpoint-observe-20261020073835-9781",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "lsdou-precedence",
+          "run_id": "rsop-observe-20261020074127-4290",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "disabled-block-enforced",
+          "run_id": "rsop-observe-20261020074322-5597",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "wmi-filtering",
+          "run_id": "rsop-observe-20261020074546-9797",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "wmi-filtering-error",
+          "run_id": "rsop-observe-20261020074753-3255",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "computer-security-filtering",
+          "run_id": "rsop-observe-20261020074945-9317",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "computer-security-filtering-deny-read",
+          "run_id": "rsop-observe-20261020075135-6601",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "loopback-merge",
+          "run_id": "rsop-user-observe-20261020075328-1230",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "loopback-replace",
+          "run_id": "rsop-user-observe-20261020075545-2837",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "user-side-disabled",
+          "run_id": "rsop-user-observe-20261020075802-7706",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "user-security-filtering",
+          "run_id": "rsop-user-observe-20261020080055-6849",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "user-security-filtering-deny",
+          "run_id": "rsop-user-observe-20261020080359-8373",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "user-security-filtering-read-deny",
+          "run_id": "rsop-user-observe-20261020080623-7133",
+          "checks": "pass",
+          "state": "pending requalification"
+        },
+        {
+          "name": "computer-security-filtering-group-deny",
+          "run_id": "rsop-observe-20261020080904-2605",
+          "checks": "pass",
+          "state": "pending requalification"
+        }
+      ]
+    },
+    "workspace_upgrade": {
+      "from_release": "1.1.0",
+      "from_schema": 4,
+      "to_schema": 4,
+      "migration": "the schema stays 4; AD discovery data cached by earlier builds is cleared the first time 1.2.0 opens the workspace (and is not served if an earlier build writes it again later), so re-run discovery after upgrading; nothing else is migrated",
+      "rollback": "restore the pre-upgrade backup; running 1.1.0 against a workspace 1.2.0 has written is not claimed",
+      "upgrade_from_1_0_0": "as for 1.1.0: tests/test_release_upgrade_from_1_0_0.py and scripts/rehearse_upgrade_rollback.py, schema 1 to 4"
+    },
+    "accessibility": {
+      "automated": "frontend CI job and release verify job: workspace axe scan, keyboard, focus, dark theme, and open-dialog axe scans of the Security template, Folder Redirection and RSOP prediction dialogs (RSOP in light and dark themes, populated and with validation errors; Security template and Folder Redirection populated in a 360-pixel-wide window)",
+      "hands_on_screen_reader": "not run: the owner waived the hands-on NVDA acceptance for 1.2.0 on 2026-11-01; the dialogs changed, but no NVDA pass was performed; it was not passed, and no screen-reader result is claimed for the interface added since 1.0"
+    },
+    "lane_verdicts": "pending: requalified by the release 1.2.0 batch at the freeze commit F, every lane at that one commit; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",
+    "remaining_before_approval": [
+      "all 26 live lanes requalified at F in one batch, banked in commit B whose parent is F, evidence and records only, with freeze set in this report (pending)",
+      "freeze commit F: every product change for 1.2.0 merged, __version__ 1.2.0 and SECURITY.md making 1.2.x the only supported line from 1.2.0 (both done in the preparation; the SECURITY.md change is the owner's decision of 2026-11-01), and the CHANGELOG.md 1.2.0 heading dated by F (pending)",
+      "owner's hands-on NVDA acceptance: waived for 1.2.0 by the owner on 2026-11-01 (the dialogs changed, but no NVDA pass was performed); not run",
+      "automated evidence, recorded after A by the tagged release workflow run, not a precondition of approval: the published release-evidence.md and release-evidence-report.json carry the tag, source commit, workflow run URL, id, attempt and ref, and the wheel, sdist and SBOM hashes, and state that release-identity, ci, identifier-gate and verify passed before publish and that verify checked coverage against the floor; the job ids and that run's coverage total are in the workflow run itself, not in the assets",
+      "final approval in a records-only commit A after B: status approved, manifest line 5; tag v1.2.0 on A, on main (pending)"
+    ],
+    "authorization": "full requalification of every lane at a freeze commit F authorized by the owner on 2026-10-29; shipped as 1.2.0, not a 1.1.x patch, by owner decision on 2026-11-01 (it adds features and changes behaviour, and SECURITY.md limits a 1.1.x patch to fixes)"
+  }
+}
