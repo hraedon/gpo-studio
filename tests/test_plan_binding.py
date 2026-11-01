@@ -2057,3 +2057,18 @@ def test_the_gpmc_backup_refusal_is_decided_once() -> None:
     reason = api_module._gpo_payload(gpo)["artifact_capabilities"]["gpmc_export"]["reason"]
     for issue in caught.value.issues:
         assert issue.message in reason, issue.code
+
+
+def test_only_the_deciding_builder_reaches_the_backup_codec() -> None:
+    """`export._gpmc_backup_codec` writes the backup's bytes after the refusal
+    decision; nothing in the product may call it but `gpmc_backup_bundle`."""
+    import pathlib
+
+    src = pathlib.Path(export.__file__).parent
+    callers = [
+        (path.name, number)
+        for path in sorted(src.glob("*.py"))
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if "_gpmc_backup_codec(" in line and "def _gpmc_backup_codec(" not in line
+    ]
+    assert callers == [("export.py", callers[0][1])] and len(callers) == 1

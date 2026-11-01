@@ -1878,6 +1878,18 @@ def gpmc_backup_bundle(
     )
     if issues:
         raise ValidationError(issues)
+    return _gpmc_backup_codec(gpo, scripts)
+
+
+def _gpmc_backup_codec(gpo: GPO, scripts: Mapping[str, ScriptPolicy] | None = None) -> bytes:
+    """The native backup's byte codec, after the refusal decision.
+
+    No surface calls this but `gpmc_backup_bundle`, which decides first
+    (`tests/test_plan_binding.py` holds it so). Codec tests call it to measure
+    the byte shape of combinations the decision refuses as unmeasured -- a
+    backup with scripts AND registry settings, say -- without offering them.
+    It still refuses what no encoding can carry (`_native_scripts_refusal`).
+    """
     backup_id = native_backup_id(gpo)
     files, profiles = _native_export_files(gpo, scripts)
     prefix = f"{backup_id}/DomainSysvol/GPO"
