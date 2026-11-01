@@ -9,7 +9,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from gpo_studio import template_store
 from gpo_studio.api import app
+from gpo_studio.safe_io import SafeOpenError
 from gpo_studio.store import WorkspaceStore
 
 
@@ -57,14 +59,15 @@ def test_unreadable_template_folder_keeps_previous_catalogue(
     assert catalogue.policies
     before_sources = template_client.get("/api/templates").json()
     before_policies = template_client.get("/api/admx/search").json()
-    original_iterdir = Path.iterdir
+    original_open_directory = template_store.open_directory
 
-    def inaccessible_iterdir(path: Path) -> Iterator[Path]:
-        if path == folder:
-            raise failure
-        return original_iterdir(path)
+    def inaccessible_folder(path: str | Path) -> int:
+        # The shape safe_io gives an OS failure: SafeOpenError chained to it.
+        if Path(path) == folder:
+            raise SafeOpenError("Cannot open directory without following links") from failure
+        return original_open_directory(path)
 
-    monkeypatch.setattr(Path, "iterdir", inaccessible_iterdir)
+    monkeypatch.setattr(template_store, "open_directory", inaccessible_folder)
     response = template_client.post(
         "/api/templates/ingest",
         json={"name": sources[0].source.name, "kind": "local", "path": str(folder)},
