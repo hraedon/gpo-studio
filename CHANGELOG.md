@@ -19,8 +19,11 @@ Current version: `1.2.0`. The previous final release was `1.1.0`.
 > dialogs, clear errors for malformed input, the local Windows CI tooling,
 > registry-only recovery, and the ADMX template store, whose security fixes
 > are listed under Security below. It is a minor release rather than a
-> `1.1.x` patch because `SECURITY.md` limits a patch to fixes. The workspace schema is still 4: a 1.1.0 workspace opens
-> unchanged and nothing is migrated.
+> `1.1.x` patch because `SECURITY.md` limits a patch to fixes. From 1.2.0,
+> `1.2.x` is the only supported line: `1.1.x` is no longer supported and no
+> `1.1.x` patch is planned, so upgrade to 1.2.0 (see `SECURITY.md`). The
+> workspace schema is still 4: a 1.1.0 workspace opens unchanged and nothing
+> is migrated.
 >
 > The release's live evidence (the requalification of every lane at the
 > release's freeze commit) is in the
