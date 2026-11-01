@@ -696,22 +696,33 @@ def test_a_static_mount_must_be_studios_own() -> None:
     assert any("not Studio's static files" in p for p in problems), problems
 
 
-def _real(kind: str) -> bytes:
-    from gpo_studio.export import export_bundle, gpmc_backup_bundle
+def _real_gpo() -> Any:
     from gpo_studio.model import GPO, RegistrySetting
 
-    gpo = GPO(
+    return GPO(
         guid="{0B0D0080-0000-4000-8000-000000000000}",
         name="Zip",
         settings=(RegistrySetting("s", "computer", "HKLM", "Software\\X", "V", "REG_SZ", "x"),),
     )
+
+
+def _real(kind: str) -> bytes:
+    from gpo_studio.export import export_bundle, gpmc_backup_bundle
+
+    gpo = _real_gpo()
     return export_bundle(gpo) if kind == "studio" else gpmc_backup_bundle(gpo)
 
 
 @pytest.mark.parametrize("kind", ["studio", "gpmc"])
 def test_a_real_export_passes_and_an_empty_one_does_not(kind: str) -> None:
-    assert egress.zip_problems(_real(kind), kind) == []  # type: ignore[arg-type]
-    assert egress.zip_problems(_rezip([]), kind)  # type: ignore[arg-type]
+    # A Studio bundle is checked against its GPO: its manifest must be the
+    # bytes the builder writes for it (pre-1.1.1 review, round 7), so without
+    # the GPO it is refused.
+    model = _real_gpo() if kind == "studio" else None
+    assert egress.zip_problems(_real(kind), kind, model) == []  # type: ignore[arg-type]
+    assert egress.zip_problems(_rezip([]), kind, model)  # type: ignore[arg-type]
+    if kind == "studio":
+        assert egress.zip_problems(_real(kind), kind)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("kind", ["studio", "gpmc"])

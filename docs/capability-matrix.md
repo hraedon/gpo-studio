@@ -1349,13 +1349,13 @@ soft hyphen still matches).
   surface: the plan writer and `plan.ps1`, the bundle builder and
   `export.zip` and the routes' own guard, egress and the API's capabilities,
   each naming every reason and every validation error, in one canonical order
-  (by code, then message), so two models that differ only in link order give
-  the same record. Egress checks the record both ways against it: the manifest
-  must be a JSON object; an `apply.ps1` is refused for a GPO whose plan is
-  refused for any reason, or beside a record; a missing `apply.ps1` needs a
-  record equal, field for field and JSON type for JSON type (`false` is not
-  `0`), to the one the GPO produces; without the GPO a missing plan is refused
-  outright. The API's
+  (by code, path, then message), so two models that differ only in link order
+  give the same refusals and the same record. Egress holds a Studio bundle to
+  the GPO it was built from: `manifest.json`, and `apply.ps1` when there is a
+  plan, must be exactly the bytes the builder writes for that GPO, so nothing
+  in the manifest -- a field, a duplicate key, `NaN`, a `null` record -- can
+  differ; without the GPO the bundle is refused. Every JSON member is parsed
+  strictly (no duplicate keys, `NaN`, `Infinity` or overflowing numbers). The API's
   `studio_export` capability is enabled for such a GPO and says separately
   whether the plan is included (`plan_included`, `plan_reason`).
 - **`-WhatIf`.** Every change goes through a cmdlet's or the plan's own
@@ -1395,6 +1395,20 @@ soft hyphen still matches).
   trustees are left as they are.
 - **Only read filters authored:** the apply set is empty, so after the plan
   runs the GPO applies to no one. This matches the RSOP model.
+
+### One refusal decision
+
+`export.refusal_issues(gpo, artifact)` is the only place an export refusal is
+decided, for the plan (`plan.ps1`), the Studio bundle (`export.zip`), the GPMC
+backup, the GPMC backup with scripts and the publication plan. It returns
+everything that refuses that artifact -- validation errors (text XML cannot
+carry among them), preserved unknown CSE content, plan reasons and the Scripts
+lane's GPO shape -- de-duplicated and in one canonical order, with no early
+return, and it runs no artifact writer. The raw writers, the checked builders,
+the routes' guards (the review digest is computed only after it) and the API's
+capabilities all ask it; a capability adds only its writer's own refusal, found
+by building the artifact when nothing refuses the GPO. What a request asks of
+the scripts export (a user side, shutdown scripts) is added by that route.
 
 ### When the plan stops partway
 

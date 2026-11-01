@@ -441,7 +441,7 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Security
 
-Pre-1.1.1 security review, three rounds. Both original findings predate 1.1.0.
+Pre-1.1.1 security review, seven rounds. Both original findings predate 1.1.0.
 
 - **The PowerShell plan (`plan.ps1`, `apply.ps1`) is bound to the GPO's
   declared domain.** Every GroupPolicy cmdlet names `-Domain`, and before any
@@ -495,8 +495,18 @@ Pre-1.1.1 security review, three rounds. Both original findings predate 1.1.0.
   reports `plan_included`. A reason that refuses the whole bundle (a deny
   filter) still does. One function decides for the plan, the bundle, the
   routes, egress and the API, and each names every reason and validation
-  error in one canonical order. Egress requires an object manifest and
-  compares the record with JSON types (`false` is not `0`).
+  error in one canonical order. Egress requires the bundle's `manifest.json`
+  (and `apply.ps1`) to be exactly the bytes the builder writes for the GPO, so
+  no field, duplicate key, `NaN` or `null` record can be altered, and every
+  JSON member is parsed strictly (no duplicate keys, `NaN`, `Infinity` or
+  overflowing numbers).
+- **One refusal decision for every export.** `export.refusal_issues` decides,
+  completely and in one order, what refuses the plan, the Studio bundle, the
+  GPMC backup (with or without scripts) and the publication plan --
+  validation errors, text XML cannot carry, unknown CSE content, plan reasons
+  and the Scripts lane's GPO shape -- and the writers, the checked builders,
+  the routes' guards and the API's capabilities all ask it. It runs before
+  any writer, so refused content is never serialized, not even into memory.
 - **`-WhatIf` changes nothing.** Side status (`GpoStatus`) is set through
   `ShouldProcess`; the read-back is skipped under `-WhatIf`.
 - Filtering and side status run before links, so nothing is linked while a new

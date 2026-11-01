@@ -84,8 +84,8 @@ from .delegation import (
 )
 from .diff import diff_gpos, three_way_diff
 from .egress import Format as EgressFormat
+from .egress import check as egress_check
 from .egress import (
-    RefusedArtifact,
     checked_gpmc_backup,
     checked_plan,
     checked_studio_bundle,
@@ -94,9 +94,7 @@ from .egress import (
     refusal_issues,
     studio_export_refusal,
     writer_boundary,
-    writer_errors,
 )
-from .egress import check as egress_check
 from .emit_integrity import CHECKS, EmitError, line_problem
 from .estate import parse_estate
 from .export import (
@@ -108,9 +106,11 @@ from .export import (
     _SCRIPTS_TOOL_GUID,
     _SCRIPTS_USER_TOOL_GUID,
     _ZERO_GUID,
+    ArtifactKind,
     extension_registration,
     native_backup_id,
     native_backup_refusal,
+    refusal_summary,
 )
 from .fdeploy import (
     FLAGS_ARE_UNDECODED,
@@ -142,7 +142,6 @@ from .gpp import (
     GppRegistryValue,
     _normalize_hive,
     raw_records,
-    serialize_gpp,
     without_native_records,
 )
 from .gpp_edit import (
@@ -2179,7 +2178,6 @@ def _build_gpo_payload(gpo: Any) -> dict[str, Any]:
     plan_blocked, studio_blocked, backup_blocked = _artifact_refusals(gpo)
     plan_reason = plan_blocked.message if plan_blocked is not None else ""
     studio_reason = studio_blocked.message if studio_blocked is not None else ""
-    unknown_cse = _unknown_cse_refusal(gpo)
     # WI-046. Same class as WI-044, one capability along: the GMPC backup path
     # refuses GPP families outside `_GPP_EXTENSION_PROFILES` (Registry was among
     # them until batch 2 measured its pair; an unmeasured GPP Registry item
@@ -2205,40 +2203,31 @@ def _build_gpo_payload(gpo: Any) -> dict[str, Any]:
         "policy_semantic_sha256": None if unwritable else digests[0],
         "review_model_sha256": None if unwritable else digests[1],
         "artifact_capabilities": {
+            # Every refusal below is `refusal_issues` for the artifact (round
+            # 7), named in one reason -- validation errors, preserved unknown
+            # CSE content and plan reasons alike -- or, when nothing refuses
+            # the GPO, its writer's own refusal.
             "studio_export": {
-                "enabled": not blocked and studio_blocked is None,
+                "enabled": studio_blocked is None,
                 "format": "zip",
                 "reason": studio_reason,
                 # The bundle is written without apply.ps1 when only the plan
-                # is refused (export.plan_only_refusals): recorded here apart
-                # from the export's own refusal (pre-1.1.1 review, round 4).
-                "plan_included": not blocked
-                and studio_blocked is None
-                and plan_blocked is None,
+                # is refused: recorded here apart from the export's own
+                # refusal (pre-1.1.1 review, round 4).
+                "plan_included": studio_blocked is None and plan_blocked is None,
                 "plan_reason": plan_reason if studio_blocked is None else "",
             },
             "gpmc_export": {
-                "enabled": not blocked and unknown_cse is None and backup_blocked is None,
+                "enabled": backup_blocked is None,
                 "format": "zip",
-                # Preserved content is checked first because it is the more
-                # specific answer: such a GPO is refused for a reason the
-                # backup path never reaches. Asked of `_unknown_cse_refusal`,
-                # the route's own check, rather than of `preserved_files`: an
-                # extension entry that inventories no file has a file count of
-                # 0 and was advertised as enabled while the route refused it.
-                "reason": unknown_cse.message if unknown_cse is not None else backup_reason,
+                "reason": backup_reason,
             },
             "powershell_plan": {
-                "enabled": not blocked and plan_blocked is None,
+                "enabled": plan_blocked is None,
                 "format": "text",
                 "reason": plan_reason,
             },
-            "scripts_export": _scripts_export_capability(
-                gpo,
-                blocked=blocked,
-                unknown_cse=unknown_cse,
-                backup_reason=backup_reason,
-            ),
+            "scripts_export": _scripts_export_capability(gpo, backup_blocked),
             # The diagnostic exception (final-r15): the report renders even
             # for stored content a current rule refuses -- it summarizes and
             # escapes, never embeds retained bytes -- so it is always enabled.
@@ -4590,20 +4579,22 @@ def _reviewed_export(
     guid: str,
     expected_revision: int | None,
     expected_review_hash: str | None,
-    artifact: RefusedArtifact,
+    artifact: ArtifactKind,
 ) -> tuple[GPO, str]:
     # Fetch once: the guard, validation and serializer all use this immutable
     # object, even if another request commits a newer workspace revision.
     gpo = _store(request).get_gpo(guid)
     if (expected_revision is None) != (expected_review_hash is None):
         raise StudioError("Supply expected_revision and expected_review_hash together.")
+    # The refusal first, before the review digest -- which writes the GPO's
+    # retained records -- and with every reason, as the checked builder and the
+    # capability name them; legacy text no digest can hash is among them
+    # (pre-1.1.1 review, round 7: this path had its own validation-only branch).
+    issues = refusal_issues(gpo, artifact, validate_gpo(gpo))
+    if issues:
+        raise ValidationError(issues)
     review_hash = _digest(review_model_sha256, gpo)
     if review_hash is None:
-        # Legacy unwritable text may prevent hashing. Keep its actionable
-        # validation issues instead of masking the field with a digest refusal.
-        errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
-        if errors:
-            raise ValidationError(errors)
         raise StudioError(
             "This policy cannot be hashed for export review. "
             "Resolve its validation findings first."
@@ -4612,11 +4603,6 @@ def _reviewed_export(
         gpo.revision != expected_revision or review_hash != expected_review_hash
     ):
         raise _ExportReviewConflict(gpo, expected_revision, expected_review_hash, review_hash)
-    # Every reason at once, as the checked builder and the capability name
-    # them (round 6).
-    issues = refusal_issues(gpo, artifact, validate_gpo(gpo))
-    if issues:
-        raise ValidationError(issues)
     return gpo, review_hash
 
 
@@ -4850,25 +4836,6 @@ def import_backup(
     return _gpo_payload(gpo, request)
 
 
-def _unknown_cse_refusal(gpo: GPO) -> ValidationIssue | None:
-    """Why preserved extension content refuses a GPMC backup, or ``None``.
-
-    Shared by the two GPMC-backup routes and by the `gpmc_export` and
-    `scripts_export` capabilities, so the advertisement and the refusal are
-    the same check with the same message. It refuses on ANY preserved
-    extension entry, not on the preserved file count, so an entry that
-    inventories no file is refused too.
-    """
-    if not gpo.cse_metadata:
-        return None
-    return ValidationIssue(
-        severity="error",
-        code="unknown_cse_content",
-        message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
-        path="cse_metadata",
-    )
-
-
 @app.get("/api/gpos/{guid}/gpmc-backup")
 @egress("zip-gpmc")
 def gpmc_backup(
@@ -4880,9 +4847,6 @@ def gpmc_backup(
     gpo, review_hash = _reviewed_export(
         request, guid, expected_revision, expected_review_hash, "gpmc-backup"
     )
-    unknown_cse = _unknown_cse_refusal(gpo)
-    if unknown_cse is not None:
-        raise ValidationError([unknown_cse])
     backup_id = native_backup_id(gpo)
     fname = f"{_safe_filename(backup_id.strip('{}'))}-gpmc-backup.zip"
     content = checked_gpmc_backup(gpo)
@@ -6586,61 +6550,6 @@ def _scripts_limitations() -> list[dict[str, str]]:
     ]
 
 
-def _gpo_has_preference_content(gpo: GPO) -> bool:
-    """Whether any GPP collection would emit a file.
-
-    Asked of the serializer rather than restated field by field, so a family
-    added later counts the day it lands. A collection the serializer refuses
-    has content by definition.
-    """
-    for collection in gpo.gpp_collections:
-        try:
-            if serialize_gpp(collection):
-                return True
-        except writer_errors():  # a collection the writer refuses has content by definition
-            return True
-    return False
-
-
-def _scripts_gpo_refusals(gpo: GPO) -> list[ValidationIssue]:
-    """Why *gpo* is outside the Scripts lane's measured GPO shape.
-
-    Request-independent, so the `scripts_export` capability and the endpoint
-    ask the same function and cannot disagree.
-    """
-    issues: list[ValidationIssue] = []
-    if gpo.settings or _gpo_has_preference_content(gpo):
-        issues.append(
-            ValidationIssue(
-                severity="error",
-                code="scripts_with_other_content_unmeasured",
-                message=(
-                    "This GPO also carries registry settings or preferences. The "
-                    "Scripts lane measured a GPO with scripts and nothing else, and "
-                    "the publication lane measured registry and preferences without "
-                    "scripts; no lane has imported the combination, including the "
-                    "order of the Scripts entry in the extension list. Export the "
-                    "scripts from a GPO that holds only scripts."
-                ),
-                path="gpo",
-            )
-        )
-    if not (gpo.computer_enabled and gpo.user_enabled):
-        issues.append(
-            ValidationIssue(
-                severity="error",
-                code="scripts_disabled_side_unmeasured",
-                message=(
-                    "This GPO has a disabled side. The Scripts lane imported a GPO "
-                    "with both sides enabled, so a backup with scripts and a "
-                    "disabled side is unmeasured."
-                ),
-                path="gpo",
-            )
-        )
-    return issues
-
-
 def _script_entry_refusals(entry: ScriptEntryData, path: str) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for name, value in (("command", entry.command), ("parameters", entry.parameters)):
@@ -6833,13 +6742,9 @@ def _scripts_export(
     the plain backup route would give.
     """
     gpo = _store(request).get_gpo(guid)
-    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
-    if errors:
-        raise ValidationError(errors)
-    unknown_cse = _unknown_cse_refusal(gpo)
-    if unknown_cse is not None:
-        raise ValidationError([unknown_cse])
-    refusals = _scripts_gpo_refusals(gpo) + _scripts_request_refusals(body)
+    # The GPO's refusals are `refusal_issues`' (round 7); the request's own
+    # are added to them, so one 422 names everything.
+    refusals = refusal_issues(gpo, "gpmc-backup-with-scripts") + _scripts_request_refusals(body)
     if refusals:
         raise ValidationError(refusals)
     policies: dict[str, ScriptPolicy] = {}
@@ -6927,32 +6832,21 @@ def gpmc_backup_with_scripts_preview(
 
 
 def _scripts_export_capability(
-    gpo: GPO,
-    *,
-    blocked: bool,
-    unknown_cse: ValidationIssue | None,
-    backup_reason: str,
+    gpo: GPO, backup_blocked: ValidationIssue | None
 ) -> dict[str, Any]:
-    """The `scripts_export` artifact capability, from the endpoint's own checks.
+    """The `scripts_export` artifact capability: `refusal_issues` for a backup
+    with scripts (validation, unknown CSE content, the Scripts lane's GPO
+    shape), or -- when nothing refuses the GPO -- the backup writer's own
+    refusal.
 
     Request-independent only: whether the GPO can carry scripts at all. A
     request can still be refused for what it asks (user side, shutdown, the
     PowerShell order), which no capability flag can know in advance.
     """
-    reason = ""
-    if blocked:
-        reason = "Validation errors block this artifact."
-    elif unknown_cse is not None:
-        # The route's own check (`_unknown_cse_refusal`), so the reason is the
-        # one the route gives, and an extension entry that inventories no file
-        # is refused here as it is there.
-        reason = unknown_cse.message
-    elif backup_reason:
-        reason = backup_reason
-    else:
-        refusals = _scripts_gpo_refusals(gpo)
-        if refusals:
-            reason = refusals[0].message
+    refused = refusal_summary(refusal_issues(gpo, "gpmc-backup-with-scripts"))
+    if refused is None and backup_blocked is not None:
+        refused = backup_blocked
+    reason = refused.message if refused is not None else ""
     return {
         "enabled": not reason,
         "format": "zip",
@@ -7261,9 +7155,9 @@ def publication_plan_preview(
     # like an artifact route (Sol final-r15 B1): a GPO validation blocks is
     # refused BEFORE any artifact is built -- stored content a current rule
     # refuses included -- and a writer refusal is a 422, never a 500.
-    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
-    if errors:
-        raise ValidationError(errors)
+    refused = refusal_issues(gpo, "publication-plan")
+    if refused:
+        raise ValidationError(refused)
     with writer_boundary("the publication plan"):
         plan = generate_publication_plan(gpo, target=target)
     issues = validate_publication_plan(plan)

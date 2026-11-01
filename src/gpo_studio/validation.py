@@ -340,7 +340,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
             # A warning, not an error: an error here would also refuse the GPMC
             # backup (which carries no links) and an estate import of a real
             # multi-domain estate. The PowerShell plan, which does write
-            # links, refuses it (`export._plan_precondition`).
+            # links, refuses it (`export.refusal_issues`).
             issues.append(
                 ValidationIssue(
                     "warning",

@@ -605,91 +605,80 @@ _GPMC_REQUIRED = (
 )
 
 
-def _json_identical(left: object, right: object) -> bool:
-    """JSON equality that also compares types, at every depth: Python's ``==``
-    holds ``False == 0 == 0.0``, so ``"included": 0`` passed for ``false``
-    (round 6). Booleans, integers, floats, strings, null, arrays and objects
-    are each only ever equal to their own kind."""
-    if type(left) is not type(right):
-        return False
-    if isinstance(left, dict):
-        assert isinstance(right, dict)
-        return left.keys() == right.keys() and all(
-            _json_identical(left[key], right[key]) for key in left
-        )
-    if isinstance(left, list):
-        assert isinstance(right, list)
-        return len(left) == len(right) and all(
-            _json_identical(a, b) for a, b in zip(left, right, strict=True)
-        )
-    return left == right
+def _reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    keys = [key for key, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("duplicate object key")
+    return dict(pairs)
 
 
-def _plan_record_problems(
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"non-standard JSON constant {name}")
+
+
+def _strict_float(text: str) -> float:
+    value = float(text)
+    if value in (float("inf"), float("-inf")):
+        raise ValueError(f"number {text} overflows")
+    return value
+
+
+def strict_json_loads(data: bytes) -> Any:
+    """JSON as RFC 8259 has it, or `ValueError`: UTF-8, no duplicate object
+    key (``json.loads`` keeps the last one silently), no ``NaN`` or
+    ``Infinity``, no number that overflows to infinity (round 7)."""
+    return json.loads(
+        data.decode("utf-8"),
+        object_pairs_hook=_reject_duplicates,
+        parse_constant=_reject_constant,
+        parse_float=_strict_float,
+    )
+
+
+def _studio_identity_problems(
     where: str, archive: zipfile.ZipFile, names: list[str], model: Any
 ) -> list[EmitProblem]:
-    """``apply.ps1`` and the manifest's ``powershell_plan`` record must agree
-    with each other and with the GPO, both ways (pre-1.1.1 review, rounds 3-5).
+    """A Studio bundle's ``manifest.json`` and ``apply.ps1`` must be exactly
+    the bytes the builder writes for the GPO (`export.studio_bundle_expectation`).
 
-    Asked of `export.plan_refusals`, the one answer the builder uses:
-
-    * With ``apply.ps1``: no record, and -- given the GPO -- no refusal of any
-      kind (round 5: a narrower question let a deny-filtered GPO's plan pass).
-    * Without ``apply.ps1``: the GPO's bundle must be one written without its
-      plan, and the record must equal, field for field, the record its
-      refusals produce (round 5: a forged message passed). Without the GPO --
-      bytes no checked builder produced -- a missing plan is refused outright.
-    """
+    Chosen over a schema for the manifest (pre-1.1.1 review, round 7): every
+    finding of the last three rounds was a manifest egress had validated less
+    than fully -- a forged message, ``0`` for ``false``, a non-object, then
+    duplicate keys, ``NaN``, a ``null`` record and a replaced ``gpo``. Byte
+    identity with the builder's own output admits none of them, needs no
+    second statement of the format to drift from the first, and egress always
+    has the GPO: the checked builder passes it, and the export route attaches
+    it (`api.bundle`). Without the GPO -- bytes no checked builder produced --
+    the bundle is refused: nothing could confirm its manifest."""
     from . import export
+    from .model import ValidationError
 
-    if names.count("manifest.json") != 1:
-        return []  # reported as a missing required member
+    if model is None:
+        return [EmitProblem(where, "manifest.json", "", "cannot be verified without the GPO")]
     try:
-        manifest = json.loads(archive.read("manifest.json"))
-    except ValueError:
-        return []  # reported by the manifest member's own check
-    if not isinstance(manifest, dict):
-        # Round 6: a non-object manifest read as "no record", so a bundle
-        # whose manifest.json was [] passed beside apply.ps1.
-        return [EmitProblem(where, "manifest.json", "", "is not a JSON object")]
-    record = manifest.get("powershell_plan")
-    refused = export.plan_refusals(model) if model is not None else None
-    if "apply.ps1" in names:
-        if record is not None:
-            return [EmitProblem(where, "member", "apply.ps1", "is present beside a refusal record")]
-        if refused is not None and refused.refused:
-            return [
-                EmitProblem(
-                    where, "member", "apply.ps1", "is present, but the GPO's plan is refused"
-                )
-            ]
-        return []
-    if refused is None:
-        return [
+        manifest, plan = export.studio_bundle_expectation(model)
+    except ValidationError:
+        return [EmitProblem(where, "archive", "", "is a bundle for a GPO whose bundle is refused")]
+    problems: list[EmitProblem] = []
+    if names.count("manifest.json") == 1 and archive.read("manifest.json") != manifest:
+        problems.append(
+            EmitProblem(where, "manifest.json", "", "is not exactly the manifest of this GPO")
+        )
+    if plan is None and "apply.ps1" in names:
+        problems.append(
+            EmitProblem(where, "member", "apply.ps1", "is present, but the GPO's plan is refused")
+        )
+    if plan is not None and names.count("apply.ps1") != 1:
+        problems.append(
             EmitProblem(
-                where, "member", "apply.ps1", "is missing, and without the GPO nothing confirms why"
+                where, "member", "apply.ps1", "is missing, but the GPO's plan is not refused"
             )
-        ]
-    expected = refused.record()
-    if expected is None:
-        return [
-            EmitProblem(
-                where,
-                "member",
-                "apply.ps1",
-                "is missing, but the GPO's bundle is not one written without its plan",
-            )
-        ]
-    if not _json_identical(record, expected):
-        return [
-            EmitProblem(
-                where,
-                "powershell_plan",
-                "manifest.json",
-                "is not exactly the refusal record the GPO's plan produces",
-            )
-        ]
-    return []
+        )
+    if plan is not None and names.count("apply.ps1") == 1 and archive.read("apply.ps1") != plan:
+        problems.append(
+            EmitProblem(where, "member", "apply.ps1", "is not exactly the plan of this GPO")
+        )
+    return problems
 
 
 def zip_problems(
@@ -727,7 +716,7 @@ def zip_problems(
             problems.append(EmitProblem(where, "member name", name, "appears more than once"))
         plan_omitted = kind == "studio" and "apply.ps1" not in names
         if kind == "studio":
-            problems += _plan_record_problems(where, archive, names, model)
+            problems += _studio_identity_problems(where, archive, names, model)
         for pattern in required:
             if plan_omitted and pattern.pattern == r"apply\.ps1":
                 continue
@@ -891,7 +880,7 @@ def gpp_agreement_problems(
 def _member_problems(where: str, kind: str, content: bytes) -> list[EmitProblem]:
     if kind == "json":
         try:
-            json.loads(content.decode("utf-8"))
+            strict_json_loads(content)
         except (UnicodeDecodeError, ValueError) as error:
             return [EmitProblem(where, "json", "", f"is not JSON: {error}")]
         return []
@@ -1104,39 +1093,19 @@ def writer_boundary(where: str) -> Iterator[None]:
         raise unwritable_artifact(error, where) from error
 
 
-RefusedArtifact = Literal["plan.ps1", "export.zip", "gpmc-backup"]
-
-
 def refusal_issues(
-    gpo: Any, artifact: RefusedArtifact, validation: Sequence[Any] | None = None
+    gpo: Any, artifact: Any, validation: Sequence[Any] | None = None
 ) -> list[Any]:
-    """Everything that refuses *artifact* for *gpo* before it is built, in one
-    order, or ``[]``: what the checked builder raises, what the route raises
-    and what the capability names (pre-1.1.1 review, round 6: the guards
-    raised the validation errors alone while the plan and the capabilities
-    named every reason).
+    """`export.refusal_issues`: THE refusal decision, re-exported for the
+    routes and capabilities (round 7)."""
+    from .export import refusal_issues as decide
 
-    The plan and the Studio bundle ask `export.plan_refusals` -- the plan is
-    refused by any reason or validation error, the bundle by a validation
-    error or a reason that takes the whole bundle (`PlanRefusals.whole`). The
-    GPMC backup, which carries no plan, by validation errors alone."""
-    from .export import plan_refusals
-    from .validation import validate_gpo
-
-    if artifact == "gpmc-backup":
-        issues = validate_gpo(gpo) if validation is None else validation
-        return [issue for issue in issues if issue.severity == "error"]
-    refused = plan_refusals(gpo, validation)
-    if artifact == "plan.ps1":
-        return refused.issues if refused.refused else []
-    return refused.issues if refused.errors or refused.whole else []
+    return decide(gpo, artifact, validation)
 
 
-def _require_valid(gpo: Any, artifact: RefusedArtifact) -> None:
-    """Every checked builder validates the GPO itself before building anything
-    (Sol final-r18 B2): a GPO with a validation error -- stored content a
-    current rule refuses among them -- is never serialized, whoever calls.
-    Raises every reason at once (`refusal_issues`)."""
+def _require_valid(gpo: Any, artifact: Any) -> None:
+    """Every checked builder refuses before building anything (Sol final-r18
+    B2), with every reason at once (`refusal_issues`)."""
     from .model import ValidationError
 
     issues = refusal_issues(gpo, artifact)
@@ -1172,7 +1141,9 @@ def checked_studio_bundle(gpo: Any) -> bytes:
 def checked_gpmc_backup(gpo: Any, scripts: Mapping[str, Any] | None = None) -> bytes:
     from . import export
 
-    _require_valid(gpo, "gpmc-backup")
+    _require_valid(
+        gpo, "gpmc-backup-with-scripts" if scripts and any(scripts.values()) else "gpmc-backup"
+    )
     with writer_boundary("gpmc-backup"):
         data = export.gpmc_backup_bundle(gpo, scripts=scripts)
     problems = zip_problems(data, "gpmc", gpo)
@@ -1182,45 +1153,21 @@ def checked_gpmc_backup(gpo: Any, scripts: Mapping[str, Any] | None = None) -> b
     return data
 
 
-def _refusal(
-    build: Callable[[], Any],
-    gpo: Any,
-    path: str,
-    *,
-    blocked_first: bool,
-    whole_only: bool = False,
-) -> Any:
-    """Why *build* would refuse, or ``None`` -- by running it.
-
-    Never builds for a GPO with a validation error: that refusal is
-    validation's, and building the artifact anyway would write stored content
-    a current rule refuses into bytes, sent or not (Sol final-r16 B1).
-    ``blocked_first`` asks `export.plan_refusals` first and answers with
-    every reason at once (`PlanRefusals.summary`); ``whole_only`` (the bundle)
-    answers only when a reason refuses the whole bundle -- with every reason,
-    as the route raises them all.
-    """
-    from .export import PlanRefusals, _writer_refusal
+def _refusal(build: Callable[[], Any], gpo: Any, artifact: Any) -> Any:
+    """A capability's refusal: `refusal_issues`, named in one issue
+    (`export.refusal_summary`), or -- only when nothing refuses the GPO -- the
+    writer's own refusal, found by building it. The builder never runs for a
+    refused GPO (Sol final-r16 B1)."""
+    from .export import _writer_refusal, refusal_summary
     from .model import ValidationError
-    from .validation import validate_gpo
 
-    if blocked_first:
-        # The same issues, in the same order, as the builder and the route
-        # raise -- validation errors included (round 6: a validation-only GPO
-        # was advertised disabled with an empty reason).
-        issues = refusal_issues(gpo, "export.zip" if whole_only else "plan.ps1")
-        if issues:
-            return PlanRefusals(reasons=tuple(issues), errors=()).summary()
-    errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
-    if errors:
-        # The plan and bundle leave it to the caller's `blocked`; the backup
-        # answers with the refusal its builder would have raised -- the same
-        # validation errors -- without building anything.
-        return None if blocked_first else _writer_refusal(ValidationError(errors), path)
+    issues = refusal_issues(gpo, artifact)
+    if issues:
+        return refusal_summary(issues)
     try:
         build()
     except (ValidationError, EmitError) as error:  # the builders' refusals, named
-        return _writer_refusal(error, path)
+        return _writer_refusal(error, artifact)
     return None
 
 
@@ -1244,24 +1191,17 @@ def unwritable_artifact(error: BaseException, where: str) -> Any:
 
 def plan_refusal(gpo: Any) -> Any:
     """Why `checked_plan` refuses this GPO, or ``None`` (the route's own function)."""
-    return _refusal(lambda: checked_plan(gpo), gpo, "plan.ps1", blocked_first=True)
+    return _refusal(lambda: checked_plan(gpo), gpo, "plan.ps1")
 
 
 def studio_export_refusal(gpo: Any) -> Any:
-    """Why `checked_studio_bundle` refuses this GPO, or ``None``.
-
-    A plan-only refusal (a WMI filter, an out-of-domain link) does not refuse
-    the bundle -- it is written without ``apply.ps1`` -- so only a refusal that
-    takes the whole bundle is answered here first (round 4: the capability
-    said ``enabled: false`` while the route built the plan-less ZIP). Whether
-    the plan is included is the capability's ``plan_included``."""
-    return _refusal(
-        lambda: checked_studio_bundle(gpo), gpo, "export.zip", blocked_first=True, whole_only=True
-    )
+    """Why `checked_studio_bundle` refuses this GPO, or ``None``. A plan-only
+    refusal does not refuse the bundle (it is written without ``apply.ps1``);
+    whether the plan is included is the capability's ``plan_included``."""
+    return _refusal(lambda: checked_studio_bundle(gpo), gpo, "export.zip")
 
 
 def gpmc_backup_refusal(gpo: Any, scripts: Mapping[str, Any] | None = None) -> Any:
     """Why `checked_gpmc_backup` refuses this GPO, or ``None``."""
-    return _refusal(
-        lambda: checked_gpmc_backup(gpo, scripts), gpo, "gpmc-backup", blocked_first=False
-    )
+    kind = "gpmc-backup-with-scripts" if scripts and any(scripts.values()) else "gpmc-backup"
+    return _refusal(lambda: checked_gpmc_backup(gpo, scripts), gpo, kind)

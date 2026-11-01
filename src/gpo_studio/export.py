@@ -7,7 +7,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
-from typing import Protocol, assert_never, cast
+from typing import Literal, Protocol, assert_never, cast
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from .canonical import (
@@ -31,7 +31,7 @@ from .identity_values import dn_problem, link_target_scope_problem
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord, serialize
 from .script_policy import PowerShellScriptEntry, ScriptEntry, ScriptPolicy
-from .validation import text_issues, validate_gpo
+from .validation import validate_gpo
 
 _GPMC_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"
 _GPMC_BACKUP_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations"
@@ -156,18 +156,6 @@ def _ps_value(setting: RegistrySetting) -> str:
     return ps_literal(setting.value, "Value")
 
 
-def _text_refusal(gpo: GPO) -> ValidationIssue | None:
-    """The first string no artifact can carry (batch-2 review), or ``None``.
-
-    Every exporter asks this first: a stored legacy revision can still hold
-    such text, and writing it would either crash (a lone surrogate cannot be
-    encoded) or produce XML a parser rejects. It is a refusal with a code,
-    reported where the capability is advertised.
-    """
-    issues = text_issues(gpo)
-    return issues[0] if issues else None
-
-
 def _writer_refusal(error: Exception, path: str) -> ValidationIssue:
     """A writer's refusal as the issue a capability reports (final-r9 DS B2):
     a read or a mutation response must never raise because stored data is
@@ -187,8 +175,8 @@ def plan_refusal(gpo: GPO) -> ValidationIssue | None:
 
     The plan route's own function decides (`egress.plan_refusal`, which runs
     `egress.checked_plan`: the writer, then egress), so the capability and the
-    download cannot disagree (WI-044; DeepSeek final-r11 B1). A GPO with a
-    validation error is reported by `validate_gpo` (the caller's ``blocked``).
+    download cannot disagree (WI-044; DeepSeek final-r11 B1). Every refusal,
+    validation errors included, is `refusal_issues`'.
     """
     from .egress import plan_refusal as checked
 
@@ -201,13 +189,6 @@ def studio_export_refusal(gpo: GPO) -> ValidationIssue | None:
     from .egress import studio_export_refusal as checked
 
     return cast(ValidationIssue | None, checked(gpo))
-
-
-def _plan_precondition(gpo: GPO) -> ValidationIssue | None:
-    """The first of `_plan_refusals`, or ``None``: what refuses a plan before
-    any argument is written."""
-    refusals = _plan_refusals(gpo)
-    return refusals[0] if refusals else None
 
 
 def _plan_refusals(gpo: GPO) -> list[ValidationIssue]:
@@ -225,9 +206,9 @@ def _plan_refusals(gpo: GPO) -> list[ValidationIssue]:
     `validate_gpo` has no deny rule, so the capability said `enabled: true`
     while the download refused.
     """
-    unwritable = _text_refusal(gpo)
-    if unwritable is not None:
-        return [unwritable]
+    # No early return (round 7): text XML cannot carry is a validation error
+    # (`text_issues`), reported beside these by `refusal_issues`; every
+    # message here names user text through repr(), so it stays printable.
     # All of them, not the first (pre-1.1.1 review, round 4): the bundle is
     # written without the plan only when EVERY reason is plan-only, so a deny
     # filter beside a WMI filter refuses the whole export, as it does alone.
@@ -272,7 +253,7 @@ def _plan_refusals(gpo: GPO) -> list[ValidationIssue]:
         code="deny_filter_not_expressible",
         message=(
             "Security filter for "
-            f"{', '.join(sorted(sf.principal for sf in denied))} "
+            f"{', '.join(repr(p) for p in sorted(sf.principal for sf in denied))} "
             "is a DENY, which Set-GPPermission cannot express. "
             "A PowerShell plan cannot be generated for this GPO "
             "without changing what the deny means. Remove the "
@@ -662,15 +643,15 @@ def powershell_plan(gpo: GPO) -> str:
        status (through ``ShouldProcess``, so ``-WhatIf`` changes nothing), and
        links last.
 
-    A GPO with an authored WMI filter gets no plan (`_plan_precondition`).
+    A GPO with an authored WMI filter gets no plan (`refusal_issues`).
 
     It is not transactional: what a stop after the preflight leaves behind is
     listed in the plan's header and in ``docs/capability-matrix.md``.
     ``source_guid`` never selects a GPO.
     """
-    refused = plan_refusals(gpo)
-    if refused.refused:
-        raise ValidationError(refused.issues)
+    issues = refusal_issues(gpo, "plan.ps1")
+    if issues:
+        raise ValidationError(issues)
     name = ps_literal(gpo.name, "Name")
     trust_marker = "$false" if _guid_from_imported_data(gpo) else "$true"
     lines = [
@@ -894,28 +875,97 @@ def powershell_plan(gpo: GPO) -> str:
 #: Registry.pol files a 1.0.0 workspace always exported.
 PLAN_ONLY_REFUSALS = frozenset({"link_target_outside_domain", "wmi_filter_not_verifiable"})
 
+#: Every artifact whose refusal `refusal_issues` decides.
+ArtifactKind = Literal[
+    "plan.ps1", "export.zip", "gpmc-backup", "gpmc-backup-with-scripts", "publication-plan"
+]
+
+
+def unknown_cse_refusal(gpo: GPO) -> ValidationIssue | None:
+    """Why preserved extension content refuses a GPMC backup, or ``None``: on
+    ANY preserved extension entry, so one that inventories no file is refused
+    too."""
+    if not gpo.cse_metadata:
+        return None
+    return ValidationIssue(
+        severity="error",
+        code="unknown_cse_content",
+        message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
+        path="cse_metadata",
+    )
+
+
+def _has_preference_content(gpo: GPO) -> bool:
+    """Whether any GPP collection would emit a file, decided as `serialize_gpp`
+    decides it -- its own file list (`gpp._gpp_files_with_content`), its
+    verbatim source files -- WITHOUT serializing anything: this is part of the
+    refusal decision, which no writer may run for (round 7). A collection the
+    writer would refuse has content by definition."""
+    from .gpp import _gpp_files_with_content, _holds_refused_record, has_refused_content
+
+    return any(
+        collection.source_files
+        or collection.local_groups
+        or collection.local_groups_unknown_attrs
+        or collection.local_groups_unknown_children
+        or has_refused_content(collection)
+        or _holds_refused_record(collection)
+        or _gpp_files_with_content(collection)
+        for collection in gpo.gpp_collections
+    )
+
+
+def scripts_gpo_refusals(gpo: GPO) -> list[ValidationIssue]:
+    """Why *gpo* is outside the Scripts lane's measured GPO shape
+    (request-independent; a request's own refusals are the route's)."""
+    issues: list[ValidationIssue] = []
+    if gpo.settings or _has_preference_content(gpo):
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="scripts_with_other_content_unmeasured",
+                message=(
+                    "This GPO also carries registry settings or preferences. The "
+                    "Scripts lane measured a GPO with scripts and nothing else, and "
+                    "the publication lane measured registry and preferences without "
+                    "scripts; no lane has imported the combination, including the "
+                    "order of the Scripts entry in the extension list. Export the "
+                    "scripts from a GPO that holds only scripts."
+                ),
+                path="gpo",
+            )
+        )
+    if not (gpo.computer_enabled and gpo.user_enabled):
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="scripts_disabled_side_unmeasured",
+                message=(
+                    "This GPO has a disabled side. The Scripts lane imported a GPO "
+                    "with both sides enabled, so a backup with scripts and a "
+                    "disabled side is unmeasured."
+                ),
+                path="gpo",
+            )
+        )
+    return issues
+
+
+def _canonical(issues: Sequence[ValidationIssue]) -> list[ValidationIssue]:
+    """De-duplicated, in one order (ordinal by code, path, message): two models
+    that differ only in the order of their items give the same list."""
+    unique = {(i.code, i.path, i.message, i.severity): i for i in issues}
+    return [unique[key] for key in sorted(unique)]
+
 
 @dataclass(frozen=True, slots=True)
 class PlanRefusals:
-    """Every reason a GPO's plan is refused: THE one answer every surface asks
-    -- the plan writer, the bundle builder, egress (both ways), the plan and
-    export routes and the API's capabilities (pre-1.1.1 review, round 5:
-    egress asked a narrower question and accepted a plan for a deny filter).
-
-    ``reasons`` are the plan's own refusals (`_plan_refusals`), ``errors`` the
-    GPO's validation errors, which refuse everything."""
+    """The plan's own refusals (`_plan_refusals`) and the GPO's validation
+    errors, both canonical. Internal to `refusal_issues`, which is the one
+    answer every surface asks; this only says which bundle to write."""
 
     reasons: tuple[ValidationIssue, ...]
     errors: tuple[ValidationIssue, ...]
-
-    @property
-    def issues(self) -> list[ValidationIssue]:
-        """What a refused plan or bundle raises: the reasons, then the errors."""
-        return [*self.reasons, *self.errors]
-
-    @property
-    def refused(self) -> bool:
-        return bool(self.reasons or self.errors)
 
     @property
     def whole(self) -> tuple[ValidationIssue, ...]:
@@ -932,39 +982,72 @@ class PlanRefusals:
         """The manifest's ``powershell_plan`` record, exactly, or ``None``."""
         return plan_record(self.reasons) if self.bundle_without_plan else None
 
-    def summary(self) -> ValidationIssue | None:
-        """One issue naming every reason (the API's capability ``reason``)."""
-        issues = self.issues
-        if not issues:
-            return None
-        if len(issues) == 1:
-            return issues[0]
-        return ValidationIssue(
-            severity="error",
-            code=issues[0].code,
-            message=" ".join(f"({n}) {issue.message}" for n, issue in enumerate(issues, 1)),
-            path=issues[0].path,
-        )
-
 
 def plan_refusals(
     gpo: GPO, validation: Sequence[ValidationIssue] | None = None
 ) -> PlanRefusals:
-    """Every reason *gpo*'s plan is refused (`PlanRefusals`). *validation* is
-    `validate_gpo`'s answer when the caller already has it."""
+    """The plan's own refusals and the validation errors (`PlanRefusals`)."""
     issues = validate_gpo(gpo) if validation is None else validation
     return PlanRefusals(
-        reasons=tuple(_plan_refusals(gpo)),
-        errors=tuple(issue for issue in issues if issue.severity == "error"),
+        reasons=tuple(_canonical(_plan_refusals(gpo))),
+        errors=tuple(_canonical([i for i in issues if i.severity == "error"])),
     )
 
 
-def plan_only_refusals(gpo: GPO) -> tuple[ValidationIssue, ...]:
-    """Every reason *gpo*'s plan is refused when ALL of them are plan-only (in
-    `PLAN_ONLY_REFUSALS`) and the GPO has no validation error; otherwise ``()``
-    -- no refusal, or one that refuses the whole bundle as before."""
-    refused = plan_refusals(gpo)
-    return refused.reasons if refused.bundle_without_plan else ()
+def refusal_issues(
+    gpo: GPO, artifact: ArtifactKind, validation: Sequence[ValidationIssue] | None = None
+) -> list[ValidationIssue]:
+    """THE refusal decision: everything that refuses *artifact* for *gpo*,
+    complete, de-duplicated and in one canonical order, or ``[]``.
+
+    Every surface asks this and nothing else (pre-1.1.1 review, round 7): the
+    writers (`powershell_plan`, `export_bundle`, `gpmc_backup_bundle`,
+    `native_backup_id`), the checked builders and the routes' guards
+    (`egress`, `api`), and the API's capabilities. It runs no artifact writer,
+    so a refused GPO never reaches one; nothing returns early, so no reason
+    hides another.
+
+    * ``plan.ps1``: the validation errors (text XML cannot carry among them)
+      and every plan reason -- out-of-domain links, a WMI filter, a deny.
+    * ``export.zip``: the same, but only when an error or a whole-bundle reason
+      is among them; plan-only reasons alone leave the bundle written without
+      its plan (`PlanRefusals.bundle_without_plan`).
+    * ``gpmc-backup``: the validation errors and preserved unknown CSE content.
+    * ``gpmc-backup-with-scripts``: those, and the Scripts lane's GPO shape.
+    * ``publication-plan``: the validation errors.
+    """
+    refused = plan_refusals(gpo, validation)
+    errors = list(refused.errors)
+    found: list[ValidationIssue]
+    match artifact:
+        case "plan.ps1":
+            found = errors + list(refused.reasons)
+        case "export.zip":
+            found = errors + list(refused.reasons) if errors or refused.whole else []
+        case "gpmc-backup" | "gpmc-backup-with-scripts":
+            unknown = unknown_cse_refusal(gpo)
+            found = errors + ([unknown] if unknown is not None else [])
+            if artifact == "gpmc-backup-with-scripts":
+                found += scripts_gpo_refusals(gpo)
+        case "publication-plan":
+            found = errors
+        case _:
+            assert_never(artifact)
+    return _canonical(found)
+
+
+def refusal_summary(issues: Sequence[ValidationIssue]) -> ValidationIssue | None:
+    """One issue naming every refusal, in order (a capability's ``reason``)."""
+    if not issues:
+        return None
+    if len(issues) == 1:
+        return issues[0]
+    return ValidationIssue(
+        severity="error",
+        code=issues[0].code,
+        message=" ".join(f"({n}) {issue.message}" for n, issue in enumerate(issues, 1)),
+        path=issues[0].path,
+    )
 
 
 def plan_record(refusals: Sequence[ValidationIssue]) -> dict[str, object]:
@@ -975,24 +1058,16 @@ def plan_record(refusals: Sequence[ValidationIssue]) -> dict[str, object]:
     }
 
 
-def export_bundle(gpo: GPO) -> bytes:
-    """Return a deterministic ZIP containing manifest, PReg files, and plan.
-
-    Without the plan when it alone is refused (`plan_only_refusals`): the
-    manifest then carries ``powershell_plan`` (`plan_record`) with every
-    refusal's code and message, and egress accepts the missing ``apply.ps1``
-    only on that record.
-    """
-    unwritable = _text_refusal(gpo)
-    if unwritable is not None:
-        raise ValidationError([unwritable])
-    issues = validate_gpo(gpo)
-    refused = plan_refusals(gpo)
+def _studio_manifest(gpo: GPO, refused: PlanRefusals) -> bytes:
+    """``manifest.json`` exactly as `export_bundle` writes it for an
+    un-refused *gpo*. Egress requires the bundle's manifest to be these bytes
+    (round 7: a manifest egress had not fully validated -- duplicate keys,
+    NaN, a ``null`` record, a replaced ``gpo`` -- passed)."""
     manifest: dict[str, object] = {
         "schema_version": 2,
         "kind": "gpo-studio-publication-bundle",
         "gpo": gpo.to_dict(),
-        "validation": [asdict(issue) for issue in issues],
+        "validation": [asdict(issue) for issue in validate_gpo(gpo)],
         "policy_semantic_sha256": policy_semantic_sha256(gpo),
         "review_model_sha256": review_model_sha256(gpo),
         "canonical_schema_version": CANONICAL_SCHEMA_VERSION,
@@ -1001,16 +1076,37 @@ def export_bundle(gpo: GPO) -> bytes:
     record = refused.record()
     if record is not None:
         manifest["powershell_plan"] = record
+    return json.dumps(manifest, indent=2, sort_keys=True).encode()
+
+
+def studio_bundle_expectation(gpo: GPO) -> tuple[bytes, bytes | None]:
+    """``(manifest.json, apply.ps1 or None)`` exactly as `export_bundle`
+    writes them, after its refusal (`refusal_issues`), which it raises."""
+    issues = refusal_issues(gpo, "export.zip")
+    if issues:
+        raise ValidationError(issues)
+    refused = plan_refusals(gpo)
+    plan = None if refused.bundle_without_plan else powershell_plan(gpo).encode("utf-8-sig")
+    return _studio_manifest(gpo, refused), plan
+
+
+def export_bundle(gpo: GPO) -> bytes:
+    """Return a deterministic ZIP containing manifest, PReg files, and plan.
+
+    Refused (`refusal_issues`) before anything is serialized. Without the plan
+    when only the plan is refused: the manifest then carries
+    ``powershell_plan`` (`plan_record`) with every refusal's code and message.
+    """
+    manifest, plan = studio_bundle_expectation(gpo)
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
     entries: dict[str, bytes] = {
-        "manifest.json": json.dumps(manifest, indent=2, sort_keys=True).encode(),
+        "manifest.json": manifest,
         "Machine/Registry.pol": serialize(computer),
         "User/Registry.pol": serialize(user),
     }
-    if record is None:
-        # Raises every reason when the whole bundle is refused.
-        entries["apply.ps1"] = powershell_plan(gpo).encode("utf-8-sig")
+    if plan is not None:
+        entries["apply.ps1"] = plan
     for col in gpo.gpp_collections:
         side_dir = "Machine" if col.scope == "computer" else "User"
         for filename, content in serialize_gpp(col).items():
@@ -1272,10 +1368,11 @@ def _braced_guid(value: str, *, field: str) -> str:
 
 
 def native_backup_id(gpo: GPO) -> str:
-    """Return the deterministic backup-instance ID for a native export."""
-    unwritable = _text_refusal(gpo)
-    if unwritable is not None:
-        raise ValidationError([unwritable])
+    """Return the deterministic backup-instance ID for a native export,
+    after its refusal (`refusal_issues`)."""
+    issues = refusal_issues(gpo, "gpmc-backup")
+    if issues:
+        raise ValidationError(issues)
     gpo_id = _braced_guid(gpo.guid, field="GPO ID")
     backup_content = replace(gpo, links=(), security_filters=(), wmi_filter=None)
     identity = gpo.name + "\n" + policy_semantic_sha256(backup_content)
@@ -1776,9 +1873,11 @@ def gpmc_backup_bundle(
     refuses among them -- gets no backup, whichever caller asks, and nothing
     is serialized for it.
     """
-    errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
-    if errors:
-        raise ValidationError(errors)
+    issues = refusal_issues(
+        gpo, "gpmc-backup-with-scripts" if scripts and any(scripts.values()) else "gpmc-backup"
+    )
+    if issues:
+        raise ValidationError(issues)
     backup_id = native_backup_id(gpo)
     files, profiles = _native_export_files(gpo, scripts)
     prefix = f"{backup_id}/DomainSysvol/GPO"
