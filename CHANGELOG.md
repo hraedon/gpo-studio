@@ -93,21 +93,33 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
     OU, each principal) and a sites import wrote its sites and subnets
     separately, so a failed write left part of the document cached behind an
     error. Every discovery import now writes its document in one transaction.
-  - **Discovery data cached by earlier builds is cleared on upgrade; re-run
-    discovery.** Those records are wrong, not just old: OU links with the
-    enabled flag inverted and the order reversed, the text `"None"` for
-    missing values, and keys (an inventory under `"None"`, an upper-case IPv6
-    subnet) that re-running discovery never overwrites. When this version
-    opens a workspace whose discovery cache has no `discovery_cache_version`
-    marker in `workspace_meta`, or an older one, it deletes every cached
-    discovery record in one transaction and records version `2`, so this
-    happens once; a cache marked `2` or higher is left alone. Nothing else in
-    the workspace refers to the discovery cache. Every record this version
-    writes also carries the format inside its stored document, and only such
-    records are served (get, list, principal search, kinds and summary), so
-    a record an earlier version writes after this one has opened the
-    workspace is treated as absent until the next import of its kind
-    replaces it.
+  - **Discovery data cached by earlier builds is cleared on upgrade, and
+    again whenever an earlier build has opened the workspace in between;
+    re-run discovery afterwards.** Those records are wrong, not just old: OU
+    links with the enabled flag inverted and the order reversed, the text
+    `"None"` for missing values, and keys (an inventory under `"None"`, an
+    upper-case IPv6 subnet) that re-running discovery never overwrites. When
+    this version opens a workspace, it deletes every cached discovery record,
+    in the same transaction that records its own version, if either the
+    `discovery_cache_version` marker in `workspace_meta` is missing or older
+    than `2`, or `app_version` (which every version rewrites on each open)
+    differs from `discovery_cache_app_version` (which only this version and
+    later ones write), meaning another version opened the workspace since. It
+    then records itself in both. Upgrading with no other version in between
+    keeps the cache. Two builds that report the same version (two commits of
+    one release) are not told apart. Nothing else in the workspace refers to
+    the discovery cache.
+  - Every discovery record this version writes also begins with a format
+    mark, and only marked records are served (get, list, principal search,
+    kinds and summary); a record without it is treated as absent until an
+    import writes the same kind and key. A format mark supplied inside an
+    imported document is removed at every level on import and on read. The
+    mark alone cannot prove which version wrote a record: version 1.1.0's GPO
+    inventory import stores the request body as given, so a body that
+    supplies the mark keeps it, which is why another version opening the
+    workspace clears the cache. The readers select marked rows by text in
+    SQL instead of parsing every document, and a cached row that is not JSON
+    no longer reports the workspace as corrupt.
 
 - **Editing dialogs ask before Esc or × discards a change** (#140). After a
   field is changed, or a row is added, removed or reordered, closing one of the

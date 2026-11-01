@@ -236,11 +236,14 @@ def migrate(conn: sqlite3.Connection) -> None:
     if current == SCHEMA_VERSION:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            # Which build opened the workspace last, read before this open
+            # records itself (the discovery cache depends on it).
+            previous = _stored_app_version(conn)
             conn.execute(
                 "INSERT OR REPLACE INTO workspace_meta(key, value) VALUES ('app_version', ?)",
                 (_get_app_version(),),
             )
-            _data_migrations(conn)
+            _data_migrations(conn, previous)
             conn.execute("COMMIT")
         except Exception:
             with contextlib.suppress(sqlite3.Error):
@@ -249,6 +252,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         return
     conn.execute("BEGIN IMMEDIATE")
     try:
+        previous = _stored_app_version(conn)
         for version in range(current, SCHEMA_VERSION):
             migration = _MIGRATIONS.get(version)
             if migration is None:
@@ -262,7 +266,7 @@ def migrate(conn: sqlite3.Connection) -> None:
             """,
             (str(SCHEMA_VERSION), _get_app_version()),
         )
-        _data_migrations(conn)
+        _data_migrations(conn, previous)
         conn.execute("COMMIT")
     except Exception:
         with contextlib.suppress(sqlite3.Error):
@@ -270,7 +274,17 @@ def migrate(conn: sqlite3.Connection) -> None:
         raise
 
 
-def _data_migrations(conn: sqlite3.Connection) -> None:
+def _stored_app_version(conn: sqlite3.Connection) -> str | None:
+    try:
+        row = conn.execute(
+            "SELECT value FROM workspace_meta WHERE key = 'app_version'"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None  # no workspace_meta yet: a schema-0 database
+    return None if row is None else str(row[0])
+
+
+def _data_migrations(conn: sqlite3.Connection, previous_app_version: str | None) -> None:
     """One-time rewrites of stored snapshots that keep the schema readable by
     the same schema version, each keyed by its own ``workspace_meta`` entry.
 
@@ -282,7 +296,7 @@ def _data_migrations(conn: sqlite3.Connection) -> None:
     from .provenance_migration import migrate_retained_provenance
 
     migrate_retained_provenance(conn)
-    _clear_earlier_discovery_cache(conn)
+    _clear_earlier_discovery_cache(conn, previous_app_version)
 
 
 # The discovery cache's format. Raise it when a change makes records written by
@@ -294,19 +308,35 @@ DISCOVERY_FORMAT = 2
 DISCOVERY_FORMAT_FIELD = "_studio_discovery_format"
 DISCOVERY_CACHE_VERSION = str(DISCOVERY_FORMAT)
 DISCOVERY_CACHE_KEY = "discovery_cache_version"
+# The build that last opened the workspace while maintaining the cache.
+DISCOVERY_CACHE_OWNER_KEY = "discovery_cache_app_version"
 
 
-def _clear_earlier_discovery_cache(conn: sqlite3.Connection) -> None:
-    """Drop every discovery-cache record written by an earlier build, once.
+def _clear_earlier_discovery_cache(
+    conn: sqlite3.Connection, previous_app_version: str | None
+) -> None:
+    """Drop the discovery cache when this build cannot vouch for it.
 
-    Records cached before version 2 are wrong, not just old (#160, #164): OU
+    Records cached before format 2 are wrong, not just old (#160, #164): OU
     links carry an inverted enabled flag and reversed order, missing values
     were stored as the text "None", and some keys (an inventory under "None",
     an upper-case IPv6 subnet) are ones re-running discovery never overwrites.
     The cache only mirrors the directory, nothing else refers to its rows, and
-    re-running discovery rebuilds it, so clearing it is the one way to leave no
-    such record behind. Runs inside the caller's transaction, keyed by its own
-    ``workspace_meta`` entry; not a schema bump, as the table is unchanged.
+    re-running discovery rebuilds it, so it is cleared whenever:
+
+    * its ``discovery_cache_version`` marker is missing or older than this
+      build's (the first open after upgrading from a build without it); or
+    * another build opened the workspace since this cache's owner last did.
+      Every build records itself as ``app_version`` on every open; the
+      cache's owner is recorded as ``discovery_cache_app_version``. If they
+      differ, an earlier build may have written discovery rows in between
+      (v1.1.0 stores a GPO inventory body as given, a forged format mark
+      included), so they are not trusted. Builds that report the same
+      version string (two commits of one release) are not told apart.
+
+    A newer build's marker alone never causes a clear. Runs inside the
+    caller's migration transaction; this build then records itself as the
+    cache's owner. Not a schema bump, as the table is unchanged.
     """
     tables = {
         str(row[0])
@@ -314,17 +344,26 @@ def _clear_earlier_discovery_cache(conn: sqlite3.Connection) -> None:
     }
     if not {"workspace_meta", "estate_discovery"} <= tables:
         return
-    row = conn.execute(
-        "SELECT value FROM workspace_meta WHERE key=?", (DISCOVERY_CACHE_KEY,)
-    ).fetchone()
-    if row is not None and str(row[0]).isdecimal() and int(row[0]) >= int(
-        DISCOVERY_CACHE_VERSION
-    ):
-        return  # this format, or a newer build's: never clear a cache we cannot judge
-    conn.execute("DELETE FROM estate_discovery")
+    meta = dict(conn.execute(
+        "SELECT key, value FROM workspace_meta WHERE key IN (?, ?)",
+        (DISCOVERY_CACHE_KEY, DISCOVERY_CACHE_OWNER_KEY),
+    ).fetchall())
+    marker = meta.get(DISCOVERY_CACHE_KEY)
+    marker_current = (
+        marker is not None and str(marker).isdecimal() and int(marker) >= DISCOVERY_FORMAT
+    )
+    owner = meta.get(DISCOVERY_CACHE_OWNER_KEY)
+    opened_by_another_build = owner is None or owner != previous_app_version
+    if not marker_current or opened_by_another_build:
+        conn.execute("DELETE FROM estate_discovery")
+    if not marker_current:
+        conn.execute(
+            "INSERT OR REPLACE INTO workspace_meta(key, value) VALUES (?, ?)",
+            (DISCOVERY_CACHE_KEY, DISCOVERY_CACHE_VERSION),
+        )
     conn.execute(
         "INSERT OR REPLACE INTO workspace_meta(key, value) VALUES (?, ?)",
-        (DISCOVERY_CACHE_KEY, DISCOVERY_CACHE_VERSION),
+        (DISCOVERY_CACHE_OWNER_KEY, _get_app_version()),
     )
 
 

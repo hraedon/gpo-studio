@@ -1215,3 +1215,177 @@ def test_rows_an_earlier_build_writes_after_upgrade_are_never_served(
         assert reopened.discovery_summary() == {"principal": 1}
     finally:
         reopened.close()
+
+
+# --- #164 round 5: cache ownership, malformed rows, marks at every level ----
+
+
+def _open_as(path, version: str, monkeypatch) -> WorkspaceStore:
+    monkeypatch.setattr("gpo_studio.schema._get_app_version", lambda: version)
+    return WorkspaceStore(path)
+
+
+def _import_principals(store: WorkspaceStore, monkeypatch) -> None:
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    client = TestClient(app, base_url="http://127.0.0.1")
+    assert client.post("/api/discovery/principals", json=_VALID_PRINCIPALS).status_code == 200
+
+
+def _open_like_v1_1_0(path) -> None:
+    """What v1.1.0 does to a schema-4 workspace it opens, then a forged inventory.
+
+    Its migrate() writes ``app_version`` on every open (in the
+    current-schema branch, inside BEGIN IMMEDIATE), and its GPO inventory
+    import stores the request body as given, a format mark included.
+    """
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "INSERT OR REPLACE INTO workspace_meta(key, value) VALUES ('app_version', '1.1.0')"
+        )
+        conn.execute("COMMIT")
+        forged = {"kind": "gpo-studio-discovery-gpos", "domain": None,
+                  "_studio_discovery_format": 2,
+                  "gpos": [{"guid": "{31B2F340-016D-11D2-945F-00C04FB984F9}",
+                            "_studio_discovery_format": 2}]}
+        conn.execute(
+            "INSERT INTO estate_discovery(kind, key, data_json, source_dc, collected_at)"
+            " VALUES('gpos', 'None', ?, '', '')",
+            (json.dumps(forged, separators=(",", ":"), sort_keys=True),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_an_upgrade_with_no_other_build_in_between_keeps_the_cache(
+    tmp_path, monkeypatch
+) -> None:
+    path = tmp_path / "upgrade.db"
+    store = _open_as(path, "1.2.0", monkeypatch)
+    _import_principals(store, monkeypatch)
+    store.close()
+    store = _open_as(path, "1.2.1", monkeypatch)
+    try:
+        assert store.discovery_summary() == {"principal": 1}
+        meta = store.workspace_meta()
+        assert (meta["app_version"], meta["discovery_cache_app_version"]) == ("1.2.1", "1.2.1")
+    finally:
+        store.close()
+
+
+def test_an_earlier_build_opening_in_between_clears_the_cache(tmp_path, monkeypatch) -> None:
+    """1.2.0, then v1.1.0 (which can store a forged format mark), then 1.2.0."""
+    path = tmp_path / "downgrade-return.db"
+    store = _open_as(path, "1.2.0", monkeypatch)
+    _import_principals(store, monkeypatch)
+    store.close()
+    _open_like_v1_1_0(path)
+    store = _open_as(path, "1.2.0", monkeypatch)
+    try:
+        assert list(store._connection.execute("SELECT kind, key FROM estate_discovery")) == []
+        assert store.discovery_summary() == {}
+        assert store.list_discovery("gpos") == []
+        assert store.workspace_meta()["discovery_cache_app_version"] == "1.2.0"
+    finally:
+        store.close()
+    # Then reopening with the same build clears nothing more.
+    store = _open_as(path, "1.2.0", monkeypatch)
+    try:
+        _import_principals(store, monkeypatch)
+    finally:
+        store.close()
+    store = _open_as(path, "1.2.0", monkeypatch)
+    try:
+        assert store.discovery_summary() == {"principal": 1}
+    finally:
+        store.close()
+
+
+def test_a_fresh_workspace_records_the_marker_and_its_owner(tmp_path, monkeypatch) -> None:
+    store = _open_as(tmp_path / "fresh.db", "1.2.0", monkeypatch)
+    try:
+        meta = store.workspace_meta()
+        assert meta["discovery_cache_version"] == "2"
+        assert meta["discovery_cache_app_version"] == meta["app_version"] == "1.2.0"
+    finally:
+        store.close()
+
+
+def _seed_malformed(store: WorkspaceStore, text: str) -> None:
+    store._connection.execute(
+        "INSERT INTO estate_discovery(kind, key, data_json, source_dc, collected_at)"
+        " VALUES('principal', 'malformed', ?, '', '')",
+        (text,),
+    )
+    store._connection.commit()
+
+
+@pytest.mark.parametrize(
+    "text", ["{", '{"_studio_discovery_format":2,{'], ids=["unmarked", "marked-prefix"]
+)
+@pytest.mark.parametrize(
+    "reader",
+    [
+        lambda s: s.list_discovery("principal"),
+        lambda s: s.search_principals(""),
+        lambda s: s.search_principals("", "ad.hraedon.com"),
+        lambda s: s.list_discovery_kinds(),
+        lambda s: s.discovery_summary(),
+    ],
+    ids=["list", "search", "search-domain", "kinds", "summary"],
+)
+def test_a_malformed_cache_row_never_degrades_the_workspace(
+    tmp_path, monkeypatch, reader, text: str
+) -> None:
+    # #164 review: json_extract() ran before the format check, so a row that
+    # is not JSON raised "malformed JSON", reported as a corrupt workspace (503).
+    store = WorkspaceStore(tmp_path / "malformed.db")
+    try:
+        _import_principals(store, monkeypatch)
+        _seed_malformed(store, text)
+        result = reader(store)
+        assert "malformed" not in json.dumps(result)
+        with pytest.raises(NotFoundError):
+            store.get_discovery("principal", "malformed")
+        assert not store.is_degraded
+        # The summary counts rows by their mark's prefix without parsing them,
+        # so a hand-made row that starts with the mark but is not JSON counts.
+        assert store.discovery_summary() == {"principal": 1 if text == "{" else 2}
+        client = TestClient(app, base_url="http://127.0.0.1")
+        assert client.get(
+            "/api/discovery/principals", params={"q": "", "domain": "ad.hraedon.com"}
+        ).status_code == 200
+    finally:
+        store.close()
+
+
+def test_format_marks_are_removed_at_every_level(tmp_path, monkeypatch) -> None:
+    store = WorkspaceStore(tmp_path / "marks.db")
+    try:
+        nested = {"domain": "example.test", "_studio_discovery_format": 7,
+                  "gpos": [{"guid": "x", "_studio_discovery_format": 2,
+                            "deeper": {"_studio_discovery_format": 2}}]}
+        store.cache_discovery("gpos", "example.test", json.dumps(nested))
+        (stored,) = [json.loads(row[0]) for row in store._connection.execute(
+            "SELECT data_json FROM estate_discovery"
+        )]
+        # On import: only the writer's own top-level mark remains.
+        assert stored == {"domain": "example.test", "_studio_discovery_format": 2,
+                          "gpos": [{"guid": "x", "deeper": {}}]}
+        (raw,) = [row[0] for row in store._connection.execute(
+            "SELECT data_json FROM estate_discovery"
+        )]
+        assert raw.startswith('{"_studio_discovery_format":2,')
+        # On read: a stored nested mark (written by something else) is removed.
+        forged = raw.replace('"guid":"x"', '"_studio_discovery_format":2,"guid":"x"')
+        assert forged != raw
+        store._connection.execute("UPDATE estate_discovery SET data_json=?", (forged,))
+        store._connection.commit()
+        served = store.get_discovery("gpos", "example.test")
+        assert "_studio_discovery_format" not in json.dumps(served)
+        assert "_studio_discovery_format" not in json.dumps(store.list_discovery("gpos"))
+    finally:
+        store.close()

@@ -725,24 +725,60 @@ def lf_line_breaks(text: Any) -> Any:
 
 
 
+def _without_format_marks(value: Any) -> Any:
+    """``value`` with the discovery format field removed at every level."""
+    if isinstance(value, dict):
+        return {
+            key: _without_format_marks(item)
+            for key, item in value.items()
+            if key != DISCOVERY_FORMAT_FIELD
+        }
+    if isinstance(value, list):
+        return [_without_format_marks(item) for item in value]
+    return value
+
+
+# Every document this build stores begins with exactly this text: the mark is
+# written first, by hand, ahead of the sorted remaining fields. Readers select
+# on it with a plain text range, which needs no JSON parsing in SQL. A JSON
+# function on text that is not JSON raises "malformed JSON", which the store
+# reported as a corrupt, degraded workspace (#164 review); and parsing every
+# document to count rows made the summary about 40 times slower.
+_DISCOVERY_PREFIX = f'{{"{DISCOVERY_FORMAT_FIELD}":{DISCOVERY_FORMAT},'
+# ',' is followed by '-': the prefix's range in binary text order.
+_CURRENT_DISCOVERY = "data_json >= ? AND data_json < ?"
+_CURRENT_DISCOVERY_PARAMS = (_DISCOVERY_PREFIX, _DISCOVERY_PREFIX[:-1] + "-")
+
+
 def _stamp_discovery(data_json: str) -> str:
-    """The stored document, marked with the discovery format this build writes."""
+    """The stored document, beginning with this build's discovery format mark.
+
+    A mark anywhere inside the supplied document is removed first: only this
+    writer sets it, and only at the top level (#164 review).
+    """
     data = json.loads(data_json)
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or not data:
         raise ValidationError([ValidationIssue(
-            "error", "invalid_discovery_record", "A discovery record must be a JSON object.", ""
+            "error", "invalid_discovery_record",
+            "A discovery record must be a non-empty JSON object.", "",
         )])
-    data[DISCOVERY_FORMAT_FIELD] = DISCOVERY_FORMAT
-    return json.dumps(data, separators=(",", ":"), sort_keys=True)
+    body = json.dumps(_without_format_marks(data), separators=(",", ":"), sort_keys=True)
+    if body == "{}":
+        raise ValidationError([ValidationIssue(
+            "error", "invalid_discovery_record",
+            "A discovery record must be a non-empty JSON object.", "",
+        )])
+    return _DISCOVERY_PREFIX + body[1:]
 
 
 def _current_discovery(data_json: str) -> dict[str, Any] | None:
-    """A cached document of this build's format, without its mark; else None.
+    """A cached document of this build's format, without its marks; else None.
 
     A record without the mark was written by an earlier build, including one
     run against this workspace after a later one (a downgrade): its links,
-    flags and text are not to be trusted, so it is served as absent and the
-    next import of its kind overwrites it (#164 review).
+    flags and text are not to be trusted, so it is served as absent until an
+    import writes the same kind and key (#164 review). Readers select rows by
+    the mark's prefix in SQL; this parses and checks each row they return.
     """
     try:
         data = json.loads(data_json)
@@ -751,7 +787,11 @@ def _current_discovery(data_json: str) -> dict[str, Any] | None:
     if not isinstance(data, dict) or data.get(DISCOVERY_FORMAT_FIELD) != DISCOVERY_FORMAT:
         return None
     del data[DISCOVERY_FORMAT_FIELD]
+    if DISCOVERY_FORMAT_FIELD in data_json[len(_DISCOVERY_PREFIX):]:
+        # A nested mark, which this writer never stores (#164 review).
+        return cast(dict[str, Any], _without_format_marks(data))
     return data
+
 
 class WorkspaceStore:
     """Persist editable GPO snapshots and their audit history."""
@@ -943,11 +983,8 @@ class WorkspaceStore:
         with self._lock:
             self._require_healthy()
             try:
-                row = self._connection.execute(
-                    "SELECT data_json FROM estate_discovery WHERE kind=? AND key=?",
-                    (kind, key),
-                ).fetchone()
-                data = None if row is None else _current_discovery(row["data_json"])
+                rows = self._current_discovery_rows("kind=? AND key=?", (kind, key))
+                data = rows[0] if rows else None
                 if data is None:
                     raise NotFoundError(
                         f"{kind} discovery entry {key} was not found"
@@ -961,14 +998,7 @@ class WorkspaceStore:
         with self._lock:
             self._require_healthy()
             try:
-                rows = self._connection.execute(
-                    "SELECT data_json FROM estate_discovery WHERE kind=? ORDER BY key",
-                    (kind,),
-                ).fetchall()
-                return [
-                    data for row in rows
-                    if (data := _current_discovery(row["data_json"])) is not None
-                ]
+                return self._current_discovery_rows("kind=?", (kind,))
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
 
@@ -977,48 +1007,21 @@ class WorkspaceStore:
         with self._lock:
             self._require_healthy()
             try:
-                if domain:
-                    rows = self._connection.execute(
-                        """
-                        SELECT data_json FROM estate_discovery
-                        WHERE kind='principal' AND json_extract(data_json, '$.domain') = ?
-                        ORDER BY key
-                        """,
-                        (domain,),
-                    ).fetchall()
-                else:
-                    rows = self._connection.execute(
-                        """
-                        SELECT data_json FROM estate_discovery
-                        WHERE kind='principal'
-                        ORDER BY key
-                        """
-                    ).fetchall()
-            except sqlite3.OperationalError as error:
-                if "no such function: json_extract" in str(error).lower():
-                    rows = self._connection.execute(
-                        "SELECT data_json FROM estate_discovery WHERE kind='principal' ORDER BY key"
-                    ).fetchall()
-                else:
-                    self._map_sqlite_error(error)
+                # The domain is compared here, not with json_extract() in SQL:
+                # on a row that is not JSON that raised "malformed JSON", which
+                # degraded the workspace (#164 review). Exact, as it was in SQL.
+                documents = self._current_discovery_rows("kind='principal'", ())
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
             query_lower = query.casefold()
-            domain_lower = domain.casefold() if domain else ""
             results: list[dict[str, Any]] = []
-            for row in rows:
-                data = _current_discovery(row["data_json"])
-                if data is None:
-                    continue
+            for data in documents:
                 if (
                     query_lower in str(data.get("sam_account_name", "")).casefold()
                     or query_lower in str(data.get("display_name", "")).casefold()
                     or query_lower in str(data.get("object_sid", "")).casefold()
                     or query_lower in str(data.get("distinguished_name", "")).casefold()
-                ) and (
-                    not domain_lower
-                    or str(data.get("domain", "")).casefold() == domain_lower
-                ):
+                ) and (not domain or data.get("domain") == domain):
                     results.append(data)
             return results
 
@@ -1040,14 +1043,26 @@ class WorkspaceStore:
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
 
+    def _current_discovery_rows(
+        self, where: str, params: tuple[object, ...]
+    ) -> list[dict[str, Any]]:
+        """Documents of this build's format matching ``where``, ordered by key."""
+        rows = self._connection.execute(
+            f"SELECT data_json FROM estate_discovery WHERE {where}"
+            f" AND {_CURRENT_DISCOVERY} ORDER BY key",
+            (*params, *_CURRENT_DISCOVERY_PARAMS),
+        ).fetchall()
+        return [
+            data for row in rows if (data := _current_discovery(row["data_json"])) is not None
+        ]
+
     def _current_discovery_counts(self) -> dict[str, int]:
-        counts: Counter[str] = Counter()
-        for row in self._connection.execute(
-            "SELECT kind, data_json FROM estate_discovery"
-        ).fetchall():
-            if _current_discovery(row["data_json"]) is not None:
-                counts[str(row["kind"])] += 1
-        return dict(counts)
+        rows = self._connection.execute(
+            f"SELECT kind, COUNT(*) AS n FROM estate_discovery WHERE {_CURRENT_DISCOVERY}"
+            " GROUP BY kind",
+            _CURRENT_DISCOVERY_PARAMS,
+        ).fetchall()
+        return {str(row["kind"]): int(row["n"]) for row in rows}
 
     def _encode_snapshot_payload(self, gpo: GPO) -> tuple[str, list[RetainedDocument]]:
         """Serialize a snapshot with its retained documents moved to references.
