@@ -1,13 +1,16 @@
 """The current qualification, and the freeze batch once one is banked.
 
 ``tests/current_qualification.py`` says which banked run certifies each lane
-now: the release 1.1.0rc1 batches while the release evidence report's
-``freeze`` is null, the freeze batch after. The first tests hold it to the
-registry and the release evidence. The rest check the freeze batch the way the
-release 1.1.0 batch tests check theirs, reading everything from its manifest,
-so that banking the 1.1.0 final batch (commit B, after the freeze commit F)
-needs no test edit: the final-tag release gate refuses one (Plan 036, the D-9
-addendum). Until a freeze batch is banked they skip, saying so.
+now: while the release evidence report's ``freeze`` is null, the freeze batch
+of the previous release (with any run the registry has made live since), and
+the release's own freeze batch after. The first tests hold it to the registry
+and the release evidence. The rest check the freeze batch the way the release
+1.1.0 batch tests check theirs, reading everything from its manifest, so that
+banking a release's final batch (commit B, after the freeze commit F) needs no
+test edit: the final-tag release gate refuses one (Plan 036, the D-9
+addendum). Before this release's B they check the previous release's freeze
+batch, which is still the base of the current qualification; only before any
+release recorded a freeze would they skip, saying so.
 """
 
 from __future__ import annotations
@@ -46,9 +49,67 @@ def test_the_current_qualification_is_the_live_set() -> None:
 def test_the_current_batches_follow_the_report() -> None:
     frozen = cq.freeze()
     if frozen is None:
-        assert cq.current_batches() == (cq.RC_BATCH, cq.RC_SUCCESSORS)
+        previous = cq.release_report(cq.previous_release())
+        assert previous["status"] == "approved"
+        assert cq.current_batches()[0] == previous["freeze"]["batch_manifest"]
     else:
         assert cq.current_batches() == (frozen["batch_manifest"],)
+
+
+def test_before_the_freeze_the_previous_release_is_the_latest_approved_one() -> None:
+    """Read by version from the committed reports, so the next release needs no edit."""
+    if cq.freeze() is not None:
+        pytest.skip("this release's freeze batch is banked; the previous release is history")
+    previous = cq.previous_release()
+    current = cq.package_base_version()
+    assert cq._version_key(previous) < cq._version_key(current)
+    for path in (ROOT / "docs").glob("release-evidence-report-*.json"):
+        match = cq._REPORT_NAME.fullmatch(path.name)
+        if match is None:
+            continue
+        base = ".".join(match.groups())
+        if cq._version_key(previous) < cq._version_key(base) < cq._version_key(current):
+            assert cq.release_report(base)["status"] != "approved", base
+
+
+def test_a_run_made_live_after_the_previous_release_replaces_its_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The override is by live verdict, so a pending one never displaces a base run."""
+    if cq.freeze() is not None:
+        pytest.skip("this release's freeze batch is banked; there is no base to override")
+    base = cq.previous_freeze()["batch_manifest"]
+    rows = json.loads((ROOT / base).read_text(encoding="utf-8"))["runs"]
+    lane = next(row for row in rows if row["name"] != "wp0")
+    later = next(
+        relative
+        for relative in sorted(
+            p.relative_to(ROOT).as_posix() for p in EVIDENCE.glob("*-batch.json")
+        )
+        if relative != base
+        and any(
+            row["name"] == lane["name"]
+            for row in json.loads((ROOT / relative).read_text(encoding="utf-8"))["runs"]
+        )
+    )
+    replacement = next(
+        row
+        for row in json.loads((ROOT / later).read_text(encoding="utf-8"))["runs"]
+        if row["name"] == lane["name"]
+    )
+    live = cq._registry_live()
+    monkeypatch.setattr(cq, "_registry_live", lambda: live | {replacement["verdict"]})
+    cq.current_batches.cache_clear()
+    cq.current_runs.cache_clear()
+    try:
+        assert cq.current_batches() == (base, later)
+        runs = cq.current_runs()
+        assert runs[lane["name"]]["verdict"] == replacement["verdict"]
+        others = {row["name"]: row["verdict"] for row in rows if row["name"] != lane["name"]}
+        assert {name: runs[name]["verdict"] for name in others} == others
+    finally:
+        cq.current_batches.cache_clear()
+        cq.current_runs.cache_clear()
 
 
 def test_the_release_evidence_names_every_current_run() -> None:
@@ -63,9 +124,14 @@ def test_the_release_evidence_names_every_current_run() -> None:
 
 
 def _frozen() -> tuple[str, dict[str, Any]]:
-    frozen = cq.freeze()
+    """The newest banked freeze batch: this release's, or before B the previous one's.
+
+    So the checks below keep running between releases, on the batch the previous
+    release shipped on, rather than skipping until this release's B.
+    """
+    frozen = cq.latest_freeze()
     if frozen is None:
-        pytest.skip("no freeze batch yet: the release evidence report's freeze is null")
+        pytest.skip("no freeze batch yet: no release evidence report records a freeze")
     manifest = json.loads((ROOT / frozen["batch_manifest"]).read_text(encoding="utf-8"))
     return frozen["commit"], manifest
 
