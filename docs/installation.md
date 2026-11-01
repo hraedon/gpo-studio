@@ -239,8 +239,8 @@ For repeatable startup, put the folder option in your launch command or shortcut
 gpo-studio run --admx-dir "C:\PolicyDefinitions"
 ```
 
-This option and the folder UI are unreleased additions after 1.1.0. Existing
-1.1.0 wheels still use the environment variable below.
+This option and the folder UI are new in 1.2.0. 1.1.0 has neither and uses
+the environment variable below.
 
 
 `GPO_STUDIO_ADMX_DIR` (default `./admx`) should hold ADMX files and their

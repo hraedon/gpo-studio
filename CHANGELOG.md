@@ -5,9 +5,28 @@ All notable changes to GPO Studio are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current version: `1.1.0`. The previous final release was `1.0.0`.
+Current version: `1.2.0`. The previous final release was `1.1.0`.
 
 ## [Unreleased]
+
+## [1.2.0] - YYYY-MM-DD
+
+> **Minor release.** 1.2.0 adds the ADMX folder dialog and the
+> `gpo-studio run --admx-dir` startup option (listed under Fixed), changes
+> behaviour in places (the entries marked as behaviour changes; read them
+> before upgrading), and fixes defects found in 1.1.0 and since: ADMX enum
+> loading and the settings browser's reading of stored rows, the editing
+> dialogs, clear errors for malformed input, the local Windows CI tooling,
+> registry-only recovery, and the ADMX template store, whose security fixes
+> are listed under Security below. It is a minor release rather than a
+> `1.1.x` patch because `SECURITY.md` limits a patch to fixes. The workspace schema is still 4: a 1.1.0 workspace opens
+> unchanged and nothing is migrated.
+>
+> The release's live evidence (the requalification of every lane at the
+> release's freeze commit) is in the
+> [1.2.0 evidence manifest](docs/release-evidence-1.2.0.md). The owner's
+> hands-on NVDA acceptance was waived for 1.2.0 and is recorded there as not
+> run.
 
 ### Changed
 
@@ -121,13 +140,18 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   offering a free-text box, and enabling it is refused with
   `unsupported_element_kind` rather than `missing_element_value` (#142).
 
-- Stricter enum item parsing (#142). An enum is refused (no items) when an item
-  names no value or more than one (an empty `<value/>`, two values, or a
+- Stricter enum item parsing (#142). An enum is refused (no items) when an
+  item's value is empty or ambiguous (an empty `<value/>`, a `<value>` holding
+  more than one element, two `<value>` elements, two direct values, or a
   `<value>` beside a direct value), when a `<string>` has both a `value`
-  attribute and text (even whitespace-only text), when two items write the
-  same type and value, or when an explicit item `id` equals another item's
-  fallback id (bare or qualified). Before, the first item with that id won,
-  so which value a submitted id wrote depended on item order.
+  attribute and text (even whitespace-only text) or holds markup, when two
+  items write the same type and value, or when two explicit item ids are equal
+  or an explicit item `id` equals another item's fallback id (bare or
+  qualified). Before, the first item with that id won, so which value a
+  submitted id wrote depended on item order. An item with no value at all (a
+  bare `<item/>`) or with a value of a kind Studio does not read is not
+  refused: it is skipped, as in 1.1.0, and the enum keeps its other items. An
+  enum left with no items is refused.
   `<string>` text is kept exactly, including surrounding whitespace. Items
   that differ only in registry type keep a usable id: a fallback id stays
   `str(value)` when it is unique, and only colliding fallback ids are
