@@ -127,7 +127,7 @@ def test_every_recorded_digest_resolves_at_its_commit(relative: str) -> None:
 def test_the_six_replace_exactly_the_verdicts_the_fix_expired() -> None:
     """Each successor binds a changed file; no verdict left live binds one."""
     registry = _registry()
-    if cq.freeze() is not None:
+    if cq.latest_freeze() is not None:
         # History since a freeze batch was banked: the six are retired in turn.
         successors = {r["verdict"] for r in SUCCESSORS["runs"]}
         assert successors <= set(registry["RETIRED_VERDICTS"])
@@ -180,7 +180,7 @@ def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None
 
 
 def test_the_release_evidence_report_cites_the_successors() -> None:
-    if cq.freeze() is not None:
+    if cq.latest_freeze() is not None:
         pytest.skip(
             "history: the report cites the freeze batch since it was banked "
             "(tests/test_current_qualification.py checks that)"
