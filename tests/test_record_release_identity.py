@@ -17,9 +17,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+import current_qualification
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+#: The committed records the next tag publishes: the package version's.
+BASE = current_qualification.package_base_version()
 SCRIPT = ROOT / "scripts" / "record_release_identity.py"
 ENV = {
     "GITHUB_SHA": "set by the publish_dir fixture to the repository's commit",
@@ -67,9 +70,9 @@ def publish_dir(tmp_path: Path) -> Path:
     (tmp_path / "dist" / "gpo_studio-1.1.0.tar.gz").write_bytes(b"sdist")
     (tmp_path / "sbom.cdx.json").write_bytes(b"{}")
     (tmp_path / "requirements-lock.txt").write_bytes(b"x==1\n")
-    shutil.copyfile(ROOT / "docs" / "release-evidence-1.1.0.md", tmp_path / "release-evidence.md")
+    shutil.copyfile(ROOT / "docs" / f"release-evidence-{BASE}.md", tmp_path / "release-evidence.md")
     shutil.copyfile(
-        ROOT / "docs" / "release-evidence-report-1.1.0.json",
+        ROOT / "docs" / f"release-evidence-report-{BASE}.json",
         tmp_path / "release-evidence-report.json",
     )
     return tmp_path
