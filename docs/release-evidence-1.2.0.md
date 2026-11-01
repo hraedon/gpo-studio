@@ -411,8 +411,8 @@ floor (the total stays in that job's log), and the artifact hashes. Local
 success is not release evidence.
 
 Local pre-release observation, **not release evidence**: on 2026-11-01, on the
-preparation branch at `49d02f3` (Python 3.14 on a Linux development host; CI
-runs Python 3.13 and 3.14), the full Python suite passed (14267 passed, 160
+preparation branch at `edb951e` (Python 3.14 on a Linux development host; CI
+runs Python 3.13 and 3.14), the full Python suite passed (14280 passed, 160
 skipped) with total branch coverage of 92.46 percent against the 84 percent
 floor and every per-module floor met (`scripts/check_coverage.py`), as did
 ruff and `mypy src`. No distribution was built for this observation. The
