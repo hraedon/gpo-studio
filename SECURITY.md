@@ -102,7 +102,10 @@ authenticated reverse proxy with TLS and network access controls.
   policy and cache controls on API and artifact responses.
 - Structured local logs with request ID, operation, GPO GUID, revision,
   outcome and duration. Policy values, SIDs, paths and request bodies are never
-  logged.
+  logged. The one path logged is the configured `GPO_STUDIO_ADMX_DIR`, when it
+  fails to load at startup: the warning names it as configured, with the phase
+  and an error code, and never includes operating-system error text, which
+  would name the resolved path.
 - `/api/health` exposes no sensitive configuration.
 
 ## Specific controls

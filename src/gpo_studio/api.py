@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import errno
 import functools
 import hashlib
 import inspect
@@ -2655,9 +2656,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _logger.info("workspace_opened")
     if not hasattr(app.state, "admx_catalogue"):
         admx_dir = os.getenv("GPO_STUDIO_ADMX_DIR", "./admx")
-        try:
-            from . import template_store
+        from . import template_store
 
+        try:
             # The configured folder is resolved once here, as the ingest route
             # resolves its request path; ingest then follows no link inside it.
             # It runs on the ingest thread, like every other ingest.
@@ -2670,8 +2671,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ))
             app.state.template_sources = [result]
             app.state.admx_catalogue = result.catalogue
-        except Exception as error:
+        except (template_store.TemplateError, template_store.TemplateReadError) as error:
+            # Both are composed from the configured path, the phase and a code;
+            # neither carries operating-system text, which names resolved paths.
             _logger.warning("Failed to load ADMX catalogue: %s", error)
+            app.state.template_sources = []
+            app.state.admx_catalogue = AdmxCatalogue()
+        except Exception as error:
+            # Anything else is logged by type (and errno) only, never its text.
+            code = (
+                f" ({errno.errorcode.get(error.errno, error.errno)})"
+                if isinstance(error, OSError) and error.errno is not None
+                else ""
+            )
+            _logger.warning(
+                "Failed to load ADMX catalogue from %s: %s%s",
+                admx_dir,
+                type(error).__name__,
+                code,
+            )
             app.state.template_sources = []
             app.state.admx_catalogue = AdmxCatalogue()
     if not hasattr(app.state, "template_sources"):

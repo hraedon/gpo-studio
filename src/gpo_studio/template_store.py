@@ -13,6 +13,7 @@ import fnmatch
 import hashlib
 import os
 import re
+import stat
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,6 +33,29 @@ SourceKind = Literal["local", "central-store", "vendor-pack", "curated"]
 
 class TemplateError(ValueError):
     """Template repository operation failed."""
+
+
+class TemplateReadError(OSError):
+    """A template folder could not be read: permission, I/O or a vanished path.
+
+    An ``OSError``, so a caller that reports an unreadable folder keeps doing so.
+    Its message is composed like every template error: the folder by the
+    caller's label, then the phase and the errno code. It never carries the
+    operating system's text, which names the path as opened (resolved), so it
+    is safe to log or show.
+    """
+
+    def __init__(self, label: str, action: str, code: str) -> None:
+        super().__init__(f"Cannot read template folder {label}: {action} failed with {code}")
+        self.label = label
+        self.action = action
+        self.code = code
+
+
+def _errno_code(error: OSError) -> str:
+    if error.errno is None:
+        return "an unknown error"
+    return errno.errorcode.get(error.errno, f"errno {error.errno}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -418,10 +442,12 @@ def _refuse_unsafe_entries(label: str, progress: _Progress) -> Iterator[None]:
 
     The public message is built only from ``label`` (the path the caller was
     given), ``progress``, and the error's structured fields: its NT status or
-    Win32 error and the entry name, which is relative to the folder being
-    listed. The error's own text is never forwarded: ``safe_io``'s Windows walk
-    names the components of the path it opened, and the caller may have opened
-    a resolved path whose components must not be revealed.
+    Win32 error, its errno, and the entry name, which is relative to the folder
+    being listed. The error's own text is never forwarded: ``safe_io``'s Windows
+    walk names the components of the path it opened, a POSIX ``OSError`` names
+    the path itself, and the caller may have opened a resolved path whose
+    components must not be revealed. Any other ``OSError`` raised while reading
+    becomes a ``TemplateReadError`` the same way.
     """
     try:
         yield
@@ -432,8 +458,42 @@ def _refuse_unsafe_entries(label: str, progress: _Progress) -> Iterator[None]:
             and not isinstance(cause, SafeOpenError)
             and cause.errno not in (errno.ELOOP, errno.ENOTDIR)
         ):
-            raise
+            action, _ = _describe(progress, error.entry)
+            raise TemplateReadError(label, action, _errno_code(cause)) from error
         raise _public_failure(error, label, progress) from error
+    except OSError as error:
+        action, _ = _describe(progress, None)
+        raise TemplateReadError(label, action, _errno_code(error)) from error
+
+
+def _describe(progress: _Progress, entry_name: str | None) -> tuple[str, str]:
+    """(what was being done, what a refusal at that point means)."""
+    place = (
+        "the folder"
+        if progress.subfolder is None
+        else f"locale subfolder {progress.subfolder!r}"
+    )
+    if entry_name is not None:
+        entry = (
+            entry_name
+            if progress.subfolder is None
+            else str(Path(progress.subfolder, entry_name))
+        )
+        return (
+            f"opening entry {entry!r}",
+            f"entry {entry!r} is a symbolic link, junction or other reparse point, a "
+            "special file or an unsafe name, or it changed while being opened",
+        )
+    if not progress.root_open:
+        return (
+            "opening the folder",
+            "the folder, or a folder in its path, is a symbolic link, junction or "
+            "other reparse point, or is not a folder",
+        )
+    return (
+        f"reading {place}",
+        f"listing {place} returned an entry that cannot be read safely",
+    )
 
 
 def _public_failure(error: SafeOpenError, label: str, progress: _Progress) -> TemplateError:
@@ -443,33 +503,7 @@ def _public_failure(error: SafeOpenError, label: str, progress: _Progress) -> Te
         code = f"Win32 error {error.win32_error}"
     else:
         code = None
-    place = (
-        "the folder"
-        if progress.subfolder is None
-        else f"locale subfolder {progress.subfolder!r}"
-    )
-    if error.entry is not None:
-        entry = (
-            error.entry
-            if progress.subfolder is None
-            else str(Path(progress.subfolder, error.entry))
-        )
-        action, refusal = (
-            f"opening entry {entry!r}",
-            f"entry {entry!r} is a symbolic link, junction or other reparse point, a "
-            "special file or an unsafe name, or it changed while being opened",
-        )
-    elif not progress.root_open:
-        action, refusal = (
-            "opening the folder",
-            "the folder, or a folder in its path, is a symbolic link, junction or "
-            "other reparse point, or is not a folder",
-        )
-    else:
-        action, refusal = (
-            f"listing {place}",
-            f"listing {place} returned an entry that cannot be read safely",
-        )
+    action, refusal = _describe(progress, error.entry)
     if _is_read_failure(error):
         return TemplateError(
             f"Cannot read template folder {label}: {action} failed with {code}. Check "
@@ -738,8 +772,17 @@ def ingest_source(
     neither a refusal nor a loaded source reveals where a link points.
     """
     label = str(directory) if display_path is None else display_path
-    if not directory.is_dir():
-        raise TemplateError(f"Template directory does not exist: {label}")
+    # os.stat, not Path.is_dir: is_dir reports an unreadable folder as missing
+    # on Python 3.14 (any OSError reads as False) and raises the OS error, with
+    # the resolved path in its text, on 3.13.
+    try:
+        status = os.stat(directory)
+    except (FileNotFoundError, NotADirectoryError):
+        raise TemplateError(f"Template directory does not exist: {label}") from None
+    except OSError as error:
+        raise TemplateReadError(label, "opening the folder", _errno_code(error)) from None
+    if not stat.S_ISDIR(status.st_mode):
+        raise TemplateError(f"Template path is not a directory: {label}")
 
     inventory = _read_source(directory, label)
     files = _inventory_files(inventory)

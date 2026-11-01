@@ -543,6 +543,20 @@ These ADMX template store defects predate `1.1.0` and are present in it.
   relative to the folder, never from operating-system message text. Template
   sources are held in memory only: nothing about them is written to the
   workspace.
+- **A failed startup ADMX load no longer logs operating-system text.** The
+  warning logged the raw exception. For a folder Studio may not read, that
+  named the resolved path (`Permission denied: '<resolved path>'`). It now names
+  the folder as configured in `GPO_STUDIO_ADMX_DIR`, with the phase and an errno
+  or status code. An unexpected error is logged by type only.
+- **An unreadable template folder is no longer reported as missing.** Ingest
+  checked the folder with `Path.is_dir()`. Python 3.14 reports any `OSError`
+  there as "not a directory", so a folder Studio may not search was reported
+  as `Template directory does not exist`, and Python 3.13 raised the OS error
+  instead. The check now uses `os.stat` and its errno:
+  - a missing path (or missing component) still reads `does not exist`;
+  - an existing non-directory reads `Template path is not a directory`;
+  - anything else, such as permission denied, is reported as unreadable
+    (`Cannot read ADMX folder` from the API).
 - **Windows open failures are classified by their status code.** A refusal
   used to be told apart from a read failure by searching the error message,
   which also holds the entry name, so a file named like a status code could

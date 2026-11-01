@@ -907,7 +907,7 @@ def blocking_ingest(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
 def test_a_second_ingest_while_one_runs_is_refused_with_409(
     client: TestClient, tmp_path: Path, blocking_ingest: Any
 ) -> None:
-    """Never queued: a queued request would hold a request thread it cannot give back."""
+    """Never queued: a running ingest cannot be cancelled and has no time bound."""
     import threading
 
     folder = tmp_path / "root" / "vendor"
@@ -1081,3 +1081,133 @@ def test_the_windows_walk_never_names_a_resolved_component(
     assert message.startswith(f"{expected} template folder {alias}"), message
     if failure == "entry-denied":
         assert "'good.admx'" in message
+
+
+# --- Review round 4 ------------------------------------------------------------
+
+_permission_test = pytest.mark.skipif(
+    sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="needs POSIX permission bits enforced (not Windows, not root)",
+)
+
+
+@pytest.fixture
+def unsearchable_alias(tmp_path: Path) -> Iterator[Path]:
+    """An alias to a store whose parent folder its reader may not search."""
+    parent = tmp_path / "resolved-secret-parent"
+    _write_pair(parent / "store", "good", "Synthetic.Test.Good", "GoodPolicy")
+    alias = tmp_path / "submitted-alias"
+    alias.symlink_to(parent / "store", target_is_directory=True)
+    parent.chmod(0)
+    try:
+        yield alias
+    finally:
+        parent.chmod(0o755)
+
+
+def _is_dir_as_on_python_314(self: Path) -> bool:
+    """``Path.is_dir`` as Python 3.14 implements it: any OSError reads as False.
+
+    Python 3.13's version raises PermissionError instead, so emulating 3.14
+    lets one interpreter check both behaviours.
+    """
+    return os.path.isdir(self)
+
+
+@_permission_test
+@pytest.mark.usefixtures("symlink_privilege")
+@pytest.mark.parametrize("is_dir", ["native", "python-3.14"])
+def test_an_unreadable_folder_is_not_reported_as_missing(
+    unsearchable_alias: Path, monkeypatch: pytest.MonkeyPatch, is_dir: str
+) -> None:
+    if is_dir == "python-3.14":
+        monkeypatch.setattr(Path, "is_dir", _is_dir_as_on_python_314)
+    resolved = unsearchable_alias.resolve()
+    with pytest.raises(template_store.TemplateReadError) as failure:
+        ingest_source("store", "local", resolved, display_path=str(unsearchable_alias))
+    message = str(failure.value)
+    assert message == (
+        f"Cannot read template folder {unsearchable_alias}: "
+        "opening the folder failed with EACCES"
+    )
+    assert "resolved-secret-parent" not in message
+    assert isinstance(failure.value, OSError)
+
+
+@pytest.mark.parametrize("is_dir", ["native", "python-3.14"])
+def test_a_missing_folder_is_still_reported_as_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, is_dir: str
+) -> None:
+    if is_dir == "python-3.14":
+        monkeypatch.setattr(Path, "is_dir", _is_dir_as_on_python_314)
+    missing = tmp_path / "not-created"
+    with pytest.raises(TemplateError, match="^Template directory does not exist: "):
+        ingest_source("store", "local", missing)
+    (tmp_path / "file.admx").write_text("synthetic", encoding="utf-8")
+    with pytest.raises(TemplateError, match="^Template path is not a directory: "):
+        ingest_source("store", "local", tmp_path / "file.admx")
+
+
+@_permission_test
+@pytest.mark.usefixtures("symlink_privilege")
+@pytest.mark.parametrize("is_dir", ["native", "python-3.14"])
+def test_the_api_reports_an_unreadable_folder_as_unreadable(
+    client: TestClient,
+    unsearchable_alias: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    is_dir: str,
+) -> None:
+    monkeypatch.delenv("GPO_STUDIO_TEMPLATE_ROOT")
+    if is_dir == "python-3.14":
+        monkeypatch.setattr(Path, "is_dir", _is_dir_as_on_python_314)
+    response = _post_ingest(client, unsearchable_alias)
+    assert response.status_code == 422, response.text
+    message = response.json()["error"]["message"]
+    assert message.startswith(f"Cannot read ADMX folder: {unsearchable_alias}."), message
+    assert "resolved-secret-parent" not in response.text
+
+
+@_permission_test
+@pytest.mark.usefixtures("symlink_privilege")
+@pytest.mark.parametrize("is_dir", ["native", "python-3.14"])
+def test_a_startup_load_failure_is_logged_without_os_text(
+    unsearchable_alias: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    is_dir: str,
+) -> None:
+    """The startup warning is built like the client message: no OS text.
+
+    The OS error names the resolved path ("Permission denied: '.../resolved-
+    secret-parent/store'"); the log names the configured path, the phase and
+    the errno code only.
+    """
+    import logging
+
+    if is_dir == "python-3.14":
+        monkeypatch.setattr(Path, "is_dir", _is_dir_as_on_python_314)
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    monkeypatch.setenv("GPO_STUDIO_ADMX_DIR", str(unsearchable_alias))
+    names = ("admx_catalogue", "template_sources", "catalogue_snapshot")
+    for name in names:
+        monkeypatch.delattr(app.state, name, raising=False)
+    caplog.set_level(logging.WARNING, logger="gpo_studio.api")
+    try:
+        with TestClient(app) as started:
+            listing = started.get("/api/templates").json()
+    finally:
+        store.close()
+        for name in names:
+            if hasattr(app.state, name):
+                delattr(app.state, name)
+    assert listing["items"] == []
+    warnings = [r.getMessage() for r in caplog.records if r.name == "gpo_studio.api"]
+    loads = [m for m in warnings if m.startswith("Failed to load ADMX catalogue")]
+    assert loads == [
+        "Failed to load ADMX catalogue: Cannot read template folder "
+        f"{unsearchable_alias}: opening the folder failed with EACCES"
+    ], warnings
+    assert not any("resolved-secret-parent" in m for m in warnings), warnings
