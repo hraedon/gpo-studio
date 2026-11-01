@@ -13,10 +13,13 @@ release needs no edit here:
 * the report of the package's version names a ``freeze`` batch manifest (from
   B on): that batch, for every lane. The earlier batches are history; their
   packs and tests stay as they are;
-* its ``freeze`` is null (before B): the freeze batch of the latest approved
-  release before it, the batch that release shipped on, with any run the
-  verdict registry has made live since in place of the one it replaced. For
-  1.2.0 that is the release 1.1.0 re-freeze batch.
+* its ``freeze`` is null (before B): the freeze batch of the previous release,
+  the batch that release shipped on, with any run the verdict registry has made
+  live since in place of the one it replaced. The previous release is the
+  latest final tag ``vX.Y.Z`` below the package's version in HEAD's history,
+  and its committed records must agree with that tag (version, approval,
+  freeze); a missing or mismatched record fails, and nothing scans further
+  back. For 1.2.0 that is 1.1.0 and the release 1.1.0 re-freeze batch.
 
 The registry (``tests/test_committed_evidence.py``) stays the authority on what
 is live; ``test_the_current_qualification_is_the_live_set`` in
@@ -28,8 +31,11 @@ verdict must be the previous release's run of its lane.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
+import subprocess
+import sys
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -41,6 +47,7 @@ DOCS = ROOT / "docs"
 #: loads and checks).
 REGISTRY = EVIDENCE / "verdict-registry.json"
 _REPORT_NAME = re.compile(r"release-evidence-report-(\d+)\.(\d+)\.(\d+)\.json")
+_FINAL_TAG = re.compile(r"v\d+\.\d+\.\d+")
 
 
 def _load(relative: str) -> dict[str, Any]:
@@ -71,48 +78,136 @@ def freeze() -> dict[str, str] | None:
     return None if value is None else dict(value)
 
 
-def latest_freeze() -> dict[str, str] | None:
+def latest_freeze() -> dict[str, str]:
     """The newest banked freeze: this release's, else the previous release's.
 
-    None only before any release recorded a freeze. Tests that ask whether the
-    release 1.1.0rc1 batches are history ask this, not :func:`freeze`, which is
-    null again at the start of every release.
+    Tests that ask whether the release 1.1.0rc1 batches are history ask this,
+    not :func:`freeze`, which is null again at the start of every release. It
+    never answers "none": a previous release that cannot be bound fails here.
     """
     frozen = freeze()
     if frozen is not None:
         return frozen
+    return previous_freeze()
+
+
+def _gate() -> Any:
+    """``scripts/check_release_manifest.py``, whose validators the records must pass."""
+    spec = importlib.util.spec_from_file_location(
+        "check_release_manifest", ROOT / "scripts" / "check_release_manifest.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    return module
+
+
+def _git(*args: str) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", "-c", "core.fsmonitor=false", *args],
+        cwd=ROOT, capture_output=True, timeout=120, check=False,
+    )
+
+
+def _final_tags() -> list[str]:
+    """Versions ``X.Y.Z`` of the final release tags ``vX.Y.Z`` in HEAD's history."""
+    listed = _git("tag", "--merged", "HEAD", "--list", "v*")
+    assert listed.returncode == 0, listed.stderr.decode("utf-8", "replace")
+    names = listed.stdout.decode("utf-8").split()
+    return [name[1:] for name in names if _FINAL_TAG.fullmatch(name)]
+
+
+def _read(relative: str) -> bytes:
+    """A committed record's bytes in the working tree; a missing record fails."""
+    path = ROOT / relative
+    assert path.is_file(), f"{relative} does not exist"
+    return path.read_bytes()
+
+
+def _read_at_tag(base: str, relative: str) -> bytes:
+    """A record's bytes as released, at the tag ``v{base}``."""
+    shown = _git("cat-file", "blob", f"refs/tags/v{base}^{{commit}}:{relative}")
+    assert shown.returncode == 0, (
+        f"{relative} is not in the commit tag v{base} names: "
+        + shown.stderr.decode("utf-8", "replace").strip()
+    )
+    return shown.stdout
+
+
+def release_problems(base: str, report: bytes, manifest: bytes, released: bytes) -> list[str]:
+    """Why ``base``'s records cannot stand as a released, frozen release's.
+
+    ``report`` and ``manifest`` are the records in the tree; ``released`` is the
+    report as it was at the tag ``v{base}``. They must pass the release gate's
+    validators, name ``base`` exactly (the file name, the report's version and
+    manifest, and the manifest's title and application version are one
+    identity), be approved with a freeze, and record the same freeze the tag
+    released.
+    """
+    gate = _gate()
+    manifest_rel = f"docs/release-evidence-{base}.md"
+    problems, data = gate.report_problems(report, manifest_rel)
+    problems = [f"report: {problem}" for problem in problems]
+    if not problems:
+        if data["version"] != base:
+            problems.append(f"report: version is {data['version']!r}, not {base!r}")
+        if data["status"] != "approved":
+            problems.append(f"report: status is {data['status']!r}, not 'approved'")
+        if data["freeze"] is None:
+            problems.append("report: freeze is null; a final release records its freeze")
+    problems += [
+        f"manifest: {problem}" for problem in gate.manifest_problems(manifest, base, "approved")
+    ]
     try:
-        return previous_freeze()
-    except AssertionError:
-        return None
+        tagged = json.loads(released.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        return [*problems, f"the report at tag v{base} is not JSON: {error}"]
+    if not isinstance(tagged, dict) or (
+        tagged.get("version"), tagged.get("status")
+    ) != (base, "approved"):
+        problems.append(f"the report at tag v{base} is not {base}'s approved report")
+    elif not problems and tagged.get("freeze") != data["freeze"]:
+        problems.append(
+            f"report: freeze {data['freeze']!r} is not the freeze tag v{base} released, "
+            f"{tagged.get('freeze')!r}"
+        )
+    return problems
 
 
 @cache
 def previous_release() -> str:
-    """The latest approved release before the package's version, with a freeze.
+    """The release before the package's version: the latest final tag below it.
 
-    Read from the committed reports (``docs/release-evidence-report-X.Y.Z.json``),
-    highest version first; a report that never reached approval (an abandoned
-    candidate) is skipped. 1.0.0 predates the report's ``freeze`` and is never
-    the answer.
+    Bound to the tags, not to whichever reports happen to be committed: the
+    highest ``vX.Y.Z`` (no release candidate) in HEAD's history whose version is
+    below the package's. Its records must then stand as that release's
+    (:func:`release_problems`). A missing, unapproved or mismatched record for
+    that release fails here; nothing scans further back to an older release.
+    The test jobs check out full history with tags (``fetch-depth: 0``), as the
+    release gate's freeze check already needs.
     """
     current = _version_key(package_base_version())
-    earlier = []
-    for path in DOCS.glob("release-evidence-report-*.json"):
-        match = _REPORT_NAME.fullmatch(path.name)
-        if match is None:
-            continue
-        base = ".".join(match.groups())
-        if _version_key(base) < current:
-            earlier.append(base)
-    for base in sorted(earlier, key=_version_key, reverse=True):
-        report = release_report(base)
-        if report["status"] == "approved" and report["freeze"] is not None:
-            return base
-    raise AssertionError(
-        f"no approved release with a freeze precedes {package_base_version()}, so no "
-        "batch is the current qualification before this release's freeze"
+    earlier = [base for base in _final_tags() if _version_key(base) < current]
+    assert earlier, (
+        f"no final release tag below {package_base_version()} in HEAD's history; "
+        "fetch the full history with tags (fetch-depth: 0)"
     )
+    base = max(earlier, key=_version_key)
+    report_rel = f"docs/release-evidence-report-{base}.json"
+    problems = release_problems(
+        base,
+        _read(report_rel),
+        _read(f"docs/release-evidence-{base}.md"),
+        _read_at_tag(base, report_rel),
+    )
+    assert not problems, (
+        f"the previous release, {base} (tag v{base}), has no records that stand as "
+        f"its release: {'; '.join(problems)}"
+    )
+    return base
 
 
 def previous_freeze() -> dict[str, str]:
