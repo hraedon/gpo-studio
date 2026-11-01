@@ -726,15 +726,19 @@ def lf_line_breaks(text: Any) -> Any:
 
 
 def _without_format_marks(value: Any) -> Any:
-    """``value`` with the discovery format field removed at every level."""
-    if isinstance(value, dict):
-        return {
-            key: _without_format_marks(item)
-            for key, item in value.items()
-            if key != DISCOVERY_FORMAT_FIELD
-        }
-    if isinstance(value, list):
-        return [_without_format_marks(item) for item in value]
+    """``value`` with the discovery format field removed at every level.
+
+    Changes the freshly parsed ``value`` in place (each caller parsed it from
+    text just before) and returns it.
+    """
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            item.pop(DISCOVERY_FORMAT_FIELD, None)
+            stack.extend(child for child in item.values() if isinstance(child, dict | list))
+        elif isinstance(item, list):
+            stack.extend(child for child in item if isinstance(child, dict | list))
     return value
 
 
@@ -745,8 +749,13 @@ def _without_format_marks(value: Any) -> Any:
 # reported as a corrupt, degraded workspace (#164 review); and parsing every
 # document to count rows made the summary about 40 times slower.
 _DISCOVERY_PREFIX = f'{{"{DISCOVERY_FORMAT_FIELD}":{DISCOVERY_FORMAT},'
-# ',' is followed by '-': the prefix's range in binary text order.
-_CURRENT_DISCOVERY = "data_json >= ? AND data_json < ?"
+# ',' is followed by '-': the prefix's range in binary text order. json_valid()
+# never raises, unlike json_extract(), and the CASE runs it only on marked rows.
+# Every reader, the counts included, uses this one predicate, and the rows it
+# selects all parse in Python (which accepts more than SQLite's canonical
+# JSON), so what summary and kinds count is exactly what the readers serve.
+_DISCOVERY_PREFIX_RANGE = "data_json >= ? AND data_json < ?"
+_CURRENT_DISCOVERY = f"CASE WHEN {_DISCOVERY_PREFIX_RANGE} THEN json_valid(data_json) ELSE 0 END"
 _CURRENT_DISCOVERY_PARAMS = (_DISCOVERY_PREFIX, _DISCOVERY_PREFIX[:-1] + "-")
 
 
@@ -771,26 +780,32 @@ def _stamp_discovery(data_json: str) -> str:
     return _DISCOVERY_PREFIX + body[1:]
 
 
+# One decoder: json.loads() with an argument builds a new one per call.
+_LENIENT_JSON = json.JSONDecoder(strict=False)
+
+
 def _current_discovery(data_json: str) -> dict[str, Any] | None:
     """A cached document of this build's format, without its marks; else None.
 
     A record without the mark was written by an earlier build, including one
     run against this workspace after a later one (a downgrade): its links,
     flags and text are not to be trusted, so it is served as absent until an
-    import writes the same kind and key (#164 review). Readers select rows by
-    the mark's prefix in SQL; this parses and checks each row they return.
+    import writes the same kind and key (#164 review). Readers select rows in
+    SQL by the mark's prefix and json_valid(); this parses each row they
+    return and removes the mark at every level of the parsed document, so an
+    escaped spelling of the key (``"\\u005fstudio..."``) is removed too.
     """
+    if not data_json.startswith(_DISCOVERY_PREFIX):
+        return None
     try:
-        data = json.loads(data_json)
+        # strict=False: accept everything json_valid() does, so the rows the
+        # counts include are exactly the rows the readers serve.
+        data = _LENIENT_JSON.decode(data_json)
     except (ValueError, RecursionError):
         return None
-    if not isinstance(data, dict) or data.get(DISCOVERY_FORMAT_FIELD) != DISCOVERY_FORMAT:
+    if not isinstance(data, dict):
         return None
-    del data[DISCOVERY_FORMAT_FIELD]
-    if DISCOVERY_FORMAT_FIELD in data_json[len(_DISCOVERY_PREFIX):]:
-        # A nested mark, which this writer never stores (#164 review).
-        return cast(dict[str, Any], _without_format_marks(data))
-    return data
+    return cast(dict[str, Any], _without_format_marks(data))
 
 
 class WorkspaceStore:
@@ -1047,22 +1062,45 @@ class WorkspaceStore:
         self, where: str, params: tuple[object, ...]
     ) -> list[dict[str, Any]]:
         """Documents of this build's format matching ``where``, ordered by key."""
-        rows = self._connection.execute(
-            f"SELECT data_json FROM estate_discovery WHERE {where}"
-            f" AND {_CURRENT_DISCOVERY} ORDER BY key",
-            (*params, *_CURRENT_DISCOVERY_PARAMS),
-        ).fetchall()
+        try:
+            rows = self._connection.execute(
+                f"SELECT data_json FROM estate_discovery WHERE {where}"
+                f" AND {_CURRENT_DISCOVERY} ORDER BY key",
+                (*params, *_CURRENT_DISCOVERY_PARAMS),
+            ).fetchall()
+        except sqlite3.OperationalError as error:
+            if "no such function: json_valid" not in str(error).lower():
+                raise
+            # SQLite without JSON functions: the prefix in SQL, the rest here.
+            rows = self._connection.execute(
+                f"SELECT data_json FROM estate_discovery WHERE {where}"
+                f" AND {_DISCOVERY_PREFIX_RANGE} ORDER BY key",
+                (*params, *_CURRENT_DISCOVERY_PARAMS),
+            ).fetchall()
         return [
             data for row in rows if (data := _current_discovery(row["data_json"])) is not None
         ]
 
     def _current_discovery_counts(self) -> dict[str, int]:
-        rows = self._connection.execute(
-            f"SELECT kind, COUNT(*) AS n FROM estate_discovery WHERE {_CURRENT_DISCOVERY}"
-            " GROUP BY kind",
-            _CURRENT_DISCOVERY_PARAMS,
-        ).fetchall()
-        return {str(row["kind"]): int(row["n"]) for row in rows}
+        try:
+            rows = self._connection.execute(
+                f"SELECT kind, COUNT(*) AS n FROM estate_discovery WHERE {_CURRENT_DISCOVERY}"
+                " GROUP BY kind",
+                _CURRENT_DISCOVERY_PARAMS,
+            ).fetchall()
+            return {str(row["kind"]): int(row["n"]) for row in rows}
+        except sqlite3.OperationalError as error:
+            if "no such function: json_valid" not in str(error).lower():
+                raise
+        return dict(Counter(
+            str(row["kind"])
+            for row in self._connection.execute(
+                "SELECT kind, data_json FROM estate_discovery"
+                f" WHERE {_DISCOVERY_PREFIX_RANGE}",
+                _CURRENT_DISCOVERY_PARAMS,
+            ).fetchall()
+            if _current_discovery(row["data_json"]) is not None
+        ))
 
     def _encode_snapshot_payload(self, gpo: GPO) -> tuple[str, list[RetainedDocument]]:
         """Serialize a snapshot with its retained documents moved to references.

@@ -1351,9 +1351,10 @@ def test_a_malformed_cache_row_never_degrades_the_workspace(
         with pytest.raises(NotFoundError):
             store.get_discovery("principal", "malformed")
         assert not store.is_degraded
-        # The summary counts rows by their mark's prefix without parsing them,
-        # so a hand-made row that starts with the mark but is not JSON counts.
-        assert store.discovery_summary() == {"principal": 1 if text == "{" else 2}
+        # Summary and kinds count exactly the rows the readers serve (#164
+        # review: a row that started with the mark but was not JSON counted).
+        assert store.discovery_summary() == {"principal": 1}
+        assert store.list_discovery_kinds() == ["principal"]
         client = TestClient(app, base_url="http://127.0.0.1")
         assert client.get(
             "/api/discovery/principals", params={"q": "", "domain": "ad.hraedon.com"}
@@ -1388,4 +1389,84 @@ def test_format_marks_are_removed_at_every_level(tmp_path, monkeypatch) -> None:
         assert "_studio_discovery_format" not in json.dumps(served)
         assert "_studio_discovery_format" not in json.dumps(store.list_discovery("gpos"))
     finally:
+        store.close()
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    ["\\u005fstudio_discovery_format", "_studio_discovery_forma\\u0074"],
+    ids=["escaped-first", "escaped-last"],
+)
+def test_an_escaped_nested_mark_is_removed_on_every_read(
+    tmp_path, monkeypatch, spelling: str
+) -> None:
+    # #164 review: a raw-text shortcut missed a JSON-escaped spelling of a
+    # nested key. Nested in a GPO inventory entry and in a principal's list.
+    store = WorkspaceStore(tmp_path / "escaped.db")
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    try:
+        client = TestClient(app, base_url="http://127.0.0.1")
+        assert client.post("/api/discovery/gpos", json=_VALID_GPOS).status_code == 200
+        principal = json.loads(json.dumps(_VALID_PRINCIPALS))
+        assert client.post("/api/discovery/principals", json=principal).status_code == 200
+        for kind, anchor in (("gpos", '"guid"'), ("principal", '"S-1-5-21-1-2-3-2001"')):
+            (raw,) = [row[0] for row in store._connection.execute(
+                "SELECT data_json FROM estate_discovery WHERE kind=?", (kind,)
+            )]
+            nested = f'"{spelling}":2,' + anchor if kind == "gpos" else (
+                f'{{"{spelling}":2}},' + anchor
+            )
+            forged = raw.replace(anchor, nested, 1)
+            assert forged != raw
+            store._connection.execute(
+                "UPDATE estate_discovery SET data_json=? WHERE kind=?", (forged, kind)
+            )
+        store._connection.commit()
+        guid = _VALID_PRINCIPALS["principals"][0]["object_guid"]
+        served = [
+            store.get_discovery("gpos", _VALID_GPOS["domain"]),
+            *store.list_discovery("gpos"),
+            store.get_discovery("principal", guid),
+            *store.list_discovery("principal"),
+            *store.search_principals(""),
+        ]
+        response = client.get("/api/discovery/principals", params={"q": ""})
+        assert response.status_code == 200
+        served.append(response.json())
+        assert len(served) == 6
+        assert all("_studio_discovery_format" not in json.dumps(item) for item in served)
+    finally:
+        store.close()
+
+
+def test_readers_agree_without_sqlite_json_functions(tmp_path, monkeypatch) -> None:
+    # Where SQLite lacks json_valid(), the readers select by the mark's prefix
+    # and check the rest in Python; served rows and counts still agree.
+    store = WorkspaceStore(tmp_path / "nojson.db")
+    try:
+        _import_principals(store, monkeypatch)
+        _seed_malformed(store, '{"_studio_discovery_format":2,{')
+        real_execute = store._connection.execute
+
+        class Wrapped:
+            def __init__(self, conn):
+                self._conn = conn
+                self.row_factory = conn.row_factory
+
+            def execute(self, sql, params=()):
+                if "json_valid" in sql:
+                    raise sqlite3.OperationalError("no such function: json_valid")
+                return real_execute(sql, params)
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+        monkeypatch.setattr(store, "_connection", Wrapped(store._connection))
+        assert store.discovery_summary() == {"principal": 1}
+        assert store.list_discovery_kinds() == ["principal"]
+        assert len(store.list_discovery("principal")) == 1
+        assert len(store.search_principals("")) == 1
+    finally:
+        monkeypatch.undo()
         store.close()

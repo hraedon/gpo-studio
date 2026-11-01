@@ -1251,7 +1251,8 @@ read of a real directory has yet shown whether `ActiveDirectorySubnet.Name`
 ever returns that spelling.
 The discovery cache is cleared whenever another version has opened the
 workspace since this one; two builds that report the same version (two commits
-of one release) are not told apart.
+of one release) are not told apart, and the detection assumes the workspace
+lock holds, which two versions running at once through path aliases defeat.
 
 - **`publication.py` and `publisher.py` do not weaken the charter.** Neither
   writes anything, and the web process still never writes to AD or SYSVOL.

@@ -102,18 +102,23 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
     this version opens a workspace, it deletes every cached discovery record,
     in the same transaction that records its own version, if either the
     `discovery_cache_version` marker in `workspace_meta` is missing or older
-    than `2`, or `app_version` (which every version rewrites on each open)
-    differs from `discovery_cache_app_version` (which only this version and
-    later ones write), meaning another version opened the workspace since. It
-    then records itself in both. Upgrading with no other version in between
-    keeps the cache. Two builds that report the same version (two commits of
-    one release) are not told apart. Nothing else in the workspace refers to
+    than `2`, or `app_version` (which every version rewrites on each healthy,
+    writable open) differs from `discovery_cache_app_version` (which only
+    this version and later ones write), meaning another version opened the
+    workspace since. It then records itself in both. Upgrading with no other
+    version in between keeps the cache. Two builds that report the same
+    version (two commits of one release) are not told apart. The detection
+    assumes the workspace lock holds: two versions run at the same time on
+    one workspace through different paths to it (a symbolic link, say) take
+    different locks and defeat it. Nothing else in the workspace refers to
     the discovery cache.
   - Every discovery record this version writes also begins with a format
     mark, and only marked records are served (get, list, principal search,
     kinds and summary); a record without it is treated as absent until an
-    import writes the same kind and key. A format mark supplied inside an
-    imported document is removed at every level on import and on read. The
+    import writes the same kind and key. A format mark anywhere inside a
+    document, however its key is spelled in JSON, is removed at every level
+    of the parsed document on import and on read. Summary and kinds count
+    exactly the records the other readers serve. The
     mark alone cannot prove which version wrote a record: version 1.1.0's GPO
     inventory import stores the request body as given, so a body that
     supplies the mark keeps it, which is why another version opening the
