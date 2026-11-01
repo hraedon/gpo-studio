@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
+import errno
 import functools
 import hashlib
 import inspect
@@ -18,6 +20,7 @@ import uuid as uuid_module
 import zipfile
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -1798,6 +1801,20 @@ def _store(request: Request) -> WorkspaceStore:
 # order is catalogue -> WorkspaceStore; no code holds a store lock while
 # acquiring this one. Loading files happens outside it, publication inside it.
 _CATALOGUE_LOCK = threading.RLock()
+#: Template ingests run one at a time, on one dedicated thread. An ingest may
+#: hold up to the template store's aggregate byte limit, and glibc keeps a
+#: separate malloc arena per thread that retains what an ingest freed, so
+#: ingests spread over the request threadpool each left that much resident.
+#: A second ingest while one runs is refused (409) rather than queued. A
+#: running ingest cannot be cancelled and has no bound on its duration (a slow
+#: or stalled share can hold it for as long as reads block), so a queue would
+#: grow without limit behind it, each waiter only to replace the source the
+#: one before it loaded. Refusing tells the caller at once. The lock is
+#: released when the ingest itself finishes, not when its request does.
+_TEMPLATE_INGEST_LOCK = threading.Lock()
+_TEMPLATE_INGEST_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="gpo-studio-template-ingest"
+)
 _EMPTY_CATALOGUE = AdmxCatalogue()
 
 
@@ -1806,6 +1823,26 @@ class _CatalogueSnapshot:
     catalogue: AdmxCatalogue
     sources: tuple[Any, ...]
     revision: str
+
+
+class _TemplateIngestInProgress(StudioError):
+    def __init__(self) -> None:
+        super().__init__(
+            "A template ingest is already in progress. Try again when it finishes."
+        )
+
+
+async def _run_template_ingest[T](work: Callable[[], T]) -> T:
+    """Run ``work`` on the template ingest thread, or refuse if one is running."""
+    if not _TEMPLATE_INGEST_LOCK.acquire(blocking=False):
+        raise _TemplateIngestInProgress()
+    try:
+        future = _TEMPLATE_INGEST_EXECUTOR.submit(work)
+    except BaseException:
+        _TEMPLATE_INGEST_LOCK.release()
+        raise
+    future.add_done_callback(lambda _done: _TEMPLATE_INGEST_LOCK.release())
+    return await asyncio.wrap_future(future)
 
 
 class _CatalogueConflict(StudioError):
@@ -2622,14 +2659,40 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _logger.info("workspace_opened")
     if not hasattr(app.state, "admx_catalogue"):
         admx_dir = os.getenv("GPO_STUDIO_ADMX_DIR", "./admx")
-        try:
-            from .template_store import ingest_source
+        from . import template_store
 
-            result = ingest_source("default", "local", Path(admx_dir))
+        try:
+            # The configured folder is resolved once here, as the ingest route
+            # resolves its request path; ingest then follows no link inside it.
+            # It runs on the ingest thread, like every other ingest.
+            result = await _run_template_ingest(functools.partial(
+                template_store.ingest_source,
+                "default",
+                "local",
+                Path(admx_dir).resolve(),
+                display_path=admx_dir,
+            ))
             app.state.template_sources = [result]
             app.state.admx_catalogue = result.catalogue
-        except Exception as error:
+        except (template_store.TemplateError, template_store.TemplateReadError) as error:
+            # Both are composed from the configured path, the phase and a code;
+            # neither carries operating-system text, which names resolved paths.
             _logger.warning("Failed to load ADMX catalogue: %s", error)
+            app.state.template_sources = []
+            app.state.admx_catalogue = AdmxCatalogue()
+        except Exception as error:
+            # Anything else is logged by type (and errno) only, never its text.
+            code = (
+                f" ({errno.errorcode.get(error.errno, error.errno)})"
+                if isinstance(error, OSError) and error.errno is not None
+                else ""
+            )
+            _logger.warning(
+                "Failed to load ADMX catalogue from %s: %s%s",
+                admx_dir,
+                type(error).__name__,
+                code,
+            )
             app.state.template_sources = []
             app.state.admx_catalogue = AdmxCatalogue()
     if not hasattr(app.state, "template_sources"):
@@ -2902,6 +2965,16 @@ class _ExportReviewConflict(StudioError):
         self.expected_revision = expected_revision
         self.expected_hash = expected_hash
         self.current_hash = current_hash
+
+
+@app.exception_handler(_TemplateIngestInProgress)
+async def template_ingest_in_progress(
+    request: Request, error: _TemplateIngestInProgress
+) -> JSONResponse:
+    return JSONResponse(
+        _error_body(request, {"message": str(error), "code": "template_ingest_in_progress"}),
+        status_code=409,
+    )
 
 
 @app.exception_handler(_ExportReviewConflict)
@@ -3498,8 +3571,16 @@ def list_template_sources(request: Request) -> dict[str, Any]:
 
 
 @app.post("/api/templates/ingest", status_code=201)
-def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dict[str, Any]:
-    from .template_store import TemplateError, ingest_source
+async def ingest_template_source(
+    request: Request, body: IngestTemplateRequest
+) -> dict[str, Any]:
+    return await _run_template_ingest(
+        functools.partial(_ingest_template_source, request, body)
+    )
+
+
+def _ingest_template_source(request: Request, body: IngestTemplateRequest) -> dict[str, Any]:
+    from . import template_store
 
     try:
         directory = Path(body.path).resolve()
@@ -3507,11 +3588,13 @@ def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dic
         if template_root:
             root = Path(template_root).resolve()
             if not directory.is_relative_to(root):
-                raise StudioError(
-                    f"Path escapes template root: {directory}"
-                )
-        result = ingest_source(body.name, body.kind, directory)
-    except TemplateError as exc:
+                # Echo what was submitted, never where it resolved: the
+                # resolved path would reveal where an in-root link points.
+                raise StudioError(f"Path escapes template root: {body.path}")
+        result = template_store.ingest_source(
+            body.name, body.kind, directory, display_path=body.path
+        )
+    except template_store.TemplateError as exc:
         raise StudioError(str(exc)) from exc
     except OSError as exc:
         raise StudioError(

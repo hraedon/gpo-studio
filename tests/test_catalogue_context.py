@@ -231,21 +231,30 @@ def test_concurrent_source_additions_merge_latest_complete_sources(
     one = write_pack(folder / "extra-one", "A", "Synthetic.ExtraOne")
     two = write_pack(folder / "extra-two", "B", "Synthetic.ExtraTwo")
     original = templates.ingest_source
-    parsed = threading.Barrier(2)
+    # One ingest runs at a time and a second is refused (409), never queued:
+    # an ingest may hold up to the aggregate byte limit. Additions made one
+    # after the other must still all end up in the active catalogue.
+    started = threading.Event()
+    release = threading.Event()
 
     def load(*args: Any, **kwargs: Any) -> Any:
-        result = original(*args, **kwargs)
-        parsed.wait(timeout=5)
-        return result
+        started.set()
+        assert release.wait(timeout=10)
+        return original(*args, **kwargs)
 
     monkeypatch.setattr(templates, "ingest_source", load)
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=1) as executor:
         a = executor.submit(activate, client, one, "extra-one")
-        b = executor.submit(activate, client, two, "extra-two")
-        versions = {
-            a.result(timeout=10)["catalogue_revision"],
-            b.result(timeout=10)["catalogue_revision"],
-        }
+        assert started.wait(timeout=5)
+        refused = client.post(
+            "/api/templates/ingest",
+            json={"name": "extra-two", "kind": "local", "path": str(two)},
+        )
+        release.set()
+        first = a.result(timeout=10)["catalogue_revision"]
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"] == "template_ingest_in_progress"
+    versions = {first, activate(client, two, "extra-two")["catalogue_revision"]}
     listed = client.get("/api/templates").json()
     policies = client.get("/api/admx/search").json()
     assert listed["count"] == 3 and policies["count"] == 3
