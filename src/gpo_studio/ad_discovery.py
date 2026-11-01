@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 from typing import Any, cast
 
 from .emit_integrity import DISCOVERY_PARAMETERS, ps_literal
@@ -206,22 +207,81 @@ def _validate_sid(value: str, path: str) -> None:
         ])
 
 
-def _validate_cidr(value: str, path: str) -> None:
-    # An AD subnet is an IPv4 or IPv6 network with an explicit prefix; the
-    # dotted-quad pattern this replaced refused every IPv6 site subnet.
-    try:
-        network = ipaddress.ip_network(value, strict=True) if "/" in value else None
-    except ValueError:
-        network = None
-    if network is None:
-        raise ValidationError([
+_IPV4_ADDRESS = re.compile(r"(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}")
+_PREFIX = re.compile(r"[1-9][0-9]{0,2}")
+
+
+def _canonical_ipv6(address: ipaddress.IPv6Address) -> str:
+    """RFC 5952 section 4 text, in hexadecimal only.
+
+    Leading zeros dropped, "::" replacing the longest run of two or more zero
+    fields (the first of equal runs), never a single zero field, lower case.
+    Written out here rather than taken from ``str()``, which prints an
+    IPv4-mapped address in dotted form.
+    """
+    fields = [(int(address) >> (16 * (7 - i))) & 0xFFFF for i in range(8)]
+    best_start, best_length, start = -1, 1, None
+    for index, field in enumerate([*fields, 1]):
+        if field == 0 and start is None:
+            start = index
+        elif field != 0 and start is not None:
+            if index - start > best_length:
+                best_start, best_length = start, index - start
+            start = None
+    text = [format(field, "x") for field in fields]
+    if best_start < 0:
+        return ":".join(text)
+    head = ":".join(text[:best_start])
+    tail = ":".join(text[best_start + best_length:])
+    return f"{head}::{tail}"
+
+
+def _subnet_name(value: str, path: str) -> str:
+    """An AD subnet object name, per MS-ADTS "Subnet Object"
+    (learn.microsoft.com/openspecs/windows_protocols/ms-adts/255d4630-f033-4289-8db6-c36060b47e17).
+
+    One "/"; a prefix with no leading zeros, 1-32 (IPv4) or 1-128 (IPv6). An
+    IPv4 address in dotted decimal with no leading zeros, no host bits set,
+    and not equal to its own mask. An IPv6 address in RFC 5952 canonical text,
+    compared case-insensitively, with no host-bit rule (the spec lists
+    ``a:b::c:d:0:0/64`` as valid) and so no zone ID or dotted form.
+
+    Returns the name with an IPv6 address in lower case: AD compares names
+    case-insensitively, so ``2001:DB8::/32`` and ``2001:db8::/32`` are one
+    subnet and must be one cache key. IPv4 names are already unique.
+    """
+    def refuse() -> ValidationError:
+        return ValidationError([
             ValidationIssue(
                 severity="error",
                 code="invalid_cidr_format",
-                message=f"Invalid CIDR format: {value!r}",
+                message=f"Invalid AD subnet name: {value!r}",
                 path=path,
             )
         ])
+
+    address_text, slash, prefix_text = value.partition("/")
+    if not slash or "/" in prefix_text or not _PREFIX.fullmatch(prefix_text):
+        raise refuse()
+    prefix = int(prefix_text)
+    if _IPV4_ADDRESS.fullmatch(address_text):
+        if prefix > 32 or any(int(part) > 255 for part in address_text.split(".")):
+            raise refuse()
+        address = int(ipaddress.IPv4Address(address_text))
+        mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF
+        if address & ~mask & 0xFFFFFFFF or address == mask:
+            raise refuse()
+        return value
+    if prefix > 128 or "%" in address_text or "." in address_text:
+        raise refuse()
+    try:
+        ipv6 = ipaddress.IPv6Address(address_text)
+    except ValueError:
+        raise refuse() from None
+    canonical = _canonical_ipv6(ipv6)
+    if address_text.lower() != canonical:
+        raise refuse()
+    return f"{canonical}/{prefix}"
 
 
 def _parse_trust_direction(value: str) -> TrustDirection:
@@ -609,8 +669,9 @@ def _parse_site(data: dict[str, Any]) -> SiteInfo:
                 path="sites.subnets",
             )
         ])
-    for cidr in subnets_raw:
-        _validate_cidr(_text(cidr, "sites.subnets"), "sites.subnets")
+    site_subnets = tuple(
+        _subnet_name(_text(cidr, "sites.subnets"), "sites.subnets") for cidr in subnets_raw
+    )
     site_links_raw = data.get("site_links", [])
     if not isinstance(site_links_raw, list):
         raise ValidationError([
@@ -624,7 +685,7 @@ def _parse_site(data: dict[str, Any]) -> SiteInfo:
     return SiteInfo(
         name=name,
         description=_optional_str(data, "description"),
-        subnets=tuple(subnets_raw),
+        subnets=site_subnets,
         site_links=_str_list(data, "site_links") if "site_links" in data else (),
     )
 
@@ -639,8 +700,7 @@ def _parse_subnet(data: dict[str, Any]) -> SubnetInfo:
                 path="subnets",
             )
         ])
-    cidr = _str_field(data, "cidr")
-    _validate_cidr(cidr, "subnets.cidr")
+    cidr = _subnet_name(_str_field(data, "cidr"), "subnets.cidr")
     return SubnetInfo(
         cidr=cidr,
         site_name=_str_field(data, "site_name"),
@@ -684,7 +744,14 @@ def discovery_script_ous(domain: str, search_base: str = "") -> str:
         "    $name = Get-FirstValue $_.Properties['name']",
         "    $description = Get-FirstValue $_.Properties['description']",
         "    $gplink = Get-FirstValue $_.Properties['gPLink']",
-        r"    $linkMatches = @([regex]::Matches($gplink, '\[LDAP://([^;\]]+);(\d+)\]', "
+        # The whole value must be gPLink entries (GPMC leaves a single space
+        # when the last link is removed). Matching fragments dropped a
+        # malformed entry silently and renumbered the rest; an incomplete link
+        # list is worse than no discovery, so the run stops (#164 review).
+        r"    if ($gplink -notmatch '^\s*(\[LDAP://[^;\]]+;[0-9]{1,10}\]\s*)*$') {",
+        "        throw \"Malformed gPLink on ${dn}: $gplink\"",
+        "    }",
+        r"    $linkMatches = @([regex]::Matches($gplink, '\[LDAP://([^;\]]+);([0-9]+)\]', "
         "'IgnoreCase'))",
         "    $links = @()",
         # gPLink lists a scope's links from lowest to highest precedence: GPMC
@@ -694,7 +761,12 @@ def discovery_script_ous(domain: str, search_base: str = "") -> str:
         # (MS-GPOL 2.2.2); "enabled" read bit 0x1 as enabled (#160).
         "    for ($i = $linkMatches.Count - 1; $i -ge 0; $i--) {",
         "        $m = $linkMatches[$i]",
-        "        $options = [int]$m.Groups[2].Value",
+        # A DWORD: [int] threw on values above Int32 and stopped the run
+        # without saying why.
+        "        $options = [long]$m.Groups[2].Value",
+        "        if ($options -gt 4294967295) {",
+        "            throw \"gPLink option $options on $dn is not a DWORD\"",
+        "        }",
         "        $links += @{",
         "            id = [guid]::NewGuid().ToString()",
         "            target = $m.Groups[1].Value",
@@ -818,7 +890,12 @@ def discovery_script_gpos(domain: str = "") -> str:
 
 
 def parse_gpos_discovery(data: dict[str, Any]) -> dict[str, Any]:
-    """Validate GPO discovery JSON and return it for caching."""
+    """Validate GPO discovery JSON and return the validated document for caching.
+
+    Only the validated fields are returned: the caller keyed the cache with
+    ``str(domain)``, so a null domain was stored under "None", and the other
+    fields went into the cache unchecked (#164 review).
+    """
     _require_kind(data, "gpo-studio-discovery-gpos")
     _check_nesting_depth(data)
     gpos_raw = data.get("gpos", [])
@@ -840,6 +917,8 @@ def parse_gpos_discovery(data: dict[str, Any]) -> dict[str, Any]:
                 path="gpos",
             )
         ])
+    domain = _str_field(data, "domain")
+    gpos: list[dict[str, str]] = []
     for idx, raw in enumerate(gpos_raw):
         if not isinstance(raw, dict):
             raise ValidationError([
@@ -852,7 +931,12 @@ def parse_gpos_discovery(data: dict[str, Any]) -> dict[str, Any]:
             ])
         guid = _optional_str(raw, "guid")
         _validate_guid(guid, f"gpos[{idx}].guid")
-    return data
+        gpos.append({
+            "guid": guid,
+            "name": _optional_str(raw, "name"),
+            "gpc_file_sys_path": _optional_str(raw, "gpc_file_sys_path"),
+        })
+    return {"kind": "gpo-studio-discovery-gpos", "domain": domain, "gpos": gpos}
 
 
 def discovery_script_principal_search(
@@ -897,14 +981,19 @@ def discovery_script_principal_search(
         "else { '(objectCategory=*)' }",
         "$escaped = ConvertTo-LdapFilterValue $SearchTerm",
         "$terms = @(\"(sAMAccountName=$escaped)\", \"(cn=$escaped)\")",
-        "try {",
-        "    $sid = New-Object System.Security.Principal.SecurityIdentifier($SearchTerm)",
-        "    $sidBytes = New-Object byte[] $sid.BinaryLength",
-        "    $sid.GetBinaryForm($sidBytes, 0)",
-        "    $sidHex = ($sidBytes | ForEach-Object { '\\{0:x2}' -f $_ }) -join ''",
-        "    $terms += \"(objectSid=$sidHex)\"",
-        "} catch {",
-        "    # Not a SID: search by name only.",
+        # Only the literal S-1-... form is a SID: the SecurityIdentifier
+        # constructor also accepts SDDL aliases, so a search for "DA" or "BA"
+        # matched Domain Admins or BUILTIN\Administrators by SID (#164 review).
+        "if ($SearchTerm -cmatch '^S-1-[0-9]+(-[0-9]+)+$') {",
+        "    try {",
+        "        $sid = New-Object System.Security.Principal.SecurityIdentifier($SearchTerm)",
+        "        $sidBytes = New-Object byte[] $sid.BinaryLength",
+        "        $sid.GetBinaryForm($sidBytes, 0)",
+        "        $sidHex = ($sidBytes | ForEach-Object { '\\{0:x2}' -f $_ }) -join ''",
+        "        $terms += \"(objectSid=$sidHex)\"",
+        "    } catch {",
+        "        # Not a SID Windows accepts: search by name only.",
+        "    }",
         "}",
         "$searcher.Filter = \"(&$classFilter(|$($terms -join '')))\"",
         "$searcher.PageSize = 100",

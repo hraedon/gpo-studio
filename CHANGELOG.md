@@ -64,12 +64,33 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
     domain's crossRef in the configuration partition.
   - `object_class` was always empty under Windows PowerShell 5.1, which cannot
     index a search result value collection with `-1`.
-  - IPv6 site subnets were refused; subnets are validated as IPv4 or IPv6
-    networks.
+  - IPv6 site subnets were refused. Subnet names are now checked against the
+    MS-ADTS subnet-name rules for each family: IPv4 in dotted decimal with no
+    leading zeros, no host bits and not equal to its own mask; IPv6 in RFC
+    5952 canonical text (case-insensitive, so no zone ID, dotted form or
+    extra zeros), with no host-bit rule; a prefix of 1–32 or 1–128 with no
+    leading zeros. An IPv6 name is stored in lower case, so one subnet is one
+    cache record.
   - A Windows Server 2025 domain reported its functional level as `Unknown`;
     it reports `Windows2025Domain`, and any other level .NET cannot name is
     reported as `Level N`.
   - An estate import whose GPO GUID was null reported it as `'None'`.
+  - The GPO inventory import cached its document under `str(domain)` (a
+    null domain became the key `"None"`) and stored its other fields
+    unchecked. The domain is now required text, and each GPO's name and file
+    system path are optional text.
+  - OU discovery matched gPLink entries as fragments, so a malformed entry
+    disappeared and the remaining links were renumbered, and an option value
+    above Int32 stopped the run without saying why. The whole value is now
+    parsed; a malformed gPLink or an option that is not a DWORD stops OU
+    discovery with an error naming the OU.
+  - A principal search for an SDDL alias such as `DA` or `BA` also matched
+    that well-known principal by SID. Only a literal `S-1-…` term is
+    searched as a SID.
+  - **Re-run discovery after upgrading.** Records cached by earlier builds
+    keep what those builds stored: the text `"None"` for missing values, and
+    OU links with the enabled flag inverted and the order reversed. Importing
+    current discovery output replaces them.
 
 - **Editing dialogs ask before Esc or × discards a change** (#140). After a
   field is changed, or a row is added, removed or reordered, closing one of the

@@ -159,6 +159,8 @@ _PRELUDE = r"""
 Add-Type -TypeDefinition $StandInTypes
 function New-StandInSid { param($a)
     $v = if ($a -is [array]) { $a[0] } else { $a }
+    # Like the real constructor, it also accepts SDDL aliases such as DA or BA.
+    if ($v -cin @('DA', 'BA', 'AU', 'SY', 'WD')) { $v = 'S-1-5-32-544' }
     if ($v -isnot [string] -or -not $v.StartsWith('S-1-')) { throw 'not a SID' }
     $sid = [pscustomobject]@{ Value = $v; BinaryLength = 2 }
     $sid | Add-Member ScriptMethod GetBinaryForm {
@@ -507,3 +509,68 @@ def test_sites_with_ipv4_and_ipv6_subnets_are_accepted(
     ]
     response = client.post("/api/discovery/sites", json=output)
     assert response.status_code == 200, response.text
+
+
+def _ous_with_gplink(gplink: str) -> str:
+    return (
+        "$standInSearcher.Results = @(New-Result @{"
+        " distinguishedName = @('OU=Probe,DC=example,DC=test'); name = @('Probe');"
+        f" gPLink = @('{gplink}') }})"
+    )
+
+
+@pytest.mark.parametrize(
+    ("gplink", "message"),
+    [
+        ("[LDAP://CN=bad;garbage]", "Malformed gPLink on OU=Probe,DC=example,DC=test"),
+        (f"{_gpc(_GPO_A, 0)}[LDAP://CN=bad;garbage]{_gpc(_GPO_B, 0)}", "Malformed gPLink"),
+        ("[]", "Malformed gPLink"),
+        (f"{_gpc(_GPO_A, 0)}junk", "Malformed gPLink"),
+        (_gpc(_GPO_A, 4294967296), "is not a DWORD"),
+        (_gpc(_GPO_A, 99999999999), "Malformed gPLink"),
+    ],
+    ids=["garbage-only", "garbage-between", "empty-entry", "trailing-text", "overflow",
+         "eleven-digits"],
+)
+def test_a_malformed_gplink_stops_ou_discovery(tmp_path: Path, gplink: str, message: str) -> None:
+    # #164 review: the regex took fragments, so a malformed entry vanished and
+    # the rest were renumbered; an option above Int32 stopped the run unexplained.
+    script = _stand_in(
+        ad_discovery.discovery_script_ous("example.test"), _ous_with_gplink(gplink)
+    )
+    completed = _execute(script, tmp_path, "bad-gplink")
+    assert completed.returncode != 0
+    assert message in completed.stderr
+
+
+@pytest.mark.parametrize(
+    ("gplink", "links"),
+    [
+        (" ", []),
+        ("", []),
+        (f"{_gpc(_GPO_A, 4294967295)}", [(False, True, 1)]),
+        (f"{_gpc(_GPO_A, 0)} {_gpc(_GPO_B, 1)}".replace("LDAP://", "ldap://"),
+         [(False, False, 1), (True, False, 2)]),
+    ],
+    ids=["single-space", "empty", "dword-max", "lowercase-and-spaced"],
+)
+def test_well_formed_gplink_values_still_parse(
+    tmp_path: Path, gplink: str, links: list[tuple[bool, bool, int]]
+) -> None:
+    output, _filters = _run_script(
+        ad_discovery.discovery_script_ous("example.test"), tmp_path, "good-gplink",
+        _ous_with_gplink(gplink),
+    )
+    (ou,) = output["ous"]
+    assert [(link["enabled"], link["enforced"], link["order"]) for link in ou["gpo_links"]] == links
+
+
+@pytest.mark.parametrize("alias", ["DA", "BA"])
+def test_an_sddl_alias_is_searched_by_name_only(tmp_path: Path, alias: str) -> None:
+    # #164 review, confirmed live: "DA" matched Domain Admins by SID because
+    # the SecurityIdentifier constructor accepts SDDL aliases.
+    _output, filters = _run_script(
+        ad_discovery.discovery_script_principal_search(alias), tmp_path, "alias",
+        _RESULTS["principals"],
+    )
+    assert filters == [f"(&(objectCategory=*)(|(sAMAccountName={alias})(cn={alias})))"]

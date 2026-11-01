@@ -834,22 +834,111 @@ def test_a_text_field_holding_another_type_is_refused(
     )
 
 
-@pytest.mark.parametrize(
-    "cidr", ["192.0.2.0/24", "2001:db8::/32", "2001:db8:1:2::/64", "10.0.0.0/8", "::/0"]
-)
-def test_ipv4_and_ipv6_site_subnets_are_accepted(cidr: str) -> None:
-    sites = _with(_with(_VALID_SITES, ("sites", 0, "subnets"), [cidr, "192.0.2.0/24"]),
-                  ("subnets", 0, "cidr"), cidr)
+# MS-ADTS "Subnet Object" (learn.microsoft.com/openspecs/windows_protocols/ms-adts/
+# 255d4630-f033-4289-8db6-c36060b47e17): its valid and invalid examples first.
+VALID_SUBNETS = {
+    "10.2.1.0/24": "10.2.1.0/24",
+    "10.20.1.0/24": "10.20.1.0/24",
+    "A:A:A:A::/64": "a:a:a:a::/64",
+    # No host-bit rule for IPv6 (#164 review: strict=True refused this).
+    "a:b::c:d:0:0/64": "a:b::c:d:0:0/64",
+    "0:0:e0::/48": "0:0:e0::/48",
+    "A:b:C::/128": "a:b:c::/128",
+    "A:B::F:0/128": "a:b::f:0/128",
+    "12AB:0:0:CD30::/60": "12ab:0:0:cd30::/60",
+    "A:a:e:b:0:d:e:f/128": "a:a:e:b:0:d:e:f/128",
+    "192.0.2.0/24": "192.0.2.0/24",
+    "2001:db8:1::/64": "2001:db8:1::/64",
+    "::ffff:c000:200/120": "::ffff:c000:200/120",
+    "2001:db8::1/64": "2001:db8::1/64",
+}
+INVALID_SUBNETS = [
+    # The spec's invalid examples.
+    "10.02.0.0/16", "A:B:0C:D::/64", "A:B:0:0:0:0:E:F/128", "12AB::CD30:0:0:0:0/60",
+    "12AB:0:0:CD30::F:0/60", "A:a:e:b::d:e:f/128",
+    # Accepted by ip_network, refused by the spec (#164 review).
+    "fe80::%eth0/64", "fe80::%\x00/64", "fe80::%\u202e/64", "2001:db8::%x/32",
+    "2001:0db8::/64", "::/0", "10.0.0.0/0", "10.0.0.0/255.0.0.0", "::ffff:192.0.2.0/120",
+    "10.0.0.0/08", "2001:db8::/032",
+    # IPv4: host bits set, or the address equal to its own mask.
+    "192.0.2.1/24", "255.0.0.0/8", "128.0.0.0/1", "255.255.255.255/32",
+    # Shape.
+    "192.0.2.0", "2001:db8::", "300.0.0.0/8", "192.0.2.0/33",
+    "2001:db8::/129", "", "192.0.2.0/024x", "10.0.0.0//8", " 10.0.0.0/8", "10.0.0.0/8\n",
+    "\u0661\u0660.0.0.0/8", "[2001:db8::]/32",
+]
+
+
+@pytest.mark.parametrize(("name", "stored"), VALID_SUBNETS.items())
+def test_ad_subnet_names_are_accepted_and_stored_canonically(name: str, stored: str) -> None:
+    sites = _with(_with(_VALID_SITES, ("sites", 0, "subnets"), [name, "192.0.2.0/24"]),
+                  ("subnets", 0, "cidr"), name)
     site_info, subnets = parse_sites(sites)
-    assert site_info[0].subnets == (cidr, "192.0.2.0/24")
-    assert subnets[0].cidr == cidr
+    assert site_info[0].subnets == (stored, "192.0.2.0/24")
+    assert subnets[0].cidr == stored
 
 
-@pytest.mark.parametrize(
-    "cidr", ["192.0.2.1/24", "2001:db8::1/64", "192.0.2.0", "2001:db8::", "300.0.0.0/8",
-             "192.0.2.0/33", "2001:db8::/129", "", "192.0.2.0/024x"],
-)
-def test_malformed_site_subnets_are_refused(cidr: str) -> None:
+@pytest.mark.parametrize("cidr", INVALID_SUBNETS)
+def test_names_ad_would_not_accept_as_subnets_are_refused(cidr: str) -> None:
     with pytest.raises(ValidationError) as exc_info:
         parse_sites(_with(_VALID_SITES, ("subnets", 0, "cidr"), cidr))
     assert exc_info.value.issues[0].code == "invalid_cidr_format"
+
+
+def test_one_ipv6_subnet_in_two_cases_is_one_cache_record(tmp_path, monkeypatch) -> None:
+    store = WorkspaceStore(tmp_path / "subnets.db")
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    try:
+        client = TestClient(app, base_url="http://127.0.0.1")
+        for name in ("2001:DB8:1::/64", "2001:db8:1::/64"):
+            body = _with(_VALID_SITES, ("subnets", 0, "cidr"), name)
+            assert client.post("/api/discovery/sites", json=body).status_code == 200
+        keys = [row[0] for row in store._connection.execute(
+            "SELECT key FROM estate_discovery WHERE kind='subnet'"
+        )]
+        assert keys == ["2001:db8:1::/64"]
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "code"),
+    [
+        (("domain",), None, "missing_field"),
+        (("domain",), 5, "invalid_string_field"),
+        (("domain",), {"a": "b"}, "invalid_string_field"),
+        (("gpos", 0, "name"), 7, "invalid_string_field"),
+        (("gpos", 0, "gpc_file_sys_path"), ["x"], "invalid_string_field"),
+    ],
+)
+def test_gpo_inventory_text_fields_are_validated(
+    path: tuple[Any, ...], value: object, code: str
+) -> None:
+    # #164 review: the inventory was cached as given, keyed by str(domain).
+    with pytest.raises(ValidationError) as exc_info:
+        parse_gpos_discovery(_with(_VALID_GPOS, path, value))
+    assert exc_info.value.issues[0].code == code
+
+
+def test_gpo_inventory_is_cached_by_its_validated_domain(tmp_path, monkeypatch) -> None:
+    store = WorkspaceStore(tmp_path / "inventory.db")
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    try:
+        client = TestClient(app, base_url="http://127.0.0.1")
+        body = _with(_with(_VALID_GPOS, ("gpos", 0, "name"), None),
+                     ("gpos", 0, "gpc_file_sys_path"), None)
+        assert client.post("/api/discovery/gpos", json=body).status_code == 200
+        bad = _with(_VALID_GPOS, ("domain",), None)
+        assert client.post("/api/discovery/gpos", json=bad).status_code == 422
+        rows = list(store._connection.execute(
+            "SELECT key, data_json FROM estate_discovery WHERE kind='gpos'"
+        ))
+        assert [key for key, _data in rows] == [_VALID_GPOS["domain"]]
+        (stored,) = [json.loads(data) for _key, data in rows]
+        assert stored["gpos"] == [{
+            "guid": _VALID_GPOS["gpos"][0]["guid"], "name": "", "gpc_file_sys_path": ""
+        }]
+    finally:
+        store.close()

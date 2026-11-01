@@ -4929,14 +4929,14 @@ def import_gpos_discovery(request: Request, body: dict[str, Any]) -> dict[str, A
     """Import GPO inventory discovery JSON output."""
     validated = parse_gpos_discovery(body)
     store = _store(request)
-    key = str(validated.get("domain", ""))
+    key = validated["domain"]
     store.cache_discovery(
         "gpos",
         key,
         json.dumps(validated, separators=(",", ":"), sort_keys=True),
         collected_at=_now(),
     )
-    return {"cached": True, "count": len(validated.get("gpos", []))}
+    return {"cached": True, "count": len(validated["gpos"])}
 
 
 @app.get("/api/discovery/principals/script")
