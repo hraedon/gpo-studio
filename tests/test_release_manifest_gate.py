@@ -45,6 +45,11 @@ def _load_gate() -> ModuleType:
 
 gate = _load_gate()
 
+#: The release the committed evidence records are for: the package's own version,
+#: so a new release's records are checked here with no edit to this file.
+COMMITTED_VERSION = gate.package_version(REPO_ROOT)
+COMMITTED_BASE = gate._VERSION.fullmatch(COMMITTED_VERSION)["base"]
+
 #: A well-formed freeze record. An approved report must carry one; the commit is
 #: checked against git only by ``verify_freeze`` (tests/test_release_freeze_gate.py).
 FREEZE = {"commit": "1" * 40, "batch_manifest": "docs/plan-033/final-batch.json"}
@@ -122,7 +127,7 @@ def freeze_stub(monkeypatch: pytest.MonkeyPatch) -> list[str | None]:
     return calls
 
 
-def _committed(root: Path, base: str = "1.1.0") -> tuple[Path, Path]:
+def _committed(root: Path, base: str = COMMITTED_BASE) -> tuple[Path, Path]:
     paths = []
     for name in (f"release-evidence-{base}.md", f"release-evidence-report-{base}.json"):
         shutil.copyfile(REPO_ROOT / "docs" / name, root / "docs" / name)
@@ -188,37 +193,79 @@ def test_a_draft_cannot_release(tmp_path: Path) -> None:
 def test_the_committed_draft_holds_the_contract_and_is_refused_only_as_a_draft(
     tmp_path: Path,
 ) -> None:
-    """Whatever the committed status is, the files are well formed for it."""
-    report = json.loads(
-        (REPO_ROOT / "docs" / "release-evidence-report-1.1.0.json").read_text("utf-8")
-    )
+    """Whatever the committed status is, the files are well formed for it.
+
+    They are the package version's records, and every earlier release's records
+    stay well formed for their own status too.
+    """
+    report_path = REPO_ROOT / "docs" / f"release-evidence-report-{COMMITTED_BASE}.json"
+    report = json.loads(report_path.read_text("utf-8"))
     problems, _ = gate.report_problems(
-        (REPO_ROOT / "docs" / "release-evidence-report-1.1.0.json").read_bytes(),
-        "docs/release-evidence-1.1.0.md",
+        report_path.read_bytes(), f"docs/release-evidence-{COMMITTED_BASE}.md"
     )
     assert problems == []
+    assert report["version"] == COMMITTED_VERSION
     assert (
         gate.manifest_problems(
-            (REPO_ROOT / "docs" / "release-evidence-1.1.0.md").read_bytes(),
-            "1.1.0",
+            (REPO_ROOT / "docs" / f"release-evidence-{COMMITTED_BASE}.md").read_bytes(),
+            COMMITTED_BASE,
             report["status"],
         )
         == []
     )
+    for path in sorted((REPO_ROOT / "docs").glob("release-evidence-report-*.*.*.json")):
+        base = path.name.removeprefix("release-evidence-report-").removesuffix(".json")
+        earlier = json.loads(path.read_text("utf-8"))
+        assert gate.report_problems(path.read_bytes(), f"docs/release-evidence-{base}.md")[
+            0
+        ] == [], base
+        manifest = (REPO_ROOT / "docs" / f"release-evidence-{base}.md").read_bytes()
+        assert gate.manifest_problems(manifest, base, earlier["status"]) == [], base
+
+
+def test_the_committed_records_are_a_candidate_until_approved() -> None:
+    """The preparation's state, which every commit before the approval keeps.
+
+    Before the approval commit A both records are a candidate's, with an item
+    still pending in each remaining list (the final-tag gate refuses anything
+    else between F and A). Once approved, nothing is pending and ``freeze`` is set.
+    """
+    report = json.loads(
+        (REPO_ROOT / "docs" / f"release-evidence-report-{COMMITTED_BASE}.json").read_text(
+            "utf-8"
+        )
+    )
+    lines = (
+        (REPO_ROOT / "docs" / f"release-evidence-{COMMITTED_BASE}.md")
+        .read_text("utf-8")
+        .split("\n")
+    )
+    start, end = gate._remaining_section(lines)
+    pending = re.compile(r"\bpending\b", re.IGNORECASE)
+    remaining = report["evidence"]["remaining_before_approval"]
+    if report["status"] == "approved":
+        assert report["freeze"] is not None
+        assert not any(pending.search(item) for item in remaining)
+        assert not any(pending.search(line) for line in lines[start:end])
+        return
+    assert report["status"] == "candidate"
+    assert lines[4] == gate.CANDIDATE
+    assert any(pending.search(item) for item in remaining)
+    assert any(pending.search(line) for line in lines[start:end])
 
 
 @pytest.mark.parametrize(
-    ("version", "tag", "status"),
-    [("1.1.0", "v1.1.0", "approved"), ("1.1.0rc1", "v1.1.0-rc.1", "candidate")],
+    ("suffix", "tag_suffix", "status"), [("", "", "approved"), ("rc1", "-rc.1", "candidate")]
 )
 def test_the_committed_files_pass_once_approved_as_documented(
-    tmp_path: Path, version: str, tag: str, status: str
+    tmp_path: Path, suffix: str, tag_suffix: str, status: str
 ) -> None:
+    version = COMMITTED_BASE + suffix
     root = _root(tmp_path, version)
     manifest, report = _committed(root)
     _approve(manifest, report, status, version)
-    result = gate.check(root, tag)
-    assert result.manifest == "docs/release-evidence-1.1.0.md"
+    result = gate.check(root, f"v{COMMITTED_BASE}{tag_suffix}")
+    assert result.manifest == f"docs/release-evidence-{COMMITTED_BASE}.md"
     assert result.is_candidate == (status == "candidate")
 
 
@@ -234,15 +281,16 @@ def test_approving_only_one_of_the_two_files_is_refused(tmp_path: Path) -> None:
 
 def test_an_approved_release_lists_nothing_as_pending(tmp_path: Path) -> None:
     """DeepSeek final-r1 N7: approval closes every remaining item in both records."""
-    root = _root(tmp_path, "1.1.0")
+    root = _root(tmp_path, COMMITTED_BASE)
     manifest, report = _committed(root)
-    _approve(manifest, report, "approved", "1.1.0")
-    gate.check(root, "v1.1.0")
+    _approve(manifest, report, "approved", COMMITTED_BASE)
+    tag = f"v{COMMITTED_BASE}"
+    gate.check(root, tag)
     data = json.loads(report.read_text(encoding="utf-8"))
     data["evidence"]["remaining_before_approval"].append("final approval (pending)")
     report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
     with pytest.raises(gate.ReleaseGateError, match="still lists items as pending"):
-        gate.check(root, "v1.1.0")
+        gate.check(root, tag)
     data["evidence"]["remaining_before_approval"].pop()
     report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
     text = manifest.read_text(encoding="utf-8").replace(
@@ -250,7 +298,7 @@ def test_an_approved_release_lists_nothing_as_pending(tmp_path: Path) -> None:
     )
     manifest.write_text(text, encoding="utf-8", newline="\n")
     with pytest.raises(gate.ReleaseGateError, match="still lists items as pending"):
-        gate.check(root, "v1.1.0")
+        gate.check(root, tag)
 
 
 def test_a_candidate_tag_needs_candidate_status_not_approval(tmp_path: Path) -> None:
@@ -1009,7 +1057,10 @@ def test_the_release_evidence_files_are_pinned_lf() -> None:
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    paths = ["docs/release-evidence-1.1.0.md", "docs/release-evidence-report-1.1.0.json"]
+    bases = sorted({"1.1.0", COMMITTED_BASE})
+    paths = [f"docs/release-evidence-{base}.md" for base in bases] + [
+        f"docs/release-evidence-report-{base}.json" for base in bases
+    ]
     out = subprocess.run(
         ["git", "check-attr", "text", "eol", "--", *paths],
         cwd=root,
