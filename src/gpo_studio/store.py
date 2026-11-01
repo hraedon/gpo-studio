@@ -62,6 +62,7 @@ from .registry_repair import (
     repair_source,
     repaired_settings,
 )
+from .schema import DISCOVERY_FORMAT, DISCOVERY_FORMAT_FIELD
 from .snapshot_documents import (
     RetainedDocument,
     SnapshotDocumentError,
@@ -723,6 +724,35 @@ def lf_line_breaks(text: Any) -> Any:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+
+def _stamp_discovery(data_json: str) -> str:
+    """The stored document, marked with the discovery format this build writes."""
+    data = json.loads(data_json)
+    if not isinstance(data, dict):
+        raise ValidationError([ValidationIssue(
+            "error", "invalid_discovery_record", "A discovery record must be a JSON object.", ""
+        )])
+    data[DISCOVERY_FORMAT_FIELD] = DISCOVERY_FORMAT
+    return json.dumps(data, separators=(",", ":"), sort_keys=True)
+
+
+def _current_discovery(data_json: str) -> dict[str, Any] | None:
+    """A cached document of this build's format, without its mark; else None.
+
+    A record without the mark was written by an earlier build, including one
+    run against this workspace after a later one (a downgrade): its links,
+    flags and text are not to be trusted, so it is served as absent and the
+    next import of its kind overwrites it (#164 review).
+    """
+    try:
+        data = json.loads(data_json)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(data, dict) or data.get(DISCOVERY_FORMAT_FIELD) != DISCOVERY_FORMAT:
+        return None
+    del data[DISCOVERY_FORMAT_FIELD]
+    return data
+
 class WorkspaceStore:
     """Persist editable GPO snapshots and their audit history."""
 
@@ -878,7 +908,10 @@ class WorkspaceStore:
         """Cache ``(kind, key, data_json, source_dc, collected_at)`` entries in ONE
         transaction, so an import that writes several kinds (sites and subnets)
         changes nothing when any write fails (#164 review)."""
-        rows = list(entries)
+        rows = [
+            (kind, key, _stamp_discovery(data_json), source_dc, collected_at)
+            for kind, key, data_json, source_dc, collected_at in entries
+        ]
         with self._lock:
             self._require_healthy()
             try:
@@ -914,11 +947,12 @@ class WorkspaceStore:
                     "SELECT data_json FROM estate_discovery WHERE kind=? AND key=?",
                     (kind, key),
                 ).fetchone()
-                if row is None:
+                data = None if row is None else _current_discovery(row["data_json"])
+                if data is None:
                     raise NotFoundError(
                         f"{kind} discovery entry {key} was not found"
                     )
-                return cast(dict[str, Any], json.loads(row["data_json"]))
+                return data
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
 
@@ -931,7 +965,10 @@ class WorkspaceStore:
                     "SELECT data_json FROM estate_discovery WHERE kind=? ORDER BY key",
                     (kind,),
                 ).fetchall()
-                return [json.loads(row["data_json"]) for row in rows]
+                return [
+                    data for row in rows
+                    if (data := _current_discovery(row["data_json"])) is not None
+                ]
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
 
@@ -970,7 +1007,9 @@ class WorkspaceStore:
             domain_lower = domain.casefold() if domain else ""
             results: list[dict[str, Any]] = []
             for row in rows:
-                data = json.loads(row["data_json"])
+                data = _current_discovery(row["data_json"])
+                if data is None:
+                    continue
                 if (
                     query_lower in str(data.get("sam_account_name", "")).casefold()
                     or query_lower in str(data.get("display_name", "")).casefold()
@@ -988,10 +1027,7 @@ class WorkspaceStore:
         with self._lock:
             self._require_healthy()
             try:
-                rows = self._connection.execute(
-                    "SELECT DISTINCT kind FROM estate_discovery ORDER BY kind"
-                ).fetchall()
-                return [row["kind"] for row in rows]
+                return sorted(self._current_discovery_counts())
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
 
@@ -1000,12 +1036,18 @@ class WorkspaceStore:
         with self._lock:
             self._require_healthy()
             try:
-                rows = self._connection.execute(
-                    "SELECT kind, COUNT(*) AS n FROM estate_discovery GROUP BY kind"
-                ).fetchall()
-                return {str(row["kind"]): int(row["n"]) for row in rows}
+                return self._current_discovery_counts()
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
+
+    def _current_discovery_counts(self) -> dict[str, int]:
+        counts: Counter[str] = Counter()
+        for row in self._connection.execute(
+            "SELECT kind, data_json FROM estate_discovery"
+        ).fetchall():
+            if _current_discovery(row["data_json"]) is not None:
+                counts[str(row["kind"])] += 1
+        return dict(counts)
 
     def _encode_snapshot_payload(self, gpo: GPO) -> tuple[str, list[RetainedDocument]]:
         """Serialize a snapshot with its retained documents moved to references.

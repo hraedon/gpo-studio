@@ -286,8 +286,13 @@ def _data_migrations(conn: sqlite3.Connection) -> None:
 
 
 # The discovery cache's format. Raise it when a change makes records written by
-# earlier builds wrong, so that every workspace drops them once.
-DISCOVERY_CACHE_VERSION = "2"
+# earlier builds wrong. Every record this build writes carries it inside its
+# stored document (DISCOVERY_FORMAT_FIELD), and readers serve only records of
+# this format, so a row an earlier build writes after a downgrade is never
+# trusted; the workspace marker additionally clears the old rows once.
+DISCOVERY_FORMAT = 2
+DISCOVERY_FORMAT_FIELD = "_studio_discovery_format"
+DISCOVERY_CACHE_VERSION = str(DISCOVERY_FORMAT)
 DISCOVERY_CACHE_KEY = "discovery_cache_version"
 
 

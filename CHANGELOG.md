@@ -89,20 +89,25 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
     that well-known principal by SID. Only a literal SID (`S-1-…`, in either
     case, with a decimal or `0x` hexadecimal authority and at least one
     subauthority) is searched as a SID.
-  - A sites import wrote its sites and its subnets in separate transactions,
-    so a failed subnet write left the new sites cached behind an error. Both
-    are now written in one transaction.
+  - Discovery imports wrote some documents one record per transaction (each
+    OU, each principal) and a sites import wrote its sites and subnets
+    separately, so a failed write left part of the document cached behind an
+    error. Every discovery import now writes its document in one transaction.
   - **Discovery data cached by earlier builds is cleared on upgrade; re-run
     discovery.** Those records are wrong, not just old: OU links with the
     enabled flag inverted and the order reversed, the text `"None"` for
     missing values, and keys (an inventory under `"None"`, an upper-case IPv6
-    subnet) that re-running discovery never overwrites. When a workspace is
-    first opened by this version, every cached discovery record is deleted
-    in one transaction, and `workspace_meta` records
-    `discovery_cache_version` `2` so it happens once. Nothing else in the
-    workspace refers to the discovery cache. A workspace whose discovery
-    cache an earlier version writes to after this one has opened it is not
-    cleared again.
+    subnet) that re-running discovery never overwrites. When this version
+    opens a workspace whose discovery cache has no `discovery_cache_version`
+    marker in `workspace_meta`, or an older one, it deletes every cached
+    discovery record in one transaction and records version `2`, so this
+    happens once; a cache marked `2` or higher is left alone. Nothing else in
+    the workspace refers to the discovery cache. Every record this version
+    writes also carries the format inside its stored document, and only such
+    records are served (get, list, principal search, kinds and summary), so
+    a record an earlier version writes after this one has opened the
+    workspace is treated as absent until the next import of its kind
+    replaces it.
 
 - **Editing dialogs ask before Esc or × discards a change** (#140). After a
   field is changed, or a row is added, removed or reordered, closing one of the

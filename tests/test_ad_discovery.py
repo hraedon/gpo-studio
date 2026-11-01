@@ -26,6 +26,7 @@ from gpo_studio.api import app
 from gpo_studio.model import (
     DomainInfo,
     ForestInfo,
+    NotFoundError,
     OrganizationalUnit,
     PrincipalInfo,
     SiteInfo,
@@ -1080,3 +1081,137 @@ def test_a_failed_import_drops_nothing(tmp_path, monkeypatch) -> None:
         )] == ["None"]
     finally:
         store.close()
+
+
+def _two_ous() -> dict[str, Any]:
+    body = json.loads(json.dumps(_VALID_OUS))
+    second = json.loads(json.dumps(body["ous"][0]))
+    second["distinguished_name"] = "OU=Second,DC=ad,DC=hraedon,DC=com"
+    second["name"] = "Second"
+    body["ous"].append(second)
+    return body
+
+
+def _two_principals() -> dict[str, Any]:
+    body = json.loads(json.dumps(_VALID_PRINCIPALS))
+    second = json.loads(json.dumps(body["principals"][0]))
+    second["object_guid"] = "66666666-7777-8888-9999-aaaaaaaaaaaa"
+    second["object_sid"] = "S-1-5-21-1-2-3-1002"
+    second["sam_account_name"] = "second"
+    body["principals"].append(second)
+    return body
+
+
+# Each route, a valid document, a change to every record it writes, and the
+# key of the last write, which the trigger aborts.
+_IMPORTS: dict[str, tuple[Any, Any, str]] = {
+    "forest": (
+        lambda: _VALID_FOREST, lambda d: _with(d, ("domain_naming_master",), "dc02"),
+        _VALID_FOREST["name"],
+    ),
+    "domain": (
+        lambda: _VALID_DOMAIN, lambda d: _with(d, ("netbios_name",), "CHANGED"),
+        _VALID_DOMAIN["dns_name"],
+    ),
+    "sites": (
+        lambda: _VALID_SITES,
+        lambda d: _with(_with(d, ("sites", 0, "description"), "changed"),
+                        ("subnets", 0, "description"), "changed"),
+        _VALID_SITES["subnets"][0]["cidr"],
+    ),
+    "ous": (
+        _two_ous,
+        lambda d: _with(_with(d, ("ous", 0, "description"), "changed"),
+                        ("ous", 1, "description"), "changed"),
+        "OU=Second,DC=ad,DC=hraedon,DC=com",
+    ),
+    "gpos": (
+        lambda: _VALID_GPOS, lambda d: _with(d, ("gpos", 0, "name"), "changed"),
+        _VALID_GPOS["domain"],
+    ),
+    "principals": (
+        _two_principals,
+        lambda d: _with(_with(d, ("principals", 0, "display_name"), "changed"),
+                        ("principals", 1, "display_name"), "changed"),
+        "66666666-7777-8888-9999-aaaaaaaaaaaa",
+    ),
+}
+
+
+@pytest.mark.parametrize("route", _IMPORTS)
+def test_every_discovery_import_is_one_transaction(tmp_path, monkeypatch, route: str) -> None:
+    """#164 review: OU and principal imports committed one record at a time, so
+    an aborted second write left the first record changed behind a 409."""
+    store = WorkspaceStore(tmp_path / f"{route}.db")
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    original, change, last_key = _IMPORTS[route]
+    try:
+        client = TestClient(app, base_url="http://127.0.0.1")
+        assert client.post(f"/api/discovery/{route}", json=original()).status_code == 200
+        store._connection.execute(
+            "CREATE TRIGGER abort_last BEFORE INSERT ON estate_discovery"
+            f" WHEN NEW.key = '{last_key}' BEGIN SELECT RAISE(ABORT, 'injected'); END"
+        )
+        before = list(store._connection.iterdump())
+        response = client.post(f"/api/discovery/{route}", json=change(original()))
+        assert response.status_code >= 400
+        assert list(store._connection.iterdump()) == before
+        assert not store._connection.in_transaction
+        assert not store.is_degraded
+    finally:
+        store.close()
+
+
+def test_rows_an_earlier_build_writes_after_upgrade_are_never_served(
+    tmp_path, monkeypatch
+) -> None:
+    """#164 review: the schema version is unchanged, so an earlier build can
+    open the workspace after this one and write its (wrong) discovery rows.
+    Only records carrying this build's format are served; the next import of
+    their kind overwrites the rest."""
+    path = tmp_path / "downgrade.db"
+    store = WorkspaceStore(path)
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    client = TestClient(app, base_url="http://127.0.0.1")
+    assert client.post("/api/discovery/principals", json=_VALID_PRINCIPALS).status_code == 200
+    store.close()
+    # What an earlier build writes: a new row, and an upsert over a current one,
+    # both without the format mark.
+    old_principal = {**_VALID_PRINCIPALS["principals"][0], "display_name": "None"}
+    old_principal.pop("kind")
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "INSERT INTO estate_discovery(kind, key, data_json, source_dc, collected_at)"
+        " VALUES('ou', 'OU=Old,DC=example,DC=test', ?, '', '')",
+        (json.dumps({"distinguished_name": "OU=Old,DC=example,DC=test", "name": "Old",
+                     "parent_dn": "", "description": "None", "gpo_links": []}),),
+    )
+    conn.execute(
+        "UPDATE estate_discovery SET data_json=? WHERE kind='principal'",
+        (json.dumps(old_principal),),
+    )
+    conn.commit()
+    conn.close()
+    reopened = WorkspaceStore(path)
+    monkeypatch.setattr(app.state, "store", reopened, raising=False)
+    try:
+        guid = _VALID_PRINCIPALS["principals"][0]["object_guid"]
+        assert reopened.workspace_meta()["discovery_cache_version"] == "2"
+        assert reopened.list_discovery("ou") == []
+        assert reopened.list_discovery("principal") == []
+        assert reopened.search_principals("") == []
+        assert reopened.list_discovery_kinds() == []
+        assert reopened.discovery_summary() == {}
+        with pytest.raises(NotFoundError):
+            reopened.get_discovery("principal", guid)
+        assert client.get("/api/discovery/summary").json() == {}
+        # The next import of the kind overwrites the untrusted row.
+        assert client.post("/api/discovery/principals", json=_VALID_PRINCIPALS).status_code == 200
+        served = reopened.get_discovery("principal", guid)
+        assert served["display_name"] == _VALID_PRINCIPALS["principals"][0]["display_name"]
+        assert "_studio_discovery_format" not in served
+        assert reopened.discovery_summary() == {"principal": 1}
+    finally:
+        reopened.close()

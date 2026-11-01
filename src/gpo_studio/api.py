@@ -4987,14 +4987,14 @@ def get_ous_discovery_script(
 def import_ous_discovery(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """Import OU discovery JSON output."""
     ous = parse_ous(body)
-    store = _store(request)
-    for ou in ous:
-        store.cache_discovery(
-            "ou",
-            ou.distinguished_name,
-            json.dumps(ou.to_dict(), separators=(",", ":"), sort_keys=True),
-            collected_at=_now(),
-        )
+    now = _now()
+    # One transaction per document: a failed write leaves the cache as it was
+    # (#164 review; one transaction per OU committed the earlier ones).
+    _store(request).cache_discovery_batch([
+        ("ou", ou.distinguished_name,
+         json.dumps(ou.to_dict(), separators=(",", ":"), sort_keys=True), "", now)
+        for ou in ous
+    ])
     return {"cached": True, "count": len(ous)}
 
 
@@ -5044,15 +5044,17 @@ def import_principals_discovery(
 ) -> dict[str, Any]:
     """Import principal search discovery JSON output."""
     principals = parse_principals(body)
-    store = _store(request)
-    for principal in principals:
-        store.cache_discovery(
+    # One transaction per document, as for every discovery import (#164 review).
+    _store(request).cache_discovery_batch([
+        (
             "principal",
             principal.object_guid,
             json.dumps(principal.to_dict(), separators=(",", ":"), sort_keys=True),
-            source_dc=principal.source_dc,
-            collected_at=principal.collected_at,
+            principal.source_dc,
+            principal.collected_at,
         )
+        for principal in principals
+    ])
     return {"cached": True, "count": len(principals)}
 
 
