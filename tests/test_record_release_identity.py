@@ -23,15 +23,17 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 #: The committed records the next tag publishes: the package version's.
 BASE = current_qualification.package_base_version()
+#: The tag that would publish those records.
+TAG = f"v{BASE}"
 SCRIPT = ROOT / "scripts" / "record_release_identity.py"
 ENV = {
     "GITHUB_SHA": "set by the publish_dir fixture to the repository's commit",
-    "GITHUB_REF_NAME": "v1.1.0",
+    "GITHUB_REF_NAME": TAG,
     "GITHUB_RUN_ID": "123456789",
     "GITHUB_RUN_ATTEMPT": "2",
     "GITHUB_SERVER_URL": "https://github.com",
     "GITHUB_REPOSITORY": "hraedon/gpo-studio",
-    "GITHUB_WORKFLOW_REF": "hraedon/gpo-studio/.github/workflows/release.yml@refs/tags/v1.1.0",
+    "GITHUB_WORKFLOW_REF": f"hraedon/gpo-studio/.github/workflows/release.yml@refs/tags/{TAG}",
 }
 RUN_URL = "https://github.com/hraedon/gpo-studio/actions/runs/123456789/attempts/2"
 
@@ -57,17 +59,18 @@ def publish_dir(tmp_path: Path) -> Path:
     """The publish job's working directory just before the writer runs.
 
     A git checkout (the publish job checks out full history), with the release
-    commit tagged both ways: ``v1.1.0`` lightweight and ``v1.1.0-annotated``.
+    commit tagged both ways: ``TAG`` lightweight and ``TAG-annotated``, ``TAG``
+    being the package version's tag, whose records the fixture publishes.
     """
     _git(tmp_path, "init", "-q")
     (tmp_path / "source.txt").write_text("source\n", encoding="utf-8")
     _git(tmp_path, "add", "source.txt")
     _git(tmp_path, "commit", "-q", "-m", "release commit")
-    _git(tmp_path, "tag", "v1.1.0")
-    _git(tmp_path, "tag", "-a", "-m", "annotated", "v1.1.0-annotated")
+    _git(tmp_path, "tag", TAG)
+    _git(tmp_path, "tag", "-a", "-m", "annotated", f"{TAG}-annotated")
     (tmp_path / "dist").mkdir()
-    (tmp_path / "dist" / "gpo_studio-1.1.0-py3-none-any.whl").write_bytes(b"wheel")
-    (tmp_path / "dist" / "gpo_studio-1.1.0.tar.gz").write_bytes(b"sdist")
+    (tmp_path / "dist" / f"gpo_studio-{BASE}-py3-none-any.whl").write_bytes(b"wheel")
+    (tmp_path / "dist" / f"gpo_studio-{BASE}.tar.gz").write_bytes(b"sdist")
     (tmp_path / "sbom.cdx.json").write_bytes(b"{}")
     (tmp_path / "requirements-lock.txt").write_bytes(b"x==1\n")
     shutil.copyfile(ROOT / "docs" / f"release-evidence-{BASE}.md", tmp_path / "release-evidence.md")
@@ -120,7 +123,7 @@ def test_the_placeholder_is_resolved_with_the_run_identity(publish_dir: Path) ->
     report = json.loads((publish_dir / "release-evidence-report.json").read_text("utf-8"))
     assert report["release_identity"] == {
         "source_commit": commit,
-        "tag": "v1.1.0",
+        "tag": TAG,
         "workflow_ref": ENV["GITHUB_WORKFLOW_REF"],
         "run_id": "123456789",
         "run_attempt": "2",
@@ -159,7 +162,7 @@ def test_a_missing_run_variable_refuses_and_writes_nothing(
     [("GITHUB_RUN_ID", "12a"), ("GITHUB_SERVER_URL", "http://github.com"),
      ("GITHUB_REF_NAME", "main"), ("GITHUB_SHA", "a" * 39),
      ("GITHUB_REPOSITORY", "hraedon"), ("GITHUB_RUN_ATTEMPT", "0"),
-     ("GITHUB_WORKFLOW_REF", "hraedon/gpo-studio/release.yml@refs/tags/v1.1.0")],
+     ("GITHUB_WORKFLOW_REF", f"hraedon/gpo-studio/release.yml@refs/tags/{TAG}")],
 )
 def test_a_malformed_run_variable_refuses(publish_dir: Path, name: str, value: str) -> None:
     before = _files(publish_dir)
@@ -184,7 +187,7 @@ def test_the_source_commit_is_the_commit_whatever_the_tag_type(
 ) -> None:
     """DeepSeek final-r4 N1: GITHUB_SHA may be an annotated tag object."""
     commit = _git(publish_dir, "rev-parse", "HEAD")
-    tag = "v1.1.0-annotated" if annotated else "v1.1.0"
+    tag = f"{TAG}-annotated" if annotated else TAG
     sha = _git(publish_dir, "rev-parse", f"refs/tags/{tag}")
     assert (sha != commit) is annotated
     result = _run(publish_dir, GITHUB_SHA=sha)

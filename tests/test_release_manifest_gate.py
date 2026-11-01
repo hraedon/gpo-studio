@@ -53,7 +53,9 @@ COMMITTED_BASE = gate._VERSION.fullmatch(COMMITTED_VERSION)["base"]
 #: A well-formed freeze record. An approved report must carry one; the commit is
 #: checked against git only by ``verify_freeze`` (tests/test_release_freeze_gate.py).
 FREEZE = {"commit": "1" * 40, "batch_manifest": "docs/plan-033/final-batch.json"}
-CLOSED_ITEM = "Done; the owner's hands-on NVDA acceptance is waived for 1.1.0 and not run."
+CLOSED_ITEM = (
+    f"Done; the owner's hands-on NVDA acceptance is waived for {COMMITTED_BASE} and not run."
+)
 
 
 def _root(tmp_path: Path, version: str) -> Path:
@@ -221,6 +223,39 @@ def test_the_committed_draft_holds_the_contract_and_is_refused_only_as_a_draft(
         ] == [], base
         manifest = (REPO_ROOT / "docs" / f"release-evidence-{base}.md").read_bytes()
         assert gate.manifest_problems(manifest, base, earlier["status"]) == [], base
+        assert _identity_problems(base, earlier) == [], base
+
+
+def _identity_problems(base: str, report: dict[str, object]) -> list[str]:
+    """A report's version is its file name's: ``X.Y.Z``, or ``X.Y.ZrcN`` for a candidate.
+
+    The gate checks this only for the version being tagged; the records of every
+    other release are read by file name (Daybreak #166 r1: a 9.9.9 report under
+    1.1.0's name passed the lexical checks).
+    """
+    version = report.get("version")
+    parsed = gate._VERSION.fullmatch(version) if isinstance(version, str) else None
+    if parsed is None or parsed["base"] != base:
+        return [f"version {version!r} is not {base} or one of its candidates"]
+    if report.get("status") == "approved" and version != base:
+        return [f"an approved report's version must be {base}, not {version!r}"]
+    return []
+
+
+@pytest.mark.parametrize(
+    ("version", "status", "refused"),
+    [
+        ("1.1.0", "approved", False),
+        ("1.1.0rc1", "candidate", False),
+        ("9.9.9", "approved", True),
+        ("1.1.0rc1", "approved", True),
+        ("1.1", "approved", True),
+    ],
+)
+def test_a_report_version_must_be_its_file_name(
+    version: str, status: str, refused: bool
+) -> None:
+    assert bool(_identity_problems("1.1.0", {"version": version, "status": status})) is refused
 
 
 def test_the_committed_records_are_a_candidate_until_approved() -> None:
