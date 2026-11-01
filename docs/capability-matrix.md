@@ -1242,6 +1242,13 @@ table.
 `ad_discovery.py`, `wmi_filter.py` (Plan 023) and `gpp_adapters.py` (Plan 024).
 They are reachable from the API, so they are live authoring surfaces whose
 output no independent Windows oracle has checked.
+The sites import checks each subnet name against the MS-ADTS "Subnet Object"
+rules, which require IPv6 names in RFC 5952 section 4 hexadecimal form. Windows'
+own formatter writes a mapped, compatible or ISATAP address with a dotted IPv4
+tail (`::ffff:192.0.2.0/120`); if AD returns a subnet name spelled that way,
+the whole sites import is refused with `invalid_cidr_format`, by design: no
+read of a real directory has yet shown whether `ActiveDirectorySubnet.Name`
+ever returns that spelling.
 
 - **`publication.py` and `publisher.py` do not weaken the charter.** Neither
   writes anything, and the web process still never writes to AD or SYSVOL.

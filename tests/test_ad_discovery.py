@@ -942,3 +942,77 @@ def test_gpo_inventory_is_cached_by_its_validated_domain(tmp_path, monkeypatch) 
         }]
     finally:
         store.close()
+
+
+def test_rediscovery_drops_records_earlier_builds_cached_under_refused_keys(
+    tmp_path, monkeypatch
+) -> None:
+    """#164 review: re-running discovery upserted on (kind, key), so a record an
+    earlier build cached under a key the importer now refuses or spells
+    differently stayed beside the record that replaces it."""
+    store = WorkspaceStore(tmp_path / "upgrade.db")
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    old_inventory = {"kind": "gpo-studio-discovery-gpos", "domain": None, "gpos": []}
+    seeded = [
+        # What earlier builds stored: str(None) and str(5) as inventory keys...
+        ("gpos", "None", old_inventory),
+        ("gpos", "5", {**old_inventory, "domain": 5}),
+        # ...an IPv6 subnet in upper case, and IPv4 names AD would refuse...
+        ("subnet", "2001:DB8:1::/64", {"cidr": "2001:DB8:1::/64", "site_name": "Site",
+                                       "description": ""}),
+        ("subnet", "10.0.0.1/8", {"cidr": "10.0.0.1/8", "site_name": "Site",
+                                  "description": "None"}),
+        ("site", "Site", {"name": "Site", "description": "", "subnets": ["2001:DB8:1::/64"],
+                          "site_links": []}),
+        # ...and records the current importer accepts, which must be kept.
+        ("gpos", "other.example.test", {**old_inventory, "domain": "other.example.test"}),
+        ("subnet", "203.0.113.0/24", {"cidr": "203.0.113.0/24", "site_name": "Other",
+                                      "description": ""}),
+        ("site", "Other", {"name": "Other", "description": "", "subnets": ["203.0.113.0/24"],
+                           "site_links": []}),
+    ]
+    try:
+        for kind, key, data in seeded:
+            store.cache_discovery(kind, key, json.dumps(data))
+        client = TestClient(app, base_url="http://127.0.0.1")
+        sites = _with(
+            _with(_VALID_SITES, ("sites", 0), {
+                "name": "Site", "description": "", "subnets": ["2001:db8:1::/64"],
+                "site_links": [],
+            }),
+            ("subnets", 0), {"cidr": "2001:DB8:1::/64", "site_name": "Site", "description": ""},
+        )
+        assert client.post("/api/discovery/sites", json=sites).status_code == 200
+        assert client.post("/api/discovery/gpos", json=_VALID_GPOS).status_code == 200
+        keys = sorted(
+            (row[0], row[1])
+            for row in store._connection.execute("SELECT kind, key FROM estate_discovery")
+        )
+        assert keys == [
+            ("gpos", _VALID_GPOS["domain"]),
+            ("gpos", "other.example.test"),
+            ("site", "Other"),
+            ("site", "Site"),
+            ("subnet", "2001:db8:1::/64"),
+            ("subnet", "203.0.113.0/24"),
+        ]
+        assert not store._connection.in_transaction
+    finally:
+        store.close()
+
+
+def test_a_failed_import_drops_nothing(tmp_path, monkeypatch) -> None:
+    store = WorkspaceStore(tmp_path / "atomic.db")
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    try:
+        store.cache_discovery("gpos", "None", json.dumps({"domain": None}))
+        client = TestClient(app, base_url="http://127.0.0.1")
+        bad = _with(_VALID_GPOS, ("gpos", 0, "name"), 7)
+        assert client.post("/api/discovery/gpos", json=bad).status_code == 422
+        assert [row[0] for row in store._connection.execute(
+            "SELECT key FROM estate_discovery"
+        )] == ["None"]
+    finally:
+        store.close()

@@ -82,15 +82,22 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   - OU discovery matched gPLink entries as fragments, so a malformed entry
     disappeared and the remaining links were renumbered, and an option value
     above Int32 stopped the run without saying why. The whole value is now
-    parsed; a malformed gPLink or an option that is not a DWORD stops OU
-    discovery with an error naming the OU.
+    parsed; a malformed gPLink or an option that is not a DWORD stops the
+    whole OU discovery run with an error naming the OU, and no output is
+    printed for any OU.
   - A principal search for an SDDL alias such as `DA` or `BA` also matched
     that well-known principal by SID. Only a literal `S-1-…` term is
     searched as a SID.
   - **Re-run discovery after upgrading.** Records cached by earlier builds
-    keep what those builds stored: the text `"None"` for missing values, and
-    OU links with the enabled flag inverted and the order reversed. Importing
-    current discovery output replaces them.
+    keep what those builds stored (the text `"None"` for missing values, and
+    OU links with the enabled flag inverted and the order reversed) until an
+    import of the same kind replaces them. An import overwrites the records
+    it covers. A sites or GPO inventory import also drops, in the same
+    transaction, the cached records of its kinds that the current importer
+    would refuse or spell differently, such as an inventory cached under the
+    key `"None"` or an IPv6 subnet cached in upper case. A record that no new
+    import covers (an OU since deleted, a principal not searched again) keeps
+    its old values.
 
 - **Editing dialogs ask before Esc or × discards a change** (#140). After a
   field is changed, or a row is added, removed or reordered, closing one of the

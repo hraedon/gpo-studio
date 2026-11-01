@@ -61,6 +61,9 @@ from .ad_discovery import (
     parse_ous,
     parse_principals,
     parse_sites,
+    stale_gpos_record,
+    stale_site_record,
+    stale_subnet_record,
 )
 from .adm import parse_adm
 from .admx import (
@@ -4874,20 +4877,30 @@ def import_sites_discovery(request: Request, body: dict[str, Any]) -> dict[str, 
     """Import AD sites and subnets discovery JSON output."""
     sites, subnets = parse_sites(body)
     store = _store(request)
-    for site in sites:
-        store.cache_discovery(
-            "site",
-            site.name,
-            json.dumps(site.to_dict(), separators=(",", ":"), sort_keys=True),
-            collected_at=_now(),
-        )
-    for subnet in subnets:
-        store.cache_discovery(
-            "subnet",
-            subnet.cidr,
-            json.dumps(subnet.to_dict(), separators=(",", ":"), sort_keys=True),
-            collected_at=_now(),
-        )
+    now = _now()
+    # Each kind in one transaction that also drops what earlier builds cached
+    # under keys this importer now refuses or spells differently (#164 review).
+    store.replace_discovery(
+        "site",
+        [
+            (site.name, json.dumps(site.to_dict(), separators=(",", ":"), sort_keys=True), "", now)
+            for site in sites
+        ],
+        is_stale=stale_site_record,
+    )
+    store.replace_discovery(
+        "subnet",
+        [
+            (
+                subnet.cidr,
+                json.dumps(subnet.to_dict(), separators=(",", ":"), sort_keys=True),
+                "",
+                now,
+            )
+            for subnet in subnets
+        ],
+        is_stale=stale_subnet_record,
+    )
     return {"cached": True, "sites": len(sites), "subnets": len(subnets)}
 
 
@@ -4929,12 +4942,15 @@ def import_gpos_discovery(request: Request, body: dict[str, Any]) -> dict[str, A
     """Import GPO inventory discovery JSON output."""
     validated = parse_gpos_discovery(body)
     store = _store(request)
-    key = validated["domain"]
-    store.cache_discovery(
+    store.replace_discovery(
         "gpos",
-        key,
-        json.dumps(validated, separators=(",", ":"), sort_keys=True),
-        collected_at=_now(),
+        [(
+            validated["domain"],
+            json.dumps(validated, separators=(",", ":"), sort_keys=True),
+            "",
+            _now(),
+        )],
+        is_stale=stale_gpos_record,
     )
     return {"cached": True, "count": len(validated["gpos"])}
 

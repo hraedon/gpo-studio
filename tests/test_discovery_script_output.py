@@ -574,3 +574,16 @@ def test_an_sddl_alias_is_searched_by_name_only(tmp_path: Path, alias: str) -> N
         _RESULTS["principals"],
     )
     assert filters == [f"(&(objectCategory=*)(|(sAMAccountName={alias})(cn={alias})))"]
+
+
+def test_a_hexadecimal_identifier_authority_is_searched_as_a_sid(tmp_path: Path) -> None:
+    # #164 review: authorities of 2^32 or more are written in hexadecimal
+    # (MS-DTYP); the decimal-only gate sent such a SID down the name path.
+    term = "S-1-0x010000000000-1"
+    _output, filters = _run_script(
+        ad_discovery.discovery_script_principal_search(term), tmp_path, "hex-sid",
+        _RESULTS["principals"],
+    )
+    assert filters == [
+        f"(&(objectCategory=*)(|(sAMAccountName={term})(cn={term})(objectSid=\\01\\05)))"
+    ]
