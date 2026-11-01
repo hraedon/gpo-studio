@@ -4586,23 +4586,27 @@ def _reviewed_export(
     gpo = _store(request).get_gpo(guid)
     if (expected_revision is None) != (expected_review_hash is None):
         raise StudioError("Supply expected_revision and expected_review_hash together.")
-    # The refusal first, before the review digest -- which writes the GPO's
-    # retained records -- and with every reason, as the checked builder and the
-    # capability name them; legacy text no digest can hash is among them
-    # (pre-1.1.1 review, round 7: this path had its own validation-only branch).
+    # The one refusal decision, with every reason, as the checked builder and
+    # the capability name them. It is decided before anything is hashed or
+    # written; legacy text no digest can hash is among its reasons (round 7:
+    # this path had its own validation-only branch).
     issues = refusal_issues(gpo, artifact, validate_gpo(gpo))
-    if issues:
-        raise ValidationError(issues)
     review_hash = _digest(review_model_sha256, gpo)
     if review_hash is None:
+        if issues:
+            raise ValidationError(issues)
         raise StudioError(
             "This policy cannot be hashed for export review. "
             "Resolve its validation findings first."
         )
+    # A stale review is reported as stale before the refusal: the refreshed
+    # review shows the refusal (tests/browser/export-review.spec.mjs).
     if expected_revision is not None and expected_review_hash is not None and (
         gpo.revision != expected_revision or review_hash != expected_review_hash
     ):
         raise _ExportReviewConflict(gpo, expected_revision, expected_review_hash, review_hash)
+    if issues:
+        raise ValidationError(issues)
     return gpo, review_hash
 
 
