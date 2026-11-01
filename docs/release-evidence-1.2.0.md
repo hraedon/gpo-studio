@@ -32,10 +32,8 @@ action, in this order:
 
 1. **Freeze commit F.** Every product change for 1.2.0 is merged, and the
    preparation listed below is in. F itself replaces `YYYY-MM-DD` in the
-   `CHANGELOG.md` heading for 1.2.0 with F's date. `SECURITY.md`'s
-   supported-versions text for the `1.2.x` line is an owner decision; it ships
-   in the distributions, so whatever is decided lands before F or in F, and
-   nothing else changes in F. F is a commit on `main`. After F, only the batch's evidence may be added
+   `CHANGELOG.md` heading for 1.2.0 with F's date and changes nothing else.
+   F is a commit on `main`. After F, only the batch's evidence may be added
    and only the release records changed.
 2. **The full batch at F.** All 26 lanes live at F (WP-0's manifest and the 25
    lane verdicts pending requalification) run on the estate from a clean clone
@@ -124,6 +122,11 @@ names no run. What 1.2.0's preparation changed:
   read from that release's report (for 1.2.0, the release 1.1.0 re-freeze
   batch), with any run the registry has made live since in place of the one
   it replaced. A later release needs no edit there;
+- `SECURITY.md` makes `1.2.x` the only supported line from `1.2.0`, with
+  `1.1.x` and `1.0.x` unsupported and no `1.1.x` patch planned (owner decision,
+  2026-11-01), and restates the patch compatibility rules for `1.2.x`. For
+  1.1.0 the freeze commit made this change; it ships in the distributions, so
+  it is final at F;
 - the owner's waiver of the hands-on NVDA acceptance for 1.2.0 is recorded
   here, in the JSON report's `accessibility` and remaining items, and in the
   NVDA validation runbook, so neither B nor A has to change it;
@@ -511,9 +514,8 @@ Gaps, stated rather than implied:
 2. **Pending.** The freeze commit F: every product change for 1.2.0 merged,
    `__version__` and the JSON report's `version` `1.2.0` (done in the
    preparation; the report stays a candidate until A), and the `CHANGELOG.md`
-   1.2.0 heading dated by F. `SECURITY.md` describes the `1.1.x` line; its
-   supported-versions text for `1.2.x` is an owner decision, landed before F or
-   in F.
+   1.2.0 heading dated by F. `SECURITY.md` makes `1.2.x` the only supported
+   line from `1.2.0` (owner decision, 2026-11-01; done in the preparation).
 3. **Waived; not run (owner decision, 2026-11-01).** The owner's hands-on
    NVDA acceptance for 1.2.0: the dialogs changed, but no NVDA pass was
    performed. It is recorded as not run, never as passed, here, under
