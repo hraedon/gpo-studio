@@ -441,7 +441,7 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Security
 
-Pre-1.1.1 security review, eight rounds. Both original findings predate 1.1.0.
+Pre-1.1.1 security review, nine rounds. Both original findings predate 1.1.0.
 
 - **The PowerShell plan (`plan.ps1`, `apply.ps1`) is bound to the GPO's
   declared domain.** Every GroupPolicy cmdlet names `-Domain`, and before any
@@ -522,6 +522,25 @@ Pre-1.1.1 security review, eight rounds. Both original findings predate 1.1.0.
   differently from the GPO it served, so every review of it was answered 409
   "changed after this export review", even after a reload. Both now use one
   digest.
+- **A review taken while a GPO was refused never authorizes its export.** A
+  refused GPO's digests are hashed in a domain of their own, bound to the
+  codes that refuse it. Before, an imported preference record could hash the
+  same whether the GPO was refused or not, so a review taken while a load
+  problem refused it authorized the export after a reload without one. A
+  valid GPO's digests, and the backup IDs derived from them, are unchanged.
+- **The GPO's identity is decided for every export.** A GPO ID that is not a
+  GUID, or a domain with surrounding space or a control character, was held
+  to a rule only by the writers: the publication plan answered a legacy ID
+  with a refused plan after serializing `Registry.pol`, and the plan, bundle
+  and backup failed at the writer. The decision refuses them first. So it
+  does for a script command or parameters the scripts INI writer refuses (a
+  line break, a control character, surrounding space).
+- **A `REG_BINARY` value with a tab or line break between bytes is planned.**
+  Validation and the `Registry.pol` writer read such a value as its bytes;
+  the plan alone refused it, which also refused the whole Studio bundle.
+- A GPO whose stored scheduled task holds text XML cannot carry (a lone
+  surrogate) is readable again; the round-8 `cpassword` check had made its
+  read a 422.
 - **`-WhatIf` changes nothing.** Side status (`GpoStatus`) is set through
   `ShouldProcess`; the read-back is skipped under `-WhatIf`.
 - Filtering and side status run before links, so nothing is linked while a new

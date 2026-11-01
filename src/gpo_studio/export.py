@@ -24,6 +24,7 @@ from .emit_integrity import (
     check_xml,
     escape_line,
     ps_literal,
+    ps_problem,
     scripts_ini_problems,
 )
 from .gpp import (
@@ -142,6 +143,7 @@ def _ps_sanitize_comment(text: str) -> str:
 
 
 _HEX_PAIRS = re.compile(r"(?:[0-9A-Fa-f]{2})*", re.ASCII)
+_ASCII_WHITESPACE = re.compile(r"[ \t\n\r\x0b\x0c]")
 
 
 def _ps_value(setting: RegistrySetting) -> str:
@@ -150,7 +152,10 @@ def _ps_value(setting: RegistrySetting) -> str:
     if isinstance(setting.value, list):
         return "@(" + ", ".join(ps_literal(item, "Value") for item in setting.value) + ")"
     if setting.registry_type == "REG_BINARY":
-        clean = setting.value.replace(" ", "")
+        # The ASCII whitespace `bytes.fromhex` skips, as validation and the
+        # Registry.pol encoder read the value (round 9: a tab or line break
+        # between bytes passed both, and only the plan refused it).
+        clean = _ASCII_WHITESPACE.sub("", setting.value)
         if not _HEX_PAIRS.fullmatch(clean):
             raise EmitError([
                 EmitProblem("plan.ps1", "-Value", setting.value, "is not hexadecimal bytes")
@@ -961,6 +966,55 @@ def scripts_gpo_refusals(gpo: GPO) -> list[ValidationIssue]:
     return issues
 
 
+def gpo_identity_refusals(gpo: GPO) -> list[ValidationIssue]:
+    """The GPO's own identity as every export writes it, decided from the
+    model with the writers' own field rules (round 9): the GUID (the plan's
+    ``-Guid``, the backup's ``GPOGuid``/``ID``, the publication plan's
+    ``gpo_guid``) and a non-empty domain (the plan's ``-Domain``, the
+    backup's ``Domain``; an empty one is validation's ``empty_domain``). The
+    store accepts both as given, and only the writers held them to a rule."""
+    issues: list[ValidationIssue] = []
+    problem = ps_problem("Guid", gpo.guid)
+    if problem is not None:
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="invalid_gpo_guid",
+                message=f"The GPO ID {gpo.guid!r} {problem}; every export names the GPO by it.",
+                path="guid",
+            )
+        )
+    if gpo.domain:
+        problem = ps_problem("Domain", gpo.domain)
+        if problem is not None:
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="invalid_gpo_domain",
+                    message=(
+                        f"The domain {gpo.domain!r} {problem}; the plan and the backup name it."
+                    ),
+                    path="domain",
+                )
+            )
+    return issues
+
+
+def _encodable(issue: ValidationIssue) -> ValidationIssue:
+    """*issue* with any text no response can carry (a lone surrogate from
+    legacy stored text) escaped, so a refusal naming stored text is still a
+    422 with every reason (round 9)."""
+    def escaped(text: str) -> str:
+        return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+    try:
+        issue.message.encode("utf-8")
+        (issue.path or "").encode("utf-8")
+    except UnicodeEncodeError:
+        return replace(issue, message=escaped(issue.message), path=escaped(issue.path or ""))
+    return issue
+
+
 def _canonical(issues: Sequence[ValidationIssue]) -> list[ValidationIssue]:
     """De-duplicated, in one order (ordinal by code, path, message): two models
     that differ only in the order of their items give the same list."""
@@ -1043,7 +1097,8 @@ def refusal_issues(
     capability matrix lists those writer-stage refusals.
     """
     refused = plan_refusals(gpo, validation)
-    errors = list(refused.errors)
+    # The GPO's identity refuses every artifact, each of which names it.
+    errors = list(refused.errors) + gpo_identity_refusals(gpo)
     found: list[ValidationIssue]
     match artifact:
         case "plan.ps1":
@@ -1065,7 +1120,7 @@ def refusal_issues(
             found += publication_refusal_issues(gpo, target)
         case _:
             assert_never(artifact)
-    return _canonical(found)
+    return _canonical([_encodable(issue) for issue in found])
 
 
 def refusal_summary(issues: Sequence[ValidationIssue]) -> ValidationIssue | None:
@@ -1354,6 +1409,30 @@ def _powershell_scripts_sections(
     return sections
 
 
+def _native_scripts_value_refusal(scope: str, policy: ScriptPolicy) -> ValidationIssue | None:
+    """A value of *policy* the scripts INI writer would refuse as it writes it
+    (`emit_integrity.scripts_ini_problems`: a line break, a control character,
+    surrounding space), decided on the sections it would write, without
+    writing them (round 9: only `_native_ini_bytes` refused these)."""
+    problems = [
+        problem
+        for sections in (_legacy_scripts_sections(policy), _powershell_scripts_sections(policy))
+        if sections
+        for problem in scripts_ini_problems("scripts.ini", sections)
+    ]
+    if not problems:
+        return None
+    return ValidationIssue(
+        severity="error",
+        code="unwritable_script_value",
+        message=(
+            "These script values cannot be written into a native scripts file: "
+            + "; ".join(str(problem) for problem in problems[:5])
+        ),
+        path=f"scripts/{scope}",
+    )
+
+
 def _native_scripts_files(
     scope: str, policy: ScriptPolicy, files: dict[str, bytes]
 ) -> None:
@@ -1628,7 +1707,9 @@ def native_backup_model_refusals(
     for scope in _SCRIPT_SIDES:
         policy = (scripts or {}).get(scope)
         if policy is not None:
-            refusal = _native_scripts_refusal(scope, policy)
+            refusal = _native_scripts_refusal(scope, policy) or _native_scripts_value_refusal(
+                scope, policy
+            )
             if refusal is not None:
                 issues.append(refusal)
     if gpo.fdeploy is not None:

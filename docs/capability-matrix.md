@@ -1407,11 +1407,12 @@ everything that refuses that artifact, de-duplicated and in one canonical order
 | Reason | Refuses |
 |---|---|
 | validation errors, text XML cannot carry among them | every artifact |
+| the GPO's identity as the writers name it: a GPO ID that is not a GUID, a domain the writers' name rule refuses (surrounding space, a control character) | every artifact |
 | plan reasons: a link outside the domain, a WMI filter, a deny filter | the plan; the bundle only beside an error or a whole-bundle reason (otherwise it is written without `apply.ps1`) |
 | a GPP file that would carry a `cpassword` | the bundle, both backups, the publication plan |
 | preserved unknown CSE content | both backups |
 | a GPP family with no measured native extension pair; an unmeasured GPP Registry item shape; Folder Redirection | both backups |
-| a script state with no native encoding (asynchronous entries, the logon/logoff sync flags) | the backup with scripts |
+| a script state with no native encoding (asynchronous entries, the logon/logoff sync flags); a script command or parameters the scripts INI writer would refuse (a line break, a control character, surrounding space) | the backup with scripts |
 | the Scripts lane's GPO shape (registry or preference content beside scripts) | the backup with scripts |
 | the publication planner's refusals for the target: preserved CSE content (SYSVOL), Folder Redirection, an unmeasured GPP Registry item shape, an unmeasured GPP family, extension lists a SYSVOL-only plan cannot write, a disabled side | the publication plan |
 
@@ -1419,11 +1420,14 @@ It is decided from the model, and no artifact writer runs to decide it: the
 `cpassword` check reads every store the GPP writer copies verbatim (unknown
 attributes and children, raw filter predicates, retained `native_xml` and
 `task_xml`, verbatim source files) rather than the bytes written, and the GPP
-families come from the writer's own file list rather than its output. One
-thing precedes it and is not an artifact writer: validation itself checks
-every value the GPP writer *would* write against the writer's table, by
-rendering the preferences in memory (`validation.serialized_identity_issues`).
-That predates the decision and runs for every GPO.
+families come from the writer's own file list rather than its output. Where
+a writer holds a model value to a rule of its own (the GUID, the domain, a
+script's INI value), the decision applies that same rule to the model value.
+One thing precedes it and is not an artifact writer: validation renders a
+GPO's preferences in memory, through the GPP writer, to check every value
+that writer would write (`validation.serialized_identity_issues`); a value
+the writer refuses is reported as a validation issue. That predates the
+decision and runs for every GPO.
 
 Every surface asks it: the raw writers, the checked builders, the routes'
 guards, the publication planner and the API's capabilities. A refused GPO
@@ -1433,9 +1437,12 @@ document, manifest, ZIP or publication digest
 surface, for every combination of up to three reasons).
 
 - **Reviewed exports** decide first, then hash with the payload's own digest
-  (`api._gpo_digests`, which reads retained GPP records raw for a GPO with a
-  validation error or a `cpassword`), then raise in this order: unhashable
-  legacy text, a stale review (409), the refusal (422).
+  (`api._gpo_digests`), then raise in this order: unhashable legacy text, a
+  stale review (409), the refusal (422). A GPO with a validation error or a
+  `cpassword` is hashed with its retained GPP records read raw, in a digest
+  domain of its own that also binds the codes refusing it. So a review taken
+  while the GPO was refused never matches it once it is not, or once it is
+  refused for something else; a valid GPO's digests are unchanged.
 - **The publication plan** answers a refusal the planner states as a refused
   step (the last row above) with its refused plan (200, `refused: true`). That
   plan names the files it would write from the model and carries no content
@@ -1457,7 +1464,8 @@ artifact and names every writer-stage reason.
 | `cpassword_detected` | the Studio bundle and GPMC backup writers | the GPP bytes written. Defence in depth: the decision's model check reads every store these bytes can come from, so this firing means a store was missed (a defect) |
 | `unsupported_native_gpp_extension`, `unmeasured_gpp_registry_shape`, `folder_redirection_not_exportable`, `inexpressible_native_script_state` | the GPMC backup writer | the same checks as the decision, built by the same functions (defence in depth) |
 | `gpp_not_serializable` | the GPMC backup writer | the GPP writer's own refusal of a value as it writes it. Validation reports the same values first (`unwritable_preferences` and per-value issues) |
-| `unwritable_artifact_value` / an emit error | every checked builder and the publication planner | the output's integrity checks: the plan's PowerShell validator, the ZIPs' member, manifest and XML/INI value checks, the `Registry.pol` encoder |
+| `unwritable_artifact_value` / an emit error | every checked builder and the publication planner | the output's integrity checks: each plan value's PowerShell rule (`ps_literal`) and the plan validator, the ZIPs' member, manifest and XML/INI value checks, the `Registry.pol` encoder. For a value the model holds, each rule is also decided before the writer, by validation or by the decision above (`tests/test_plan_binding.py` sweeps tricky values through every field a writer emits) |
+| `gpo_guid`, `steps`, `target`, `rollback_coverage`, `link_target` | the publication plan validator | the plan's own structure. The GPO ID and a link's DN are decided before the planner (the decision, and validation's `invalid_link_target`, which uses the same DN rule); an empty plan writes nothing |
 
 ### When the plan stops partway
 

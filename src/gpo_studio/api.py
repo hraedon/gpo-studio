@@ -2125,30 +2125,54 @@ def _digest(compute: Callable[[Any], str], gpo: Any) -> str | None:
         return None
 
 
+#: What a refused GPO's digests are hashed under (round 9): a domain apart
+#: from every valid GPO's, so no review of one can authorize the other.
+_REFUSED_DIGEST_DOMAIN = b"gpo-studio/digest-of-refused-content/v1\x00"
+
+
 def _gpo_digests(
     gpo: Any, validation: Sequence[ValidationIssue]
 ) -> tuple[str | None, str | None]:
     """``(policy_semantic_sha256, review_model_sha256)`` for *gpo*: THE digest
     the GPO payload serves and the export guard compares (round 8: the guard
-    hashed without this policy, so a GPO with a validation error and a
-    retained GPP record had a review hash the guard never reproduced, and
-    every review of it was a false 409).
+    hashed without this policy, so every review of a GPO with a validation
+    error and a retained GPP record was a false 409).
 
     ``None`` for stored text XML cannot carry (legacy: hashing encodes UTF-8,
-    which a lone surrogate refuses; `validation` names the fields). A GPO
-    with a validation error, or a GPP file that would carry a cpassword
-    (`export.gpp_cpassword_refusals`), reads its retained records raw
-    (`gpp.raw_records`, DeepSeek final-r19 B1), so no writer runs on content
-    a current rule refuses. Any other GPO is hashed with what each retained
-    record writes, by design: that is what keeps a re-imported Studio
-    backup's digests (and the backup id derived from them) where they were."""
+    which a lone surrogate refuses; `validation` names the fields).
+
+    A GPO with content a current rule refuses -- a validation error, or a GPP
+    file that would carry a cpassword (`export.gpp_cpassword_refusals`) -- reads
+    its retained records raw (`gpp.raw_records`, DeepSeek final-r19 B1), so no
+    writer runs on refused content to hash it. Its digests are then hashed in
+    a domain of their own (`_REFUSED_DIGEST_DOMAIN`) together with the codes
+    that refuse it, so they can never equal a valid GPO's digests -- raw and
+    rendered records can be the same text -- nor survive a change in what
+    refuses it (round 9, Daybreak: a review taken while a load problem refused
+    the GPO authorized its export after a reload without one).
+
+    Any other GPO is hashed exactly as before, with what each retained record
+    writes: that keeps a re-imported Studio backup's digests (and the backup
+    id derived from them) where they were."""
     if any(item.code == "text_not_xml_writable" for item in validation):
         return None, None
-    refused = any(item.severity == "error" for item in validation) or bool(
-        gpp_cpassword_refusals(gpo)
-    )
-    with raw_records(refused):
+    refusing = sorted({item.code for item in validation if item.severity == "error"})
+    if gpp_cpassword_refusals(gpo):
+        refusing.append("cpassword_detected")
+    if not refusing:
         return _digest(policy_semantic_sha256, gpo), _digest(review_model_sha256, gpo)
+    with raw_records(True):
+        semantic = _digest(policy_semantic_sha256, gpo)
+        review = _digest(review_model_sha256, gpo)
+    state = ",".join(sorted(set(refusing))).encode("ascii", "backslashreplace")
+
+    def refused(digest: str | None) -> str | None:
+        if digest is None:
+            return None
+        material = _REFUSED_DIGEST_DOMAIN + state + b"\x00" + digest.encode("ascii")
+        return hashlib.sha256(material).hexdigest()
+
+    return refused(semantic), refused(review)
 
 
 def _answer_check(gpo: Any) -> dict[str, Any]:

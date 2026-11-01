@@ -1866,6 +1866,8 @@ _REASONS: dict[str, dict[str, Any]] = {
         ),
     )},
     "empty-domain": {"domain": ""},
+    # Round 9: the GPO's identity, which only the writers held to a rule.
+    "legacy-id": {"guid": "synthetic-legacy-guid"},
 }
 
 
@@ -2490,3 +2492,293 @@ def test_a_script_state_with_no_native_encoding_is_in_the_decision(
         assert _raised(export.gpmc_backup_bundle, gpo, scripts=scripts) == decided
         assert _raised(egress.checked_gpmc_backup, gpo, scripts=scripts) == decided
     assert calls == []
+
+
+# --- round 9: legacy text, the GPO's identity, and refused-digest domains ----
+
+import json as json_module  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+
+from gpo_studio.emit_integrity import EmitError  # noqa: E402
+from gpo_studio.store import WorkspaceStore  # noqa: E402
+
+_ARTIFACT_ROUTES = ("plan.ps1", "export.zip", "gpmc-backup", "publication-plan")
+
+
+@pytest.fixture
+def stored_client(tmp_path: _Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """A real workspace (SQLite), as Sol's round-8 reproducers used."""
+    from fastapi.testclient import TestClient
+
+    from gpo_studio import api as api_module
+
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    monkeypatch.setattr(api_module.app.state, "store", store, raising=False)
+    monkeypatch.setattr(api_module.app.state, "owns_store", False, raising=False)
+    api_module._REFUSAL_CACHE.clear()
+    try:
+        yield store, TestClient(api_module.app, raise_server_exceptions=False)
+    finally:
+        store.close()
+
+
+def test_a_legacy_task_xml_with_a_lone_surrogate_stays_readable(stored_client: Any) -> None:
+    """Round 9 (Sol): the round-8 cpassword scan encoded raw stored text, so a
+    scheduled task whose stored ``task_xml`` holds a lone surrogate made the
+    GPO unreadable (``stored_text_not_encodable``) and its exports lost their
+    issues. The read is 200 again, and every export is a 422 naming the
+    decision's reasons, the validation findings among them."""
+    store, client = stored_client
+    gpo = store.create_gpo(name="Synthetic legacy task", identity="reviewer", reason="probe")
+    data = gpo.to_stored_dict()
+    data["gpp_collections"] = [{
+        "scope": "computer",
+        "scheduled_tasks": [{
+            "name": "SyntheticTask", "task_xml": "<Task>\ud800</Task>", "element_variant": "TaskV2",
+        }],
+    }]
+    store._connection.execute(
+        "UPDATE gpos SET snapshot_json=? WHERE guid=?", (json_module.dumps(data), gpo.guid)
+    )
+    store._connection.commit()
+    stored = store.get_gpo(gpo.guid)
+    validation_errors = {i.code for i in validate_gpo(stored) if i.severity == "error"}
+    assert validation_errors
+    read = client.get(f"/api/gpos/{gpo.guid}")
+    assert read.status_code == 200, read.text
+    assert client.get("/api/gpos").status_code == 200
+    for route in _ARTIFACT_ROUTES:
+        response = client.get(f"/api/gpos/{gpo.guid}/{route}")
+        assert response.status_code == 422, (route, response.text)
+        codes = [issue["code"] for issue in response.json()["error"]["issues"]]
+        assert codes == _codes(export.refusal_issues(stored, route)), route  # type: ignore[arg-type]
+        assert validation_errors <= set(codes), route
+
+
+def test_the_cpassword_scan_reads_unencodable_text() -> None:
+    """Text no XML can carry is scanned as text: the word still counts."""
+    assert gpp_module._raw_carries_cpassword("<Task cpassword='x'>\ud800</Task>")
+    assert not gpp_module._raw_carries_cpassword("<Task>\ud800</Task>")
+
+
+@pytest.mark.parametrize(
+    "guid", ["synthetic-legacy-guid", "", "{0B0D0080}", "0B0D0080-0000-4000-8000-00000000000G"]
+)
+def test_the_gpo_id_is_decided_for_every_artifact(
+    stored_client: Any, monkeypatch: pytest.MonkeyPatch, guid: str
+) -> None:
+    """Round 9 (Sol): the store accepts any GPO ID; only the writers held it to
+    a GUID. A legacy ID refused publication with a 200 after serializing
+    Registry.pol, and the backup id refused on its own. It is in the decision
+    now, for every artifact, and nothing is serialized for it."""
+    gpo = _gpo(guid=guid)
+    for kind in ("plan.ps1", "export.zip", "gpmc-backup", "gpmc-backup-with-scripts",
+                 "publication-plan"):
+        assert "invalid_gpo_guid" in _codes(export.refusal_issues(gpo, kind)), kind  # type: ignore[arg-type]
+    with _counting_serializers(monkeypatch) as calls:
+        for build in (export.powershell_plan, export.export_bundle, export.gpmc_backup_bundle,
+                      export.native_backup_id, publication_module.generate_publication_plan):
+            assert "invalid_gpo_guid" in (_raised(build, gpo) or []), build.__name__
+    assert calls == []
+
+
+def test_a_legacy_gpo_id_refuses_publication_before_anything_is_written(
+    stored_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sol's round-8 reproducer: a stored GPO with ID ``synthetic-legacy-guid``
+    and one registry setting."""
+    store, client = stored_client
+    gpo = store.create_gpo(
+        name="Synthetic legacy GUID", guid="synthetic-legacy-guid", identity="reviewer",
+        reason="probe", settings=(RegistrySetting(
+            "s1", "computer", "HKLM", r"Software\Policies\Synthetic", "Enabled", "REG_DWORD", 1
+        ),),
+    )
+    with _counting_serializers(monkeypatch) as calls:
+        responses = {
+            route: client.get(f"/api/gpos/{gpo.guid}/{route}") for route in _ARTIFACT_ROUTES
+        }
+    assert calls == []
+    for route, response in responses.items():
+        assert response.status_code == 422, (route, response.text)
+        assert "invalid_gpo_guid" in [i["code"] for i in response.json()["error"]["issues"]]
+
+
+def test_a_domain_the_writers_refuse_is_in_the_decision() -> None:
+    """Round 9 (sweep): a domain with a leading space passed the decision and
+    only the backup's XML check refused it."""
+    gpo = _gpo(domain=" lab.synthetic.test", links=())
+    for kind in ("plan.ps1", "export.zip", "gpmc-backup", "publication-plan"):
+        assert "invalid_gpo_domain" in _codes(export.refusal_issues(gpo, kind)), kind  # type: ignore[arg-type]
+        assert "invalid_gpo_domain" in (
+            _raised(export.gpmc_backup_bundle if kind == "gpmc-backup" else export.powershell_plan,
+                    gpo) or []
+        )
+
+
+@pytest.mark.parametrize("value", ["0A\t0B", "0A\n0B\r\n0C", "0a 0b\t0c", "\t0A0B\n"])
+def test_a_binary_value_validation_accepts_is_planned_as_the_registry_pol_writes_it(
+    value: str,
+) -> None:
+    """Round 9 (sweep): validation and the Registry.pol encoder read a
+    REG_BINARY value with `bytes.fromhex`, which skips ASCII whitespace; the
+    plan alone refused a tab or a line break between bytes, so a valid GPO's
+    plan -- and its whole Studio bundle -- failed at the writer."""
+    from gpo_studio.registry_pol import _encode_data
+
+    setting = replace(_gpo().settings[0], registry_type="REG_BINARY", value=value)
+    gpo = _gpo(settings=(setting,))
+    assert export.refusal_issues(gpo, "plan.ps1") == []
+    plan = egress.checked_plan(gpo)
+    expected = ",".join(f"0x{byte:02X}" for byte in _encode_data("REG_BINARY", value))
+    assert expected.casefold() in plan.casefold()
+    egress.checked_studio_bundle(gpo)
+
+
+#: Values a writer has held to a rule of its own (round 9 sweep).
+_SWEEP_VALUES = [
+    "", " x", "x ", "a\tb", "a\nb", "a\x00b", "a\x85b", "a b", "a​b", "a‮b",
+    "a\ud800b", "it's", "a’b", "a`b", "a$b", "0A\t0B", "0a0b", "x" * 300,
+    "synthetic-legacy-guid", "{0b0d0080-0000-4000-8000-000000000001}",
+]
+
+
+def _sweep_models() -> Iterator[tuple[str, GPO]]:
+    from gpo_studio.model import WmiFilter
+
+    base = _gpo()
+    s0 = base.settings[0]
+    f0 = base.security_filters[0]
+    wmi = WmiFilter("{0B0D0080-0000-4000-8000-0000000000AA}", "W", query="SELECT * FROM X")
+    for v in _SWEEP_VALUES:
+        yield "guid", replace(base, guid=v)
+        yield "name", replace(base, name=v)
+        yield "description", replace(base, description=v)
+        yield "domain", replace(base, domain=v)
+        yield "domain-unlinked", replace(base, domain=v, links=())
+        yield "key", replace(base, settings=(replace(s0, key=v),))
+        yield "value_name", replace(base, settings=(replace(s0, value_name=v),))
+        yield "sz", replace(base, settings=(replace(s0, registry_type="REG_SZ", value=v),))
+        yield "binary", replace(base, settings=(replace(s0, registry_type="REG_BINARY", value=v),))
+        multi = replace(s0, registry_type="REG_MULTI_SZ", value=[v])
+        yield "multi", replace(base, settings=(multi,))
+        yield "link", replace(base, links=(GPOLink("l1", v),))
+        yield "principal", replace(base, security_filters=(replace(f0, principal=v),))
+        yield "sid", replace(base, security_filters=(replace(f0, sid=v),))
+        yield "source_guid", replace(base, source_guid=v)
+        yield "wmi_name", replace(base, wmi_filter=replace(wmi, name=v))
+        yield "wmi_query", replace(base, wmi_filter=replace(wmi, query=v))
+
+
+def test_no_writer_refuses_what_the_decision_accepts() -> None:
+    """Round 9: the sweep, kept. For tricky values in every model field a
+    writer emits, an artifact the decision accepts is built by its checked
+    builder, and a publication plan carries no error the decision did not
+    name: no writer holds a model value to a rule the decision does not."""
+    builders = {
+        "plan.ps1": egress.checked_plan,
+        "export.zip": egress.checked_studio_bundle,
+        "gpmc-backup": egress.checked_gpmc_backup,
+    }
+    misses: list[tuple[str, str, str]] = []
+    for field, gpo in _sweep_models():
+        for kind, build in builders.items():
+            if export.refusal_issues(gpo, kind):  # type: ignore[arg-type]
+                continue
+            try:
+                build(gpo)
+            except (ValidationError, EmitError) as error:
+                misses.append((field, kind, str(error)[:80]))
+        for target in ("both", "sysvol", "ad"):
+            decided = {
+                i.code for i in export.refusal_issues(gpo, "publication-plan", target=target)
+            }
+            if decided - publication_module.PLANNER_REFUSALS:
+                continue
+            plan = publication_module.generate_publication_plan(gpo, target)  # type: ignore[arg-type]
+            errors = {
+                i.check for i in publication_module.validate_publication_plan(plan)
+                if i.level == "error"
+            }
+            if errors - decided:
+                misses.append((field, f"publication@{target}", ",".join(sorted(errors - decided))))
+    assert misses == []
+
+
+def _drive_maps_collection() -> GppCollection:
+    """Daybreak's round-8 record: a retained Drive Maps item whose rendered
+    element is exactly its raw XML."""
+    import sys as _sys
+
+    _sys.path.insert(0, str(_Path(__file__).parent))
+    from writer_corpus import gpp_corpus
+
+    for source, collection in gpp_corpus():
+        if source == "WI01A-DriveMaps-GPMC" and any(
+            item.native_xml
+            and gpp_module.retained_rendering("drives", item, collection.scope) == item.native_xml
+            for item in collection.drives
+        ):
+            return collection
+    raise AssertionError("no Drive Maps record that renders as its raw XML")
+
+
+def test_a_review_taken_while_refused_never_authorizes_an_export() -> None:
+    """Round 9 (Daybreak): raw and rendered records can be the same text, so a
+    refused GPO's digest equalled the valid one's. A review served while a
+    load problem refused revision 7 authorized a 26,567-byte bundle after a
+    reload without it. Refused digests are hashed in a domain of their own
+    with the codes that refuse the GPO, so that review is now stale."""
+    from gpo_studio import api as api_module
+
+    valid = _gpo(revision=7, links=(), security_filters=(), settings=(),
+                 gpp_collections=(_drive_maps_collection(),))
+    refused = replace(valid, load_problems=(("error", "synthetic validation flip"),))
+    assert [i.code for i in validate_gpo(valid) if i.severity == "error"] == []
+    assert any(i.severity == "error" for i in validate_gpo(refused))
+    from gpo_studio.canonical import policy_semantic_sha256, review_model_sha256
+
+    # The collision: read raw, the refused GPO hashes as the valid one does.
+    with gpp_module.raw_records(True):
+        assert review_model_sha256(refused) == review_model_sha256(valid)
+    valid_digests = api_module._gpo_digests(valid, validate_gpo(valid))
+    refused_digests = api_module._gpo_digests(refused, validate_gpo(refused))
+    # A valid GPO's digests are exactly what they were.
+    assert valid_digests == (policy_semantic_sha256(valid), review_model_sha256(valid))
+    assert refused_digests[0] != valid_digests[0]
+    assert refused_digests[1] != valid_digests[1]
+    request = types.SimpleNamespace(
+        app=types.SimpleNamespace(state=types.SimpleNamespace(store=_OneGpoStore(valid)))
+    )
+    with pytest.raises(api_module._ExportReviewConflict):
+        api_module._reviewed_export(
+            request, valid.guid, refused.revision, refused_digests[1], "export.zip"
+        )
+    # Bound to what refuses it: another refusal is another digest.
+    other = replace(valid, links=(_BAD_LINK,))
+    assert api_module._gpo_digests(other, validate_gpo(other))[1] != refused_digests[1]
+
+
+@pytest.mark.parametrize("field", ["original_name", "parameters"])
+@pytest.mark.parametrize("entry_type", ["legacy", "powershell"])
+def test_no_scripts_writer_refuses_what_the_decision_accepts(field: str, entry_type: str) -> None:
+    """Round 9 (sweep): a script's command or parameters holding a line break,
+    a control character or surrounding space passed the decision and the
+    request's validation; only the scripts INI writer refused it. The
+    decision now holds the request's policies to that writer's own rule."""
+    from gpo_studio.script_policy import PowerShellScriptEntry
+
+    gpo = _gpo(settings=(), security_filters=(), links=())
+    for value in _SWEEP_VALUES + ["a\rb", "a=b", "[x]", ";x"]:
+        if entry_type == "legacy":
+            policy = ScriptPolicy(startup=(replace(ScriptEntry("s1", "a1", "run.cmd"),
+                                                   **{field: value}),))
+        else:
+            policy = ScriptPolicy(powershell_startup=(replace(
+                PowerShellScriptEntry("s1", "a1", "run.ps1"), **{field: value}),))
+        scripts = {"computer": policy}
+        decided = export.refusal_issues(gpo, "gpmc-backup-with-scripts", scripts=scripts)
+        if decided:
+            assert _raised(export.gpmc_backup_bundle, gpo, scripts=scripts) == _codes(decided)
+            continue
+        egress.checked_gpmc_backup(gpo, scripts=scripts)

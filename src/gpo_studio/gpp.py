@@ -3502,7 +3502,18 @@ def _attrs_carry_cpassword(attrs: Any) -> bool:
 def _raw_carries_cpassword(raw: Any) -> bool:
     if isinstance(raw, bytes):
         return contains_cpassword(raw)
-    return bool(raw) and contains_cpassword(str(raw).encode("utf-8"))
+    if not raw:
+        return False
+    text = str(raw)
+    try:
+        data = text.encode("utf-8")
+    except UnicodeEncodeError:
+        # Legacy stored text no XML can carry (a lone surrogate; validation
+        # reports it): it parses as nothing, so -- as `contains_cpassword` does
+        # for XML that does not parse -- the word anywhere counts (round 9: an
+        # encode here made such a GPO unreadable).
+        return "cpassword" in text.casefold()
+    return contains_cpassword(data)
 
 
 def _carries_cpassword(value: Any) -> bool:
