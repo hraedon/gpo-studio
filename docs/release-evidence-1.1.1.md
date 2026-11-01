@@ -29,8 +29,8 @@ action, in this order:
 1. **Freeze commit F.** Every product change for 1.1.1 is merged, and the
    preparation listed below is in. F itself replaces `YYYY-MM-DD` in the
    `CHANGELOG.md` heading for 1.1.1 with F's date and changes nothing else.
-   F is a commit on `main`. Nothing after F may change any file but the
-   release records.
+   F is a commit on `main`. After F, only the batch's evidence may be added
+   and only the release records changed.
 2. **The full batch at F.** All 26 lanes live at F (WP-0's manifest and the 25
    lane verdicts pending requalification) run on the estate from a clean clone
    at F, as one batch, with `scripts/plan-033/run-requal-batch.sh` (about 44
@@ -398,7 +398,14 @@ publication passed in it, that its `verify` job checked coverage against the
 floor (the total stays in that job's log), and the artifact hashes. Local
 success is not release evidence.
 
-Local pre-release observation, **not release evidence**: LOCALRUN
+Local pre-release observation, **not release evidence**: on 2026-10-31, on the
+preparation branch at `ee2edba` (Python 3.14 on a Linux development host; CI
+runs Python 3.13 and 3.14), the full Python suite passed (14267 passed, 160
+skipped) with total branch coverage of 92.46 percent against the 84 percent
+floor and every per-module floor met (`scripts/check_coverage.py`), as did
+ruff and `mypy src`. No distribution was built for this observation. The
+tagged run rebuilds and rechecks everything; its artifacts, not these, are the
+release.
 
 ## Accessibility evidence
 
