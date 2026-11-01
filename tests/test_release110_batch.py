@@ -210,7 +210,7 @@ def test_the_batch_is_the_live_set() -> None:
     registry = _registry()
     batch_verdicts = {r["verdict"] for r in BATCH["runs"] if r["name"] != "wp0"}
     assert len(batch_verdicts) == 25
-    if cq.freeze() is not None:
+    if cq.latest_freeze() is not None:
         # History since a freeze batch was banked: every verdict of this batch and
         # of its successor batch is retired, replaced by the freeze batch's run.
         successors = {r["verdict"] for r in SUCCESSORS["runs"]}
