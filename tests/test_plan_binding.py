@@ -1608,44 +1608,60 @@ _COMBINATIONS: dict[str, dict[str, Any]] = {
         "wmi_filter": _WMI_ONLY,
         "links": _FOREIGN,
     },
+    # Validation errors (round 6): alone, beside plan-only reasons, beside a
+    # whole-export reason, and all together.
+    "invalid-link-order": {"links": (GPOLink("l1", f"OU=Pilot,{DOMAIN_DN}", order=0),)},
+    "invalid-link-order+wmi": {
+        "links": (GPOLink("l1", f"OU=Pilot,{DOMAIN_DN}", order=0),),
+        "wmi_filter": _WMI_ONLY,
+    },
+    "deny+invalid-link-order": {
+        "security_filters": _DENY,
+        "links": (GPOLink("l1", f"OU=Pilot,{DOMAIN_DN}", order=0),),
+    },
+    "empty-domain+wmi+deny": {"domain": "", "wmi_filter": _WMI_ONLY, "security_filters": _DENY},
 }
 
 
 @pytest.mark.parametrize("combination", sorted(_COMBINATIONS))
 def test_every_surface_gives_the_same_answer(combination: str) -> None:
-    """Round 5: ONE function (`export.plan_refusals`) decides, and every surface
-    -- the plan writer, the bundle builder, the checked plan and bundle, egress
-    both ways, the export route's backstop and the API capabilities -- agrees
-    with it, for every combination of reasons."""
+    """Rounds 5 and 6: ONE answer (`export.plan_refusals`, through
+    `egress.refusal_issues`) decides, and every surface -- the plan writer,
+    the bundle builder, the checked plan and bundle, the routes' guard, egress
+    both ways, the route backstop and the API capabilities -- gives the same
+    issues in the same order, for every combination of reasons and validation
+    errors."""
     from gpo_studio import api as api_module
     from gpo_studio.deterministic_zip import deterministic_zip
     from gpo_studio.emit_integrity import EmitError
 
     gpo = _gpo(**_COMBINATIONS[combination])
     refused = export.plan_refusals(gpo)
-    codes = [issue.code for issue in refused.reasons]
-    whole = bool(refused.whole)
+    plan_codes = [issue.code for issue in egress.refusal_issues(gpo, "plan.ps1")]
+    bundle_codes = [issue.code for issue in egress.refusal_issues(gpo, "export.zip")]
+    assert plan_codes == [issue.code for issue in refused.issues]
+    assert bool(bundle_codes) == bool(refused.errors or refused.whole)
 
-    # The plan writer and the checked plan: refused with every reason, or written.
-    if codes:
-        with pytest.raises(ValidationError) as caught:
-            export.powershell_plan(gpo)
-        assert [issue.code for issue in caught.value.issues] == codes
-        with pytest.raises(ValidationError):
-            egress.checked_plan(gpo)
+    # The plan writer, the checked plan and the plan route's guard.
+    if plan_codes:
+        for build in (export.powershell_plan, egress.checked_plan):
+            with pytest.raises(ValidationError) as caught:
+                build(gpo)
+            assert [issue.code for issue in caught.value.issues] == plan_codes
     else:
         assert egress.checked_plan(gpo)
 
-    # The bundle builder and the checked bundle (what the route serves).
-    if whole:
-        with pytest.raises(ValidationError) as caught:
-            egress.checked_studio_bundle(gpo)
-        assert [issue.code for issue in caught.value.issues] == codes
+    # The bundle builder, the checked bundle (what the route serves) and egress.
+    if bundle_codes:
+        for build in (export.export_bundle, egress.checked_studio_bundle):
+            with pytest.raises(ValidationError) as caught:
+                build(gpo)
+            assert [issue.code for issue in caught.value.issues] == bundle_codes
         members = _bundle_members(export.export_bundle(_gpo()))  # a plan to smuggle
     else:
         data = egress.checked_studio_bundle(gpo)
         members = _bundle_members(data)
-        assert ("apply.ps1" in members) == (not codes)
+        assert ("apply.ps1" in members) == (not plan_codes)
         record = json.loads(members["manifest.json"]).get("powershell_plan")
         assert record == refused.record()
         egress.check("zip-studio", _Routed(data, gpo))
@@ -1658,24 +1674,21 @@ def test_every_surface_gives_the_same_answer(combination: str) -> None:
     with_plan = deterministic_zip(
         {**members, "manifest.json": json.dumps(manifest).encode(), "apply.ps1": plan_text}
     )
-    plan_problems = egress.zip_problems(with_plan, "studio", gpo)
-    assert bool(plan_problems) == bool(codes)
-    if codes:
+    assert bool(egress.zip_problems(with_plan, "studio", gpo)) == bool(plan_codes)
+    if plan_codes:
         with pytest.raises(EmitError):
             egress.check("zip-studio", _Routed(with_plan, gpo))
 
-    # The API's capabilities say the same.
+    # The API's capabilities name the same issues.
     api_module._REFUSAL_CACHE.clear()
     caps = api_module._gpo_payload(gpo)["artifact_capabilities"]
-    assert caps["powershell_plan"]["enabled"] is (not codes)
-    assert caps["studio_export"]["enabled"] is (not whole)
-    assert caps["studio_export"]["plan_included"] is (not codes)
-    for issue in refused.reasons:
+    assert caps["powershell_plan"]["enabled"] is (not plan_codes)
+    assert caps["studio_export"]["enabled"] is (not bundle_codes)
+    assert caps["studio_export"]["plan_included"] is (not plan_codes)
+    for issue in egress.refusal_issues(gpo, "plan.ps1"):
         assert issue.message in caps["powershell_plan"]["reason"]
-        if whole:
-            assert issue.message in caps["studio_export"]["reason"]
-        else:
-            assert issue.message in caps["studio_export"]["plan_reason"]
+        where = "reason" if bundle_codes else "plan_reason"
+        assert issue.message in caps["studio_export"][where]
 
 
 def test_the_refusal_record_must_match_exactly() -> None:
@@ -1715,3 +1728,95 @@ def test_egress_refuses_a_plan_for_a_gpo_whose_whole_export_is_refused(combinati
     assert any("plan is refused" in p.problem for p in egress.zip_problems(smuggled, "studio", gpo))
     with pytest.raises(EmitError):
         egress.check("zip-studio", _Routed(smuggled, gpo))
+
+
+
+# --- round 6 ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("body", ["[]", "null", "true", "42", '"text"'])
+def test_a_manifest_that_is_not_an_object_is_refused(body: str) -> None:
+    """Round 6 (Sol): a non-object manifest read as "no record", so a bundle
+    carrying apply.ps1 with manifest.json ``[]`` passed -- and returned 200
+    through the decorated route."""
+    from gpo_studio.deterministic_zip import deterministic_zip
+    from gpo_studio.emit_integrity import EmitError
+
+    gpo = _gpo()
+    members = _bundle_members(export.export_bundle(gpo))
+    data = deterministic_zip({**members, "manifest.json": body.encode()})
+    problems = egress.zip_problems(data, "studio", gpo)
+    assert any("is not a JSON object" in p.problem for p in problems), problems
+    with pytest.raises(EmitError):
+        egress.check("zip-studio", _Routed(data, gpo))
+
+
+@pytest.mark.parametrize("included", [0, 0.0])
+def test_a_record_value_of_another_json_type_is_refused(included: object) -> None:
+    """Round 6 (Sol): ``False == 0 == 0.0`` in Python, so ``"included": 0``
+    passed for ``false``."""
+    from gpo_studio.deterministic_zip import deterministic_zip
+
+    gpo = _gpo(wmi_filter=_WMI_ONLY)
+    members = _bundle_members(export.export_bundle(gpo))
+    manifest = json.loads(members["manifest.json"])
+    manifest["powershell_plan"]["included"] = included
+    data = deterministic_zip({**members, "manifest.json": json.dumps(manifest).encode()})
+    problems = egress.zip_problems(data, "studio", gpo)
+    assert any("not exactly the refusal record" in p.problem for p in problems)
+
+
+def test_json_identity_compares_types_at_every_depth() -> None:
+    same = egress._json_identical
+    assert same({"a": [False, {"b": 1}]}, {"a": [False, {"b": 1}]})
+    for left, right in (
+        (False, 0),
+        (True, 1),
+        (1, 1.0),
+        ({"a": False}, {"a": 0}),
+        ([{"b": True}], [{"b": 1}]),
+        ({"a": [1]}, {"a": [1.0]}),
+        (None, False),
+        ({"a": 1}, {"a": 1, "b": 2}),
+    ):
+        assert not same(left, right), (left, right)
+
+
+def test_refusals_have_a_canonical_order() -> None:
+    """Round 6 (Sol): reversing two foreign links kept the semantic and review
+    digests but changed the record, so a valid bundle failed egress against
+    the equivalent model."""
+    from gpo_studio.canonical import policy_semantic_sha256, review_model_sha256
+
+    first = GPOLink("l1", "OU=Victims,DC=trusted,DC=test", order=1)
+    second = GPOLink("l2", "OU=Other,DC=elsewhere,DC=test", order=2)
+    forward = _gpo(links=(first, second))
+    backward = _gpo(links=(second, first))
+    assert policy_semantic_sha256(forward) == policy_semantic_sha256(backward)
+    assert review_model_sha256(forward) == review_model_sha256(backward)
+    assert export.plan_refusals(forward).record() == export.plan_refusals(backward).record()
+    data = egress.checked_studio_bundle(forward)
+    assert egress.zip_problems(data, "studio", backward) == []
+
+
+@pytest.mark.parametrize(
+    "combination", ["deny+invalid-link-order", "empty-domain+wmi+deny", "invalid-link-order"]
+)
+def test_the_guards_raise_every_reason_with_the_validation_errors(combination: str) -> None:
+    """Round 6 (Daybreak, Sol): the checked builders' guard raised the
+    validation errors alone, while the plan and the capabilities named every
+    reason; a validation-only GPO was advertised disabled with an empty reason."""
+    from gpo_studio import api as api_module
+
+    gpo = _gpo(**_COMBINATIONS[combination])
+    expected = [issue.code for issue in export.plan_refusals(gpo).issues]
+    for build in (egress.checked_plan, egress.checked_studio_bundle):
+        with pytest.raises(ValidationError) as caught:
+            build(gpo)
+        assert [issue.code for issue in caught.value.issues] == expected
+    api_module._REFUSAL_CACHE.clear()
+    caps = api_module._gpo_payload(gpo)["artifact_capabilities"]
+    for name in ("powershell_plan", "studio_export"):
+        assert caps[name]["enabled"] is False
+        for issue in export.plan_refusals(gpo).issues:
+            assert issue.message in caps[name]["reason"], (name, issue.code)

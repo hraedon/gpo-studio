@@ -1347,11 +1347,15 @@ soft hyphen still matches).
   reason that refuses the whole bundle -- a deny filter, say -- does so whatever
   else is refused. One function (`export.plan_refusals`) answers for every
   surface: the plan writer and `plan.ps1`, the bundle builder and
-  `export.zip`, egress and the API's capabilities, each naming every reason.
-  Egress checks the record both ways against it: an `apply.ps1` is refused for
-  a GPO whose plan is refused for any reason, or beside a record; a missing
-  `apply.ps1` needs a record equal, field for field, to the one the GPO
-  produces; without the GPO a missing plan is refused outright. The API's
+  `export.zip` and the routes' own guard, egress and the API's capabilities,
+  each naming every reason and every validation error, in one canonical order
+  (by code, then message), so two models that differ only in link order give
+  the same record. Egress checks the record both ways against it: the manifest
+  must be a JSON object; an `apply.ps1` is refused for a GPO whose plan is
+  refused for any reason, or beside a record; a missing `apply.ps1` needs a
+  record equal, field for field and JSON type for JSON type (`false` is not
+  `0`), to the one the GPO produces; without the GPO a missing plan is refused
+  outright. The API's
   `studio_export` capability is enabled for such a GPO and says separately
   whether the plan is included (`plan_included`, `plan_reason`).
 - **`-WhatIf`.** Every change goes through a cmdlet's or the plan's own

@@ -493,8 +493,10 @@ Pre-1.1.1 security review, three rounds. Both original findings predate 1.1.0.
   (`refusals`), egress checks that record against the GPO both ways and field
   for field, and the API's `studio_export` capability stays enabled and
   reports `plan_included`. A reason that refuses the whole bundle (a deny
-  filter) still does. One function decides for the plan, the bundle, egress
-  and the API, and each names every reason.
+  filter) still does. One function decides for the plan, the bundle, the
+  routes, egress and the API, and each names every reason and validation
+  error in one canonical order. Egress requires an object manifest and
+  compares the record with JSON types (`false` is not `0`).
 - **`-WhatIf` changes nothing.** Side status (`GpoStatus`) is set through
   `ShouldProcess`; the read-back is skipped under `-WhatIf`.
 - Filtering and side status run before links, so nothing is linked while a new

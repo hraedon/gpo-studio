@@ -81,17 +81,19 @@ from .delegation import (
 )
 from .diff import diff_gpos, three_way_diff
 from .egress import Format as EgressFormat
-from .egress import check as egress_check
 from .egress import (
+    RefusedArtifact,
     checked_gpmc_backup,
     checked_plan,
     checked_studio_bundle,
     gpmc_backup_refusal,
     plan_refusal,
+    refusal_issues,
     studio_export_refusal,
     writer_boundary,
     writer_errors,
 )
+from .egress import check as egress_check
 from .emit_integrity import CHECKS, EmitError, line_problem
 from .estate import parse_estate
 from .export import (
@@ -4501,7 +4503,11 @@ def restore(
 
 
 def _reviewed_export(
-    request: Request, guid: str, expected_revision: int | None, expected_review_hash: str | None,
+    request: Request,
+    guid: str,
+    expected_revision: int | None,
+    expected_review_hash: str | None,
+    artifact: RefusedArtifact,
 ) -> tuple[GPO, str]:
     # Fetch once: the guard, validation and serializer all use this immutable
     # object, even if another request commits a newer workspace revision.
@@ -4523,9 +4529,11 @@ def _reviewed_export(
         gpo.revision != expected_revision or review_hash != expected_review_hash
     ):
         raise _ExportReviewConflict(gpo, expected_revision, expected_review_hash, review_hash)
-    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
-    if errors:
-        raise ValidationError(errors)
+    # Every reason at once, as the checked builder and the capability name
+    # them (round 6).
+    issues = refusal_issues(gpo, artifact, validate_gpo(gpo))
+    if issues:
+        raise ValidationError(issues)
     return gpo, review_hash
 
 
@@ -4548,7 +4556,9 @@ def bundle(
     expected_revision: int | None = Query(default=None, ge=1),
     expected_review_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
 ) -> Response:
-    gpo, review_hash = _reviewed_export(request, guid, expected_revision, expected_review_hash)
+    gpo, review_hash = _reviewed_export(
+        request, guid, expected_revision, expected_review_hash, "export.zip"
+    )
     fname = f"{_safe_filename(gpo.guid)}-publication.zip"
     content = checked_studio_bundle(gpo)
     headers = _reviewed_export_headers(gpo, review_hash, content)
@@ -4567,7 +4577,9 @@ def plan(
     expected_revision: int | None = Query(default=None, ge=1),
     expected_review_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
 ) -> Response:
-    gpo, review_hash = _reviewed_export(request, guid, expected_revision, expected_review_hash)
+    gpo, review_hash = _reviewed_export(
+        request, guid, expected_revision, expected_review_hash, "plan.ps1"
+    )
     content = checked_plan(gpo)
     headers = _reviewed_export_headers(gpo, review_hash, content)
     return Response(content, media_type="text/plain; charset=utf-8", headers=headers)
@@ -4782,7 +4794,9 @@ def gpmc_backup(
     expected_revision: int | None = Query(default=None, ge=1),
     expected_review_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
 ) -> Response:
-    gpo, review_hash = _reviewed_export(request, guid, expected_revision, expected_review_hash)
+    gpo, review_hash = _reviewed_export(
+        request, guid, expected_revision, expected_review_hash, "gpmc-backup"
+    )
     unknown_cse = _unknown_cse_refusal(gpo)
     if unknown_cse is not None:
         raise ValidationError([unknown_cse])

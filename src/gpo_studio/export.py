@@ -266,7 +266,7 @@ def _plan_refusals(gpo: GPO) -> list[ValidationIssue]:
         ))
     denied = [sf for sf in gpo.security_filters if sf.deny]
     if not denied:
-        return found
+        return sorted(found, key=lambda issue: (issue.code, issue.message))
     found.append(ValidationIssue(
         severity="error",
         code="deny_filter_not_expressible",
@@ -280,7 +280,10 @@ def _plan_refusals(gpo: GPO) -> list[ValidationIssue]:
         ),
         path="security_filters",
     ))
-    return found
+    # A canonical order, so two models that differ only in the order of their
+    # links -- the same semantic and review digests -- give the same record
+    # (round 6). Ordinal: by code, then message (which names the target).
+    return sorted(found, key=lambda issue: (issue.code, issue.message))
 
 
 #: The text a plan writes into the comment of a GPO it creates, and the line it
@@ -944,11 +947,15 @@ class PlanRefusals:
         )
 
 
-def plan_refusals(gpo: GPO) -> PlanRefusals:
-    """Every reason *gpo*'s plan is refused (`PlanRefusals`)."""
+def plan_refusals(
+    gpo: GPO, validation: Sequence[ValidationIssue] | None = None
+) -> PlanRefusals:
+    """Every reason *gpo*'s plan is refused (`PlanRefusals`). *validation* is
+    `validate_gpo`'s answer when the caller already has it."""
+    issues = validate_gpo(gpo) if validation is None else validation
     return PlanRefusals(
         reasons=tuple(_plan_refusals(gpo)),
-        errors=tuple(issue for issue in validate_gpo(gpo) if issue.severity == "error"),
+        errors=tuple(issue for issue in issues if issue.severity == "error"),
     )
 
 
