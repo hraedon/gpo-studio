@@ -6,6 +6,8 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -636,3 +638,106 @@ def test_non_bmp_path_component(tmp_path: Path) -> None:
         assert os.read(fd, 5) == b"party"
     finally:
         os.close(fd)
+
+
+# --- A FIFO in place of a regular file must never block the open ---------------
+
+
+def _release_blocked_fifo_reader(fifo: Path) -> None:
+    """Give a reader stuck opening *fifo* a writer, so a red run cannot hang."""
+    try:
+        fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+    except OSError:
+        return
+    os.close(fd)
+
+
+def _finishes(target: Any, fifo: Path, timeout: float = 5.0) -> dict[str, object]:
+    outcome: dict[str, object] = {}
+
+    def run() -> None:
+        try:
+            outcome["result"] = target()
+        except BaseException as error:  # noqa: BLE001 - reported to the test
+            outcome["error"] = error
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        _release_blocked_fifo_reader(fifo)
+        worker.join(timeout)
+        pytest.fail(f"open blocked on the FIFO at {fifo.name}")
+    return outcome
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX FIFO test")
+def test_iter_directory_does_not_block_on_a_fifo_swapped_in_before_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entry is a regular file when inspected and a FIFO when opened.
+
+    Deterministic: the swap happens inside the window between the entry's
+    no-follow stat and its open, the window a real race hits.
+    """
+    from gpo_studio import safe_io
+
+    victim = tmp_path / "victim.admx"
+    victim.write_bytes(b"data")
+    real_os = os
+
+    class SwappingOs(ModuleType):
+        def __getattr__(self, name: str) -> Any:
+            return getattr(real_os, name)
+
+    swapping = SwappingOs("os")
+
+    def swap_then_open(path: Any, flags: int, *args: Any, dir_fd: Any = None, **kw: Any) -> int:
+        if path == victim.name and dir_fd is not None and not victim.is_fifo():
+            real_os.unlink(path, dir_fd=dir_fd)
+            real_os.mkfifo(path, dir_fd=dir_fd)
+        return real_os.open(path, flags, *args, dir_fd=dir_fd, **kw)
+
+    swapping.open = swap_then_open  # type: ignore[attr-defined]
+    monkeypatch.setattr(safe_io, "os", swapping)
+
+    def enumerate_all() -> list[str]:
+        dir_fd = open_directory(tmp_path)
+        try:
+            return [entry.name for entry in iter_directory(dir_fd)]
+        finally:
+            real_os.close(dir_fd)
+
+    outcome = _finishes(enumerate_all, victim)
+    assert victim.is_fifo(), "the probe never swapped the entry"
+    error = outcome.get("error")
+    assert isinstance(error, SafeOpenError), outcome
+    assert "changed while opening" in str(error)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX FIFO test")
+def test_open_regular_file_refuses_a_fifo_without_blocking(tmp_path: Path) -> None:
+    fifo = tmp_path / "pipe.admx"
+    os.mkfifo(fifo)
+
+    outcome = _finishes(lambda: open_regular_file(fifo), fifo)
+    assert isinstance(outcome.get("error"), SafeOpenError), outcome
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX test")
+def test_regular_file_descriptor_is_blocking_after_the_nonblocking_open(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "file.txt"
+    target.write_bytes(b"data")
+    fd = open_regular_file(target)
+    try:
+        assert os.get_blocking(fd)
+    finally:
+        os.close(fd)
+    dir_fd = open_directory(tmp_path)
+    try:
+        for entry in iter_directory(dir_fd):
+            assert os.get_blocking(entry.fd)
+    finally:
+        os.close(dir_fd)
