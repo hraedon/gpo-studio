@@ -85,8 +85,11 @@ jobs:
     # downloads the Playwright browsers and their system packages, then ruff
     # and mypy); the browser tests and rehearsal after it take about 1.5 min
     # (ci.yml's `frontend` and `installed-package`). So the job is about
-    # 32-40 min, and 60 min is about 1.5x the upper estimate.
-    timeout-minutes: 60
+    # 32-40 min, and 60 min is about 1.5x the upper estimate. Before the 1.2.0
+    # freeze, `ci / test (3.13)` took 31-49 min (runs 41243511805, 41390953990,
+    # 41407125042 on main and PR #166's head, 2026-10-31 to 2026-11-02 UTC), so
+    # this job may take about 50 min: 1.2x under 60. 120 min is about 2.4x that.
+    timeout-minutes: 120
     permissions:
       contents: read
     steps:
