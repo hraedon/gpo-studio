@@ -36,6 +36,7 @@ from .gpp import (
 )
 from .identity import Identity
 from .ilt import IltError
+from .json_input import JsonInputError, decode_untrusted_text
 from .model import (
     GPO,
     BackupInventory,
@@ -742,6 +743,25 @@ def _without_format_marks(value: Any) -> Any:
     return value
 
 
+def _strip_marks_within_depth(document: dict[str, Any], limit: int) -> bool:
+    """Remove the format mark at every level of a freshly decoded document, in
+    one pass that also refuses nesting deeper than ``limit``."""
+    stack: list[tuple[Any, int]] = [(document, 0)]
+    while stack:
+        item, depth = stack.pop()
+        if depth >= limit:
+            return False
+        if isinstance(item, dict):
+            item.pop(DISCOVERY_FORMAT_FIELD, None)
+            children = item.values()
+        else:
+            children = item
+        stack.extend(
+            (child, depth + 1) for child in children if isinstance(child, dict | list)
+        )
+    return True
+
+
 # Every document this build stores begins with exactly this text: the mark is
 # written first, by hand, ahead of the sorted remaining fields. Readers select
 # on it with a plain text range, which needs no JSON parsing in SQL. A JSON
@@ -751,9 +771,9 @@ def _without_format_marks(value: Any) -> Any:
 _DISCOVERY_PREFIX = f'{{"{DISCOVERY_FORMAT_FIELD}":{DISCOVERY_FORMAT},'
 # ',' is followed by '-': the prefix's range in binary text order. json_valid()
 # never raises, unlike json_extract(), and the CASE runs it only on marked rows.
-# Every reader, the counts included, uses this one predicate, and the rows it
-# selects all parse in Python (which accepts more than SQLite's canonical
-# JSON), so what summary and kinds count is exactly what the readers serve.
+# Every reader, the counts included, uses this one predicate. The readers then
+# decode each row more strictly (see _current_discovery): a hand-edited row
+# SQLite accepts but they refuse is counted and never served.
 _DISCOVERY_PREFIX_RANGE = "data_json >= ? AND data_json < ?"
 _CURRENT_DISCOVERY = f"CASE WHEN {_DISCOVERY_PREFIX_RANGE} THEN json_valid(data_json) ELSE 0 END"
 _CURRENT_DISCOVERY_PARAMS = (_DISCOVERY_PREFIX, _DISCOVERY_PREFIX[:-1] + "-")
@@ -780,8 +800,9 @@ def _stamp_discovery(data_json: str) -> str:
     return _DISCOVERY_PREFIX + body[1:]
 
 
-# One decoder: json.loads() with an argument builds a new one per call.
-_LENIENT_JSON = json.JSONDecoder(strict=False)
+# Deeper than any discovery document this build writes, and shallow enough that
+# a served document always renders: response rendering recurses (#164 review).
+_DISCOVERY_MAX_DEPTH = 100
 
 
 def _current_discovery(data_json: str) -> dict[str, Any] | None:
@@ -791,21 +812,26 @@ def _current_discovery(data_json: str) -> dict[str, Any] | None:
     run against this workspace after a later one (a downgrade): its links,
     flags and text are not to be trusted, so it is served as absent until an
     import writes the same kind and key (#164 review). Readers select rows in
-    SQL by the mark's prefix and json_valid(); this parses each row they
+    SQL by the mark's prefix and json_valid(); this decodes each row they
     return and removes the mark at every level of the parsed document, so an
-    escaped spelling of the key (``"\\u005fstudio..."``) is removed too.
+    escaped spelling of the key is removed too.
+
+    Decoding is at least as strict as json_valid() (no raw control
+    characters, NaN or Infinity) and refuses what a response could not
+    render: a float that overflows, an integer over Python's digit limit,
+    nesting deeper than 100 levels, and trailing text. A hand-edited row
+    json_valid() accepts but this refuses is counted by the summary and never
+    served; this build never writes one.
     """
     if not data_json.startswith(_DISCOVERY_PREFIX):
         return None
     try:
-        # strict=False: accept everything json_valid() does, so the rows the
-        # counts include are exactly the rows the readers serve.
-        data = _LENIENT_JSON.decode(data_json)
-    except (ValueError, RecursionError):
+        data = decode_untrusted_text(data_json)
+    except JsonInputError:
         return None
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or not _strip_marks_within_depth(data, _DISCOVERY_MAX_DEPTH):
         return None
-    return cast(dict[str, Any], _without_format_marks(data))
+    return data
 
 
 class WorkspaceStore:

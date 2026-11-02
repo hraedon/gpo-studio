@@ -100,3 +100,32 @@ def loads_untrusted(
     if max_depth is not None and _deeper_than(value, max_depth):
         raise JsonInputError(f"nested more than {max_depth} levels deep")
     return value
+
+
+# One decoder for text, with the same refusals: json.loads() with arguments
+# builds a new decoder on every call, which costs more than the parse for small
+# documents read in bulk.
+_STRICT_TEXT_DECODER = json.JSONDecoder(
+    parse_int=_int, parse_float=_finite_float, parse_constant=_refuse_constant
+)
+
+
+def decode_untrusted_text(text: str, *, max_depth: int | None = None) -> object:
+    """:func:`loads_untrusted` for ``str`` input, through one shared decoder.
+
+    Refuses the same input: raw control characters in strings, ``NaN`` and
+    ``Infinity``, a float that overflows, an integer over Python's digit
+    limit, nesting past ``max_depth`` or the recursion limit, and trailing
+    text.
+    """
+    try:
+        value = _STRICT_TEXT_DECODER.decode(text)
+    except json.JSONDecodeError as error:
+        raise JsonInputError(str(error), error.pos, reason=error.msg) from None
+    except RecursionError:
+        raise JsonInputError("nested too deeply") from None
+    except ValueError as error:
+        raise JsonInputError(str(error)) from None
+    if max_depth is not None and _deeper_than(value, max_depth):
+        raise JsonInputError(f"nested more than {max_depth} levels deep")
+    return value

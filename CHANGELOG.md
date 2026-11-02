@@ -117,8 +117,14 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
     kinds and summary); a record without it is treated as absent until an
     import writes the same kind and key. A format mark anywhere inside a
     document, however its key is spelled in JSON, is removed at every level
-    of the parsed document on import and on read. Summary and kinds count
-    exactly the records the other readers serve. The
+    of the parsed document on import and on read. Readers decode each record
+    strictly: no raw control characters, `NaN` or `Infinity`, no float that
+    overflows, no integer over Python's 4,300-digit limit, nesting no deeper
+    than 100 levels and no trailing text, so every record served can be
+    rendered. The summary and kinds count marked records that SQLite
+    considers valid JSON; a hand-edited record the reader cannot decode (for
+    example an integer over Python's 4,300-digit limit, or a trailing NUL)
+    may be counted but is never served. This version never writes one. The
     mark alone cannot prove which version wrote a record: version 1.1.0's GPO
     inventory import stores the request body as given, so a body that
     supplies the mark keeps it, which is why another version opening the

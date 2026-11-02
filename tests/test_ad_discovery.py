@@ -1470,3 +1470,112 @@ def test_readers_agree_without_sqlite_json_functions(tmp_path, monkeypatch) -> N
     finally:
         monkeypatch.undo()
         store.close()
+
+
+# --- #164 round 7: hand-edited rows, the counts and what is served -----------
+
+_PREFIX = '{"_studio_discovery_format":2,'
+_PRINCIPAL_TAIL = (
+    '"display_name":"","domain":"ad.hraedon.com","object_guid":"x",'
+    '"object_sid":"S-1-5-21-1-2-3-9","sam_account_name":"handmade"'
+)
+# Rows SQLite's json_valid() refuses and the reader refuses too.
+_REFUSED_BY_BOTH = {
+    "nan": _PREFIX + _PRINCIPAL_TAIL + ',"n":NaN}',
+    "infinity": _PREFIX + _PRINCIPAL_TAIL + ',"n":-Infinity}',
+    "raw-control-character": _PREFIX + _PRINCIPAL_TAIL + ',"n":"a\x01b"}',
+    "nested-1001": _PREFIX + _PRINCIPAL_TAIL + ',"n":' + "[" * 1001 + "]" * 1001 + "}",
+}
+# Rows json_valid() accepts that the reader refuses: counted, never served
+# (documented; this build never writes one).
+_COUNTED_NOT_SERVED = {
+    "trailing-nul": _PREFIX + _PRINCIPAL_TAIL + "}\x00",
+    "4301-digit-integer": _PREFIX + _PRINCIPAL_TAIL + ',"n":' + "1" * 4301 + "}",
+    "float-overflow": _PREFIX + _PRINCIPAL_TAIL + ',"n":1e309}',
+    "nested-150": _PREFIX + _PRINCIPAL_TAIL + ',"n":' + "[" * 150 + "]" * 150 + "}",
+    "nested-992": _PREFIX + _PRINCIPAL_TAIL + ',"n":' + "[" * 992 + "]" * 992 + "}",
+}
+
+
+def _served_and_counted(store: WorkspaceStore, client: TestClient) -> tuple[int, int]:
+    response = client.get("/api/discovery/principals", params={"q": "handmade"})
+    assert response.status_code == 200, response.text  # rendering never fails
+    served = [
+        *store.list_discovery("principal"),
+        *[p for p in store.search_principals("handmade")],
+        *response.json()["items"],
+    ]
+    assert all(p.get("sam_account_name") != "handmade" for p in served)
+    return len(served), store.discovery_summary().get("principal", 0)
+
+
+@pytest.mark.parametrize("text", _REFUSED_BY_BOTH.values(), ids=_REFUSED_BY_BOTH.keys())
+def test_hand_edited_rows_both_sides_refuse_are_neither_counted_nor_served(
+    tmp_path, monkeypatch, text: str
+) -> None:
+    store = WorkspaceStore(tmp_path / "both.db")
+    try:
+        _import_principals(store, monkeypatch)
+        _seed_malformed(store, text)
+        client = TestClient(app, base_url="http://127.0.0.1")
+        _served_and_counted(store, client)
+        assert store.discovery_summary() == {"principal": 1}
+        with pytest.raises(NotFoundError):
+            store.get_discovery("principal", "malformed")
+        assert not store.is_degraded
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("text", _COUNTED_NOT_SERVED.values(), ids=_COUNTED_NOT_SERVED.keys())
+def test_hand_edited_rows_only_sqlite_accepts_are_counted_but_never_served(
+    tmp_path, monkeypatch, text: str
+) -> None:
+    # The documented residual: the summary counts marked rows SQLite considers
+    # valid JSON; the reader also refuses what it cannot decode or render.
+    store = WorkspaceStore(tmp_path / "residual.db")
+    try:
+        _import_principals(store, monkeypatch)
+        _seed_malformed(store, text)
+        client = TestClient(app, base_url="http://127.0.0.1")
+        _served_and_counted(store, client)
+        assert store.discovery_summary() == {"principal": 2}
+        with pytest.raises(NotFoundError):
+            store.get_discovery("principal", "malformed")
+        assert not store.is_degraded
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [*_REFUSED_BY_BOTH.values(), *_COUNTED_NOT_SERVED.values()],
+    ids=[*_REFUSED_BY_BOTH, *_COUNTED_NOT_SERVED],
+)
+def test_without_json_functions_counts_and_served_rows_agree(
+    tmp_path, monkeypatch, text: str
+) -> None:
+    store = WorkspaceStore(tmp_path / "fallback.db")
+    try:
+        _import_principals(store, monkeypatch)
+        _seed_malformed(store, text)
+        real_execute = store._connection.execute
+
+        class Wrapped:
+            def __init__(self, conn):
+                self._conn = conn
+
+            def execute(self, sql, params=()):
+                if "json_valid" in sql:
+                    raise sqlite3.OperationalError("no such function: json_valid")
+                return real_execute(sql, params)
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+        monkeypatch.setattr(store, "_connection", Wrapped(store._connection))
+        assert store.discovery_summary() == {"principal": 1}
+        assert len(store.list_discovery("principal")) == 1
+    finally:
+        monkeypatch.undo()
+        store.close()
