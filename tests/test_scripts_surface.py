@@ -368,7 +368,7 @@ def test_shapes_outside_the_lane_are_refused(
 def test_export_refusals_reach_the_caller_with_their_own_code(
     store: WorkspaceStore, client: TestClient, body: dict[str, Any]
 ) -> None:
-    """`_native_scripts_refusal` runs unchanged and its code is not rewritten."""
+    """`_native_scripts_refusals` run unchanged and their code is not rewritten."""
     gpo = _candidate_gpo(store)
     response = client.post(ROUTE.format(guid=gpo.guid), json=body)
     assert _codes(response) == ["inexpressible_native_script_state"]

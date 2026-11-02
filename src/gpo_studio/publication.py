@@ -349,7 +349,9 @@ def publication_refusals(
                 ),
             )
         )
-    elif not _is_ad_target(target):
+    # Independently of the above (round 10: an `elif` hid this behind an
+    # unmeasured family): a SYSVOL-only plan can write no directory attribute.
+    if not _is_ad_target(target):
         for side, value in (
             ("machine", registration.machine),
             ("user", registration.user),
@@ -652,7 +654,7 @@ def generate_publication_plan(
                     detail=f"Restore {attribute} from backup",
                 )
             )
-    else:
+    if not _is_ad_target(target):
         steps.extend(refusals.get("extension_lists_unreachable", ()))
 
     # A disabled side lives in the directory object's `flags` attribute, which

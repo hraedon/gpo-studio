@@ -441,7 +441,7 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Security
 
-Pre-1.1.1 security review, nine rounds. Both original findings predate 1.1.0.
+Pre-1.1.1 security review, ten rounds. Both original findings predate 1.1.0.
 
 - **The PowerShell plan (`plan.ps1`, `apply.ps1`) is bound to the GPO's
   declared domain.** Every GroupPolicy cmdlet names `-Domain`, and before any
@@ -538,6 +538,14 @@ Pre-1.1.1 security review, nine rounds. Both original findings predate 1.1.0.
 - **A `REG_BINARY` value with a tab or line break between bytes is planned.**
   Validation and the `Registry.pol` writer read such a value as its bytes;
   the plan alone refused it, which also refused the whole Studio bundle.
+  All three now use one parser (`registry_pol.hex_bytes`), so the plan also
+  refuses whitespace inside a byte, as the other two always did; its text
+  for every value it wrote before is unchanged.
+- **No refusal reason hides another.** A script state with no native
+  encoding no longer hides a script value the INI writer refuses (each
+  asynchronous entry is named, not the first), a `cpassword` no longer hides
+  its file's unmeasured GPP family, and an unmeasured family no longer hides
+  a SYSVOL-only publication plan's unreachable extension lists.
 - A GPO whose stored scheduled task holds text XML cannot carry (a lone
   surrogate) is readable again; the round-8 `cpassword` check had made its
   read a 422.

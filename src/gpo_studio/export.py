@@ -37,7 +37,7 @@ from .gpp import (
 )
 from .identity_values import dn_problem, link_target_scope_problem
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
-from .registry_pol import PolRecord, serialize
+from .registry_pol import PolRecord, hex_bytes, serialize
 from .script_policy import PowerShellScriptEntry, ScriptEntry, ScriptPolicy
 from .validation import validate_gpo
 
@@ -152,11 +152,16 @@ def _ps_value(setting: RegistrySetting) -> str:
     if isinstance(setting.value, list):
         return "@(" + ", ".join(ps_literal(item, "Value") for item in setting.value) + ")"
     if setting.registry_type == "REG_BINARY":
-        # The ASCII whitespace `bytes.fromhex` skips, as validation and the
-        # Registry.pol encoder read the value (round 9: a tab or line break
-        # between bytes passed both, and only the plan refused it).
+        # Parsed by THE parser validation and the Registry.pol encoder use
+        # (`registry_pol.hex_bytes`, round 10: the plan had its own, which
+        # accepted whitespace inside a byte). Each byte is then written as its
+        # pair in the value as given, so the plan text is what it always was.
+        try:
+            data = hex_bytes(setting.value)
+        except ValueError:
+            data = None
         clean = _ASCII_WHITESPACE.sub("", setting.value)
-        if not _HEX_PAIRS.fullmatch(clean):
+        if data is None or not _HEX_PAIRS.fullmatch(clean) or bytes.fromhex(clean) != data:
             raise EmitError([
                 EmitProblem("plan.ps1", "-Value", setting.value, "is not hexadecimal bytes")
             ])
@@ -1294,10 +1299,10 @@ _NO_SCRIPTS_EXPORT = (
 )
 
 
-def _native_scripts_refusal(
-    scope: str, policy: ScriptPolicy
-) -> ValidationIssue | None:
-    """Why *policy* has no native scripts-file encoding, or ``None``.
+def _native_scripts_refusals(scope: str, policy: ScriptPolicy) -> list[ValidationIssue]:
+    """Every reason *policy* has no native scripts-file encoding, or ``[]``:
+    the sync flags and each entry that is asynchronous (round 10: this
+    returned the first reason, hiding the others).
 
     REFUSED, NOT APPROXIMATED — the same call as the cpassword and
     ``explicitValue`` refusals above. The R2 captures pin the native entry
@@ -1314,8 +1319,9 @@ def _native_scripts_refusal(
     names the change that makes the policy exportable.
     """
     path = f"scripts/{scope}"
+    issues: list[ValidationIssue] = []
     if policy.run_logon_scripts_sync or policy.run_logoff_scripts_sync:
-        return ValidationIssue(
+        issues.append(ValidationIssue(
             severity="error",
             code="inexpressible_native_script_state",
             message=(
@@ -1325,10 +1331,10 @@ def _native_scripts_refusal(
                 + " Clear both flags to export this policy."
             ),
             path=path,
-        )
+        ))
     for entry in (*policy.startup, *policy.shutdown, *policy.logon, *policy.logoff):
         if entry.execution != "synchronous":
-            return ValidationIssue(
+            issues.append(ValidationIssue(
                 severity="error",
                 code="inexpressible_native_script_state",
                 message=(
@@ -1338,7 +1344,7 @@ def _native_scripts_refusal(
                     + " Make the script synchronous to export it."
                 ),
                 path=f"{path}/{entry.script_id}",
-            )
+            ))
     for ps_entry in (
         *policy.powershell_startup,
         *policy.powershell_shutdown,
@@ -1350,7 +1356,7 @@ def _native_scripts_refusal(
             or ps_entry.no_profile
             or not ps_entry.non_interactive
         ):
-            return ValidationIssue(
+            issues.append(ValidationIssue(
                 severity="error",
                 code="inexpressible_native_script_state",
                 message=(
@@ -1363,8 +1369,8 @@ def _native_scripts_refusal(
                     "non-interactive) to export it."
                 ),
                 path=f"powershell_{path}/{ps_entry.script_id}",
-            )
-    return None
+            ))
+    return issues
 
 
 def _legacy_scripts_sections(
@@ -1427,7 +1433,7 @@ def _native_scripts_value_refusal(scope: str, policy: ScriptPolicy) -> Validatio
         code="unwritable_script_value",
         message=(
             "These script values cannot be written into a native scripts file: "
-            + "; ".join(str(problem) for problem in problems[:5])
+            + "; ".join(str(problem) for problem in problems)
         ),
         path=f"scripts/{scope}",
     )
@@ -1685,19 +1691,13 @@ def native_backup_model_refusals(
     shape, a script policy with no native encoding, and Folder Redirection.
     The writer keeps the same checks on what it writes, as defence in depth;
     each is built by the same constructor, so the two cannot word it apart."""
-    issues: list[ValidationIssue] = []
-    carrying: set[tuple[str, str]] = set()
-    for col in gpo.gpp_collections:
-        side_dir = "Machine" if col.scope == "computer" else "User"
-        for filename in gpp_files_carrying_cpassword(col):
-            carrying.add((side_dir, filename.replace("\\", "/")))
-            issues.append(_cpassword_issue(filename.replace("\\", "/")))
-    # As the writer does: a file refused for its cpassword is not also asked
-    # for its family's extension pair.
+    issues = gpp_cpassword_refusals(gpo)
+    # Every file's family, a cpassword's included (round 10: a file refused
+    # for its cpassword hid an unmeasured family, as the writer's own
+    # check still does -- a writer stops at the first refusal of a file).
     unsupported = {
-        family
-        for side_dir, family, filename in _gpp_families(gpo)
-        if (side_dir, filename) not in carrying and family not in _GPP_EXTENSION_PROFILES
+        family for _side, family, _filename in _gpp_families(gpo)
+        if family not in _GPP_EXTENSION_PROFILES
     }
     if unsupported:
         issues.append(_unsupported_extension_issue(unsupported))
@@ -1707,11 +1707,12 @@ def native_backup_model_refusals(
     for scope in _SCRIPT_SIDES:
         policy = (scripts or {}).get(scope)
         if policy is not None:
-            refusal = _native_scripts_refusal(scope, policy) or _native_scripts_value_refusal(
-                scope, policy
-            )
-            if refusal is not None:
-                issues.append(refusal)
+            # Independently: a state with no encoding hides no value the INI
+            # writer would refuse (round 10, Sol).
+            issues.extend(_native_scripts_refusals(scope, policy))
+            value_refusal = _native_scripts_value_refusal(scope, policy)
+            if value_refusal is not None:
+                issues.append(value_refusal)
     if gpo.fdeploy is not None:
         issues.append(_fdeploy_issue())
     return issues
@@ -1771,9 +1772,9 @@ def _native_export_files(
         policy = script_policies.get(scope)
         if policy is None:
             continue
-        refusal = _native_scripts_refusal(scope, policy)
-        if refusal is not None:
-            issues.append(refusal)
+        refusals = _native_scripts_refusals(scope, policy)
+        if refusals:
+            issues.extend(refusals)
             continue
         _native_scripts_files(scope, policy, files)
 
@@ -2042,7 +2043,7 @@ def gpmc_backup_bundle(
     native byte shape, and registers the measured Scripts CSE pair in
     ``MachineExtensionGuids``/``UserExtensionGuids``. States with no measured
     native encoding are refused, not approximated — see
-    `_native_scripts_refusal`.
+    `_native_scripts_refusals`.
 
     Validates its own input first, as `powershell_plan` does (Sol final-r18
     B2): a GPO with a validation error -- stored content a current rule
@@ -2066,7 +2067,7 @@ def _gpmc_backup_codec(gpo: GPO, scripts: Mapping[str, ScriptPolicy] | None = No
     (`tests/test_plan_binding.py` holds it so). Codec tests call it to measure
     the byte shape of combinations the decision refuses as unmeasured -- a
     backup with scripts AND registry settings, say -- without offering them.
-    It still refuses what no encoding can carry (`_native_scripts_refusal`).
+    It still refuses what no encoding can carry (`_native_scripts_refusals`).
     """
     backup_id = native_backup_id(gpo)
     files, profiles = _native_export_files(gpo, scripts)

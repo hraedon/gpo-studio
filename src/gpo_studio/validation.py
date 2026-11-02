@@ -33,7 +33,7 @@ from .identity_values import (
 )
 from .ilt import IltError, IltFilter, IltPredicate
 from .model import GPO, RegistrySetting, ValidationIssue
-from .registry_pol import _MAX_MULTI_SZ_ITEMS
+from .registry_pol import _MAX_MULTI_SZ_ITEMS, hex_bytes
 from .stored_types import STORED_WRONG_TYPE
 from .xml_safety import unwritable_text, xml_char_forbidden
 
@@ -255,7 +255,7 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
                 )
             else:
                 try:
-                    bytes.fromhex(value.replace(" ", ""))
+                    hex_bytes(value)
                 except ValueError:
                     issues.append(
                         ValidationIssue(
@@ -1068,7 +1068,7 @@ def validate_gpp_registry_value(
             )
         else:
             try:
-                bytes.fromhex(raw.replace(" ", ""))
+                hex_bytes(raw)
             except ValueError:
                 issues.append(
                     ValidationIssue(

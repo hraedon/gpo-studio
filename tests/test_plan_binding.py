@@ -2782,3 +2782,119 @@ def test_no_scripts_writer_refuses_what_the_decision_accepts(field: str, entry_t
             assert _raised(export.gpmc_backup_bundle, gpo, scripts=scripts) == _codes(decided)
             continue
         egress.checked_gpmc_backup(gpo, scripts=scripts)
+
+
+# --- round 10: no reason hides another; one REG_BINARY parser ---------------
+
+
+def test_a_script_state_and_a_script_value_are_both_named(stored_client: Any) -> None:
+    """Round 10 (Sol): an `or` skipped the INI value check whenever the state
+    check refused. An asynchronous ``run.cmd`` with parameters `` /q`` named
+    the state alone; making it synchronous then revealed the value."""
+    gpo = _gpo(settings=(), security_filters=(), links=())
+    entry = replace(ScriptEntry("s1", "a1", "run.cmd"), execution="asynchronous", parameters=" /q")
+    scripts = {"computer": ScriptPolicy(startup=(entry,))}
+    decided = _codes(export.refusal_issues(gpo, "gpmc-backup-with-scripts", scripts=scripts))
+    assert {"inexpressible_native_script_state", "unwritable_script_value"} <= set(decided)
+    assert _raised(export.gpmc_backup_bundle, gpo, scripts=scripts) == decided
+    store, client = stored_client
+    stored = store.create_gpo(name="Synthetic scripts", identity="reviewer", reason="probe")
+    response = client.post(
+        f"/api/gpos/{stored.guid}/gpmc-backup-with-scripts",
+        json={"computer": {"startup": [
+            {"command": "run.cmd", "parameters": " /q", "execution": "asynchronous"}
+        ]}},
+    )
+    assert response.status_code == 422, response.text
+    codes = {issue["code"] for issue in response.json()["error"]["issues"]}
+    assert {"inexpressible_native_script_state", "unwritable_script_value"} <= codes
+
+
+def test_every_script_state_reason_is_named() -> None:
+    """Round 10 (sweep): the state check returned at its first reason."""
+    from gpo_studio.script_policy import PowerShellScriptEntry
+
+    policy = ScriptPolicy(
+        startup=(
+            replace(ScriptEntry("s1", "a1", "one.cmd"), execution="asynchronous"),
+            replace(ScriptEntry("s2", "a2", "two.cmd", order=2), execution="asynchronous"),
+        ),
+        powershell_startup=(replace(PowerShellScriptEntry("p1", "a3", "three.ps1"),
+                                    no_profile=True),),
+        run_logon_scripts_sync=True,
+    )
+    refusals = export._native_scripts_refusals("computer", policy)
+    assert len(refusals) == 4
+    assert {issue.path for issue in refusals} == {
+        "scripts/computer", "scripts/computer/s1", "scripts/computer/s2",
+        "powershell_scripts/computer/p1",
+    }
+
+
+def test_a_cpassword_hides_no_unmeasured_family() -> None:
+    """Round 10 (sweep): a GPP file refused for its cpassword was not asked for
+    its family's native extension pair."""
+    gpo = _combined(("unverified-family",))
+    collection = gpo.gpp_collections[0]
+    item = replace(collection.environment[0], unknown_attrs=(("cpassword", "x"),))
+    gpo = replace(gpo, gpp_collections=(replace(collection, environment=(item,)),))
+    codes = set(_codes(export.refusal_issues(gpo, "gpmc-backup")))
+    assert {"cpassword_detected", "unsupported_native_gpp_extension"} <= codes
+
+
+def test_an_unmeasured_family_hides_no_unreachable_extension_list() -> None:
+    """Round 10 (sweep): an `elif` hid a SYSVOL-only plan's unreachable
+    extension lists behind an unmeasured GPP family."""
+    gpo = _combined(("unverified-family",))
+    decided = set(_codes(export.refusal_issues(gpo, "publication-plan", target="sysvol")))
+    assert {"unsupported_extension_registration", "extension_lists_unreachable"} <= decided
+    plan = publication_module.generate_publication_plan(gpo, "sysvol")
+    errors = {
+        i.check for i in publication_module.validate_publication_plan(plan) if i.level == "error"
+    }
+    assert decided <= errors
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", " ", "0A", "0a0b", "0A 0B", "0A\t0B", "0A\n0B", " 0A ", "0\tA", "0 A", "ZZ", "0A0",
+     "0A 0B", "0A 0B", "0A\x0b0B", "0A\x0c0B"],
+)
+def test_one_binary_parser_for_validation_the_encoder_and_the_plan(value: str) -> None:
+    """Round 10 (Sol): the plan parsed REG_BINARY itself and took whitespace
+    inside a byte (``0\\tA`` as 0A) that validation and the Registry.pol encoder
+    refuse. All three now use `registry_pol.hex_bytes`."""
+    from gpo_studio.emit_integrity import EmitError
+    from gpo_studio.registry_pol import RegistryPolError, _encode_data, hex_bytes
+    from gpo_studio.validation import validate_setting
+
+    setting = replace(_gpo().settings[0], registry_type="REG_BINARY", value=value)
+    try:
+        expected: bytes | None = hex_bytes(value)
+    except ValueError:
+        expected = None
+    invalid = any(i.code == "invalid_binary_hex" for i in validate_setting(setting))
+    assert invalid is (expected is None)
+    try:
+        encoded: bytes | None = _encode_data("REG_BINARY", value)
+    except RegistryPolError:
+        encoded = None
+    assert encoded == expected
+    try:
+        planned = export._ps_value(setting)
+    except EmitError:
+        assert expected is None
+    else:
+        assert expected is not None
+        written = re.findall(r"0x([0-9A-Fa-f]{2})", planned)
+        assert bytes.fromhex("".join(written)) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [("0a0b", "([byte[]](0x0a,0x0b))"), ("0A 0B", "([byte[]](0x0A,0x0B))"),
+     ("", "([byte[]]@())"), ("0A", "([byte[]](0x0A))")],
+)
+def test_the_plan_writes_a_binary_value_as_it_always_has(value: str, text: str) -> None:
+    setting = replace(_gpo().settings[0], registry_type="REG_BINARY", value=value)
+    assert export._ps_value(setting) == text
