@@ -42,6 +42,14 @@ Current version: `1.2.0`. The previous final release was `1.1.0`.
 
 ### Changed
 
+- Release process: the CI and release job timeouts were raised before the
+  1.2.0 freeze, because workflows cannot change between the freeze commit and
+  the tag (#169): `test` from 55 to 90 minutes, `test-windows` from 90 to 150,
+  and the release workflow's `verify` from 60 to 120. On the runs measured
+  from 2026-10-31 to 2026-11-02, the Python 3.13 jobs took up to 49 minutes
+  (`test`) and 74 minutes (`test-windows`). The first `v1.1.0` tag's release
+  run was cancelled at a limit with a margin like the old ones.
+
 - Development dependency: vitest and its `@vitest/*` packages move from
   4.1.11 to 4.1.12, which clears two moderate `npm audit` advisories in
   `@vitest/mocker` (GHSA-qxg6-89mg-rqv8, GHSA-xp26-3454-mjgp) (#140). Only the
