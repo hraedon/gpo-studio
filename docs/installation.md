@@ -261,7 +261,7 @@ browser saves to its download folder:
 
 | Endpoint | Format | Content |
 |----------|--------|---------|
-| `GET /api/gpos/{guid}/export.zip` | ZIP | Studio publication bundle: `manifest.json`, `apply.ps1`, `Machine/Registry.pol`, `User/Registry.pol`, and GPP XML. |
+| `GET /api/gpos/{guid}/export.zip` | ZIP | Studio publication bundle: `manifest.json`, `apply.ps1` (left out, with the reason under `powershell_plan` in the manifest, when no plan can be generated), `Machine/Registry.pol`, `User/Registry.pol`, and GPP XML. |
 | `GET /api/gpos/{guid}/plan.ps1` | text | PowerShell publication plan (`apply.ps1` standalone). |
 | `GET /api/gpos/{guid}/report.txt` | text | Human-readable policy report. |
 | `GET /api/gpos/{guid}/gpmc-backup` | ZIP | Native GPMC backup: `manifest.xml`, `{BACKUP_ID}/Backup.xml`, nested `bkupInfo.xml`, lowercase `registry.pol`, and verified GPP XML under `DomainSysvol/GPO`. |
@@ -476,10 +476,25 @@ A closed allowlist validates the plan; see
 - Side enablement (`$gpo.GpoStatus`)
 - GPO creation and rename (`New-GPO`, `Rename-GPO`)
 
+The plan only changes the GPO's declared domain, and stops unchanged unless
+that domain is reachable under its declared DNS name and every link target (the
+domain or one of its OUs) resolves in it. It modifies the GPO whose comment
+carries the plan's binding marker (written when the plan creates the GPO);
+renaming it, binding a GPO whose workspace GUID came from an import, or any
+other existing GPO with the workspace GUID or the name needs
+`apply.ps1 -AdoptExistingGpo`. When security filters are authored, every other
+trustee holding Apply, Authenticated Users included, is lowered to Read. A GPO
+with a WMI filter gets no plan. Run `apply.ps1 -WhatIf` to see the changes
+without making them. The plan is not transactional: if it stops partway, read
+its header for what is left behind and how to recover. See
+[PowerShell plan accuracy](capability-matrix.md#powershell-plan-accuracy) for
+the full rules.
+
 ### What the plan does not apply
 
-- WMI filter assignment. The plan notes it in a comment; assign it manually in
-  GPMC.
+- WMI filter assignment. A GPO with a WMI filter gets no plan; apply it through
+  the GPMC backup and assign the filter in GPMC.
+- Site links. Link a site in GPMC.
 - GPP Groups and Registry content. It is in the GPMC backup export only.
 
 ### Windows path handling

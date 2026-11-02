@@ -7,7 +7,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
-from typing import Protocol, assert_never, cast
+from typing import Literal, Protocol, assert_never, cast
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from .canonical import (
@@ -24,13 +24,22 @@ from .emit_integrity import (
     check_xml,
     escape_line,
     ps_literal,
+    ps_problem,
     scripts_ini_problems,
 )
-from .gpp import GppError, contains_cpassword, gpp_registry_unmeasured_shapes, serialize_gpp
+from .gpp import (
+    GppError,
+    contains_cpassword,
+    gpp_file_names,
+    gpp_files_carrying_cpassword,
+    gpp_registry_unmeasured_shapes,
+    serialize_gpp,
+)
+from .identity_values import dn_problem, link_target_scope_problem
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
-from .registry_pol import PolRecord, serialize
+from .registry_pol import PolRecord, hex_bytes, serialize
 from .script_policy import PowerShellScriptEntry, ScriptEntry, ScriptPolicy
-from .validation import text_issues, validate_gpo
+from .validation import validate_gpo
 
 _GPMC_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"
 _GPMC_BACKUP_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations"
@@ -134,6 +143,7 @@ def _ps_sanitize_comment(text: str) -> str:
 
 
 _HEX_PAIRS = re.compile(r"(?:[0-9A-Fa-f]{2})*", re.ASCII)
+_ASCII_WHITESPACE = re.compile(r"[ \t\n\r\x0b\x0c]")
 
 
 def _ps_value(setting: RegistrySetting) -> str:
@@ -142,8 +152,16 @@ def _ps_value(setting: RegistrySetting) -> str:
     if isinstance(setting.value, list):
         return "@(" + ", ".join(ps_literal(item, "Value") for item in setting.value) + ")"
     if setting.registry_type == "REG_BINARY":
-        clean = setting.value.replace(" ", "")
-        if not _HEX_PAIRS.fullmatch(clean):
+        # Parsed by THE parser validation and the Registry.pol encoder use
+        # (`registry_pol.hex_bytes`, round 10: the plan had its own, which
+        # accepted whitespace inside a byte). Each byte is then written as its
+        # pair in the value as given, so the plan text is what it always was.
+        try:
+            data = hex_bytes(setting.value)
+        except ValueError:
+            data = None
+        clean = _ASCII_WHITESPACE.sub("", setting.value)
+        if data is None or not _HEX_PAIRS.fullmatch(clean) or bytes.fromhex(clean) != data:
             raise EmitError([
                 EmitProblem("plan.ps1", "-Value", setting.value, "is not hexadecimal bytes")
             ])
@@ -155,24 +173,15 @@ def _ps_value(setting: RegistrySetting) -> str:
     return ps_literal(setting.value, "Value")
 
 
-def _text_refusal(gpo: GPO) -> ValidationIssue | None:
-    """The first string no artifact can carry (batch-2 review), or ``None``.
-
-    Every exporter asks this first: a stored legacy revision can still hold
-    such text, and writing it would either crash (a lone surrogate cannot be
-    encoded) or produce XML a parser rejects. It is a refusal with a code,
-    reported where the capability is advertised.
-    """
-    issues = text_issues(gpo)
-    return issues[0] if issues else None
-
-
 def _writer_refusal(error: Exception, path: str) -> ValidationIssue:
     """A writer's refusal as the issue a capability reports (final-r9 DS B2):
     a read or a mutation response must never raise because stored data is
     something a writer will not emit."""
     if isinstance(error, ValidationError) and error.issues:
-        return error.issues[0]
+        # Every reason, named in one issue (round 8: this kept issues[0]).
+        summary = refusal_summary(_canonical(error.issues))
+        assert summary is not None
+        return summary
     return ValidationIssue(
         severity="error",
         code="unwritable_artifact_value",
@@ -186,8 +195,8 @@ def plan_refusal(gpo: GPO) -> ValidationIssue | None:
 
     The plan route's own function decides (`egress.plan_refusal`, which runs
     `egress.checked_plan`: the writer, then egress), so the capability and the
-    download cannot disagree (WI-044; DeepSeek final-r11 B1). A GPO with a
-    validation error is reported by `validate_gpo` (the caller's ``blocked``).
+    download cannot disagree (WI-044; DeepSeek final-r11 B1). Every refusal,
+    validation errors included, is `refusal_issues`'.
     """
     from .egress import plan_refusal as checked
 
@@ -202,8 +211,8 @@ def studio_export_refusal(gpo: GPO) -> ValidationIssue | None:
     return cast(ValidationIssue | None, checked(gpo))
 
 
-def _plan_precondition(gpo: GPO) -> ValidationIssue | None:
-    """What refuses a plan before any argument is written.
+def _plan_refusals(gpo: GPO) -> list[ValidationIssue]:
+    """Every reason a plan is refused before any argument is written.
 
     ONE function so the refusal and the advertisement of it cannot disagree
     (WI-044). `powershell_plan` raises on whatever this returns, and the API
@@ -217,25 +226,411 @@ def _plan_precondition(gpo: GPO) -> ValidationIssue | None:
     `validate_gpo` has no deny rule, so the capability said `enabled: true`
     while the download refused.
     """
-    unwritable = _text_refusal(gpo)
-    if unwritable is not None:
-        return unwritable
+    # No early return (round 7): text XML cannot carry is a validation error
+    # (`text_issues`), reported beside these by `refusal_issues`; every
+    # message here names user text through repr(), so it stays printable.
+    # All of them, not the first (pre-1.1.1 review, round 4): the bundle is
+    # written without the plan only when EVERY reason is plan-only, so a deny
+    # filter beside a WMI filter refuses the whole export, as it does alone.
+    found: list[ValidationIssue] = []
+    for link in gpo.links:
+        # The plan names its domain on every call, but -Target may name a
+        # container in any trusted domain (pre-1.1.1 review, round 2).
+        if dn_problem(link.target) is None:
+            scope = link_target_scope_problem(link.target, gpo.domain.strip())
+            if scope is not None:
+                found.append(ValidationIssue(
+                    severity="error",
+                    code="link_target_outside_domain",
+                    message=(
+                        f"Link target {link.target!r} {scope}. A PowerShell plan links "
+                        "only to the GPO's declared domain and its OUs: set the domain, "
+                        "or remove the link."
+                    ),
+                    path=f"links/{link.id}/target",
+                ))
+    if gpo.wmi_filter is not None:
+        # The plan cannot assign a WMI filter, and it cannot verify an assigned
+        # one: the GroupPolicy module exposes a filter's name and path, and its
+        # query list's format is unmeasured (round 3). A name match alone let a
+        # different filter with the same name -- deleted and recreated, or
+        # broader -- satisfy the plan before it linked the GPO.
+        found.append(ValidationIssue(
+            severity="error",
+            code="wmi_filter_not_verifiable",
+            message=(
+                f"The GPO has the WMI filter {gpo.wmi_filter.name!r}, which a PowerShell "
+                "plan can neither assign nor verify, so no plan is generated. Apply this "
+                "GPO through the GPMC backup and Import-GPO, and assign the filter in GPMC."
+            ),
+            path="wmi_filter",
+        ))
     denied = [sf for sf in gpo.security_filters if sf.deny]
     if not denied:
-        return None
-    return ValidationIssue(
+        return sorted(found, key=lambda issue: (issue.code, issue.message))
+    found.append(ValidationIssue(
         severity="error",
         code="deny_filter_not_expressible",
         message=(
             "Security filter for "
-            f"{', '.join(sorted(sf.principal for sf in denied))} "
+            f"{', '.join(repr(p) for p in sorted(sf.principal for sf in denied))} "
             "is a DENY, which Set-GPPermission cannot express. "
             "A PowerShell plan cannot be generated for this GPO "
             "without changing what the deny means. Remove the "
             "deny, or apply it out of band as a DACL ACE."
         ),
         path="security_filters",
-    )
+    ))
+    # A canonical order, so two models that differ only in the order of their
+    # links -- the same semantic and review digests -- give the same record
+    # (round 6). Ordinal: by code, then message (which names the target).
+    return sorted(found, key=lambda issue: (issue.code, issue.message))
+
+
+#: The text a plan writes into the comment of a GPO it creates, and the line it
+#: looks for before it will modify an existing GPO without ``-AdoptExistingGpo``.
+#: Accident prevention, not authentication: anyone who can edit a GPO's comment
+#: can write it.
+def plan_binding_marker(gpo: GPO) -> str:
+    return f"GPO Studio binding: {gpo.guid}"
+
+
+def _plan_comment(gpo: GPO) -> str:
+    """The comment a plan gives a GPO it creates: the description (or a fixed
+    line when there is none), then the binding marker on its own line."""
+    return f"{gpo.description or 'Created by GPO Studio'}\n\n{plan_binding_marker(gpo)}"
+
+
+_SID_PRINCIPAL = re.compile(r"[Ss]-\d")
+
+#: Ordinal string comparisons, the plan's only kind for identities: PowerShell's
+#: ``-eq``/``-ccontains`` compare with culture rules, under which a zero-width
+#: space or a soft hyphen inside a value still matches (pre-1.1.1 review,
+#: round 3).
+_ORDINAL = "[StringComparison]::Ordinal"
+_IGNORE_CASE = "[StringComparison]::OrdinalIgnoreCase"
+
+
+def _guid_from_imported_data(gpo: GPO) -> bool:
+    """Whether the workspace GUID came from imported data.
+
+    An estate import keeps the GUID its file names as the workspace GUID and
+    records it as ``source_guid`` too; every other way of making a workspace
+    GPO mints a fresh one. Such a GUID proves nothing about which Studio
+    workspace wrote a marker: a crafted estate can carry the GUID read from
+    another Studio GPO's comment (comments are readable by every authenticated
+    user), so its marker never binds without ``-AdoptExistingGpo``.
+    """
+    if not gpo.source_guid:
+        return False
+    try:
+        return UUID(gpo.guid.strip("{}")) == UUID(gpo.source_guid.strip("{}"))
+    except ValueError:
+        return gpo.guid.strip("{}").casefold() == gpo.source_guid.strip("{}").casefold()
+
+
+def _plan_principals(gpo: GPO) -> list[str]:
+    """Resolve every authored filter principal to a SID before anything changes.
+
+    A ``DOMAIN\\name`` or UPN principal is translated to its SID; a SID
+    principal to the account name ``Set-GPPermission`` is given. Where the
+    filter stores a SID (an import does), a different resolution stops the
+    plan: a group deleted and recreated under the same name is not the group
+    the filter was authored for. Two filters resolving to one SID stop it too.
+    ``$authored`` holds ``(sid, name, level, type)`` per filter; ``$seen``
+    maps each SID to its level, ordinally.
+    """
+    lines = ["$authored = @()"]
+    for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
+        match sf.permission:
+            case "apply":
+                level = "GpoApply"
+            case "read":
+                level = "GpoRead"
+            case _:
+                assert_never(sf.permission)
+        if _SID_PRINCIPAL.match(sf.principal):
+            sid = ps_literal(sf.principal, "Sid")
+            lines += [
+                f"try {{ $name = ([System.Security.Principal.SecurityIdentifier]{sid})"
+                ".Translate([System.Security.Principal.NTAccount]).Value }",
+                f"catch {{ throw ('Cannot resolve ' + {sid}"
+                " + ', so nothing was changed: ' + $_.Exception.Message) }",
+                f"$sid = ([System.Security.Principal.SecurityIdentifier]{sid}).Value",
+            ]
+        else:
+            principal = ps_literal(sf.principal, "TargetName")
+            lines += [
+                f"try {{ $sid = ([System.Security.Principal.NTAccount]{principal})"
+                ".Translate([System.Security.Principal.SecurityIdentifier]).Value }",
+                f"catch {{ throw ('Cannot resolve ' + {principal}"
+                " + ', so nothing was changed: ' + $_.Exception.Message) }",
+                f"$name = {principal}",
+            ]
+        if sf.sid:
+            stored = ps_literal(sf.sid, "Sid")
+            lines.append(
+                f"if (-not [string]::Equals($sid, {stored}, {_IGNORE_CASE})) {{"
+                f" throw ($name + ' resolves to ' + $sid + ', not the stored ' + {stored}"
+                " + ', so nothing was changed.') }"
+            )
+        lines.append(f"$authored += ,@($sid, $name, '{level}', '{sf.target_type.title()}')")
+    lines += [
+        "$seen = [System.Collections.Generic.Dictionary[string, string]]::new("
+        "[StringComparer]::OrdinalIgnoreCase)",
+        "foreach ($a in $authored) {",
+        "    if ($seen.ContainsKey($a[0])) {",
+        "        throw ('Two security filters resolve to ' + $a[0] + ', so nothing was changed.')",
+        "    }",
+        "    $seen[$a[0]] = $a[2]",
+        "}",
+    ]
+    return lines
+
+
+def _plan_new_gpo_editor_check() -> list[str]:
+    """Before ``New-GPO``: stop if a filter names a principal every new GPO
+    gives edit rights to, so a plan that would be refused creates nothing.
+
+    The measured defaults (WS2025, wp0 permissions.txt) are SYSTEM, the
+    declared domain's Domain Admins (RID 512) and the forest root's
+    Enterprise Admins (RID 519). Both domain SIDs are read live, from the
+    declared domain's RootDSE naming contexts and their ``objectSid`` -- never
+    from the authored data, and never by RID alone (round 5: any trusted
+    domain's RID-512 group was refused). Through ``psbase``, as the ADSI
+    adapter needs (measured).
+    """
+    root = "[System.DirectoryServices.DirectoryEntry]::new('LDAP://' + $domain + '/RootDSE')"
+    return [
+        "    try {",
+        f"        $rootDse = {root}",
+        "        $domainNc = [string]$rootDse.psbase.Properties['defaultNamingContext'].Value",
+        "        $rootNc = [string]$rootDse.psbase.Properties['rootDomainNamingContext'].Value",
+        "        $domainSid = [System.Security.Principal.SecurityIdentifier]::new([byte[]]("
+        "[System.DirectoryServices.DirectoryEntry]::new('LDAP://' + $domain + '/' + $domainNc)"
+        ".psbase.Properties['objectSid'].Value), 0).Value",
+        "        $rootSid = [System.Security.Principal.SecurityIdentifier]::new([byte[]]("
+        "[System.DirectoryServices.DirectoryEntry]::new('LDAP://' + $domain + '/' + $rootNc)"
+        ".psbase.Properties['objectSid'].Value), 0).Value",
+        "    }",
+        "    catch { throw ('Cannot read the SIDs of ' + $domain + ' and its forest root, so"
+        " nothing was changed: ' + $_.Exception.Message) }",
+        "    $editors = @('S-1-5-18', ($domainSid + '-512'), ($rootSid + '-519'))",
+        "    foreach ($a in $authored) {",
+        "        if (@($editors | Where-Object {"
+        f" [string]::Equals($_, $a[0], {_IGNORE_CASE}) }}).Count -gt 0) {{",
+        "            throw ($a[1] + ' has edit rights on every new GPO (SYSTEM, the Domain"
+        " Admins of ' + $domain + ' or the Enterprise Admins of its forest), so a security"
+        " filter cannot name it. Nothing was changed.')",
+        "        }",
+        "    }",
+    ]
+
+
+def _plan_new_gpo_owner_check() -> list[str]:
+    """Right after ``New-GPO``, before any other change: stop if a filter names
+    the new GPO's owner, whose rights ``-Replace`` would take.
+
+    The owner is whom AD records -- read from the new GPO (``$gpo.Owner``, an
+    account name, measured as ``LAB\\Domain Admins`` for an administrator
+    creator) -- not the local token (``WindowsIdentity.GetCurrent()``), which
+    differs under ``runas /netonly`` (round 5). This is the one check that can
+    only run after the GPO exists: a stop here leaves it, unlinked, with the
+    Windows default permissions.
+    """
+    return [
+        "    try { $ownerSid = ([System.Security.Principal.NTAccount][string]$gpo.Owner)"
+        ".Translate([System.Security.Principal.SecurityIdentifier]).Value }",
+        "    catch { throw ('Cannot resolve ' + $gpo.Owner + ', the owner of the new GPO. The plan"
+        " stops: the GPO exists, unlinked, with the Windows default permissions.') }",
+        "    if ($seen.ContainsKey($ownerSid)) {",
+        "        throw ($gpo.Owner + ' owns the new GPO, so a security filter cannot name it. The"
+        " plan stops: the GPO exists, unlinked, with the Windows default permissions.')",
+        "    }",
+    ]
+
+
+def _plan_permission_preflight() -> list[str]:
+    """Stop, before any change to the GPO, on what the plan cannot reconcile.
+
+    An authored principal holding an edit level, a custom level, an inherited
+    entry or a deny: ``Set-GPPermission -Replace`` would silently remove edit
+    rights, cannot change an inherited entry, and does not express a deny.
+    Any other trustee holding an inherited ``GpoApply`` or a ``GpoCustom``
+    level (which may include Apply): the plan cannot lower either. And every
+    trustee the plan will lower must be one it can name: its account name must
+    translate back to its own SID. An orphaned SID holding Apply used to stop
+    the plan only when it was reached, after Authenticated Users had already
+    been lowered -- an outage on a linked GPO that every re-run repeated
+    (round 3). ``$lower`` holds ``(name, type)`` for each.
+    """
+    return [
+        "$existing = @(Get-GPPermission -Guid $gpo.Id -All -Domain $domain)",
+        "$lower = @()",
+        "foreach ($perm in $existing) {",
+        "    $held = [string]$perm.Trustee.Sid.Value",
+        "    if ($seen.ContainsKey($held)) {",
+        "        if ($perm.Denied -or $perm.Inherited -or",
+        "            @('GpoApply', 'GpoRead') -notcontains $perm.Permission) {",
+        "            throw ($perm.Trustee.Name + ' is named by a security filter but holds '"
+        " + $perm.Permission + ' (denied: ' + $perm.Denied + ', inherited: '"
+        " + $perm.Inherited + '). The plan will not replace that, so nothing was changed.')",
+        "        }",
+        "    }",
+        "    elseif (-not $perm.Denied -and ($perm.Permission -eq 'GpoCustom' -or",
+        "            ($perm.Permission -eq 'GpoApply' -and $perm.Inherited))) {",
+        "        throw ('The plan cannot reduce ' + $perm.Permission + ' held by '"
+        " + $perm.Trustee.Name + ' (inherited: ' + $perm.Inherited + '), so nothing was"
+        " changed. Review it in GPMC, then run the plan again.')",
+        "    }",
+        "    if ($perm.Permission -eq 'GpoApply' -and -not $perm.Denied -and",
+        "        -not ($seen.ContainsKey($held) -and $seen[$held] -eq 'GpoApply')) {",
+        "        $who = [string]$perm.Trustee.Name",
+        "        if ($perm.Trustee.Domain) {",
+        "            $who = $perm.Trustee.Domain + '\\' + $perm.Trustee.Name",
+        "        }",
+        "        $named = ''",
+        "        try { $named = ([System.Security.Principal.NTAccount]$who)"
+        ".Translate([System.Security.Principal.SecurityIdentifier]).Value }",
+        "        catch { $named = '' }",
+        "        if (-not $held -or -not [string]::Equals($named, $held,"
+        f" {_IGNORE_CASE})) {{",
+        "            throw ('The plan would have to lower GpoApply held by ' + $held + ' ('"
+        " + $who + '), but cannot name that trustee, so nothing was changed. Remove the"
+        " entry in GPMC, then run the plan again.')",
+        "        }",
+        "        $type = 'Group'",
+        "        if ($perm.Trustee.SidType -eq 'User') { $type = 'User' }",
+        "        if ($perm.Trustee.SidType -eq 'Computer') { $type = 'Computer' }",
+        "        $lower += ,@($who, $type)",
+        "    }",
+        "}",
+    ]
+
+
+def _plan_security_filtering(gpo: GPO) -> list[str]:
+    """Reconcile filtering after the preflight: lower, then grant, then read back.
+
+    The authored filters are the GPO's whole apply set (Daybreak finding 2).
+    Every other non-deny ``GpoApply`` -- Authenticated Users included, which
+    every new GPO carries -- is lowered to ``GpoRead`` first (Read stays: since
+    MS16-072 the computer reads the GPO for both sides), then each authored
+    filter is granted, then the permissions are read back: nothing outside the
+    apply set may hold ``GpoApply``, and every authored principal must hold
+    exactly its level. Everything is matched by SID. Under ``-WhatIf`` the
+    cmdlets report what they would change and the read-back is skipped.
+
+    No filters authored means "not authored", not "apply to nobody": the
+    permissions are left as they are (a new GPO: the Windows default,
+    Authenticated Users Apply).
+    """
+    if not gpo.security_filters:
+        return [
+            "",
+            "# Security filtering: none authored. Permissions are left as they are; a new",
+            "# GPO keeps the Windows default (Authenticated Users: GpoApply).",
+        ]
+    lines = [
+        "",
+        "# Security filtering: the authored filters are the GPO's whole apply set.",
+        "# Any other trustee holding GpoApply, Authenticated Users included, is lowered to",
+        "# GpoRead first: Read stays because, since MS16-072, the computer reads the GPO",
+        "# for both sides. Then the filters are granted and the result is read back.",
+    ]
+    if not any(sf.permission == "apply" for sf in gpo.security_filters):
+        lines.append(
+            "# No authored filter grants Apply: after this section the GPO applies to no one."
+        )
+    lines += [
+        "foreach ($l in $lower) {",
+        "    Set-GPPermission -Guid $gpo.Id -PermissionLevel GpoRead -TargetName $l[0]"
+        " -TargetType $l[1] -Replace -Domain $domain | Out-Null",
+        "}",
+        "foreach ($a in $authored) {",
+        "    Set-GPPermission -Guid $gpo.Id -PermissionLevel $a[2] -TargetName $a[1]"
+        " -TargetType $a[3] -Replace -Domain $domain | Out-Null",
+        "}",
+        "if ($WhatIfPreference) {",
+        "    'What if: the security-filtering read-back runs only when the plan makes changes.'",
+        "}",
+        "else {",
+        "    $now = @(Get-GPPermission -Guid $gpo.Id -All -Domain $domain)",
+        "    foreach ($perm in $now) {",
+        "        $held = [string]$perm.Trustee.Sid.Value",
+        "        if ($perm.Permission -eq 'GpoApply' -and -not $perm.Denied -and",
+        "            -not ($seen.ContainsKey($held) -and $seen[$held] -eq 'GpoApply')) {",
+        "            throw ('After security filtering ' + $perm.Trustee.Name"
+        " + ' still holds GpoApply. Stopping before links are written.')",
+        "        }",
+        "    }",
+        "    foreach ($a in $authored) {",
+        "        $held = @($now | Where-Object {",
+        f"            [string]::Equals([string]$_.Trustee.Sid.Value, $a[0], {_IGNORE_CASE})"
+        " -and -not $_.Denied })",
+        "        if ($held.Count -ne 1 -or [string]$held[0].Permission -ne $a[2]) {",
+        "            throw ('After security filtering ' + $a[1] + ' does not hold exactly '"
+        " + $a[2] + '. Stopping before links are written.')",
+        "        }",
+        "    }",
+        "}",
+    ]
+    return lines
+
+
+def _link_target_checks(gpo: GPO) -> list[str]:
+    """Check every link target before anything changes, against the directory.
+
+    Lexically first: the target ends with the declared domain's DN and the part
+    before it names no other domain component (`validation` refuses the same
+    targets with a precise RDN parse, `link_target_scope_problem`). Then each
+    is resolved with ``Get-GPInheritance`` (read-only), which must answer with
+    a container of the expected type and the same path: a missing OU used to be
+    found only when its link was written, after filtering, settings and status
+    had changed (round 3). The answers are cached in ``$soms`` for the link
+    step. ``Get-GPInheritance`` reads only domains and OUs (measured), which is
+    one reason plans write no site links.
+    """
+    if not gpo.links:
+        return []
+    targets = ", ".join(ps_literal(link.target, "Target") for link in gpo.links)
+    return [
+        "$domainDn = 'DC=' + (($resolved.DomainName -split '\\.') -join ',DC=')",
+        "$soms = [System.Collections.Generic.Dictionary[string, object]]::new("
+        "[StringComparer]::OrdinalIgnoreCase)",
+        "$objectGuids = [System.Collections.Generic.Dictionary[string, guid]]::new("
+        "[StringComparer]::OrdinalIgnoreCase)",
+        f"foreach ($target in @({targets})) {{",
+        f"    $isDomain = [string]::Equals($target, $domainDn, {_IGNORE_CASE})",
+        "    $outside = -not $isDomain -and",
+        f"        -not $target.EndsWith(',' + $domainDn, {_IGNORE_CASE})",
+        "    if ($outside -or $target.Substring(0, [Math]::Max(0,"
+        " $target.Length - $domainDn.Length)) -imatch '(^|,)DC=') {",
+        "        throw ('Link target ' + $target + ' is not in ' + $domain"
+        " + ', so nothing was changed.')",
+        "    }",
+        "    try { $som = Get-GPInheritance -Target $target -Domain $domain }",
+        "    catch { throw ('Link target ' + $target + ' cannot be read in ' + $domain"
+        " + ', so nothing was changed: ' + $_.Exception.Message) }",
+        "    $kind = 'OU'",
+        "    if ($isDomain) { $kind = 'Domain' }",
+        f"    if (-not [string]::Equals([string]$som.ContainerType, $kind, {_ORDINAL}) -or",
+        f"        -not [string]::Equals([string]$som.Path, $target, {_IGNORE_CASE})) {{",
+        "        throw ('Link target ' + $target + ' resolved to ' + $som.ContainerType + ' '"
+        " + $som.Path + ', not the ' + $kind + ' named, so nothing was changed.')",
+        "    }",
+        "    $soms[$target] = $som",
+        # A missing object's Guid reads as $null rather than throwing (measured).
+        "    $read = $null",
+        "    try { $read = [System.DirectoryServices.DirectoryEntry]::new("
+        "'LDAP://' + $domain + '/' + $target.Replace('/', '\\/')).psbase.Guid }",
+        "    catch { $read = $null }",
+        "    if ($null -eq $read -or $read -eq [guid]::Empty) {",
+        "        throw ('Link target ' + $target + ' has no readable objectGUID in ' + $domain"
+        " + ', so nothing was changed.')",
+        "    }",
+        "    $objectGuids[$target] = $read",
+        "}",
+    ]
 
 
 def powershell_plan(gpo: GPO) -> str:
@@ -244,43 +639,159 @@ def powershell_plan(gpo: GPO) -> str:
     Validates its own input (DeepSeek final-r8 N3): a GPO with a validation
     error gets no plan, whichever caller asks, and every quoted argument is
     checked as it is written (:func:`emit_integrity.ps_literal`).
+
+    BOUND TO ONE DOMAIN AND ONE GPO (pre-1.1.1 review, three rounds). Every
+    GroupPolicy call names ``-Domain`` with the declared domain, every identity
+    comparison is ordinal, and the plan proceeds in this order:
+
+    1. Preflight, changing nothing: the declared domain is reachable
+       (``Microsoft.GroupPolicy.GPDomain``; no fallback to the session's
+       domain); every link target is in it and resolves to the domain or OU it
+       names (`_link_target_checks`); every filter principal resolves, to its
+       stored SID where one is stored (`_plan_principals`).
+    2. Bind the GPO from a complete ``Get-GPO -All`` listing, so a lookup error
+       stops the plan instead of reading as "absent". The GPO with a comment
+       line exactly :func:`plan_binding_marker` -- which the plan writes when
+       it creates the GPO -- binds without ``-AdoptExistingGpo``, unless the
+       workspace GUID came from imported data (`_guid_from_imported_data`) or
+       the binding would rename the GPO. Any other existing GPO with the
+       workspace GUID or the name needs the switch, and is never renamed.
+       Duplicates stop the plan. Otherwise it creates the GPO.
+    3. On an existing GPO, the permission preflight
+       (`_plan_permission_preflight`), before any change to it.
+    4. Security filtering (`_plan_security_filtering`), registry settings, side
+       status (through ``ShouldProcess``, so ``-WhatIf`` changes nothing), and
+       links last.
+
+    A GPO with an authored WMI filter gets no plan (`refusal_issues`).
+
+    It is not transactional: what a stop after the preflight leaves behind is
+    listed in the plan's header and in ``docs/capability-matrix.md``.
+    ``source_guid`` never selects a GPO.
     """
-    errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
-    refusal = _plan_precondition(gpo)
-    if refusal is not None:
-        errors.insert(0, refusal)
-    if errors:
-        raise ValidationError(errors)
+    issues = refusal_issues(gpo, "plan.ps1")
+    if issues:
+        raise ValidationError(issues)
+    name = ps_literal(gpo.name, "Name")
+    trust_marker = "$false" if _guid_from_imported_data(gpo) else "$true"
     lines = [
         "# Generated by GPO Studio. Review before running with delegated GPO rights.",
         "# This plan intentionally does not run from the web application.",
+        f"# Domain: {_ps_sanitize_comment(gpo.domain)}. Every GroupPolicy call names it,",
+        "# and the plan stops before any change unless it is reachable, every link",
+        "# target resolves in it (its objectGUID is read then, and again just before",
+        "# its link is written), and every security filter principal resolves.",
+        f"# GPO: {_ps_sanitize_comment(gpo.name)}"
+        f" (workspace GUID {_ps_sanitize_comment(gpo.guid)}).",
+        "# The plan creates the GPO, or modifies the existing GPO whose comment has a",
+        "# line that is exactly this plan's binding marker, nothing else on the line",
+        "# (written when the plan creates the GPO). That GPO still needs",
+        "# -AdoptExistingGpo if the plan would",
+        "# rename it or this workspace GPO's GUID came from imported data. Any other",
+        "# existing GPO with the workspace GUID or this name needs -AdoptExistingGpo",
+        "# and is never renamed. The marker prevents accidents and is",
+        "# not authentication: anyone who can edit the comment can write it.",
+        "# Run with -WhatIf to see the changes without making them.",
+        "# Nothing changes before every check above has passed, except that a GPO the",
+        "# plan creates is created before its owner and permissions can be read: the",
+        "# owner is whom AD records (for an administrator, the Domain Admins group),",
+        "# not necessarily the account running the plan.",
+        "# The plan is not transactional. If it stops after its checks:",
+        "# - after New-GPO: the GPO exists, unlinked, with Windows default permissions",
+        "#   (it stops there if a filter names the new GPO's owner);",
+        "# - while lowering Apply: some former Apply holders are at GpoRead and the",
+        "#   filters are not granted yet, so the GPO may apply to no one;",
+        "# - while granting: some filters hold their level, others do not;",
+        "# - at the read-back, settings, status or links: everything before it is done.",
+        "# Inspect with Get-GPPermission -All, Get-GPRegistryValue and Get-GPInheritance,",
+        "# fix the cause the message names, and run the plan again: each step is",
+        "# idempotent. Nothing is linked until the read-back passes.",
         "#Requires -Modules GroupPolicy",
         "[CmdletBinding(SupportsShouldProcess=$true)]",
-        "param()",
+        "param([switch]$AdoptExistingGpo)",
         "$ErrorActionPreference = 'Stop'",
-        f"$gpo = Get-GPO -Guid {ps_literal(gpo.guid, 'Guid')} -ErrorAction SilentlyContinue",
-        "if (-not $gpo) {",
-        f"    $gpo = Get-GPO -Name {ps_literal(gpo.name, 'Name')} -ErrorAction SilentlyContinue",
+        f"$domain = {ps_literal(gpo.domain, 'Domain')}",
+        f"$marker = {ps_literal(plan_binding_marker(gpo), 'Marker')}",
+        f"$trustMarker = {trust_marker}",
+        "try { $resolved = [Microsoft.GroupPolicy.GPDomain]::new($domain) }",
+        "catch { throw ('Domain ' + $domain + ' is not reachable, so nothing was changed: '"
+        " + $_.Exception.Message) }",
+        f"if (-not [string]::Equals($resolved.DomainName, $domain, {_IGNORE_CASE})) {{",
+        "    throw ('Domain ' + $domain + ' resolved to ' + $resolved.DomainName"
+        " + ', so nothing was changed. Declare the DNS name of the domain.')",
         "}",
-        "if (-not $gpo) {",
     ]
-    if gpo.description:
-        lines.append(
-            f"    $gpo = New-GPO -Name {ps_literal(gpo.name, 'Name')}"
-            f" -Comment {ps_literal(gpo.description, 'Comment')}"
-        )
-    else:
-        lines.append(
-            f"    $gpo = New-GPO -Name {ps_literal(gpo.name, 'Name')}"
-            " -Comment 'Created by GPO Studio'"
-        )
+    lines += _link_target_checks(gpo)
+    lines += _plan_principals(gpo)
+    lines += [
+        "$all = @(Get-GPO -All -Domain $domain)",
+        f"$byGuid = @($all | Where-Object {{ $_.Id -eq [guid]{ps_literal(gpo.guid, 'Guid')} }})",
+        f"$byName = @($all | Where-Object {{ [string]::Equals($_.DisplayName, {name},"
+        f" {_IGNORE_CASE}) }})",
+        "$byMarker = @($all | Where-Object {",
+        "    @(([string]$_.Description) -split '\\r?\\n' | Where-Object {",
+        f"        [string]::Equals($_, $marker, {_ORDINAL}) }}).Count -gt 0 }})",
+        "$gpo = $null",
+        "$marked = $false",
+        "if ($byMarker.Count -gt 1) {",
+        "    throw ('More than one GPO in ' + $domain + ' carries the binding marker of this plan,"
+        " so nothing was changed.')",
+        "}",
+        "if ($byMarker.Count -eq 1) {",
+        "    $gpo = $byMarker[0]",
+        "    $marked = $true",
+        "}",
+        "elseif ($byGuid.Count -eq 1) { $gpo = $byGuid[0] }",
+        "elseif ($byName.Count -gt 1) {",
+        f"    throw ('More than one GPO named ' + {name} + ' exists in ' + $domain"
+        " + ', so nothing was changed.')",
+        "}",
+        "elseif ($byName.Count -eq 1) { $gpo = $byName[0] }",
+        "$created = $false",
+        "if ($gpo) {",
+        "    if (@(@($byGuid) + @($byName) | Where-Object { $_.Id -ne $gpo.Id }).Count -gt 0) {",
+        f"        throw ('Another GPO in ' + $domain + ' has the workspace GUID or the name '"
+        f" + {name} + ', so nothing was changed.')",
+        "    }",
+        f"    $sameName = [string]::Equals($gpo.DisplayName, {name}, {_ORDINAL})",
+        "    if (-not $marked -and -not $sameName) {",
+        "        throw ('GPO ' + $gpo.Id + ' is named ' + $gpo.DisplayName + '. The plan renames"
+        " only a GPO it created, so nothing was changed.')",
+        "    }",
+        "    if (-not ($marked -and $trustMarker -and $sameName) -and -not $AdoptExistingGpo) {",
+        "        throw ('GPO ' + $gpo.DisplayName + ' (' + $gpo.Id + ') exists in ' + $domain"
+        " + ' and nothing ties it to this plan without -AdoptExistingGpo (it is unmarked,"
+        " would be renamed, or this workspace GUID came from imported data), so nothing was"
+        " changed. To modify that GPO, run the plan with -AdoptExistingGpo.')",
+        "    }",
+        "}",
+        "else {",
+    ]
+    if gpo.security_filters:
+        lines += _plan_new_gpo_editor_check()
+    lines += [
+        f"    $gpo = New-GPO -Name {name} -Comment {ps_literal(_plan_comment(gpo), 'Comment')}"
+        " -Domain $domain",
+        "    if (-not $gpo) {",
+        "        'What if: the GPO does not exist yet, so the plan stops after creating it.'",
+        "        return",
+        "    }",
+        "    $created = $true",
+    ]
+    if gpo.security_filters:
+        lines += _plan_new_gpo_owner_check()
     lines += [
         "}",
-        "elseif ($gpo.DisplayName -ne " + ps_literal(gpo.name, "Name") + ") {",
-        f"    Rename-GPO -Guid $gpo.Id -TargetName {ps_literal(gpo.name, 'Name')} | Out-Null",
-        "}",
-        "",
     ]
+    if gpo.security_filters:
+        lines += _plan_permission_preflight()
+    lines += [
+        f"if (-not [string]::Equals($gpo.DisplayName, {name}, {_ORDINAL})) {{",
+        f"    Rename-GPO -Guid $gpo.Id -TargetName {name} -Domain $domain | Out-Null",
+        "}",
+    ]
+    lines += _plan_security_filtering(gpo)
+    lines.append("")
     for setting in gpo.settings:
         key = f"{setting.hive}\\{setting.key}"
         if setting.action == "delete":
@@ -288,17 +799,17 @@ def powershell_plan(gpo: GPO) -> str:
                 "Remove-GPRegistryValue -Guid $gpo.Id"
                 f" -Key {ps_literal(key, 'Key')}"
                 f" -ValueName {ps_literal(setting.value_name, 'ValueName')}"
-                " -ErrorAction SilentlyContinue"
+                " -Domain $domain -ErrorAction SilentlyContinue"
             )
         elif setting.action == "delete_all_values":
             lines.append(
-                f"$existing = Get-GPRegistryValue -Guid $gpo.Id"
-                f" -Key {ps_literal(key, 'Key')} -ErrorAction SilentlyContinue"
+                f"$existingValues = Get-GPRegistryValue -Guid $gpo.Id"
+                f" -Key {ps_literal(key, 'Key')} -Domain $domain -ErrorAction SilentlyContinue"
             )
             lines.append(
-                "if ($existing) { $existing | ForEach-Object"
+                "if ($existingValues) { $existingValues | ForEach-Object"
                 f" {{ Remove-GPRegistryValue -Guid $gpo.Id -Key {ps_literal(key, 'Key')}"
-                " -ValueName $_.ValueName -ErrorAction SilentlyContinue } }"
+                " -ValueName $_.ValueName -Domain $domain -ErrorAction SilentlyContinue } }"
             )
         elif setting.action == "set":
             type_map = {
@@ -314,100 +825,10 @@ def powershell_plan(gpo: GPO) -> str:
                 f" -Key {ps_literal(key, 'Key')}"
                 f" -ValueName {ps_literal(setting.value_name, 'ValueName')}"
                 f" -Type {type_map[setting.registry_type]}"
-                f" -Value {_ps_value(setting)}"
+                f" -Value {_ps_value(setting)} -Domain $domain"
             )
         else:
             assert_never(setting.action)
-    if gpo.links:
-        lines.extend(["", "# Link intent (New-GPLink updates an existing link when present)."])
-    for link in gpo.links:
-        target = ps_literal(link.target, "Target")
-        common = (
-            f"-Guid $gpo.Id -Target {target}"
-            f" -LinkEnabled {'Yes' if link.enabled else 'No'}"
-            f" -Enforced {'Yes' if link.enforced else 'No'} -Order {link.order}"
-        )
-        lines.extend(
-            [
-                f"$existingLink = (Get-GPInheritance -Target {target}).GpoLinks |",
-                "    Where-Object { $_.GpoId -eq $gpo.Id }",
-                f"if ($existingLink) {{ Set-GPLink {common} | Out-Null }}",
-                f"else {{ New-GPLink {common} | Out-Null }}",
-            ]
-        )
-    if gpo.security_filters:
-        # REFUSED, NOT APPROXIMATED (WI-041).
-        #
-        # `Set-GPPermission` cannot express a deny ACE at all -- that is WI-033's
-        # own recorded finding about the cmdlet, and it is why the RSOP lane
-        # writes denies straight onto the groupPolicyContainer's DACL. Every way
-        # of emitting one anyway is wrong in the dangerous direction:
-        #
-        #   * emitting `-PermissionLevel GpoApply` INVERTS it, and this is what
-        #     the module used to do -- a plan authored as "keep this GPO off
-        #     these machines" GRANTED the permission instead, byte-identical to
-        #     the allow plan;
-        #   * silently dropping the row publishes a plan that leaves the deny
-        #     unapplied while looking complete, which fails in the same
-        #     direction one step later.
-        #
-        # A plan an operator reviews and runs has to mean what it says. So a GPO
-        # carrying a deny does not get a partial plan; it gets no plan and a
-        # reason. Same call as the cpassword refusal below, and WI-012's on
-        # `explicitValue`: refuse what cannot be expressed rather than guess.
-        refusal = _plan_precondition(gpo)
-        if refusal is not None:
-            raise ValidationError([refusal])
-        lines.append("")
-        lines.append("# Security filtering — reconcile GpoApply permissions only.")
-        lines.append("# GpoEdit, GpoRead, and other management permissions are preserved.")
-        desired_targets = ", ".join(
-            ps_literal(sf.principal, "desiredApply")
-            for sf in gpo.security_filters
-            if sf.permission == "apply"
-        )
-        lines.append(f"$desiredApply = @({desired_targets})")
-        lines.append("# Trustees that must not be removed even if absent from desired set.")
-        lines.append("$protected = @('Authenticated Users', 'Domain Admins',")
-        lines.append("  'Enterprise Admins', 'SYSTEM', 'Administrators')")
-        lines.append(
-            "$existing = Get-GPPermission -Guid $gpo.Id -All -ErrorAction SilentlyContinue"
-        )
-        lines.append("foreach ($perm in $existing) {")
-        lines.append("    if ($perm.Permission -eq 'GpoApply' -and")
-        lines.append("        $desiredApply -notcontains $perm.Trustee.Name -and")
-        lines.append("        $protected -notcontains $perm.Trustee.Name) {")
-        lines.append(
-            "        Set-GPPermission -Guid $gpo.Id -PermissionLevel None"
-            " -TargetName $perm.Trustee.Name -TargetType $perm.Trustee.SidType"
-            " -ErrorAction SilentlyContinue"
-        )
-        lines.append("    }")
-        lines.append("}")
-        for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
-            match sf.permission:
-                case "apply":
-                    perm = "GpoApply"
-                case "read":
-                    perm = "GpoRead"
-                case _:
-                    assert_never(sf.permission)
-            target_type_ps = sf.target_type.title()
-            lines.append(
-                f"Set-GPPermission -Guid $gpo.Id -PermissionLevel {perm}"
-                f" -TargetName {ps_literal(sf.principal, 'TargetName')}"
-                f" -TargetType {target_type_ps} -Replace"
-                " | Out-Null"
-            )
-    if gpo.wmi_filter is not None:
-        wmi_name = _ps_sanitize_comment(gpo.wmi_filter.name)
-        wmi_query = _ps_sanitize_comment(gpo.wmi_filter.query)
-        lines.append("")
-        lines.append(f"# WMI filter: {wmi_name} ({wmi_query})")
-        lines.append(
-            f"# Assign WMI filter '{wmi_name}' to this GPO via GPMC or the"
-            f" GPMC COM API (domain: {_ps_sanitize_comment(gpo.domain)})."
-        )
     status_value: str
     if gpo.computer_enabled and gpo.user_enabled:
         status_value = "AllSettingsEnabled"
@@ -417,54 +838,374 @@ def powershell_plan(gpo: GPO) -> str:
         status_value = "ComputerSettingsDisabled"
     else:
         status_value = "AllSettingsDisabled"
-
     lines.extend(
         [
             "",
-            "# Side enablement is explicit in the draft.",
-            "# GpoStatus is a writable .NET property on the GPO object, not a Set-GPO parameter.",
-            f"$gpo.GpoStatus = '{status_value}'",
+            "# Side enablement is explicit in the draft. GpoStatus is a writable .NET property,",
+            "# not a cmdlet, so -WhatIf reaches it only through ShouldProcess.",
+            f"if ($PSCmdlet.ShouldProcess($gpo.DisplayName, 'Set GpoStatus to {status_value}')) {{",
+            f"    $gpo.GpoStatus = '{status_value}'",
+            "}",
         ]
     )
+    if gpo.links:
+        lines.extend(
+            [
+                "",
+                "# Link intent, last: nothing is linked before filtering and status are in place.",
+                "# Each target was resolved in the preflight; New-GPLink updates an existing link.",
+            ]
+        )
+    for link in gpo.links:
+        target = ps_literal(link.target, "Target")
+        common = (
+            f"-Guid $gpo.Id -Target {target}"
+            f" -LinkEnabled {'Yes' if link.enabled else 'No'}"
+            f" -Enforced {'Yes' if link.enforced else 'No'} -Order {link.order} -Domain $domain"
+        )
+        lines.extend(
+            [
+                # The same object the preflight checked: its objectGUID, read
+                # again just before the link is written (round 4: a same-DN
+                # replacement in between linked a different object). Through
+                # psbase: on Windows PowerShell's ADSI adapter ``.Guid`` is the
+                # ADSI string property, not DirectoryEntry.Guid (measured).
+                "$current = $null",
+                f"try {{ $current = [System.DirectoryServices.DirectoryEntry]::new('LDAP://'"
+                f" + $domain + '/' + ({target}).Replace('/', '\\/')).psbase.Guid }}",
+                "catch { $current = $null }",
+                f"if ($null -eq $current -or $current -ne $objectGuids[{target}]) {{",
+                f"    throw ('Link target ' + {target} + ' is no longer the object checked"
+                " before any change (objectGUID ' + $objectGuids["
+                f"{target}] + ', now ' + $current + '), so no link was written.')",
+                "}",
+                f"$existingLink = $soms[{target}].GpoLinks |",
+                "    Where-Object { $_.GpoId -eq $gpo.Id }",
+                f"if ($existingLink) {{ Set-GPLink {common} | Out-Null }}",
+                f"else {{ New-GPLink {common} | Out-Null }}",
+            ]
+        )
     return "\n".join(lines) + "\n"
 
 
-def export_bundle(gpo: GPO) -> bytes:
-    """Return a deterministic ZIP containing manifest, PReg files, and plan."""
-    unwritable = _text_refusal(gpo)
-    if unwritable is not None:
-        raise ValidationError([unwritable])
-    issues = validate_gpo(gpo)
-    manifest = {
+#: Plan refusals that concern only the PowerShell plan: the Studio bundle is
+#: still written, without ``apply.ps1``, and its manifest says why
+#: (``powershell_plan``). Pre-1.1.1 review, round 3: refusing the whole bundle
+#: for a WMI filter or an out-of-domain link would also have withheld the
+#: Registry.pol files a 1.0.0 workspace always exported.
+PLAN_ONLY_REFUSALS = frozenset({"link_target_outside_domain", "wmi_filter_not_verifiable"})
+
+#: Every artifact whose refusal `refusal_issues` decides.
+ArtifactKind = Literal[
+    "plan.ps1", "export.zip", "gpmc-backup", "gpmc-backup-with-scripts", "publication-plan"
+]
+
+
+def unknown_cse_refusal(gpo: GPO) -> ValidationIssue | None:
+    """Why preserved extension content refuses a GPMC backup, or ``None``: on
+    ANY preserved extension entry, so one that inventories no file is refused
+    too."""
+    if not gpo.cse_metadata:
+        return None
+    return ValidationIssue(
+        severity="error",
+        code="unknown_cse_content",
+        message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
+        path="cse_metadata",
+    )
+
+
+def _has_preference_content(gpo: GPO) -> bool:
+    """Whether any GPP collection would emit a file, decided as `serialize_gpp`
+    decides it -- its own file list (`gpp._gpp_files_with_content`), its
+    verbatim source files -- WITHOUT serializing anything: this is part of the
+    refusal decision, which no writer may run for (round 7). A collection the
+    writer would refuse has content by definition."""
+    from .gpp import _gpp_files_with_content, _holds_refused_record, has_refused_content
+
+    return any(
+        collection.source_files
+        or collection.local_groups
+        or collection.local_groups_unknown_attrs
+        or collection.local_groups_unknown_children
+        or has_refused_content(collection)
+        or _holds_refused_record(collection)
+        or _gpp_files_with_content(collection)
+        for collection in gpo.gpp_collections
+    )
+
+
+def scripts_gpo_refusals(gpo: GPO) -> list[ValidationIssue]:
+    """Why *gpo* is outside the Scripts lane's measured GPO shape
+    (request-independent; a request's own refusals are the route's)."""
+    issues: list[ValidationIssue] = []
+    if gpo.settings or _has_preference_content(gpo):
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="scripts_with_other_content_unmeasured",
+                message=(
+                    "This GPO also carries registry settings or preferences. The "
+                    "Scripts lane measured a GPO with scripts and nothing else, and "
+                    "the publication lane measured registry and preferences without "
+                    "scripts; no lane has imported the combination, including the "
+                    "order of the Scripts entry in the extension list. Export the "
+                    "scripts from a GPO that holds only scripts."
+                ),
+                path="gpo",
+            )
+        )
+    if not (gpo.computer_enabled and gpo.user_enabled):
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="scripts_disabled_side_unmeasured",
+                message=(
+                    "This GPO has a disabled side. The Scripts lane imported a GPO "
+                    "with both sides enabled, so a backup with scripts and a "
+                    "disabled side is unmeasured."
+                ),
+                path="gpo",
+            )
+        )
+    return issues
+
+
+def gpo_identity_refusals(gpo: GPO) -> list[ValidationIssue]:
+    """The GPO's own identity as every export writes it, decided from the
+    model with the writers' own field rules (round 9): the GUID (the plan's
+    ``-Guid``, the backup's ``GPOGuid``/``ID``, the publication plan's
+    ``gpo_guid``) and a non-empty domain (the plan's ``-Domain``, the
+    backup's ``Domain``; an empty one is validation's ``empty_domain``). The
+    store accepts both as given, and only the writers held them to a rule."""
+    issues: list[ValidationIssue] = []
+    problem = ps_problem("Guid", gpo.guid)
+    if problem is not None:
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="invalid_gpo_guid",
+                message=f"The GPO ID {gpo.guid!r} {problem}; every export names the GPO by it.",
+                path="guid",
+            )
+        )
+    if gpo.domain:
+        problem = ps_problem("Domain", gpo.domain)
+        if problem is not None:
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="invalid_gpo_domain",
+                    message=(
+                        f"The domain {gpo.domain!r} {problem}; the plan and the backup name it."
+                    ),
+                    path="domain",
+                )
+            )
+    return issues
+
+
+def _encodable(issue: ValidationIssue) -> ValidationIssue:
+    """*issue* with any text no response can carry (a lone surrogate from
+    legacy stored text) escaped, so a refusal naming stored text is still a
+    422 with every reason (round 9)."""
+    def escaped(text: str) -> str:
+        return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+    try:
+        issue.message.encode("utf-8")
+        (issue.path or "").encode("utf-8")
+    except UnicodeEncodeError:
+        return replace(issue, message=escaped(issue.message), path=escaped(issue.path or ""))
+    return issue
+
+
+def _canonical(issues: Sequence[ValidationIssue]) -> list[ValidationIssue]:
+    """De-duplicated, in one order (ordinal by code, path, message): two models
+    that differ only in the order of their items give the same list."""
+    unique = {(i.code, i.path, i.message, i.severity): i for i in issues}
+    return [unique[key] for key in sorted(unique)]
+
+
+@dataclass(frozen=True, slots=True)
+class PlanRefusals:
+    """The plan's own refusals (`_plan_refusals`) and the GPO's validation
+    errors, both canonical. Internal to `refusal_issues`, which is the one
+    answer every surface asks; this only says which bundle to write."""
+
+    reasons: tuple[ValidationIssue, ...]
+    errors: tuple[ValidationIssue, ...]
+
+    @property
+    def whole(self) -> tuple[ValidationIssue, ...]:
+        """The reasons that refuse the whole bundle, not just its plan."""
+        return tuple(r for r in self.reasons if r.code not in PLAN_ONLY_REFUSALS)
+
+    @property
+    def bundle_without_plan(self) -> bool:
+        """The bundle is written, without ``apply.ps1``: every reason is
+        plan-only and the GPO has no validation error."""
+        return bool(self.reasons) and not self.whole and not self.errors
+
+    def record(self) -> dict[str, object] | None:
+        """The manifest's ``powershell_plan`` record, exactly, or ``None``."""
+        return plan_record(self.reasons) if self.bundle_without_plan else None
+
+
+def plan_refusals(
+    gpo: GPO, validation: Sequence[ValidationIssue] | None = None
+) -> PlanRefusals:
+    """The plan's own refusals and the validation errors (`PlanRefusals`)."""
+    issues = validate_gpo(gpo) if validation is None else validation
+    return PlanRefusals(
+        reasons=tuple(_canonical(_plan_refusals(gpo))),
+        errors=tuple(_canonical([i for i in issues if i.severity == "error"])),
+    )
+
+
+def refusal_issues(
+    gpo: GPO,
+    artifact: ArtifactKind,
+    validation: Sequence[ValidationIssue] | None = None,
+    *,
+    scripts: Mapping[str, ScriptPolicy] | None = None,
+    target: str = "both",
+) -> list[ValidationIssue]:
+    """THE refusal decision: everything that refuses *artifact* for *gpo*,
+    complete, de-duplicated and in one canonical order, or ``[]``.
+
+    Every surface asks this and nothing else (pre-1.1.1 review, rounds 7 and
+    8): the writers (`powershell_plan`, `export_bundle`, `gpmc_backup_bundle`,
+    `native_backup_id`), the checked builders and the routes' guards
+    (`egress`, `api`), the publication planner, and the API's capabilities.
+    It is decided from the MODEL: no artifact writer runs, so a refused GPO
+    never reaches one; nothing returns early, so no reason hides another.
+
+    * ``plan.ps1``: the validation errors (text XML cannot carry among them)
+      and every plan reason -- out-of-domain links, a WMI filter, a deny.
+    * ``export.zip``: those and a GPP file that would carry a cpassword
+      (`gpp_cpassword_refusals`), but only when an error, a cpassword or a
+      whole-bundle reason is among them; plan-only reasons alone leave the
+      bundle written without its plan (`PlanRefusals.bundle_without_plan`).
+    * ``gpmc-backup``: the validation errors, preserved unknown CSE content
+      and the backup writer's model-level refusals
+      (`native_backup_model_refusals`: cpassword, unmeasured GPP extension
+      pair or Registry item shape, Folder Redirection).
+    * ``gpmc-backup-with-scripts``: those, the Scripts lane's GPO shape, and
+      any state of *scripts* (the request's policies) with no native encoding.
+      A request's own input checks -- the lane's measured request shape and
+      `ScriptPolicy.validate` -- are the route's, reported in the same 422.
+    * ``publication-plan``: the validation errors, a cpassword, and the
+      planner's refusals for *target* (`publication.publication_refusals`).
+
+    What remains to a writer is only what needs its output to decide; the
+    capability matrix lists those writer-stage refusals.
+    """
+    refused = plan_refusals(gpo, validation)
+    # The GPO's identity refuses every artifact, each of which names it.
+    errors = list(refused.errors) + gpo_identity_refusals(gpo)
+    found: list[ValidationIssue]
+    match artifact:
+        case "plan.ps1":
+            found = errors + list(refused.reasons)
+        case "export.zip":
+            secrets = gpp_cpassword_refusals(gpo)
+            whole = errors or refused.whole or secrets
+            found = errors + list(refused.reasons) + secrets if whole else []
+        case "gpmc-backup" | "gpmc-backup-with-scripts":
+            unknown = unknown_cse_refusal(gpo)
+            found = errors + ([unknown] if unknown is not None else [])
+            found += native_backup_model_refusals(gpo, scripts)
+            if artifact == "gpmc-backup-with-scripts":
+                found += scripts_gpo_refusals(gpo)
+        case "publication-plan":
+            from .publication import publication_refusal_issues
+
+            found = errors + gpp_cpassword_refusals(gpo)
+            found += publication_refusal_issues(gpo, target)
+        case _:
+            assert_never(artifact)
+    return _canonical([_encodable(issue) for issue in found])
+
+
+def refusal_summary(issues: Sequence[ValidationIssue]) -> ValidationIssue | None:
+    """One issue naming every refusal, in order (a capability's ``reason``)."""
+    if not issues:
+        return None
+    if len(issues) == 1:
+        return issues[0]
+    return ValidationIssue(
+        severity="error",
+        code=issues[0].code,
+        message=" ".join(f"({n}) {issue.message}" for n, issue in enumerate(issues, 1)),
+        path=issues[0].path,
+    )
+
+
+def plan_record(refusals: Sequence[ValidationIssue]) -> dict[str, object]:
+    """The manifest's ``powershell_plan`` record for a bundle without its plan."""
+    return {
+        "included": False,
+        "refusals": [{"code": issue.code, "message": issue.message} for issue in refusals],
+    }
+
+
+def _studio_manifest(gpo: GPO, refused: PlanRefusals) -> bytes:
+    """``manifest.json`` exactly as `export_bundle` writes it for an
+    un-refused *gpo*. Egress requires the bundle's manifest to be these bytes
+    (round 7: a manifest egress had not fully validated -- duplicate keys,
+    NaN, a ``null`` record, a replaced ``gpo`` -- passed)."""
+    manifest: dict[str, object] = {
         "schema_version": 2,
         "kind": "gpo-studio-publication-bundle",
         "gpo": gpo.to_dict(),
-        "validation": [asdict(issue) for issue in issues],
+        "validation": [asdict(issue) for issue in validate_gpo(gpo)],
         "policy_semantic_sha256": policy_semantic_sha256(gpo),
         "review_model_sha256": review_model_sha256(gpo),
         "canonical_schema_version": CANONICAL_SCHEMA_VERSION,
         "canonical_model": policy_semantic_dict(gpo),
     }
+    record = refused.record()
+    if record is not None:
+        manifest["powershell_plan"] = record
+    return json.dumps(manifest, indent=2, sort_keys=True).encode()
+
+
+def studio_bundle_expectation(gpo: GPO) -> tuple[bytes, bytes | None]:
+    """``(manifest.json, apply.ps1 or None)`` exactly as `export_bundle`
+    writes them, after its refusal (`refusal_issues`), which it raises."""
+    issues = refusal_issues(gpo, "export.zip")
+    if issues:
+        raise ValidationError(issues)
+    refused = plan_refusals(gpo)
+    plan = None if refused.bundle_without_plan else powershell_plan(gpo).encode("utf-8-sig")
+    return _studio_manifest(gpo, refused), plan
+
+
+def export_bundle(gpo: GPO) -> bytes:
+    """Return a deterministic ZIP containing manifest, PReg files, and plan.
+
+    Refused (`refusal_issues`) before anything is serialized. Without the plan
+    when only the plan is refused: the manifest then carries
+    ``powershell_plan`` (`plan_record`) with every refusal's code and message.
+    """
+    manifest, plan = studio_bundle_expectation(gpo)
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
     entries: dict[str, bytes] = {
-        "manifest.json": json.dumps(manifest, indent=2, sort_keys=True).encode(),
-        "apply.ps1": powershell_plan(gpo).encode("utf-8-sig"),
+        "manifest.json": manifest,
         "Machine/Registry.pol": serialize(computer),
         "User/Registry.pol": serialize(user),
     }
+    if plan is not None:
+        entries["apply.ps1"] = plan
     for col in gpo.gpp_collections:
         side_dir = "Machine" if col.scope == "computer" else "User"
         for filename, content in serialize_gpp(col).items():
             if contains_cpassword(content):
-                raise ValidationError([
-                    ValidationIssue(
-                        severity="error",
-                        code="cpassword_detected",
-                        message=f"GPP file {filename} contains a cpassword attribute.",
-                        path=f"gpp_collections/{filename}",
-                    )
-                ])
+                # Defence in depth: the decision read the model
+                # (`gpp_cpassword_refusals`); this reads the bytes written.
+                raise ValidationError([_cpassword_issue(filename)])
             entries[f"{side_dir}/Preferences/{filename}"] = content
     # Platform-identical bytes (members sorted, STORED, fixed metadata).
     return deterministic_zip(entries)
@@ -558,10 +1299,10 @@ _NO_SCRIPTS_EXPORT = (
 )
 
 
-def _native_scripts_refusal(
-    scope: str, policy: ScriptPolicy
-) -> ValidationIssue | None:
-    """Why *policy* has no native scripts-file encoding, or ``None``.
+def _native_scripts_refusals(scope: str, policy: ScriptPolicy) -> list[ValidationIssue]:
+    """Every reason *policy* has no native scripts-file encoding, or ``[]``:
+    the sync flags and each entry that is asynchronous (round 10: this
+    returned the first reason, hiding the others).
 
     REFUSED, NOT APPROXIMATED — the same call as the cpassword and
     ``explicitValue`` refusals above. The R2 captures pin the native entry
@@ -578,8 +1319,9 @@ def _native_scripts_refusal(
     names the change that makes the policy exportable.
     """
     path = f"scripts/{scope}"
+    issues: list[ValidationIssue] = []
     if policy.run_logon_scripts_sync or policy.run_logoff_scripts_sync:
-        return ValidationIssue(
+        issues.append(ValidationIssue(
             severity="error",
             code="inexpressible_native_script_state",
             message=(
@@ -589,10 +1331,10 @@ def _native_scripts_refusal(
                 + " Clear both flags to export this policy."
             ),
             path=path,
-        )
+        ))
     for entry in (*policy.startup, *policy.shutdown, *policy.logon, *policy.logoff):
         if entry.execution != "synchronous":
-            return ValidationIssue(
+            issues.append(ValidationIssue(
                 severity="error",
                 code="inexpressible_native_script_state",
                 message=(
@@ -602,7 +1344,7 @@ def _native_scripts_refusal(
                     + " Make the script synchronous to export it."
                 ),
                 path=f"{path}/{entry.script_id}",
-            )
+            ))
     for ps_entry in (
         *policy.powershell_startup,
         *policy.powershell_shutdown,
@@ -614,7 +1356,7 @@ def _native_scripts_refusal(
             or ps_entry.no_profile
             or not ps_entry.non_interactive
         ):
-            return ValidationIssue(
+            issues.append(ValidationIssue(
                 severity="error",
                 code="inexpressible_native_script_state",
                 message=(
@@ -627,8 +1369,8 @@ def _native_scripts_refusal(
                     "non-interactive) to export it."
                 ),
                 path=f"powershell_{path}/{ps_entry.script_id}",
-            )
-    return None
+            ))
+    return issues
 
 
 def _legacy_scripts_sections(
@@ -673,6 +1415,30 @@ def _powershell_scripts_sections(
     return sections
 
 
+def _native_scripts_value_refusal(scope: str, policy: ScriptPolicy) -> ValidationIssue | None:
+    """A value of *policy* the scripts INI writer would refuse as it writes it
+    (`emit_integrity.scripts_ini_problems`: a line break, a control character,
+    surrounding space), decided on the sections it would write, without
+    writing them (round 9: only `_native_ini_bytes` refused these)."""
+    problems = [
+        problem
+        for sections in (_legacy_scripts_sections(policy), _powershell_scripts_sections(policy))
+        if sections
+        for problem in scripts_ini_problems("scripts.ini", sections)
+    ]
+    if not problems:
+        return None
+    return ValidationIssue(
+        severity="error",
+        code="unwritable_script_value",
+        message=(
+            "These script values cannot be written into a native scripts file: "
+            + "; ".join(str(problem) for problem in problems)
+        ),
+        path=f"scripts/{scope}",
+    )
+
+
 def _native_scripts_files(
     scope: str, policy: ScriptPolicy, files: dict[str, bytes]
 ) -> None:
@@ -714,10 +1480,11 @@ def _braced_guid(value: str, *, field: str) -> str:
 
 
 def native_backup_id(gpo: GPO) -> str:
-    """Return the deterministic backup-instance ID for a native export."""
-    unwritable = _text_refusal(gpo)
-    if unwritable is not None:
-        raise ValidationError([unwritable])
+    """Return the deterministic backup-instance ID for a native export,
+    after its refusal (`refusal_issues`)."""
+    issues = refusal_issues(gpo, "gpmc-backup")
+    if issues:
+        raise ValidationError(issues)
     gpo_id = _braced_guid(gpo.guid, field="GPO ID")
     backup_content = replace(gpo, links=(), security_filters=(), wmi_filter=None)
     identity = gpo.name + "\n" + policy_semantic_sha256(backup_content)
@@ -773,7 +1540,7 @@ def _gpp_family_files(gpo: GPO) -> Iterator[tuple[str, str, str, bytes]]:
             files = serialize_gpp(col)
         except GppError as error:
             # A saved model the writer refuses is a refusal (422), never a
-            # crash: `native_backup_refusal` runs on every GPO read, so an
+            # crash: a capability builds the backup on every GPO read, so an
             # exception here made the GPO unreadable (batch-2 review).
             raise ValidationError([
                 ValidationIssue(
@@ -823,7 +1590,7 @@ def extension_registration(
     script_policies = scripts or {}
     profiles: dict[str, set[str]] = {"Machine": set(), "User": set()}
     unverified: set[str] = set()
-    for side_dir, family, _filename, _content in _gpp_family_files(gpo):
+    for side_dir, family, _filename in _gpp_families(gpo):
         if family in _GPP_EXTENSION_PROFILES:
             profiles[side_dir].add(family)
         else:
@@ -845,6 +1612,112 @@ def extension_registration(
     )
 
 
+def _gpp_families(gpo: GPO) -> Iterator[tuple[str, str, str]]:
+    """Yield ``(side_dir, family, filename)`` for every GPP file, from the
+    MODEL (`gpp.gpp_file_names`): the files `serialize_gpp` writes, without
+    writing them (round 8). The family is derived from the path as
+    `_gpp_family_files` derives it, so the two cannot disagree."""
+    for col in gpo.gpp_collections:
+        side_dir = "Machine" if col.scope == "computer" else "User"
+        for filename in gpp_file_names(col):
+            normalized = filename.replace("\\", "/")
+            yield side_dir, normalized.split("/", 1)[0], normalized
+
+
+def _cpassword_issue(filename: str) -> ValidationIssue:
+    return ValidationIssue(
+        severity="error",
+        code="cpassword_detected",
+        message=f"GPP file {filename} contains a cpassword attribute.",
+        path=f"gpp_collections/{filename}",
+    )
+
+
+def _unsupported_extension_issue(families: set[str]) -> ValidationIssue:
+    return ValidationIssue(
+        severity="error",
+        code="unsupported_native_gpp_extension",
+        message=(
+            "Native backup extension metadata has not been verified for: "
+            f"{', '.join(sorted(families))}. Use the Studio publication bundle instead."
+        ),
+        path="gpp_collections",
+    )
+
+
+def _unmeasured_shape_issue(shapes: Sequence[str]) -> ValidationIssue:
+    return ValidationIssue(
+        severity="error",
+        code="unmeasured_gpp_registry_shape",
+        message=(
+            "No Windows capture backs the native form of these GPP Registry "
+            f"items: {'; '.join(shapes)}. Use the Studio publication bundle "
+            "instead (WI-075)."
+        ),
+        path="gpp_collections",
+    )
+
+
+def _fdeploy_issue() -> ValidationIssue:
+    return ValidationIssue(
+        severity="error",
+        code="folder_redirection_not_exportable",
+        message=(
+            "GPO carries an imported Folder Redirection file (fdeploy1.ini). "
+            "Studio reads it but cannot write it, so it cannot be emitted as "
+            "a GPMC backup. Keep the original backup."
+        ),
+        path="fdeploy",
+    )
+
+
+def gpp_cpassword_refusals(gpo: GPO) -> list[ValidationIssue]:
+    """``cpassword_detected`` for every GPP file that would carry one, decided
+    from the model (`gpp.gpp_files_carrying_cpassword`), so no writer runs to
+    find it (round 8)."""
+    return [
+        _cpassword_issue(filename.replace("\\", "/"))
+        for col in gpo.gpp_collections
+        for filename in gpp_files_carrying_cpassword(col)
+    ]
+
+
+def native_backup_model_refusals(
+    gpo: GPO, scripts: Mapping[str, ScriptPolicy] | None = None
+) -> list[ValidationIssue]:
+    """The GPMC backup writer's refusals (`_native_export_files`), decided from
+    the model before anything is serialized (round 8): a cpassword, a GPP
+    family with no measured extension pair, an unmeasured GPP Registry item
+    shape, a script policy with no native encoding, and Folder Redirection.
+    The writer keeps the same checks on what it writes, as defence in depth;
+    each is built by the same constructor, so the two cannot word it apart."""
+    issues = gpp_cpassword_refusals(gpo)
+    # Every file's family, a cpassword's included (round 10: a file refused
+    # for its cpassword hid an unmeasured family, as the writer's own
+    # check still does -- a writer stops at the first refusal of a file).
+    unsupported = {
+        family for _side, family, _filename in _gpp_families(gpo)
+        if family not in _GPP_EXTENSION_PROFILES
+    }
+    if unsupported:
+        issues.append(_unsupported_extension_issue(unsupported))
+    shapes = _unmeasured_shapes(gpo)
+    if shapes:
+        issues.append(_unmeasured_shape_issue(shapes))
+    for scope in _SCRIPT_SIDES:
+        policy = (scripts or {}).get(scope)
+        if policy is not None:
+            # Independently: a state with no encoding hides no value the INI
+            # writer would refuse (round 10, Sol).
+            issues.extend(_native_scripts_refusals(scope, policy))
+            value_refusal = _native_scripts_value_refusal(scope, policy)
+            if value_refusal is not None:
+                issues.append(value_refusal)
+    if gpo.fdeploy is not None:
+        issues.append(_fdeploy_issue())
+    return issues
+
+
 def _unmeasured_shapes(gpo: GPO) -> tuple[str, ...]:
     return tuple(
         shape
@@ -859,13 +1732,13 @@ def _native_export_files(
 ) -> tuple[dict[str, bytes], dict[str, set[str]]]:
     """Build the native backup's SYSVOL files, or refuse with EVERY reason.
 
-    Each check records its refusal and the function raises once, at the end,
-    with the issues ordered most-relevant first: a cpassword (a secret would be
-    shipped), then GPP content with no measured extension or wire form, then
-    Scripts, then the Folder Redirection carry-over. Callers that show one
-    reason (`native_backup_refusal`) show the first; the rest stay on the
-    error. Raising at the first check used to report the fdeploy refusal for a
-    GPO that also carried a cpassword (review N6).
+    Reached only after the decision (`refusal_issues`), which makes each of
+    these checks from the model first (`native_backup_model_refusals`, round
+    8); they stay here, on what is written, as defence in depth, built by the
+    same constructors. Each check records its refusal and the function raises
+    once, at the end, with every reason (review N6: raising at the first check
+    hid a cpassword behind the fdeploy refusal); a capability names them all
+    (`_writer_refusal`).
     """
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
@@ -880,14 +1753,7 @@ def _native_export_files(
     unsupported: set[str] = set()
     for side_dir, family, filename, content in _gpp_family_files(gpo):
         if contains_cpassword(content):
-            issues.append(
-                ValidationIssue(
-                    severity="error",
-                    code="cpassword_detected",
-                    message=f"GPP file {filename} contains a cpassword attribute.",
-                    path=f"gpp_collections/{filename}",
-                )
-            )
+            issues.append(_cpassword_issue(filename))
             continue
         if family not in _GPP_EXTENSION_PROFILES:
             unsupported.add(family)
@@ -896,41 +1762,19 @@ def _native_export_files(
         files[f"{side_dir}/Preferences/{filename}"] = content
 
     if unsupported:
-        names = ", ".join(sorted(unsupported))
-        issues.append(
-            ValidationIssue(
-                severity="error",
-                code="unsupported_native_gpp_extension",
-                message=(
-                    "Native backup extension metadata has not been verified for: "
-                    f"{names}. Use the Studio publication bundle instead."
-                ),
-                path="gpp_collections",
-            )
-        )
+        issues.append(_unsupported_extension_issue(unsupported))
     shapes = _unmeasured_shapes(gpo)
     if shapes:
-        issues.append(
-            ValidationIssue(
-                severity="error",
-                code="unmeasured_gpp_registry_shape",
-                message=(
-                    "No Windows capture backs the native form of these GPP Registry "
-                    f"items: {'; '.join(shapes)}. Use the Studio publication bundle "
-                    "instead (WI-075)."
-                ),
-                path="gpp_collections",
-            )
-        )
+        issues.append(_unmeasured_shape_issue(shapes))
 
     script_policies = scripts or {}
     for scope in _SCRIPT_SIDES:
         policy = script_policies.get(scope)
         if policy is None:
             continue
-        refusal = _native_scripts_refusal(scope, policy)
-        if refusal is not None:
-            issues.append(refusal)
+        refusals = _native_scripts_refusals(scope, policy)
+        if refusals:
+            issues.extend(refusals)
             continue
         _native_scripts_files(scope, policy, files)
 
@@ -939,22 +1783,10 @@ def _native_export_files(
     # text alone is not a measured write either: it would also need the Folder
     # Redirection extension registration, and whether Windows needs the empty
     # fdeploy.ini marker beside it is unmeasured. A backup without the file
-    # would silently drop the redirection, so refuse. Checked here rather than
-    # in the route so `native_backup_refusal` advertises the same refusal.
-    # Recorded LAST: it is the least specific of the refusals (review N6).
+    # would silently drop the redirection, so refuse. Decided first from the
+    # model (`native_backup_model_refusals`); kept here as defence in depth.
     if gpo.fdeploy is not None:
-        issues.append(
-            ValidationIssue(
-                severity="error",
-                code="folder_redirection_not_exportable",
-                message=(
-                    "GPO carries an imported Folder Redirection file (fdeploy1.ini). "
-                    "Studio reads it but cannot write it, so it cannot be emitted as "
-                    "a GPMC backup. Keep the original backup."
-                ),
-                path="fdeploy",
-            )
-        )
+        issues.append(_fdeploy_issue())
     if issues:
         raise ValidationError(issues)
     return files, profiles
@@ -1186,12 +2018,12 @@ def native_backup_refusal(
     `validate_gpo` reported nothing and `preserved_files` stayed 0. (An
     unmeasured GPP Registry item shape still refuses the same way, WI-075.)
 
-    RUNS THE REAL CODE rather than restating its conditions: it builds the
-    backup and catches whatever the writers refuse (the backup documents' own
-    emit check included, final-r9), so a new refusal is advertised the day it
-    lands instead of the day someone remembers to mirror it. Restating the
-    conditions is precisely how the deny case drifted (WI-044), so the same
-    mistake is not repeated one capability along.
+    Asks the route's own function (`egress.gpmc_backup_refusal`): the one
+    decision (`refusal_issues`, which since round 8 holds the writer's
+    model-level checks too) and, only when that is empty, the backup built
+    and every writer-stage refusal it raises (the backup documents' own emit
+    check included, final-r9). Restating conditions is how the deny case
+    drifted (WI-044); the decision and the writer share their constructors.
     """
     from .egress import gpmc_backup_refusal
 
@@ -1211,16 +2043,32 @@ def gpmc_backup_bundle(
     native byte shape, and registers the measured Scripts CSE pair in
     ``MachineExtensionGuids``/``UserExtensionGuids``. States with no measured
     native encoding are refused, not approximated — see
-    `_native_scripts_refusal`.
+    `_native_scripts_refusals`.
 
     Validates its own input first, as `powershell_plan` does (Sol final-r18
     B2): a GPO with a validation error -- stored content a current rule
     refuses among them -- gets no backup, whichever caller asks, and nothing
     is serialized for it.
     """
-    errors = [issue for issue in validate_gpo(gpo) if issue.severity == "error"]
-    if errors:
-        raise ValidationError(errors)
+    issues = refusal_issues(
+        gpo,
+        "gpmc-backup-with-scripts" if scripts and any(scripts.values()) else "gpmc-backup",
+        scripts=scripts,
+    )
+    if issues:
+        raise ValidationError(issues)
+    return _gpmc_backup_codec(gpo, scripts)
+
+
+def _gpmc_backup_codec(gpo: GPO, scripts: Mapping[str, ScriptPolicy] | None = None) -> bytes:
+    """The native backup's byte codec, after the refusal decision.
+
+    No surface calls this but `gpmc_backup_bundle`, which decides first
+    (`tests/test_plan_binding.py` holds it so). Codec tests call it to measure
+    the byte shape of combinations the decision refuses as unmeasured -- a
+    backup with scripts AND registry settings, say -- without offering them.
+    It still refuses what no encoding can carry (`_native_scripts_refusals`).
+    """
     backup_id = native_backup_id(gpo)
     files, profiles = _native_export_files(gpo, scripts)
     prefix = f"{backup_id}/DomainSysvol/GPO"

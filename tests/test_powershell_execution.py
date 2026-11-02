@@ -10,7 +10,8 @@ as a single quote, followed by code -- and the script is run:
   ``param()`` is replaced with one that prints each bound value and exits, so
   nothing reaches a directory service);
 * the plan in full, after its ``#Requires`` line, with every GroupPolicy cmdlet
-  replaced by a function that prints the arguments it was given.
+  replaced by a function that prints the arguments it was given (and a stub
+  ``GPDomain`` so its domain check passes).
 
 Each test asserts the injected command never ran and every value arrived
 exactly as given: CRLF registry data included (Sol final-r9 B3). Nothing here
@@ -127,40 +128,107 @@ def test_a_discovery_value_outside_its_kind_is_refused(call: object) -> None:
 
 
 #: Each GroupPolicy cmdlet the plan calls, as a local function printing its
-#: arguments base64-encoded (so a CR or LF in a value cannot hide in the output).
+#: arguments base64-encoded (so a CR or LF in a value cannot hide in the output),
+#: and a ``Microsoft.GroupPolicy.GPDomain`` that resolves any name to itself, so
+#: the plan's domain check passes. Its behaviour against a stateful stand-in
+#: (domain refusal, GPO binding, security filtering) is
+#: `tests/test_plan_binding.py`'s.
 _STUBS = """
+Add-Type -TypeDefinition @'
+namespace Microsoft.GroupPolicy {
+  public class GPDomain {
+    public string DomainName { get; private set; }
+    public GPDomain(string name) { DomainName = name; }
+  }
+}
+namespace StudioStub {
+  public class Entry {
+    readonly string dn;
+    public Entry(string path) { dn = path.Substring(path.IndexOf('/', 7) + 1); }
+    public System.Guid Guid { get { return new System.Guid(
+      System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(dn))); } }
+    public System.Collections.Generic.Dictionary<string, Prop> Properties { get {
+      var props = new System.Collections.Generic.Dictionary<string, Prop>();
+      props["defaultNamingContext"] = new Prop("DC=stub");
+      props["rootDomainNamingContext"] = new Prop("DC=stub");
+      props["objectSid"] = new Prop(new byte[] { 1 });
+      return props; } }
+  }
+  public class Prop {
+    public object Value { get; private set; }
+    public Prop(object value) { Value = value; }
+  }
+  public class Identity {
+    public Sid User { get { return new Sid("S-1-5-21-9-9-9-1500"); } }
+    public static Identity GetCurrent() { return new Identity(); }
+  }
+  public class Account {
+    public string Value { get; private set; }
+    public Account(string value) { Value = value; }
+    public Sid Translate(System.Type type) {
+      return new Sid("S-1-5-21-9-9-9-" + (Value.GetHashCode() & 0x7fffffff));
+    }
+  }
+  public class Sid {
+    public string Value { get; private set; }
+    public Sid(string value) { Value = value; }
+    public Sid(byte[] data, int offset) { Value = "S-1-5-21-9-9-8"; }
+    public Account Translate(System.Type type) { return new Account("STUB\\\\" + Value); }
+  }
+}
+'@
+$script:granted = @{}
 function _Out($label, $value) {
   # To the console, not the pipeline: a stub's pipeline output is its return value.
   [Console]::Out.WriteLine($label + '=' + [Convert]::ToBase64String(
     [Text.Encoding]::UTF8.GetBytes([string]$value)))
 }
-function Get-GPO { param($Guid, $Name, $ErrorAction) _Out 'GETNAME' $Name; $null }
-function New-GPO { param($Name, $Comment)
+function Get-GPO { param($Guid, $Name, [switch]$All, $Domain, $ErrorAction) @() }
+function New-GPO { param($Name, $Comment, $Domain)
   _Out 'NAME' $Name; _Out 'COMMENT' $Comment
-  [pscustomobject]@{ Id = 'id'; DisplayName = $Name; GpoStatus = '' } }
-function Rename-GPO { param($Guid, $TargetName) _Out 'RENAME' $TargetName }
-function Set-GPRegistryValue { param($Guid, $Key, $ValueName, $Type, $Value)
+  [pscustomobject]@{ Id = [guid]::NewGuid(); DisplayName = $Name; GpoStatus = '';
+    WmiFilter = $null; Owner = 'STUB\\Domain Admins' } }
+function Rename-GPO { param($Guid, $TargetName, $Domain) _Out 'RENAME' $TargetName }
+function Set-GPRegistryValue { param($Guid, $Key, $ValueName, $Type, $Value, $Domain)
   _Out 'KEY' $Key; _Out 'VALUENAME' $ValueName
   foreach ($item in @($Value)) { _Out 'VALUE' $item } }
-function Remove-GPRegistryValue { param($Guid, $Key, $ValueName, $ErrorAction)
+function Remove-GPRegistryValue { param($Guid, $Key, $ValueName, $Domain, $ErrorAction)
   _Out 'KEY' $Key; _Out 'VALUENAME' $ValueName }
-function Get-GPRegistryValue { param($Guid, $Key, $ErrorAction) _Out 'KEY' $Key; $null }
-function Get-GPInheritance { param($Target) _Out 'TARGET' $Target
-  [pscustomobject]@{ GpoLinks = @() } }
-function New-GPLink { param($Guid, $Target, $LinkEnabled, $Enforced, $Order) }
-function Set-GPLink { param($Guid, $Target, $LinkEnabled, $Enforced, $Order) }
-function Get-GPPermission { param($Guid, [switch]$All, $ErrorAction) @() }
+function Get-GPRegistryValue { param($Guid, $Key, $Domain, $ErrorAction) _Out 'KEY' $Key; $null }
+function Get-GPInheritance { param($Target, $Domain) _Out 'TARGET' $Target
+  $type = 'Domain'
+  if ($Target -match '(?i)^OU=') { $type = 'OU' }
+  [pscustomobject]@{ ContainerType = $type; Path = $Target; GpoLinks = @() } }
+function New-GPLink { param($Guid, $Target, $LinkEnabled, $Enforced, $Order, $Domain) }
+function Set-GPLink { param($Guid, $Target, $LinkEnabled, $Enforced, $Order, $Domain) }
+function Get-GPPermission { param($Guid, [switch]$All, $TargetName, $TargetType, $Domain)
+  @(foreach ($name in $script:granted.Keys) {
+    [pscustomobject]@{ Permission = $script:granted[$name]; Denied = $false; Inherited = $false;
+      Trustee = [pscustomobject]@{ Domain = ''; Name = $name; SidType = 'Group';
+        Sid = [pscustomobject]@{ Value = ([StudioStub.Account]$name).Translate([string]).Value } } }
+  }) }
 function Set-GPPermission { param($Guid, $PermissionLevel, $TargetName, $TargetType,
-  [switch]$Replace, $ErrorAction) _Out 'TRUSTEE' $TargetName }
+  [switch]$Replace, $Domain)
+  _Out 'TRUSTEE' $TargetName
+  $script:granted[$TargetName] = [string]$PermissionLevel }
 """
 
 
 def _runnable(plan: str) -> str:
-    """The plan with its module requirement removed and the stubs defined after
-    its ``param()`` block (which must stay the first statement)."""
+    """The plan with its module requirement removed, the stubs defined after
+    its ``param(...)`` block (which must stay the first statement), and the
+    SID/account types replaced by stubs (their translation needs Windows)."""
     lines = [line for line in plan.splitlines() if not line.startswith("#Requires")]
-    index = lines.index("param()")
-    return "\n".join([*lines[: index + 1], _STUBS, *lines[index + 1 :]]) + "\n"
+    index = lines.index("param([switch]$AdoptExistingGpo)")
+    text = "\n".join([*lines[: index + 1], _STUBS, *lines[index + 1 :]]) + "\n"
+    for real, stub in (
+        ("[System.Security.Principal.NTAccount]", "[StudioStub.Account]"),
+        ("[System.Security.Principal.SecurityIdentifier]", "[StudioStub.Sid]"),
+        ("[System.Security.Principal.WindowsIdentity]", "[StudioStub.Identity]"),
+        ("[System.DirectoryServices.DirectoryEntry]", "[StudioStub.Entry]"),
+    ):
+        text = text.replace(real, stub)
+    return text
 
 
 def _plan_gpo(text: str) -> GPO:
@@ -201,7 +269,8 @@ def test_the_plan_runs_with_every_value_intact_and_nothing_injected(
     output = _run(_runnable(plan), tmp_path)
     assert MARKER not in [line.strip() for line in output.splitlines()], output
     assert f"Policy {payload}" in _decoded(output, "NAME"), output
-    assert f"About {payload}" in _decoded(output, "COMMENT"), output
+    (comment,) = _decoded(output, "COMMENT")
+    assert comment == f"About {payload}\n\n{export.plan_binding_marker(_plan_gpo(payload))}"
     assert f"Value {payload}" in _decoded(output, "VALUENAME"), output
     values = _decoded(output, "VALUE")
     assert f"Data {payload}" in values and f"one {payload}" in values, output
@@ -253,7 +322,8 @@ def test_registry_data_and_a_comment_arrive_exactly(tmp_path: Path, data: str) -
     assert "\r" not in plan and data not in plan.splitlines()
     output = _run(_runnable(plan), tmp_path)
     assert _decoded(output, "VALUE") == [data], output
-    assert _decoded(output, "COMMENT") == [data.replace("\r", "")], output
+    marker = export.plan_binding_marker(gpo)
+    assert _decoded(output, "COMMENT") == [data.replace("\r", "") + "\n\n" + marker], output
 
 
 @pytest.mark.parametrize(

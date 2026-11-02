@@ -20,7 +20,12 @@ from typing import Any
 
 import pytest
 
-from gpo_studio.export import gpmc_backup_bundle, native_backup_id, native_backup_refusal
+from gpo_studio.export import (
+    _gpmc_backup_codec,
+    gpmc_backup_bundle,
+    native_backup_id,
+    native_backup_refusal,
+)
 from gpo_studio.model import GPO, RegistrySetting, ValidationError
 from gpo_studio.script_policy import (
     PowerShellScriptEntry,
@@ -102,7 +107,10 @@ def _gpo(*, with_registry: bool = True) -> GPO:
 
 
 def _open(gpo: GPO, scripts: dict[str, ScriptPolicy] | None = None) -> zipfile.ZipFile:
-    return zipfile.ZipFile(io.BytesIO(gpmc_backup_bundle(gpo, scripts=scripts)))
+    # The codec, after the refusal decision: several GPOs here carry registry
+    # settings beside scripts, a combination the decision refuses as unmeasured
+    # (`export.scripts_gpo_refusals`) but whose byte shape these tests measure.
+    return zipfile.ZipFile(io.BytesIO(_gpmc_backup_codec(gpo, scripts=scripts)))
 
 
 def _backup_id_of(archive: zipfile.ZipFile) -> str:
@@ -358,7 +366,7 @@ def test_empty_script_policy_contributes_nothing() -> None:
 def test_bundle_with_scripts_is_deterministic() -> None:
     gpo = _gpo()
     scripts = {"computer": _r2_legacy_policy()}
-    assert gpmc_backup_bundle(gpo, scripts=scripts) == gpmc_backup_bundle(
+    assert _gpmc_backup_codec(gpo, scripts=scripts) == _gpmc_backup_codec(
         gpo, scripts=scripts
     )
 
@@ -419,7 +427,7 @@ def test_bundle_with_scripts_is_deterministic() -> None:
 def test_inexpressible_script_states_are_refused_not_approximated(
     policy: ScriptPolicy,
 ) -> None:
-    gpo = _gpo()
+    gpo = _gpo(with_registry=False)  # inside the Scripts lane's measured shape
     with pytest.raises(ValidationError) as raised:
         gpmc_backup_bundle(gpo, scripts={"computer": policy})
     issue = raised.value.issues[0]

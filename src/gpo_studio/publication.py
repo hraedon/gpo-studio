@@ -18,14 +18,14 @@ from __future__ import annotations
 import hashlib
 import uuid
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 from .canonical import canonical_json_bytes
-from .export import extension_registration
+from .export import extension_registration, refusal_issues
 from .gpmc_interop import InteropIssue
-from .gpp import serialize_gpp
+from .gpp import gpp_file_names, serialize_gpp
 from .identity_values import dn_problem, guid_problem
-from .model import GPO, RegistrySetting, ValidationIssue
+from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord
 from .registry_pol import serialize as serialize_registry_pol
 
@@ -265,12 +265,182 @@ def _is_sysvol_target(target: PublicationTarget) -> bool:
     return target in ("sysvol", "both")
 
 
+#: The planner's own refusals, each a refused step (`publication_refusals`).
+#: A GPO refused for one of these alone gets its refused plan (200); any other
+#: refusal (`export.refusal_issues`) refuses the request (422).
+PLANNER_REFUSALS: frozenset[str] = frozenset({
+    "unsupported_cse_content",
+    "unsupported_folder_redirection",
+    "unsupported_gpp_registry_shape",
+    "unsupported_extension_registration",
+    "extension_lists_unreachable",
+    "unsupported_side_status",
+})
+
+
+def publication_refusals(
+    gpo: GPO, target: PublicationTarget = "both"
+) -> tuple[PublicationStep, ...]:
+    """Every step by which the planner refuses *gpo* for *target*, in plan
+    order, decided from the MODEL (round 8): nothing is serialized to decide
+    them, and `generate_publication_plan` places exactly these, so the plan
+    and `export.refusal_issues` cannot disagree. ``()`` when none refuses."""
+    steps: list[PublicationStep] = []
+    if _is_sysvol_target(target) and gpo.cse_metadata:
+        preserved_files = sum(len(entry.files) for entry in gpo.cse_metadata)
+        steps.append(
+            PublicationStep(
+                step_id="unsupported-preserved-cse-content",
+                operation="unsupported_cse_content",
+                target="sysvol",
+                status="pending",
+                detail=(
+                    "Publication refused: the model contains "
+                    f"{len(gpo.cse_metadata)} preserved CSE metadata entry/entries "
+                    f"and {preserved_files} preserved file(s); this planner cannot "
+                    "publish their opaque content without producing a partial GPO"
+                ),
+            )
+        )
+    # An imported Folder Redirection policy: see `generate_publication_plan`.
+    if gpo.fdeploy is not None:
+        steps.append(
+            PublicationStep(
+                step_id="unsupported-folder-redirection",
+                operation="unsupported_folder_redirection",
+                target=target,
+                status="pending",
+                detail=(
+                    "Publication refused: the GPO carries an imported Folder "
+                    "Redirection policy (fdeploy1.ini) and this planner has no "
+                    "writer for it (WI-066), so a plan without it would publish a "
+                    "GPO that silently drops the redirection"
+                ),
+            )
+        )
+    # `extension_registration` reads the model's GPP file list; it writes none.
+    registration = extension_registration(gpo)
+    if registration.unmeasured_shapes:
+        steps.append(
+            PublicationStep(
+                step_id="unsupported-gpp-registry-shape",
+                operation="unsupported_gpp_registry_shape",
+                target=target,
+                status="pending",
+                detail=(
+                    "Publication refused: no Windows capture backs the native form "
+                    "of these GPP Registry items: "
+                    f"{'; '.join(registration.unmeasured_shapes)}"
+                ),
+            )
+        )
+    if registration.unverified_families:
+        steps.append(
+            PublicationStep(
+                step_id="unsupported-extension-registration",
+                operation="unsupported_extension_registration",
+                target=target,
+                status="pending",
+                detail=(
+                    "Publication refused: extension metadata has never been "
+                    "captured for "
+                    f"{', '.join(registration.unverified_families)}, so the "
+                    "extension list this content requires cannot be stated"
+                ),
+            )
+        )
+    # Independently of the above (round 10: an `elif` hid this behind an
+    # unmeasured family): a SYSVOL-only plan can write no directory attribute.
+    if not _is_ad_target(target):
+        for side, value in (
+            ("machine", registration.machine),
+            ("user", registration.user),
+        ):
+            if not value:
+                continue
+            attribute = (
+                "gPCMachineExtensionNames" if side == "machine" else "gPCUserExtensionNames"
+            )
+            # SYSVOL-only, with content that no extension will process
+            # because the attribute lives somewhere this plan does not go.
+            steps.append(
+                PublicationStep(
+                    step_id=f"unreachable-{side}-extensions",
+                    operation="extension_lists_unreachable",
+                    target=target,
+                    status="pending",
+                    detail=(
+                        f"Publication refused: {attribute} must be set to "
+                        f"{value} for this content to apply, and a "
+                        "SYSVOL-only plan cannot write a directory attribute"
+                    ),
+                )
+            )
+    # A disabled side: see `generate_publication_plan` (WI-070).
+    disabled_sides = [
+        side
+        for side, enabled in (
+            ("computer", gpo.computer_enabled),
+            ("user", gpo.user_enabled),
+        )
+        if not enabled
+    ]
+    if disabled_sides:
+        steps.append(
+            PublicationStep(
+                step_id="unsupported-side-status",
+                operation="unsupported_side_status",
+                target=target,
+                status="pending",
+                detail=(
+                    "Publication refused: the "
+                    f"{' and '.join(disabled_sides)} side"
+                    f"{'s are' if len(disabled_sides) > 1 else ' is'} disabled, and "
+                    "this planner has no step that sets the GPO's flags attribute, "
+                    "so the plan as written would publish "
+                    f"{'them' if len(disabled_sides) > 1 else 'it'} enabled"
+                ),
+            )
+        )
+    return tuple(steps)
+
+
+def publication_refusal_issues(gpo: GPO, target: str = "both") -> list[ValidationIssue]:
+    """`publication_refusals` as issues, for `export.refusal_issues`: the
+    step's operation is the code and its detail the message."""
+    if target not in ("ad", "sysvol", "both"):
+        target = "both"
+    return [
+        ValidationIssue(
+            severity="error", code=step.operation, message=step.detail, path=step.step_id
+        )
+        for step in publication_refusals(gpo, cast(PublicationTarget, target))
+    ]
+
+
+def _registry_pol_ids(settings: list[RegistrySetting], refused: bool) -> tuple[str, ...]:
+    """A Registry.pol step's content digest, or none for a refused plan,
+    which serializes nothing (round 8)."""
+    if refused:
+        return ()
+    return (_artifact_id_for(_build_registry_pol_content(tuple(settings))),)
+
+
 def generate_publication_plan(
     gpo: GPO,
     target: PublicationTarget = "both",
     actor: str = "",
 ) -> PublicationPlan:
-    """Generate a publication plan for a GPO."""
+    """Generate a publication plan for a GPO.
+
+    Refuses its own input first, as every artifact writer does (round 8): a
+    GPO `export.refusal_issues` refuses for anything but the planner's own
+    refusals (`PLANNER_REFUSALS`) -- a validation error, a cpassword -- is a
+    `ValidationError` naming every reason, and nothing is serialized for it.
+    """
+    issues = refusal_issues(gpo, "publication-plan", target=target)
+    if any(issue.code not in PLANNER_REFUSALS for issue in issues):
+        raise ValidationError(issues)
     steps: list[PublicationStep] = []
     rollback: list[PublicationStep] = []
 
@@ -280,25 +450,17 @@ def generate_publication_plan(
     computer_settings = [s for s in gpo.settings if s.side == "computer"]
     user_settings = [s for s in gpo.settings if s.side == "user"]
 
+    # The planner's refusals are decided first, from the model, and placed
+    # where each belongs below; a refused plan serializes nothing (round 8).
+    refusals: dict[str, list[PublicationStep]] = {}
+    for refusal in publication_refusals(gpo, target):
+        refusals.setdefault(refusal.operation, []).append(refusal)
+    refused = bool(refusals)
+
     # SYSVOL-targeted steps: only created when publishing to SYSVOL. When
     # target="ad" none of these are emitted.
     if _is_sysvol_target(target):
-        if gpo.cse_metadata:
-            preserved_files = sum(len(entry.files) for entry in gpo.cse_metadata)
-            steps.append(
-                PublicationStep(
-                    step_id="unsupported-preserved-cse-content",
-                    operation="unsupported_cse_content",
-                    target="sysvol",
-                    status="pending",
-                    detail=(
-                        "Publication refused: the model contains "
-                        f"{len(gpo.cse_metadata)} preserved CSE metadata entry/entries "
-                        f"and {preserved_files} preserved file(s); this planner cannot "
-                        "publish their opaque content without producing a partial GPO"
-                    ),
-                )
-            )
+        steps.extend(refusals.get("unsupported_cse_content", ()))
 
         # Update GPT.INI version counter. The version is a packed 32-bit field
         # whose halves move independently, so the step records which half this
@@ -341,15 +503,13 @@ def generate_publication_plan(
 
         # If registry settings: write Registry.pol (computer and/or user).
         if computer_settings:
-            content = _build_registry_pol_content(tuple(computer_settings))
-            artifact_id = _artifact_id_for(content)
             step = PublicationStep(
                 step_id="write-machine-registry-pol",
                 operation="write_registry_pol",
                 target="sysvol",
                 status="pending",
                 detail="Write Machine/Registry.pol",
-                artifact_ids=(artifact_id,),
+                artifact_ids=_registry_pol_ids(computer_settings, refused),
                 sysvol_path="Machine/Registry.pol",
             )
             steps.append(step)
@@ -365,15 +525,13 @@ def generate_publication_plan(
             )
 
         if user_settings:
-            content = _build_registry_pol_content(tuple(user_settings))
-            artifact_id = _artifact_id_for(content)
             step = PublicationStep(
                 step_id="write-user-registry-pol",
                 operation="write_registry_pol",
                 target="sysvol",
                 status="pending",
                 detail="Write User/Registry.pol",
-                artifact_ids=(artifact_id,),
+                artifact_ids=_registry_pol_ids(user_settings, refused),
                 sysvol_path="User/Registry.pol",
             )
             steps.append(step)
@@ -390,10 +548,12 @@ def generate_publication_plan(
 
         # If GPP collections: copy GPP XML files to SYSVOL.
         for collection in gpo.gpp_collections:
-            files = serialize_gpp(collection)
+            # A refused plan names the files from the model and writes none
+            # of them, so its steps carry no content digest (round 8).
+            files = None if refused else serialize_gpp(collection)
             side_dir = "Machine" if collection.scope == "computer" else "User"
-            for filename, content in files.items():
-                artifact_id = _artifact_id_for(content)
+            for filename in gpp_file_names(collection) if files is None else tuple(files):
+                artifact_ids = () if files is None else (_artifact_id_for(files[filename]),)
                 safe_name = filename.replace("/", "-").replace(" ", "")
                 step = PublicationStep(
                     step_id=f"copy-gpp-{collection.scope}-{safe_name}",
@@ -401,7 +561,7 @@ def generate_publication_plan(
                     target="sysvol",
                     status="pending",
                     detail=f"Copy {side_dir}/Preferences/{filename}",
-                    artifact_ids=(artifact_id,),
+                    artifact_ids=artifact_ids,
                     sysvol_path=f"{side_dir}/Preferences/{filename}",
                 )
                 steps.append(step)
@@ -449,21 +609,7 @@ def generate_publication_plan(
     # Refused for every target, not only SYSVOL: the policy needs both the
     # SYSVOL file and its entry in gPCUserExtensionNames, and Studio can state
     # neither, so an AD-only plan would be just as partial.
-    if gpo.fdeploy is not None:
-        steps.append(
-            PublicationStep(
-                step_id="unsupported-folder-redirection",
-                operation="unsupported_folder_redirection",
-                target=target,
-                status="pending",
-                detail=(
-                    "Publication refused: the GPO carries an imported Folder "
-                    "Redirection policy (fdeploy1.ini) and this planner has no "
-                    "writer for it (WI-066), so a plan without it would publish a "
-                    "GPO that silently drops the redirection"
-                ),
-            )
-        )
+    steps.extend(refusals.get("unsupported_folder_redirection", ()))
 
     # Register the client-side extensions the SYSVOL content needs, without
     # which every file above is inert (WI-057). The values come from export.py's
@@ -475,36 +621,10 @@ def generate_publication_plan(
     # capture backs (WI-075: a GPP Registry default-value item, which the
     # GroupPolicy module cannot author). The SYSVOL step above would publish that inferred
     # form, so refuse by the same rule the native backup export uses.
-    if registration.unmeasured_shapes:
-        steps.append(
-            PublicationStep(
-                step_id="unsupported-gpp-registry-shape",
-                operation="unsupported_gpp_registry_shape",
-                target=target,
-                status="pending",
-                detail=(
-                    "Publication refused: no Windows capture backs the native form "
-                    "of these GPP Registry items: "
-                    f"{'; '.join(registration.unmeasured_shapes)}"
-                ),
-            )
-        )
+    steps.extend(refusals.get("unsupported_gpp_registry_shape", ()))
     if registration.unverified_families:
-        steps.append(
-            PublicationStep(
-                step_id="unsupported-extension-registration",
-                operation="unsupported_extension_registration",
-                target=target,
-                status="pending",
-                detail=(
-                    "Publication refused: extension metadata has never been "
-                    "captured for "
-                    f"{', '.join(registration.unverified_families)}, so the "
-                    "extension list this content requires cannot be stated"
-                ),
-            )
-        )
-    else:
+        steps.extend(refusals.get("unsupported_extension_registration", ()))
+    elif _is_ad_target(target):
         for side, value in (
             ("machine", registration.machine),
             ("user", registration.user),
@@ -514,43 +634,28 @@ def generate_publication_plan(
             attribute = (
                 "gPCMachineExtensionNames" if side == "machine" else "gPCUserExtensionNames"
             )
-            if _is_ad_target(target):
-                steps.append(
-                    PublicationStep(
-                        step_id=f"register-{side}-extensions",
-                        operation="update_extension_lists",
-                        target="ad",
-                        status="pending",
-                        detail=f"Set {attribute} to {value}",
-                        directory_attribute=attribute,
-                        directory_value=value,
-                    )
+            steps.append(
+                PublicationStep(
+                    step_id=f"register-{side}-extensions",
+                    operation="update_extension_lists",
+                    target="ad",
+                    status="pending",
+                    detail=f"Set {attribute} to {value}",
+                    directory_attribute=attribute,
+                    directory_value=value,
                 )
-                rollback.append(
-                    PublicationStep(
-                        step_id=f"rollback-register-{side}-extensions",
-                        operation="restore_extension_lists",
-                        target="ad",
-                        status="pending",
-                        detail=f"Restore {attribute} from backup",
-                    )
+            )
+            rollback.append(
+                PublicationStep(
+                    step_id=f"rollback-register-{side}-extensions",
+                    operation="restore_extension_lists",
+                    target="ad",
+                    status="pending",
+                    detail=f"Restore {attribute} from backup",
                 )
-            else:
-                # SYSVOL-only, with content that no extension will process
-                # because the attribute lives somewhere this plan does not go.
-                steps.append(
-                    PublicationStep(
-                        step_id=f"unreachable-{side}-extensions",
-                        operation="extension_lists_unreachable",
-                        target=target,
-                        status="pending",
-                        detail=(
-                            f"Publication refused: {attribute} must be set to "
-                            f"{value} for this content to apply, and a "
-                            "SYSVOL-only plan cannot write a directory attribute"
-                        ),
-                    )
-                )
+            )
+    if not _is_ad_target(target):
+        steps.extend(refusals.get("extension_lists_unreachable", ()))
 
     # A disabled side lives in the directory object's `flags` attribute, which
     # `apply.ps1` sets through `GpoStatus` and the native backup carries as
@@ -558,31 +663,7 @@ def generate_publication_plan(
     # publish the side ENABLED -- the inverse of what the author set, and
     # silent, because every file it names would still be right (WI-070). The
     # planner refuses rather than inventing a step no lane has measured.
-    disabled_sides = [
-        side
-        for side, enabled in (
-            ("computer", gpo.computer_enabled),
-            ("user", gpo.user_enabled),
-        )
-        if not enabled
-    ]
-    if disabled_sides:
-        steps.append(
-            PublicationStep(
-                step_id="unsupported-side-status",
-                operation="unsupported_side_status",
-                target=target,
-                status="pending",
-                detail=(
-                    "Publication refused: the "
-                    f"{' and '.join(disabled_sides)} side"
-                    f"{'s are' if len(disabled_sides) > 1 else ' is'} disabled, and "
-                    "this planner has no step that sets the GPO's flags attribute, "
-                    "so the plan as written would publish "
-                    f"{'them' if len(disabled_sides) > 1 else 'it'} enabled"
-                ),
-            )
-        )
+    steps.extend(refusals.get("unsupported_side_status", ()))
 
     # If security filters: update nTSecurityDescriptor.
     if gpo.security_filters and _is_ad_target(target):

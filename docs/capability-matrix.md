@@ -1280,12 +1280,255 @@ module and delegated GPO rights.
 
 | Policy area | Where it lives instead |
 |-------------|----------------------|
-| WMI filter assignment | GPMC backup export (`Backup.xml`, `gpreport.xml`). The plan emits a comment naming the filter but does not assign it. Assign manually via GPMC or the GPMC COM API. |
+| WMI filter assignment | GPMC backup export (`Backup.xml`, `gpreport.xml`). A GPO with a WMI filter gets no plan: apply it through the GPMC backup and assign the filter in GPMC. |
 | GPP Groups and Registry | GPMC backup export (`Preferences/` XML) and Studio bundle export. The plan does not apply GPP content. |
+
+### Domain and GPO binding
+
+The plan modifies one domain and one GPO, and checks everything it can before
+it changes anything. Every identity comparison in it is ordinal (PowerShell's
+`-eq` and `-contains` use culture rules, under which a zero-width space or a
+soft hyphen still matches).
+
+- **Domain.** Every GroupPolicy cmdlet names `-Domain` with the GPO's declared
+  domain. Before any change the plan constructs a
+  `Microsoft.GroupPolicy.GPDomain` for it and stops if that fails; there is no
+  fallback to the session's domain. Measured on WS2025 (2026-10-29): an
+  unknown name fails ("does not exist or could not be contacted"), and the
+  NetBIOS name `LAB` failed with a referral error, so its plan stopped. For a
+  reachable DNS name `DomainName` simply echoes the name as given (upper case
+  stays upper case), so the check proves the domain is reachable under that
+  name, not that the name is canonical. Declare the domain's DNS name: a GPO
+  left on the default `studio.local` gets a plan that stops unchanged.
+- **Link targets.** Every link target must be the declared domain or one of
+  its OUs. Anything else -- another domain, a child domain, a container, a
+  site -- is a validation warning and no plan is generated. Before any change
+  the plan also checks each target lexically and then reads it with
+  `Get-GPInheritance`, which must answer with a container of the expected type
+  (`Domain` or `OU`) and the same path; a missing OU ("There is no such object
+  on the server", measured) or a mismatch stops the plan. The plan also reads
+  each target's `objectGUID` then (through ADSI, `DirectoryEntry`, which needs
+  no RSAT module) and again immediately before writing its link, and stops
+  without linking if it changed -- a same-DN replacement in between is not the
+  object that was checked. Measured on WS2025: the GUID read matches
+  `Get-ADObject`'s `objectGUID`; Windows PowerShell's ADSI adapter shadows
+  `DirectoryEntry.Guid` with a string, so the plan reads it through `psbase`;
+  a missing object reads as nothing rather than failing, which the plan
+  refuses. The `Get-GPInheritance` answers are reused when the links are
+  written. Site links are not written by plans:
+  `Get-GPInheritance` answers only for a domain or an OU (measured: "Only a
+  domain or an organizational unit (OU) may be targeted"). Link a site in GPMC.
+- **GPO.** The plan lists every GPO in the domain (`Get-GPO -All`), so a lookup
+  error stops it rather than reading as "absent". The GPO whose comment has a
+  line exactly `GPO Studio binding: <workspace GUID>`, with nothing else on the
+  line (lines split at CRLF or LF; no trimming) -- which the plan writes
+  into the comment of a GPO it creates -- binds without `-AdoptExistingGpo`
+  only if the plan would not rename it and the workspace GUID did not come
+  from imported data (an estate import keeps the GUID its file names, so a
+  crafted estate could carry the marker GUID read from another Studio GPO's
+  comment, which every authenticated user can read). Any other existing GPO
+  with the workspace GUID or the name needs `-AdoptExistingGpo` (for example
+  after `Import-GPO -CreateIfNeeded`) and is never renamed. Two GPOs with the
+  name, two carrying the marker, or another GPO holding the name or the GUID
+  stop the plan. The marker prevents accidents and is not authentication. An
+  imported GPO's `source_guid` never selects a GPO.
+- **WMI filter.** A GPO with a WMI filter gets no plan
+  (`wmi_filter_not_verifiable`). The plan cannot assign a filter, and it cannot
+  verify an assigned one: through the GroupPolicy module a filter exposes its
+  name, description and path (`MSFT_SomFilter.ID="{...}",Domain="..."`) and a
+  `GetQueryList()` whose output format has not been measured, while the model
+  records no filter ID. A check by name alone let a different filter with the
+  same name pass. Apply such a GPO through the GPMC backup and `Import-GPO`,
+  and assign the filter in GPMC.
+- **The Studio bundle.** When every reason the plan is refused is plan-only (a
+  WMI filter, a link outside the declared domain), `export.zip` is still
+  written without `apply.ps1`, and `manifest.json` records every reason under
+  `powershell_plan` (`included: false`, `refusals`: code and message each). A
+  reason that refuses the whole bundle -- a deny filter, say -- does so whatever
+  else is refused. One function (`export.plan_refusals`) answers for every
+  surface: the plan writer and `plan.ps1`, the bundle builder and
+  `export.zip` and the routes' own guard, egress and the API's capabilities,
+  each naming every reason and every validation error, in one canonical order
+  (by code, path, then message), so two models that differ only in link order
+  give the same refusals and the same record. Egress holds a Studio bundle to
+  the GPO it was built from: `manifest.json`, and `apply.ps1` when there is a
+  plan, must be exactly the bytes the builder writes for that GPO, so nothing
+  in the manifest -- a field, a duplicate key, `NaN`, a `null` record -- can
+  differ; without the GPO the bundle is refused. Every JSON member is parsed
+  strictly (no duplicate keys, `NaN`, `Infinity` or overflowing numbers). The API's
+  `studio_export` capability is enabled for such a GPO and says separately
+  whether the plan is included (`plan_included`, `plan_reason`).
+- **`-WhatIf`.** Every change goes through a cmdlet's or the plan's own
+  `ShouldProcess`, side status included, so `-WhatIf` changes nothing. A dry
+  run on a GPO that does not exist yet stops after reporting its creation.
+
+### Security filtering
+
+- **No filters authored:** the plan leaves permissions alone. A new GPO keeps
+  the Windows default, Authenticated Users with `GpoApply`.
+- **Filters authored:** they are the GPO's whole apply set. Before anything
+  changes, every principal is resolved to its SID. Before creating a GPO, a
+  principal every new GPO gives edit rights to stops the plan: SYSTEM, the
+  declared domain's Domain Admins and the forest root's Enterprise Admins,
+  whose SIDs the plan reads live from the domain's RootDSE naming contexts
+  (`objectSid`), not from the authored data and not by RID alone -- another
+  domain's RID-512 group is an ordinary principal. Right after `New-GPO`, and
+  before any other change, a filter naming the new GPO's owner stops it too:
+  the owner is read from the GPO, because the account running the plan is not
+  whom AD records (measured: run as `LAB\claude`, the owner was
+  `LAB\Domain Admins`; under `runas /netonly` the local token and the network
+  identity differ by design). That stop leaves the new GPO, unlinked, with the
+  Windows default permissions. Where the filter stores a
+  SID (an import does), a different one stops the plan -- a group deleted and
+  recreated under the same name is not the group the filter was authored for.
+  On an existing GPO, the plan then stops before changing it if an authored
+  principal holds an edit or custom level, an inherited entry or a deny
+  (`-Replace` would silently remove edit rights); if any other trustee holds an
+  inherited `GpoApply` or a `GpoCustom` level (it can lower neither); or if a
+  trustee it would lower cannot be named -- its account name must translate
+  back to its own SID, which an orphaned SID's does not. Then every other
+  trustee holding `GpoApply`, Authenticated Users included, is lowered to
+  `GpoRead` (Read stays, because since MS16-072 the computer reads the GPO for
+  both sides), each filter is granted, and the result is read back: nothing
+  outside the apply set may hold `GpoApply`, and each authored principal must
+  hold exactly its level. Trustees are matched by SID. Deny entries of other
+  trustees are left as they are.
+- **Only read filters authored:** the apply set is empty, so after the plan
+  runs the GPO applies to no one. This matches the RSOP model.
+
+### One refusal decision
+
+`export.refusal_issues(gpo, artifact)` is the only place an export refusal is
+decided. It covers the plan (`plan.ps1`), the Studio bundle (`export.zip`), the
+GPMC backup, the GPMC backup with scripts and the publication plan. It returns
+everything that refuses that artifact, de-duplicated and in one canonical order
+(by code, path and message), with no early return:
+
+| Reason | Refuses |
+|---|---|
+| validation errors, text XML cannot carry among them | every artifact |
+| the GPO's identity as the writers name it: a GPO ID that is not a GUID, a domain the writers' name rule refuses (surrounding space, a control character) | every artifact |
+| plan reasons: a link outside the domain, a WMI filter, a deny filter | the plan; the bundle only beside an error or a whole-bundle reason (otherwise it is written without `apply.ps1`) |
+| a GPP file that would carry a `cpassword` | the bundle, both backups, the publication plan |
+| preserved unknown CSE content | both backups |
+| a GPP family with no measured native extension pair; an unmeasured GPP Registry item shape; Folder Redirection | both backups |
+| a script state with no native encoding (asynchronous entries, the logon/logoff sync flags); a script command or parameters the scripts INI writer would refuse (a line break, a control character, surrounding space) | the backup with scripts |
+| the Scripts lane's GPO shape (registry or preference content beside scripts) | the backup with scripts |
+| the publication planner's refusals for the target: preserved CSE content (SYSVOL), Folder Redirection, an unmeasured GPP Registry item shape, an unmeasured GPP family, extension lists a SYSVOL-only plan cannot write, a disabled side | the publication plan |
+
+It is decided from the model, and no artifact writer runs to decide it: the
+`cpassword` check reads every store the GPP writer copies verbatim (unknown
+attributes and children, raw filter predicates, retained `native_xml` and
+`task_xml`, verbatim source files) rather than the bytes written, and the GPP
+families come from the writer's own file list rather than its output. Where
+a writer holds a model value to a rule of its own (the GUID, the domain, a
+script's INI value), the decision applies that same rule to the model value.
+One thing precedes it and is not an artifact writer: validation renders a
+GPO's preferences in memory, through the GPP writer, to check every value
+that writer would write (`validation.serialized_identity_issues`); a value
+the writer refuses is reported as a validation issue. That predates the
+decision and runs for every GPO.
+
+Every surface asks it: the raw writers, the checked builders, the routes'
+guards, the publication planner and the API's capabilities. A refused GPO
+reaches no serializer -- no `Registry.pol` encoder, GPP file writer, backup
+document, manifest, ZIP or publication digest
+(`tests/test_plan_binding.py`'s matrix instruments every one, on every
+surface, for every combination of up to three reasons).
+
+- **Reviewed exports** decide first, then hash with the payload's own digest
+  (`api._gpo_digests`), then raise in this order: unhashable legacy text, a
+  stale review (409), the refusal (422). A GPO with a validation error or a
+  `cpassword` is hashed with its retained GPP records read raw, in a digest
+  domain of its own that also binds the codes refusing it. So a review taken
+  while the GPO was refused never matches it once it is not, or once it is
+  refused for something else; a valid GPO's digests are unchanged.
+- **The publication plan** answers a refusal the planner states as a refused
+  step (the last row above) with its refused plan (200, `refused: true`). That
+  plan names the files it would write from the model and carries no content
+  digest for them, because nothing is serialized. Any other reason is a 422
+  naming every reason, the planner's included.
+- **The scripts export** adds what the request asks (a user side, shutdown,
+  logon or logoff scripts, the PowerShell order, `ScriptPolicy` validation) to
+  the same 422.
+
+#### Writer-stage refusals
+
+These need a writer's output to decide, so they stay in the writer. A writer
+reaches them only when the decision above is empty, and reports every one
+(not just the first). When nothing refuses a GPO, its capability builds the
+artifact and names every writer-stage reason.
+
+| Refusal | Raised by | What it reads |
+|---|---|---|
+| `cpassword_detected` | the Studio bundle and GPMC backup writers | the GPP bytes written. Defence in depth: the decision's model check reads every store these bytes can come from, so this firing means a store was missed (a defect) |
+| `unsupported_native_gpp_extension`, `unmeasured_gpp_registry_shape`, `folder_redirection_not_exportable`, `inexpressible_native_script_state` | the GPMC backup writer | the same checks as the decision, built by the same functions (defence in depth) |
+| `gpp_not_serializable` | the GPMC backup writer | the GPP writer's own refusal of a value as it writes it. Validation reports the same values first (`unwritable_preferences` and per-value issues) |
+| `unwritable_artifact_value` / an emit error | every checked builder and the publication planner | the output's integrity checks: each plan value's PowerShell rule (`ps_literal`) and the plan validator, the ZIPs' member, manifest and XML/INI value checks, the `Registry.pol` encoder. For a value the model holds, each rule is also decided before the writer, by validation or by the decision above (`tests/test_plan_binding.py` sweeps tricky values through every field a writer emits) |
+| `gpo_guid`, `steps`, `target`, `rollback_coverage`, `link_target` | the publication plan validator | the plan's own structure. The GPO ID and a link's DN are decided before the planner (the decision, and validation's `invalid_link_target`, which uses the same DN rule); an empty plan writes nothing |
+
+### When the plan stops partway
+
+The plan is not transactional. Everything it can check, it checks before the
+first change -- including, before `New-GPO`, the default editors every new GPO
+has; only the new GPO's owner and permission listing are read after it is
+created. After that, a stop leaves the GPO in one of these
+states (the plan's header lists them too):
+
+| Stopped | State left behind |
+|---|---|
+| after `New-GPO` (`-WhatIf`, or a filter naming the new GPO's owner) | the GPO exists, unlinked, with the Windows default permissions and its marker |
+| while lowering Apply | some former Apply holders are at `GpoRead`, the filters are not granted yet: the GPO may apply to no one, including where it is already linked |
+| while granting | some filters hold their level, others do not |
+| at the read-back | filtering as Windows left it; no settings, status or links written |
+| at a setting, status or link | everything before it is done; nothing after it |
+
+Nothing is linked until the read-back passes. To recover: read the message
+(it names the cause), inspect the GPO with `Get-GPPermission -All`,
+`Get-GPRegistryValue` and `Get-GPInheritance`, fix the cause, and run the plan
+again: every step is idempotent, and a GPO the plan created carries its marker,
+so the re-run binds it. A GPO a stopped run created and you no longer want can
+be removed with `Remove-GPO`; it was never linked.
+
+The plan binds the GPO, reconciles and reads back filtering, writes settings and
+side status, and writes links last. On the estate (2026-10-29, a throwaway GPO
+that was never linked and was removed afterwards) the plan refused an
+unreachable domain, the NetBIOS name (a referral error) and a stale stored SID
+with nothing changed; created the GPO with its marker, lowered Authenticated
+Users to `GpoRead` by the name `NT AUTHORITY\Authenticated Users` and granted a
+SID-authored principal; re-ran idempotently; changed nothing under `-WhatIf`;
+refused the GPO once its marker was removed; and adopted it with
+`-AdoptExistingGpo`. `New-GPO` itself refuses a second GPO with an existing name.
+A fourth estate run (2026-11-01, same rules): a filter naming the declared
+domain's Domain Admins (its SID read live from RootDSE) stopped the plan
+before `New-GPO`, nothing created; the plan created the GPO, whose owner read
+`LAB\Domain Admins` while the running account was `LAB\claude`; `-WhatIf`
+changed nothing; a re-run bound the same GPO by its marker; and the Domain
+Admins filter on the existing GPO stopped in the permission preflight with
+nothing changed.
+
+A third estate run (2026-10-31, same rules) measured, on the real cmdlets: an
+authored SID with no account stopped the plan ("Cannot resolve", nothing
+created; on the existing marked GPO, nothing changed); `-WhatIf` of a plan that
+would change a setting and the side status changed nothing; a re-run bound the
+same GPO by its marker (no trimming; Windows stores the comment's line breaks
+as LF); and the plan's own target preflight and re-check read the same
+`objectGUID` for an existing OU that `Get-ADObject` reports, and stopped on a
+missing OU. A first version read `DirectoryEntry.Guid` directly and stopped,
+correctly, on an unchanged target: the ADSI adapter returned a string.
+
+A second estate run (same rules) found a link to a missing OU stopped the plan
+before any change: with no GPO yet, nothing was created; on the existing marked
+GPO, its permissions, setting, status, comment and versions were byte-identical
+afterwards, though the plan would also have changed a setting and the side
+status.
 
 The plan is idempotent for registry values and links. Review it, test it in a
 lab, and run it with delegated GPO permissions. Native Windows behaviour and
-CSE-specific details still apply.
+CSE-specific details still apply. The binding and filtering rules above are
+covered by tests that run the plan under PowerShell against a stand-in for the
+GroupPolicy module, and by the one estate probe above; they are not yet a
+Windows evidence lane.
 
 ---
 
