@@ -22,6 +22,20 @@ NVDA acceptance for 1.2.0 (see
 to it, are the ones 1.1.0 was released through (Plan 036, the D-9 addendum),
 under [How this release is approved](#how-this-release-is-approved).
 
+1.2.0 is frozen a second time. The first freeze commit,
+`a4306361e4829449ced64d173978dcb532d2814c`, dated the changelog heading and was
+requalified on the estate, 26 of 26 lanes on 2026-11-02 from 12:15:08Z to
+13:02:10Z, but that batch was never banked. A test the preparation added,
+`test_a_predecessor_report_that_is_not_its_release_fails` in
+`tests/test_current_qualification.py`, holds only while the report's `freeze`
+is null, so it fails once the banking commit B sets `freeze`, and the release
+gate freezes every test at F. The re-freeze commit, the child of `a430636`,
+fixes that test (it now checks the pre-banking path whatever the report says)
+and these records, and changes no application code. It is F for this
+release: every lane is requalified again at it and banked and approved in the
+same order. The first freeze's batch certifies nothing, and its evidence tags
+were never pushed.
+
 ## How this release is approved
 
 The source of truth is the JSON report,
@@ -31,10 +45,12 @@ The source of truth is the JSON report,
 action, in this order:
 
 1. **Freeze commit F.** Every product change for 1.2.0 is merged, and the
-   preparation listed below is in. F itself replaces `YYYY-MM-DD` in the
-   `CHANGELOG.md` heading for 1.2.0 with F's date and changes nothing else.
-   F is a commit on `main`. After F, only the batch's evidence may be added
-   and only the release records changed.
+   preparation listed below is in. The first freeze commit, `a430636`,
+   replaced `YYYY-MM-DD` in the `CHANGELOG.md` heading for 1.2.0 with its date,
+   2026-11-02, and changed nothing else. F is now the re-freeze commit, its
+   child, which also fixes the test named above and updates these records (see
+   the opening of this file). F is a commit on `main`. After F, only the
+   batch's evidence may be added and only the release records changed.
 2. **The full batch at F.** All 26 lanes live at F (WP-0's manifest and the 25
    lane verdicts pending requalification) run on the estate from a clean clone
    at F, as one batch, with `scripts/plan-033/run-requal-batch.sh` (about 44
@@ -281,7 +297,9 @@ the capability set.
 
 ## Requalified evidence
 
-Pending: the batch at F. B replaces this section with the batch's record, as
+Pending: the batch at F, the re-freeze commit. The first freeze's batch at
+`a430636` is not banked and certifies nothing (see the opening of this file).
+B replaces this section with the batch's record, as
 1.1.0's manifest records its re-freeze batch: the batch manifest and note, the
 window, every run at F with its checks, the post-batch directory check, the
 run-id stamps, and what the batch retired.
@@ -556,7 +574,9 @@ Gaps, stated rather than implied:
 2. **Pending.** The freeze commit F: every product change for 1.2.0 merged,
    `__version__` and the JSON report's `version` `1.2.0` (done in the
    preparation; the report stays a candidate until A), and the `CHANGELOG.md`
-   1.2.0 heading dated by F. `SECURITY.md` makes `1.2.x` the only supported
+   1.2.0 heading dated 2026-11-02 by the first freeze commit `a430636` and kept
+   by the re-freeze commit, its child, which is F (see the opening of this
+   file). `SECURITY.md` makes `1.2.x` the only supported
    line from `1.2.0` (owner decision, 2026-11-01; done in the preparation).
 3. **Waived; not run (owner decision, 2026-11-01).** The owner's hands-on
    NVDA acceptance for 1.2.0: the dialogs changed, but no NVDA pass was

@@ -147,6 +147,11 @@ def test_a_predecessor_report_that_is_not_its_release_fails(
     _clear()
     with pytest.raises(AssertionError, match=f"previous release, {re.escape(previous)}"):
         cq.previous_release()
+    # Before B the current batch is built on the previous release, so it fails
+    # too. Exercised as before B whatever this checkout's state: once B sets
+    # the report's freeze, current_batches() never consults the predecessor.
+    monkeypatch.setattr(cq, "freeze", lambda: None)
+    _clear()
     with pytest.raises(AssertionError):
         cq.current_batches()
 
