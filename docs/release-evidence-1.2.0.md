@@ -452,10 +452,13 @@ Gaps, stated rather than implied:
 - Workspace schema stays 4, as in 1.1.0. AD discovery data cached by an
   earlier version is deleted when 1.2.0 opens the workspace, in the same
   transaction that records 1.2.0, if the `discovery_cache_version` marker in
-  `workspace_meta` is missing or older than 2 (so on the first open after an
-  upgrade from 1.1.x), or if `app_version` differs from
-  `discovery_cache_app_version`, meaning another version has opened the
-  workspace since. Two builds that report the same version are not told
+  `workspace_meta` is missing, is not decimal text or is below 2 (so on the
+  first open after an upgrade from 1.1.x), or if `discovery_cache_app_version`
+  is absent or differs from the `app_version` stored before this open, which
+  happens when a version earlier than 1.2.0 (one that does not record the
+  discovery-cache owner) has opened the workspace since. A newer marker alone
+  does not clear it, and moving between versions that record the owner does
+  not clear it. Two builds that report the same version are not told
   apart, and the detection assumes the workspace lock holds: two versions run
   at once through different paths to one workspace (a symbolic link, say)
   defeat it. Re-run discovery after upgrading.

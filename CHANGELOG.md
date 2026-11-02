@@ -25,8 +25,10 @@ Current version: `1.2.0`. The previous final release was `1.1.0`.
 > `1.1.x` patch is planned, so upgrade to 1.2.0 (see `SECURITY.md`). The
 > workspace schema is still 4. AD discovery data cached by an earlier
 > version is deleted the first time 1.2.0 opens the workspace, and again
-> whenever another version has opened it since (two builds that report the
-> same version are not told apart); only discovery records carrying 1.2.0's
+> whenever a version earlier than 1.2.0 (one that does not record the
+> discovery-cache owner) has opened it since; moving between versions that
+> record the owner does not clear it, and two builds that report the same
+> version are not told apart. Only discovery records carrying 1.2.0's
 > format mark are served. Re-run discovery after upgrading. Fixed says exactly
 > when the cache is cleared and which hand-edited records are never served.
 > Apart from that clear and the two `workspace_meta` entries that record it,
@@ -130,11 +132,13 @@ Current version: `1.2.0`. The previous final release was `1.1.0`.
     upper-case IPv6 subnet) that re-running discovery never overwrites. When
     this version opens a workspace, it deletes every cached discovery record,
     in the same transaction that records its own version, if either the
-    `discovery_cache_version` marker in `workspace_meta` is missing or older
-    than `2`, or `app_version` (which every version rewrites on each healthy,
-    writable open) differs from `discovery_cache_app_version` (which only
-    this version and later ones write), meaning another version opened the
-    workspace since. It then records itself in both. Upgrading with no other
+    `discovery_cache_version` marker in `workspace_meta` is missing, is not
+    decimal text or is below `2`, or `discovery_cache_app_version` (which only
+    this version and later ones write) is absent or differs from the
+    `app_version` stored before this open (which every version rewrites on
+    each healthy, writable open), meaning a version that does not record the
+    discovery-cache owner opened the workspace since. A newer marker alone
+    does not clear it. It then records itself in both. Upgrading with no other
     version in between keeps the cache. Two builds that report the same
     version (two commits of one release) are not told apart. The detection
     assumes the workspace lock holds: two versions run at the same time on

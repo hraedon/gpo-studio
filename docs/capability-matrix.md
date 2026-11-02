@@ -1249,10 +1249,16 @@ tail (`::ffff:192.0.2.0/120`); if AD returns a subnet name spelled that way,
 the whole sites import is refused with `invalid_cidr_format`, by design: no
 read of a real directory has yet shown whether `ActiveDirectorySubnet.Name`
 ever returns that spelling.
-The discovery cache is cleared whenever another version has opened the
-workspace since this one; two builds that report the same version (two commits
-of one release) are not told apart, and the detection assumes the workspace
-lock holds, which two versions running at once through path aliases defeat.
+The discovery cache is cleared on open when its `discovery_cache_version`
+marker is missing, not decimal text or below 2 (the first open after an upgrade
+from 1.1.x), or when `discovery_cache_app_version` is absent or differs from the
+`app_version` stored before the open, which happens when a version that does
+not record the discovery-cache owner (one earlier than 1.2.0) has opened the
+workspace since. A newer marker alone, or moving between versions that record
+the owner, does not clear it. Two builds that report the same version (two
+commits of one release) are not told apart, and the detection assumes the
+workspace lock holds, which two versions running at once through path aliases
+defeat.
 The discovery summary counts marked records that SQLite considers valid JSON.
 Exactly these hand-edited records are counted but never served: stored text that
 is not valid UTF-8; an integer over Python's 4,300-digit limit; a float that

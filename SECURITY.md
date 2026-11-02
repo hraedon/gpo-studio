@@ -36,9 +36,11 @@ Moving from `1.1.x`:
 
 - The workspace schema stays 4. AD discovery data cached by an earlier
   version is deleted the first time `1.2.0` opens a workspace, and again
-  whenever another version has opened it since (two builds that report the
-  same version are not told apart, and two versions running at once through
-  different paths to one workspace defeat the detection); only discovery
+  whenever a version earlier than `1.2.0` (one that does not record the
+  discovery-cache owner) has opened it since; moving between versions that
+  record the owner does not clear it (two builds that report the same version
+  are not told apart, and two versions running at once through different
+  paths to one workspace defeat the detection); only discovery
   records carrying `1.2.0`'s format mark are served. Re-run discovery after
   upgrading. Apart from that clear and the two `workspace_meta` entries that
   record it, nothing is migrated. Some stored data reads differently, and some edits and
