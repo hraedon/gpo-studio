@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any, Literal, assert_never
 
 from .emit_integrity import GPP_XML, xml_problems
 from .gpp_native import (
+    NEVER_RETAINED,
+    credential_local_name,
     has_never_retained_name,
     merge_native,
     namespaced_name,
@@ -3448,6 +3450,107 @@ def contains_cpassword(xml: bytes) -> bool:
             for encoding in ("utf-8", "utf-16-le", "utf-16-be")
         )
     return has_never_retained_name(root)
+
+
+def gpp_file_names(collection: GppCollection) -> tuple[str, ...]:
+    """The file names :func:`serialize_gpp` writes for *collection*, decided
+    from the model without writing anything (round 8): its verbatim
+    ``source_files``, or else its own file list (`_gpp_files_with_content`),
+    which is what the writer iterates."""
+    if collection.source_files:
+        return tuple(dict(collection.source_files))
+    return tuple(path for path, _families in _gpp_files_with_content(collection))
+
+
+def gpp_files_carrying_cpassword(collection: GppCollection) -> tuple[str, ...]:
+    """Each file :func:`serialize_gpp` would write for *collection* that would
+    hold a cpassword, decided from the MODEL, without writing it (round 8).
+
+    Typed fields never write one (a service's ``account_password`` is refused
+    by its writer, which validation reports). So a cpassword can only reach a
+    file through what the writer copies out verbatim: unknown attributes and
+    raw unknown children (an item's, a member's, a filter predicate's, a
+    root's), raw filter predicates, an item's retained ``native_xml`` and an
+    imported task's ``task_xml``, and verbatim ``source_files``. This reads
+    every one of them for a family the file holds -- a superset of what the
+    writer copies, so a retained record carrying one refuses even where the
+    writer would render the model instead. :func:`contains_cpassword`, on the
+    bytes written, stays the writer's own check (defence in depth)."""
+    if collection.source_files:
+        return tuple(
+            name for name, data in dict(collection.source_files).items() if contains_cpassword(data)
+        )
+    return tuple(
+        path
+        for path, families in _gpp_files_with_content(collection)
+        if any(
+            _carries_cpassword(_family_items(collection, key))
+            or _attrs_carry_cpassword(getattr(collection, f"{key}_unknown_attrs"))
+            or any(
+                _raw_carries_cpassword(raw)
+                for raw in getattr(collection, f"{key}_unknown_children")
+            )
+            for key in families
+        )
+    )
+
+
+def _attrs_carry_cpassword(attrs: Any) -> bool:
+    return any(credential_local_name(str(name)) in NEVER_RETAINED for name, _value in attrs)
+
+
+def _raw_carries_cpassword(raw: Any) -> bool:
+    if isinstance(raw, bytes):
+        return contains_cpassword(raw)
+    if not raw:
+        return False
+    text = str(raw)
+    try:
+        data = text.encode("utf-8")
+    except UnicodeEncodeError:
+        # Legacy stored text no XML can carry (a lone surrogate; validation
+        # reports it): it parses as nothing, so -- as `contains_cpassword` does
+        # for XML that does not parse -- the word anywhere counts (round 9: an
+        # encode here made such a GPO unreadable).
+        return "cpassword" in text.casefold()
+    return contains_cpassword(data)
+
+
+def _carries_cpassword(value: Any) -> bool:
+    """Whether a store the writer copies verbatim, anywhere in *value*, holds a
+    cpassword (`gpp_files_carrying_cpassword`). Walks as `namespaced_content`
+    does, and reads ``native_xml`` and ``task_xml`` too."""
+    if isinstance(value, IltFilter):
+        return any(
+            _raw_carries_cpassword(entry) if isinstance(entry, str) else _carries_cpassword(entry)
+            for entry in value.items
+        )
+    if isinstance(value, dict):
+        return any(
+            credential_local_name(str(key)) in NEVER_RETAINED or _carries_cpassword(item)
+            for key, item in value.items()
+        )
+    if not hasattr(value, "__dataclass_fields__"):
+        if isinstance(value, (list, tuple)):
+            return any(_carries_cpassword(entry) for entry in value)
+        return False
+    for f in fields(value):
+        field_value = getattr(value, f.name)
+        if "unknown" in f.name and f.name.endswith("_attrs"):
+            if _attrs_carry_cpassword(field_value):
+                return True
+        elif ("unknown" in f.name and f.name.endswith("_children")) or f.name == "source_files":
+            if any(
+                _raw_carries_cpassword(raw[1] if isinstance(raw, tuple) else raw)
+                for raw in field_value
+            ):
+                return True
+        elif f.name in ("native_xml", "task_xml"):
+            if _raw_carries_cpassword(field_value):
+                return True
+        elif _carries_cpassword(field_value):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------

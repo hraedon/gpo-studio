@@ -441,6 +441,121 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Security
 
+Pre-1.1.1 security review, ten rounds. Both original findings predate 1.1.0.
+
+- **The PowerShell plan (`plan.ps1`, `apply.ps1`) is bound to the GPO's
+  declared domain.** Every GroupPolicy cmdlet names `-Domain`, and before any
+  change the plan stops unless the declared domain is reachable. Declare the
+  domain's DNS name: a GPO still on the default `studio.local` gets a plan that
+  stops without changing anything (as did the NetBIOS name on the estate).
+- **Link targets are checked before anything changes.** A target must be the
+  declared domain or one of its OUs; anything else (another domain, a child
+  domain, a container, a site) is a validation warning
+  (`link_target_outside_domain`) and no plan is generated. The plan reads each
+  target with `Get-GPInheritance` before its first change and stops on a
+  missing target or one of the wrong type; it binds each target's `objectGUID`
+  then and checks it again immediately before writing the link, so a same-DN
+  replacement in between is not linked. Site links are made in GPMC.
+- **The plan modifies only the GPO it is bound to.** It lists the domain's
+  GPOs (a lookup error stops it) and binds, without `-AdoptExistingGpo`, only
+  the GPO whose comment has the exact line `GPO Studio binding: <workspace
+  GUID>`, with nothing else on the line -- and only when it would not rename it
+  and the workspace GUID did not
+  come from imported data (an estate import keeps its file's GUIDs, so a
+  crafted estate could carry another Studio GPO's marker). Any other existing
+  GPO with the workspace GUID or the name -- the Default Domain Policy named by
+  an estate import, say -- needs the switch and is never renamed. Duplicate
+  names stop the plan. Identity comparisons are ordinal. The marker prevents
+  accidents and is not authentication. `source_guid` never selects a GPO.
+- **Security filtering no longer fails open.** When filters are authored they
+  are the GPO's whole apply set. Every principal is resolved to its SID before
+  anything changes, and a stored SID that no longer matches stops the plan, as
+  does -- before a GPO is created -- a principal every new GPO gives edit rights
+  to (SYSTEM, and the declared domain's Domain Admins and its forest root's
+  Enterprise Admins, read live from the domain), and -- right after it is
+  created -- the new GPO's owner as AD records it. On
+  an existing GPO the plan stops before changing it if an authored principal
+  holds edit rights, a custom level, an inherited entry or a deny; if another
+  trustee holds an inherited `GpoApply` or a `GpoCustom` level; or if a trustee
+  it would lower cannot be named (an orphaned SID). Then every other
+  `GpoApply`, `Authenticated Users` included, is lowered to `GpoRead` (Read is
+  kept for MS16-072), the filters are granted, and a SID-based read-back checks
+  both directions. The old `$protected` list, which kept `Authenticated Users:
+  GpoApply` on every filtered GPO, is gone, as is the old removal, which passed
+  `-PermissionLevel None` without `-Replace` and so lowered nothing. No filters
+  authored still leaves the permissions alone.
+- **A GPO with a WMI filter gets no plan** (`wmi_filter_not_verifiable`). The
+  plan can neither assign nor verify a filter, and used to link the GPO with
+  the filter unassigned. Apply such a GPO through the GPMC backup.
+- When every reason the plan is refused is plan-only (a WMI filter, a link
+  outside the declared domain), `export.zip` is still written, without
+  `apply.ps1`; its `manifest.json` records every reason under `powershell_plan`
+  (`refusals`), egress checks that record against the GPO both ways and field
+  for field, and the API's `studio_export` capability stays enabled and
+  reports `plan_included`. A reason that refuses the whole bundle (a deny
+  filter) still does. One function decides for the plan, the bundle, the
+  routes, egress and the API, and each names every reason and validation
+  error in one canonical order. Egress requires the bundle's `manifest.json`
+  (and `apply.ps1`) to be exactly the bytes the builder writes for the GPO, so
+  no field, duplicate key, `NaN` or `null` record can be altered, and every
+  JSON member is parsed strictly (no duplicate keys, `NaN`, `Infinity` or
+  overflowing numbers).
+- **One refusal decision for every export.** `export.refusal_issues` decides,
+  completely and in one order, what refuses the plan, the Studio bundle, the
+  GPMC backup (with or without scripts) and the publication plan. That
+  covers validation errors, text XML cannot carry, unknown CSE content, plan
+  reasons, the Scripts lane's GPO shape, a GPP `cpassword`, the GPMC
+  writer's own refusals (an unmeasured GPP family or Registry item shape,
+  Folder Redirection, a script state with no native encoding) and the
+  publication planner's. The writers, the checked builders, the routes'
+  guards, the publication planner and the API's capabilities all ask it. It
+  is decided from the model, so no artifact writer runs for refused content.
+  The checks that need a writer's output stay in the writer, which now
+  reports every one of them; `docs/capability-matrix.md` lists them. Before,
+  the GPMC backup, the Studio bundle and the publication planner serialized
+  `Registry.pol` and preference files before refusing, `native_backup_id`
+  accepted a GPO whose backup was refused, a capability named only a
+  writer's first reason, and publication copied a preference file carrying a
+  `cpassword` into its plan.
+- **A fresh export review is no longer reported stale.** The export guard
+  hashed a GPO with a validation error and an imported preference record
+  differently from the GPO it served, so every review of it was answered 409
+  "changed after this export review", even after a reload. Both now use one
+  digest.
+- **A review taken while a GPO was refused never authorizes its export.** A
+  refused GPO's digests are hashed in a domain of their own, bound to the
+  codes that refuse it. Before, an imported preference record could hash the
+  same whether the GPO was refused or not, so a review taken while a load
+  problem refused it authorized the export after a reload without one. A
+  valid GPO's digests, and the backup IDs derived from them, are unchanged.
+- **The GPO's identity is decided for every export.** A GPO ID that is not a
+  GUID, or a domain with surrounding space or a control character, was held
+  to a rule only by the writers: the publication plan answered a legacy ID
+  with a refused plan after serializing `Registry.pol`, and the plan, bundle
+  and backup failed at the writer. The decision refuses them first. So it
+  does for a script command or parameters the scripts INI writer refuses (a
+  line break, a control character, surrounding space).
+- **A `REG_BINARY` value with a tab or line break between bytes is planned.**
+  Validation and the `Registry.pol` writer read such a value as its bytes;
+  the plan alone refused it, which also refused the whole Studio bundle.
+  All three now use one parser (`registry_pol.hex_bytes`), so the plan also
+  refuses whitespace inside a byte, as the other two always did; its text
+  for every value it wrote before is unchanged.
+- **No refusal reason hides another.** A script state with no native
+  encoding no longer hides a script value the INI writer refuses (each
+  asynchronous entry is named, not the first), a `cpassword` no longer hides
+  its file's unmeasured GPP family, and an unmeasured family no longer hides
+  a SYSVOL-only publication plan's unreachable extension lists.
+- A GPO whose stored scheduled task holds text XML cannot carry (a lone
+  surrogate) is readable again; the round-8 `cpassword` check had made its
+  read a 422.
+- **`-WhatIf` changes nothing.** Side status (`GpoStatus`) is set through
+  `ShouldProcess`; the read-back is skipped under `-WhatIf`.
+- Filtering and side status run before links, so nothing is linked while a new
+  GPO still applies to everyone. The plan is not transactional: its header and
+  `docs/capability-matrix.md` list what a stop after its checks leaves behind
+  and how to recover.
+
 These ADMX template store defects predate `1.1.0` and are present in it.
 
 - **A template lock could attest bytes that were never loaded.** Ingest read

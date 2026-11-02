@@ -36,7 +36,7 @@ current verification status, see [`capability-matrix.md`](capability-matrix.md).
 | Capability | State | Authoring | Import | Export | PowerShell plan | Diff | Windows-lab verification |
 |---|---|---|---|---|---|---|---|
 | GPO inventory / create / rename / description | supported | workspace CRUD with optimistic concurrency | GPMC backup single-GPO import; gpo-lens estate import | Studio bundle and GPMC backup manifest | `New-GPO`, `Rename-GPO`, `-Comment` | not compared | not yet |
-| Computer / User side status | supported | toggle in model and API | imported from backup/estate | emitted in bundle manifests | `Set-GPO -Status` | not compared | not yet |
+| Computer / User side status | supported | toggle in model and API | imported from backup/estate | emitted in bundle manifests | `$gpo.GpoStatus` | not compared | not yet |
 
 ### Registry policy
 
@@ -101,12 +101,15 @@ The plan applies:
 
 - Registry policy: `Set-GPRegistryValue` and `Remove-GPRegistryValue` for all supported value types and delete actions.
 - Links: `New-GPLink` / `Set-GPLink` with enabled, enforced, and order values.
-- Security filtering: `Set-GPPermission` to add/replace desired principals and remove stale ones.
-- Side status: `Set-GPO -Status` to AllSettingsEnabled, UserSettingsDisabled, ComputerSettingsDisabled, or AllSettingsDisabled.
+- Domain binding: every cmdlet names the declared domain, and the plan stops unless that domain is reachable under that name and every link target is in it.
+- GPO binding: the GPO carrying the plan's binding marker (a rename, or a workspace GUID from an import, needs `-AdoptExistingGpo`); any other GPO with the workspace GUID or the name only with `-AdoptExistingGpo`, and never renamed.
+- Security filtering: `Set-GPPermission` to add/replace desired principals; every other Apply holder, Authenticated Users included, is lowered to Read.
+- Side status: the `GpoStatus` property, set to AllSettingsEnabled, UserSettingsDisabled, ComputerSettingsDisabled, or AllSettingsDisabled.
 
 The plan does **not** apply:
 
-- WMI filter assignment. It emits a comment telling the operator to assign the filter in GPMC or through the GPMC COM API.
+- WMI filter assignment. A GPO with a WMI filter gets no plan: use the GPMC backup and assign the filter in GPMC.
+- Site links. Link a site in GPMC.
 - Group Policy Preferences (GPP Groups, GPP Registry, ILT). For GPP content, use the GPMC backup artifact from the `gpmc-backup` endpoint.
 
 The plan is partial. Administrators must review both `apply.ps1` and the GPMC

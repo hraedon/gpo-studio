@@ -48,3 +48,33 @@ def test_the_identity_is_recorded_but_not_published() -> None:
     gpo = GPO(guid="g", name="n", backup_inventory=source.backup_inventory)
     assert "source_domain_guid" not in gpo.to_dict()["backup_inventory"]
     assert gpo.to_stored_dict()["backup_inventory"]["source_domain_guid"]
+
+
+@pytest.mark.parametrize("capture", CAPTURES[:3], ids=lambda path: path.name)
+def test_the_plan_carries_no_import_identity(capture: Path) -> None:
+    """`apply.ps1` is left out of the pinned bundle digest (it changed on
+    purpose after 5c6ea8a), so its share of this file's promise is checked
+    here: the source GPO's GUID and its domain's GUID never reach it. The
+    domain's DNS name does, by design -- it is the domain the plan binds to."""
+    import io
+    import zipfile
+
+    from gpo_studio.backup import read_backup
+    from gpo_studio.export import export_bundle
+    from gpo_studio.model import GPO
+
+    (source,) = read_backup(capture).gpos
+    assert source.backup_inventory is not None
+    identity = source.backup_inventory
+    assert identity.source_gpo_guid and identity.source_domain_guid
+    gpo = GPO(
+        guid="11111111-2222-4333-8444-555555555555",
+        name=source.display_name or "Imported GPO",
+        source_guid=source.guid,
+        backup_inventory=identity,
+        domain=source.domain or "studio.local",
+    )
+    with zipfile.ZipFile(io.BytesIO(export_bundle(gpo))) as archive:
+        plan = archive.read("apply.ps1").decode("utf-8-sig").casefold()
+    for value in (source.guid, identity.source_gpo_guid, identity.source_domain_guid):
+        assert value.strip("{}").casefold() not in plan, value

@@ -306,3 +306,44 @@ def test_unhashable_legacy_text_keeps_actionable_refusal_and_stored_records(
     )
     assert "cannot be hashed" not in response.text
     assert tuple(store._connection.iterdump()) == before
+
+
+@pytest.mark.parametrize(
+    ("kind", "invalidation"),
+    [
+        ("export.zip", "capability"),
+        ("plan.ps1", "capability"),
+        ("export.zip", "validation"),
+        ("plan.ps1", "validation"),
+        ("gpmc-backup", "validation"),
+    ],
+)
+def test_a_stale_review_of_a_now_refused_policy_reports_the_change_first(
+    workspace, kind, invalidation
+):
+    """A review taken before another session made the policy unexportable is
+    reported as stale, not with the new refusal: the refreshed review then
+    shows the refusal (tests/browser/export-review.spec.mjs). The refusal set
+    is still decided before anything is hashed or written (round 7)."""
+    client, store, payload = workspace
+    guid = payload["gpo"]["guid"]
+    if invalidation == "capability":
+        suffix = "security-filters"
+        body: dict = {
+            "expected_revision": 2,
+            "filter": {"principal": r"SYNTHETIC\Workstations", "permission": "read", "deny": True},
+        }
+    else:
+        suffix = "settings"
+        setting = dict(payload["gpo"]["settings"][0])
+        setting.pop("id")
+        body = {"expected_revision": 2, "setting": setting}
+    changed = client.post(f"/api/gpos/{guid}/{suffix}", json=body)
+    assert changed.status_code == 201
+    before = tuple(store._connection.iterdump())
+    stale = client.get(f"/api/gpos/{guid}/{kind}", params=tokens(payload))
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "export_review_conflict"
+    assert tuple(store._connection.iterdump()) == before
+    refreshed = client.get(f"/api/gpos/{guid}/{kind}", params=tokens(changed.json()))
+    assert refreshed.status_code == 422
