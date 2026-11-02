@@ -1257,7 +1257,7 @@ The discovery summary counts marked records that SQLite considers valid JSON.
 Exactly these hand-edited records are counted but never served: stored text that
 is not valid UTF-8; an integer over Python's 4,300-digit limit; a float that
 overflows (`1e309`); a NUL character after the document, with or without text
-after it; nesting of 101 to 1,000 container levels, counting the document
+after it; nesting of 65 to 1,000 container levels, counting the document
 itself; and a key or string that is not Unicode text (an escaped lone
 surrogate). GPO Studio never writes one.
 

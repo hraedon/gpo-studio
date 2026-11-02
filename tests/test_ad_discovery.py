@@ -35,7 +35,7 @@ from gpo_studio.model import (
     ValidationError,
 )
 from gpo_studio.schema import SCHEMA_VERSION
-from gpo_studio.store import WorkspaceStore
+from gpo_studio.store import _DISCOVERY_MAX_DEPTH, WorkspaceStore
 
 _VALID_FOREST = {
     "kind": "gpo-studio-discovery-forest",
@@ -1692,13 +1692,20 @@ def test_invalid_utf8_in_a_cached_row_never_degrades_the_workspace(
 
 @pytest.mark.parametrize(
     ("levels", "counted", "served"),
-    [(100, True, True), (101, True, False), (1000, True, False), (1001, False, False)],
+    [
+        (64, True, True),
+        (65, True, False),
+        (100, True, False),
+        (101, True, False),
+        (1000, True, False),
+        (1001, False, False),
+    ],
 )
 def test_depth_boundaries_in_total_container_levels(
     tmp_path, monkeypatch, levels: int, counted: bool, served: bool
 ) -> None:
     # Levels count every array and object, the document itself included:
-    # served up to 100, counted by SQLite's json_valid() up to 1,000.
+    # served up to 64, counted by SQLite's json_valid() up to 1,000.
     nested = "[" * (levels - 1) + "]" * (levels - 1)
     store = WorkspaceStore(tmp_path / f"depth{levels}.db")
     try:
@@ -1708,5 +1715,43 @@ def test_depth_boundaries_in_total_container_levels(
         names = [p["sam_account_name"] for p in store.list_discovery("principal")]
         assert ("handmade" in names) is served
         assert len(_http_search(store, monkeypatch)) == (2 if served else 1)
+    finally:
+        store.close()
+
+
+def _json_depth(value: Any) -> int:
+    deepest = 0
+    stack = [(value, 1)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, dict | list):
+            deepest = max(deepest, depth)
+            children = item.values() if isinstance(item, dict) else item
+            stack.extend((child, depth + 1) for child in children)
+    return deepest
+
+
+def test_the_deepest_served_document_renders_on_every_platform(
+    tmp_path, monkeypatch
+) -> None:
+    # #164 CI: pydantic-core refuses to serialize nesting past 99 levels on
+    # Windows and PyPy (255 on Linux), so a served 100-level document broke
+    # search on Windows only. Pin the whole response's depth here, where the
+    # Linux limit would hide it.
+    nested = "[" * (_DISCOVERY_MAX_DEPTH - 1) + "]" * (_DISCOVERY_MAX_DEPTH - 1)
+    store = WorkspaceStore(tmp_path / "deepest.db")
+    try:
+        _import_principals(store, monkeypatch)
+        _row(store, _PREFIX + _PRINCIPAL_TAIL + ',"n":' + nested + "}")
+        monkeypatch.setattr(app.state, "store", store, raising=False)
+        monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+        response = TestClient(app, base_url="http://127.0.0.1").get(
+            "/api/discovery/principals", params={"q": "handmade"}
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert [p["sam_account_name"] for p in body["items"]] == ["handmade"]
+        assert _json_depth(body) == _DISCOVERY_MAX_DEPTH + 2
+        assert _json_depth(body) < 99
     finally:
         store.close()

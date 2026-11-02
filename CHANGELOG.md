@@ -125,7 +125,7 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
     whose stored text is not valid UTF-8; one with an integer over Python's
     4,300-digit limit; one with a float that overflows (`1e309`); one with a
     NUL character after the document, with or without text after it; one
-    nested 101 to 1,000 container levels deep, counting the document itself;
+    nested 65 to 1,000 container levels deep, counting the document itself;
     and one with a key or string that is not Unicode text (an escaped lone
     surrogate such as `"\ud800"`). This version never writes one. The
     mark alone cannot prove which version wrote a record: version 1.1.0's GPO

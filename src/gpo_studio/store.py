@@ -822,7 +822,10 @@ def _stamp_discovery(data_json: str) -> str:
 
 # Deeper than any discovery document this build writes, and shallow enough that
 # a served document always renders: response rendering recurses (#164 review).
-_DISCOVERY_MAX_DEPTH = 100
+# pydantic-core refuses to serialize nesting past 99 levels on Windows (255
+# elsewhere), and the search response wraps each document in two more levels,
+# so a 100-level bound broke search on Windows only. 64 leaves headroom.
+_DISCOVERY_MAX_DEPTH = 64
 
 
 def _current_discovery(data_json: str | bytes) -> dict[str, Any] | None:
@@ -839,7 +842,7 @@ def _current_discovery(data_json: str | bytes) -> dict[str, Any] | None:
     Decoding is at least as strict as json_valid() (no raw control
     characters, NaN or Infinity) and refuses what a response could not
     render: a float that overflows, an integer over Python's digit limit,
-    nesting deeper than 100 levels, and trailing text. A hand-edited row
+    nesting deeper than 64 levels, and trailing text. A hand-edited row
     json_valid() accepts but this refuses is counted by the summary and never
     served; this build never writes one.
     """
