@@ -2,7 +2,7 @@
 
 > **Date:** 2026-11-02 (final release; draft opened 2026-10-31)
 > **Source commit:** resolved by the tagged release workflow
-> **Status:** release candidate; final approval pending
+> **Status:** approved for release
 
 This is the manifest for the 1.2.0 minor release, to be tagged `v1.2.0`. It
 records how 1.2.0 is approved, which runs qualify the tree it ships, what
@@ -637,8 +637,8 @@ Gaps, stated rather than implied:
    NVDA acceptance for 1.2.0: the dialogs changed, but no NVDA pass was
    performed. It is recorded as not run, never as passed, here, under
    [Accessibility evidence](#accessibility-evidence) and in the JSON report.
-4. **Recorded by the tagged run after A, not a precondition.** The automated
-   evidence comes from the release workflow run on the tag, so it cannot exist
+4. **Closed by this approval (2026-11-02): recorded by the tagged run after
+   A, not a precondition.** The automated evidence comes from the release workflow run on the tag, so it cannot exist
    before A. When that run publishes, `scripts/record_release_identity.py`
    writes into the published `release-evidence.md` (replacing the Automated
    evidence placeholder) and `release-evidence-report.json`: the run's URL and
@@ -650,13 +650,14 @@ Gaps, stated rather than implied:
    workflow run itself (its jobs and the `verify` log), not in the assets. It
    refuses to publish if any of that is missing or the placeholder is not
    resolved. The approval commit A closes this item by saying so.
-5. **Pending.** Approved in the order under
-   [How this release is approved](#how-this-release-is-approved): the full
-   batch of all 26 lanes at F, the banking commit B (parent F, evidence and
-   records only, the report's `freeze` set to F and that batch) and a
-   records-only approval commit A; the tag `v1.2.0` on A, on `main`. The
-   release gate refuses the tag unless the history from F is B, records-only
-   commits and A, the tree differs from F only in the batch and the release
-   records, and every live verdict is the batch's run recorded at F with its
-   evidence tag (it does not authenticate the estate runs; see How this
-   release is approved).
+5. **Done (2026-11-02).** Approved in the order under
+   [How this release is approved](#how-this-release-is-approved), from the
+   re-freeze commit `f971504` as F: the full batch of all 26 lanes at F, the
+   banking commit B (parent F, evidence and records only, the report's
+   `freeze` set to F and that batch) and this records-only approval commit A.
+   The tag `v1.2.0` goes on A, on `main`. The release gate refuses the tag
+   unless the history from F is B, records-only commits and A, the tree
+   differs from F only in the batch and the release records, and every live
+   verdict is the batch's run recorded at F with its evidence tag (it does not
+   authenticate the estate runs; see How this release is approved); the first
+   freeze commit `a430636` comes before F and is not part of that history.

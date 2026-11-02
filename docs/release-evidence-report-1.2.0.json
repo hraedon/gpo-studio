@@ -2,7 +2,7 @@
   "report_type": "GPO Studio release evidence report",
   "report_version": 3,
   "version": "1.2.0",
-  "status": "candidate",
+  "status": "approved",
   "manifest": "docs/release-evidence-1.2.0.md",
   "workspace_schema_version": 4,
   "artifact_hashes": {
@@ -356,8 +356,8 @@
       "all 26 live lanes requalified at F in one batch, banked in commit B whose parent is F, evidence and records only, with freeze set in this report: done (2026-11-02), the release 1.2.0 batch, 26 of 26 at the re-freeze commit f9715048fafa209069d9a5c2f78ae4a36d3a49e6 (docs/plan-033/release120-batch.json); the first freeze's batch at a4306361e4829449ced64d173978dcb532d2814c was never banked, and the release 1.1.0 re-freeze batch at 5ffa026516830139f8607ef5706f2bf8f4e002d5 is history",
       "freeze commit F: every product change for 1.2.0 merged, __version__ 1.2.0 and SECURITY.md making 1.2.x the only supported line from 1.2.0 (both done in the preparation; the SECURITY.md change is the owner's decision of 2026-11-01), and the CHANGELOG.md 1.2.0 heading dated 2026-11-02 by the first freeze commit a4306361e4829449ced64d173978dcb532d2814c: done, and kept by the re-freeze commit f9715048fafa209069d9a5c2f78ae4a36d3a49e6, its child, which fixes tests/test_current_qualification.py (a test that failed once B set freeze) and is F; CI on F passed (run 41458740923: every ci.yml job; test (3.13) 31 of 90 minutes, test-windows (3.13) 74 of 150)",
       "owner's hands-on NVDA acceptance: waived for 1.2.0 by the owner on 2026-11-01 (the dialogs changed, but no NVDA pass was performed); not run",
-      "automated evidence, recorded after A by the tagged release workflow run, not a precondition of approval: the published release-evidence.md and release-evidence-report.json carry the tag, source commit, workflow run URL, id, attempt and ref, and the wheel, sdist and SBOM hashes, and state that release-identity, ci, identifier-gate and verify passed before publish and that verify checked coverage against the floor; the job ids and that run's coverage total are in the workflow run itself, not in the assets",
-      "final approval in a records-only commit A after B: status approved, manifest line 5; tag v1.2.0 on A, on main (pending)"
+      "closed by the approval (2026-11-02): automated evidence, recorded after A by the tagged release workflow run, not a precondition of approval: the published release-evidence.md and release-evidence-report.json carry the tag, source commit, workflow run URL, id, attempt and ref, and the wheel, sdist and SBOM hashes, and state that release-identity, ci, identifier-gate and verify passed before publish and that verify checked coverage against the floor; the job ids and that run's coverage total are in the workflow run itself, not in the assets",
+      "final approval in a records-only commit A after B: status approved, manifest line 5: done (2026-11-02), approved at A, from the re-freeze commit f9715048fafa209069d9a5c2f78ae4a36d3a49e6 as F; tag v1.2.0 on A, on main"
     ],
     "authorization": "full requalification of every lane at a freeze commit F authorized by the owner on 2026-10-29; shipped as 1.2.0, not a 1.1.x patch, by owner decision on 2026-11-01 (it adds features and changes behaviour, and SECURITY.md limits a 1.1.x patch to fixes)",
     "refreeze": "1.2.0 is frozen a second time: the first freeze commit a4306361e4829449ced64d173978dcb532d2814c was requalified 26 of 26 on 2026-11-02 (12:15:08Z to 13:02:10Z), but test_a_predecessor_report_that_is_not_its_release_fails in tests/test_current_qualification.py holds only while this report's freeze is null, so it fails once B sets freeze, and the release gate freezes every test at F; that batch was never banked and its evidence tags were never pushed; the re-freeze commit, the child of a4306361, fixes the test and these records and changes no application code; every lane was requalified again at it on 2026-11-02"
