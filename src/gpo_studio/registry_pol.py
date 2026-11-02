@@ -49,6 +49,14 @@ def _text(value: str) -> bytes:
     return value.encode("utf-16le")
 
 
+def hex_bytes(value: str) -> bytes:
+    """A REG_BINARY value's bytes: THE parser for every reader of one --
+    this encoder, validation and the PowerShell plan (round 10). Hex pairs,
+    spaces removed, and the ASCII whitespace `bytes.fromhex` skips between
+    bytes (never inside one). ``ValueError`` when it is not that."""
+    return bytes.fromhex(value.replace(" ", ""))
+
+
 def _encode_data(registry_type: str, value: str | int | list[str]) -> bytes:
     if registry_type in {"REG_SZ", "REG_EXPAND_SZ"}:
         if not isinstance(value, str):
@@ -58,7 +66,7 @@ def _encode_data(registry_type: str, value: str | int | list[str]) -> bytes:
         if not isinstance(value, str):
             raise RegistryPolError("REG_BINARY requires a hexadecimal string")
         try:
-            return bytes.fromhex(value.replace(" ", ""))
+            return hex_bytes(value)
         except ValueError as error:
             raise RegistryPolError("REG_BINARY contains invalid hexadecimal data") from error
     if registry_type == "REG_DWORD":

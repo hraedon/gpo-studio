@@ -205,6 +205,18 @@ backticks, dangerous aliases and cmdlet spelling (case-insensitive). Running it
 needs the `GroupPolicy` PowerShell module and delegated GPO rights on the
 target Windows host.
 
+The plan names its declared domain on every GroupPolicy call and stops unless
+that domain is reachable under that name and every link target is in it. It
+modifies only a GPO whose comment carries the plan's binding marker, unless the
+operator passes `-AdoptExistingGpo` (always needed to rename a GPO or when the
+workspace GUID came from an import), and it checks link targets, principals (by
+SID) and existing permissions before it changes anything. A GPO with a WMI
+filter gets no plan. The marker is accident
+prevention, not authentication. Authored security filters are the GPO's whole
+apply set: any other `GpoApply`, Authenticated Users included, is lowered to
+`GpoRead`. `-WhatIf` changes nothing. See
+[`docs/capability-matrix.md`](docs/capability-matrix.md#powershell-plan-accuracy).
+
 ## References
 
 - [`docs/architecture.md`](docs/architecture.md): components, trust

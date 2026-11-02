@@ -25,6 +25,7 @@ from .gpp import (
 from .identity_values import (
     date_problem,
     dn_problem,
+    link_target_scope_problem,
     name_problem,
     principal_problem,
     sid_problem,
@@ -32,7 +33,7 @@ from .identity_values import (
 )
 from .ilt import IltError, IltFilter, IltPredicate
 from .model import GPO, RegistrySetting, ValidationIssue
-from .registry_pol import _MAX_MULTI_SZ_ITEMS
+from .registry_pol import _MAX_MULTI_SZ_ITEMS, hex_bytes
 from .stored_types import STORED_WRONG_TYPE
 from .xml_safety import unwritable_text, xml_char_forbidden
 
@@ -254,7 +255,7 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
                 )
             else:
                 try:
-                    bytes.fromhex(value.replace(" ", ""))
+                    hex_bytes(value)
                 except ValueError:
                     issues.append(
                         ValidationIssue(
@@ -332,6 +333,21 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                     "invalid_link_target",
                     "Link target must be a domain or OU distinguished name; this one "
                     f"{target_problem}.",
+                    f"links/{link.id}/target",
+                )
+            )
+        elif (scope := link_target_scope_problem(link.target, gpo.domain.strip())) is not None:
+            # A warning, not an error: an error here would also refuse the GPMC
+            # backup (which carries no links) and an estate import of a real
+            # multi-domain estate. The PowerShell plan, which does write
+            # links, refuses it (`export.refusal_issues`).
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "link_target_outside_domain",
+                    f"Link target {scope}. No PowerShell plan is generated for this GPO: "
+                    "a plan links only to the declared domain and its OUs. Set the "
+                    "domain, or remove the link.",
                     f"links/{link.id}/target",
                 )
             )
@@ -1052,7 +1068,7 @@ def validate_gpp_registry_value(
             )
         else:
             try:
-                bytes.fromhex(raw.replace(" ", ""))
+                hex_bytes(raw)
             except ValueError:
                 issues.append(
                     ValidationIssue(

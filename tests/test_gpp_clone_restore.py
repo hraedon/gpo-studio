@@ -966,7 +966,11 @@ def test_the_route_backstop_holds_unchecked_bytes_to_the_vocabulary() -> None:
     with pytest.raises(EmitError):  # FilterNotInAnyVocabulary, and no builder vouched
         egress.check("zip-studio", Response(unchecked))
     checked = egress.checked_studio_bundle(gpo)
-    egress.check("zip-studio", Response(checked))
+    routed = Response(checked)
+    # The export route hands egress the GPO it built from (round 7): a Studio
+    # bundle's manifest is checked against it.
+    routed.egress_model = gpo  # type: ignore[attr-defined]
+    egress.check("zip-studio", routed)
 
 
 def test_egress_refuses_an_element_the_import_did_not_record() -> None:
@@ -981,7 +985,21 @@ def test_egress_refuses_an_element_the_import_did_not_record() -> None:
     data = export_bundle(gpo)
     assert egress.zip_problems(data, "studio", gpo) == []
     unrecorded = replace(gpo, gpp_collections=(collection,))
-    names = {p.name for p in egress.zip_problems(data, "studio", unrecorded)}
+    # Against another model the manifest is not that GPO's (round 7); with its
+    # manifest put in, the element check names what the import did not record.
+    assert egress.zip_problems(data, "studio", unrecorded)
+    import io
+    import zipfile
+
+    from gpo_studio.deterministic_zip import deterministic_zip
+    from gpo_studio.export import studio_bundle_expectation
+
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        members = {name: archive.read(name) for name in archive.namelist()}
+    members["manifest.json"] = studio_bundle_expectation(unrecorded)[0]
+    names = {
+        p.name for p in egress.zip_problems(deterministic_zip(members), "studio", unrecorded)
+    }
     assert "FilterNotInAnyVocabulary" in names and "ItemChild" in names
 
 

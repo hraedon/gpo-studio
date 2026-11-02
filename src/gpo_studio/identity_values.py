@@ -248,6 +248,62 @@ def _split_unescaped(value: str, separator: str) -> list[str]:
     return parts
 
 
+_DNS_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", re.ASCII)
+
+
+def link_target_scope_problem(target: str, domain: str) -> str | None:
+    """Why *target* is not a link target in *domain*, or ``None``.
+
+    A GPO links to a domain, an OU or a site. The plan names the GPO's domain
+    on every call, but ``-Target`` may name a container in any trusted domain,
+    so the target is held to the declared one (pre-1.1.1 review, round 2):
+
+    * the domain itself: exactly the domain's ``DC=`` components, in order;
+    * an OU: ``OU=`` RDNs only, then exactly those components (an RDN of the
+      prefix that is ``DC=`` would be a child domain);
+    * not a site. Sites live in the forest root's configuration partition, and
+      the plan's link step reads a target with ``Get-GPInheritance``, which
+      answers only for a domain or an OU (measured on WS2025, 2026-10-29: "Only
+      a domain or an organizational unit (OU) may be targeted"), so a plan
+      could never write a site link correctly (round 3). Site links are made
+      in GPMC; plans for them need a decision of their own.
+
+    Multi-valued and escaped domain components are refused: no DNS label has
+    one. Assumes *target* already passed :func:`dn_problem`.
+    """
+    labels = domain.split(".")
+    if not all(_DNS_LABEL.fullmatch(label) for label in labels):
+        return f"cannot be checked against {domain!r}, which is not a DNS domain name"
+    rdns: list[tuple[str, str]] = []
+    for rdn in _split_unescaped(target, ","):
+        if len(_split_unescaped(rdn, "+")) != 1:
+            return "has a multi-valued RDN, which no domain, OU or site link target has"
+        attribute, _, value = rdn.partition("=")
+        rdns.append((attribute.strip().upper(), value))
+    suffix = rdns[-len(labels) :]
+    prefix = rdns[: -len(labels)]
+    in_domain = len(rdns) >= len(labels) and [
+        (attribute, value.casefold()) for attribute, value in suffix
+    ] == [("DC", label.casefold()) for label in labels]
+    if not in_domain:
+        return f"is not in the declared domain {domain!r}"
+    kinds = [attribute for attribute, _ in prefix]
+    if all(kind == "OU" for kind in kinds):
+        return None
+    if (
+        kinds == ["CN", "CN", "CN"]
+        and prefix[1][1].casefold() == "sites"
+        and prefix[2][1].casefold() == "configuration"
+    ):
+        return (
+            "is a site, and a PowerShell plan writes no site links (Get-GPInheritance "
+            "reads only a domain or an OU); link it in GPMC"
+        )
+    if "DC" in kinds:
+        return f"is in a domain below {domain!r}, not in it"
+    return f"is not the domain {domain!r}, one of its OUs or one of its sites"
+
+
 def dn_problem(value: str, *, types: frozenset[str] = DN_TYPES, min_rdns: int = 2) -> str | None:
     """A distinguished name per RFC 4514, as Studio writes and Windows reads one.
 

@@ -696,22 +696,33 @@ def test_a_static_mount_must_be_studios_own() -> None:
     assert any("not Studio's static files" in p for p in problems), problems
 
 
-def _real(kind: str) -> bytes:
-    from gpo_studio.export import export_bundle, gpmc_backup_bundle
+def _real_gpo() -> Any:
     from gpo_studio.model import GPO, RegistrySetting
 
-    gpo = GPO(
+    return GPO(
         guid="{0B0D0080-0000-4000-8000-000000000000}",
         name="Zip",
         settings=(RegistrySetting("s", "computer", "HKLM", "Software\\X", "V", "REG_SZ", "x"),),
     )
+
+
+def _real(kind: str) -> bytes:
+    from gpo_studio.export import export_bundle, gpmc_backup_bundle
+
+    gpo = _real_gpo()
     return export_bundle(gpo) if kind == "studio" else gpmc_backup_bundle(gpo)
 
 
 @pytest.mark.parametrize("kind", ["studio", "gpmc"])
 def test_a_real_export_passes_and_an_empty_one_does_not(kind: str) -> None:
-    assert egress.zip_problems(_real(kind), kind) == []  # type: ignore[arg-type]
-    assert egress.zip_problems(_rezip([]), kind)  # type: ignore[arg-type]
+    # A Studio bundle is checked against its GPO: its manifest must be the
+    # bytes the builder writes for it (pre-1.1.1 review, round 7), so without
+    # the GPO it is refused.
+    model = _real_gpo() if kind == "studio" else None
+    assert egress.zip_problems(_real(kind), kind, model) == []  # type: ignore[arg-type]
+    assert egress.zip_problems(_rezip([]), kind, model)  # type: ignore[arg-type]
+    if kind == "studio":
+        assert egress.zip_problems(_real(kind), kind)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("kind", ["studio", "gpmc"])
@@ -769,8 +780,9 @@ def test_every_generated_plan_passes_egress() -> None:
 
 
 def test_the_two_shapes_the_reference_missed_pass() -> None:
-    """``$desiredApply = @()`` (read-only filtering) and ``-Value @()`` (an empty
-    REG_MULTI_SZ): valid output the round-10 reference refused."""
+    """``$authored = @()`` (once ``$desiredApply = @()``: read-only filtering)
+    and ``-Value @()`` (an empty REG_MULTI_SZ): valid output the round-10
+    reference refused."""
     from gpo_studio.export import powershell_plan
     from gpo_studio.model import GPO, RegistrySetting, SecurityFilter
 
@@ -783,7 +795,7 @@ def test_the_two_shapes_the_reference_missed_pass() -> None:
         security_filters=(SecurityFilter("f", "LAB\\Readers", permission="read"),),
     )
     plan = powershell_plan(gpo)
-    assert "$desiredApply = @()" in plan and "-Value @()" in plan
+    assert "$authored = @()" in plan and "-Value @()" in plan
     assert egress.powershell_plan_problems(plan) == []
 
 
@@ -932,6 +944,10 @@ def test_a_capability_is_its_download(
     assert client.get(f"/api/gpos/{guid}/report.txt").status_code == 200
 
 
+#: Why a plan may be refused for a GPO that is otherwise exportable.
+_PLAN_REFUSALS = {"link_target_outside_domain", "wmi_filter_not_verifiable"}
+
+
 def test_the_release_fixture_gpos_export(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -948,6 +964,13 @@ def test_the_release_fixture_gpos_export(
         for row in rows:
             for route in ("plan.ps1", "export.zip", "gpmc-backup", "report.txt"):
                 response = client.get(f"/api/gpos/{row['guid']}/{route}")
+                if route == "plan.ps1" and response.status_code == 422:
+                    # The plan refuses what it cannot bind or verify (pre-1.1.1
+                    # review): a released GPO may now get no plan, but only for
+                    # one of these reasons -- and export.zip is still written.
+                    codes = {issue["code"] for issue in response.json()["error"]["issues"]}
+                    assert codes <= _PLAN_REFUSALS, (row["name"], route, codes)
+                    continue
                 assert response.status_code == 200, (row["name"], route, response.text[:300])
 
 

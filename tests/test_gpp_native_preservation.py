@@ -49,7 +49,7 @@ from gpo_studio.canonical import (
     review_model_sha256,
     semantic_dict_gpp_collection,
 )
-from gpo_studio.export import native_backup_id
+from gpo_studio.export import native_backup_id, refusal_issues
 from gpo_studio.gpp import (
     GppCollection,
     GppCommonOptions,
@@ -64,6 +64,7 @@ from gpo_studio.gpp import (
 )
 from gpo_studio.gpp_adapters import ADAPTER_KEYS
 from gpo_studio.import_export import collect_gpp_collections
+from gpo_studio.model import ValidationError
 from gpo_studio.store import WorkspaceStore, gpo_from_dict
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -613,7 +614,17 @@ def test_a_record_bd84b3a_stored_keeps_its_digests_and_export(record_path: Path)
     )
     assert policy_semantic_sha256(gpo) == record["policy_semantic_sha256"]
     assert review_model_sha256(gpo) == record["review_model_sha256"]
-    assert native_backup_id(gpo) == record["native_backup_id"]
+    refused = refusal_issues(gpo, "gpmc-backup")
+    if refused:
+        # A family with no measured native extension pair: the backup is
+        # refused, so is its id (round 8: `native_backup_id` asks the same
+        # decision as the backup, which reads the model).
+        assert {issue.code for issue in refused} == {"unsupported_native_gpp_extension"}
+        with pytest.raises(ValidationError) as caught:
+            native_backup_id(gpo)
+        assert caught.value.issues == refused
+    else:
+        assert native_backup_id(gpo) == record["native_backup_id"]
     written = {
         f"{collection.scope}/{name}": data
         for collection in gpo.gpp_collections

@@ -28,6 +28,7 @@ import types
 import typing
 from collections.abc import Iterator
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal, get_args, get_origin
 
@@ -394,9 +395,16 @@ def test_a_stored_boolean_is_exported_exactly_or_refused(label: str, plan_text: 
     from gpo_studio.model import ValidationError
 
     path, _annotation = FIELDS[label]
+
+    def planted(value: object) -> Any:
+        # The inventory carries a WMI filter, which gets no plan at all
+        # (wmi_filter_not_verifiable): without it the plan builds, so a
+        # refusal below is the planted value's.
+        return replace(gpo_from_dict(_planted(CLEAN, path, value)), wmi_filter=None)
+
     plans = {}
     for stored in (True, False):
-        gpo = gpo_from_dict(_planted(CLEAN, path, stored))
+        gpo = planted(stored)
         # The sample's CSE metadata blocks only the GPMC backup; the plan builds.
         plans[stored] = checked_plan(gpo)
         assert plan_text in plans[stored]
@@ -404,12 +412,12 @@ def test_a_stored_boolean_is_exported_exactly_or_refused(label: str, plan_text: 
     for kind, value in JSON_VALUES.items():
         if isinstance(value, bool):
             continue
-        gpo = gpo_from_dict(_planted(CLEAN, path, value))
+        gpo = planted(value)
         with pytest.raises(ValidationError):
             checked_plan(gpo)
         for string in ("false", "true", "0", "1", ""):
             with pytest.raises(ValidationError):
-                checked_plan(gpo_from_dict(_planted(CLEAN, path, string)))
+                checked_plan(planted(string))
         del kind
 
 

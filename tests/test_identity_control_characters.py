@@ -156,12 +156,27 @@ def test_a_link_target_that_is_not_exactly_a_dn_is_refused(tmp_path, target: str
 
 
 def test_the_publication_preview_refuses_a_control_bearing_dn_it_is_handed() -> None:
-    """The planner's own check, for a GPO that did not come through the store."""
-    from gpo_studio.model import GPO
+    """For a GPO that did not come through the store: the planner refuses its
+    own input (round 8: `refusal_issues`, so the DN's validation error), and
+    the plan validator's own check still refuses such a step in a plan."""
+    from gpo_studio.model import GPO, ValidationError
+    from gpo_studio.publication import PublicationStep
 
     gpo = GPO(guid="{00000000-0000-4000-8000-000000000001}", name="probe", domain="studio.local")
     gpo = replace(gpo, links=(GPOLink(id="l1", target="OU=Lab,DC=studio,DC=local\n", order=1),))
-    plan = generate_publication_plan(gpo, target="ad")
+    with pytest.raises(ValidationError) as caught:
+        generate_publication_plan(gpo, target="ad")
+    assert "invalid_link_target" in {issue.code for issue in caught.value.issues}
+    clean = replace(gpo, links=(GPOLink(id="l1", target="OU=Lab,DC=studio,DC=local", order=1),))
+    plan = generate_publication_plan(clean, target="ad")
+    step = PublicationStep(
+        step_id="update-gplink-l1",
+        operation="update_gplink",
+        target="ad",
+        status="pending",
+        detail="Update gPLink on OU=Lab,DC=studio,DC=local\n",
+    )
+    plan = replace(plan, steps=(*plan.steps, step))
     assert any(issue.check == "link_target" for issue in validate_publication_plan(plan))
 
 
@@ -172,7 +187,7 @@ def test_a_stored_link_reaches_powershell_exactly(tmp_path) -> None:
         identity="alice", reason="probe",
     )
     script = powershell_plan(gpo)
-    assert "-Target 'OU=Lab,DC=studio,DC=local')" in script
+    assert "$existingLink = $soms['OU=Lab,DC=studio,DC=local'].GpoLinks |" in script
     assert "DC=local\n" not in script
 
 

@@ -1,7 +1,8 @@
 """The artifacts a native GPMC capture's import produces, for the byte-identity
 test (final-r22): the GPO the backup import builds -- by the same calls the
 route makes, with a fixed GUID and times -- and the SHA-256 of its public dict,
-both digests and the Studio bundle with its manifest.
+both digests and the Studio bundle (every member but ``apply.ps1``) with its
+manifest.
 
 Kept free of anything newer than the code it is compared with, so the
 expected values in ``native_artifacts.json`` could be produced by running
@@ -100,9 +101,18 @@ def _artifacts(capture: Path) -> dict[str, str]:
     except Exception as error:  # noqa: BLE001 - the refusal is the artifact
         out["bundle"] = f"refused: {type(error).__name__}"
     else:
-        out["bundle"] = _sha(bundle)
         with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
-            out["manifest"] = _sha(archive.read("manifest.json"))
+            # Every member but the plan: `apply.ps1` changed on purpose after
+            # 5c6ea8a (the domain and GPO binding and the security-filtering
+            # fix, pre-1.1.1 review), and carries no import identity. The
+            # plan's own contract is `tests/test_plan_binding.py`'s.
+            members = {
+                name: _sha(archive.read(name))
+                for name in sorted(archive.namelist())
+                if name != "apply.ps1"
+            }
+            out["bundle"] = _sha(json.dumps(members, sort_keys=True).encode())
+            out["manifest"] = members["manifest.json"]
     return out
 
 
