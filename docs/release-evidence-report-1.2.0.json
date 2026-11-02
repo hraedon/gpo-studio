@@ -20,7 +20,7 @@
       "frozen_commit": "5ffa026516830139f8607ef5706f2bf8f4e002d5",
       "lanes": 26,
       "pending_requalification": 25,
-      "pending_reason": "changes merged after 1.1.0 edited files the lanes bind: scripts/windows-oracle/psdirect.ps1 (the realm fix, #157), which all 25 lane verdicts bind; src/gpo_studio/export.py (the measured user-side Scripts tool GUID), which six bind; and src/gpo_studio/safe_io.py (non-blocking opens), which fdeploy binds. docs/plan-033/verdict-registry.json holds the list, and the gate requires the batch at F to retire every one",
+      "pending_reason": "changes merged after 1.1.0 edited files the lanes bind: all 25 lane verdicts bind scripts/windows-oracle/psdirect.ps1, which the realm fix (#157) changed; several also bind other files changed since, among them src/gpo_studio/export.py, gpp.py, registry_pol.py, validation.py and publication.py (the measured user-side Scripts tool GUID and #151's plan binding) and safe_io.py (non-blocking opens). docs/plan-033/verdict-registry.json holds the list, and the gate requires the batch at F to retire every one",
       "runs": [
         {
           "name": "wp0",

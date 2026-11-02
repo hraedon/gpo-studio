@@ -265,8 +265,12 @@ editing dialogs ask before Esc or the close button discards a change; clear
 errors for malformed input; the ADMX template store reads each file once,
 follows no links, is bounded and runs one ingest at a time, with the security
 fixes listed in the changelog; the native backup export writes the measured
-user-side Scripts tool GUID; registry-only recovery previews every row; and
-the local Windows CI tooling is hardened. It also adds the ADMX folder dialog
+user-side Scripts tool GUID; registry-only recovery previews every row; the
+PowerShell plan is bound to the GPO's declared domain, to the GPO it created
+(or one the operator adopts) and to link targets it has checked, and its
+security filtering no longer fails open, with the security fixes listed in the
+changelog; one decision says what refuses each export; and the local Windows
+CI tooling is hardened. It also adds the ADMX folder dialog
 and the `gpo-studio run --admx-dir` startup option.
 
 The workspace schema is still 4. The 1.0 capability contract in
@@ -289,12 +293,12 @@ Until B, the current qualification is the
 lanes at the 1.1.0 freeze commit,
 `5ffa026516830139f8607ef5706f2bf8f4e002d5`, on 2026-10-20. 25 of its 26
 verdicts are pending requalification in `docs/plan-033/verdict-registry.json`,
-each because a change merged after 1.1.0 edited a file it binds:
-`scripts/windows-oracle/psdirect.ps1` (the realm fix, #157), which all 25 lane
-verdicts bind; `src/gpo_studio/export.py` (the measured user-side Scripts tool
-GUID), which six bind (endpoint, firewall, publication, scripts-metadata, WP-1B
-and WP-2); and `src/gpo_studio/safe_io.py` (non-blocking opens), which fdeploy
-binds. WP-0's manifest binds by commit, not by file hashes, and stays live
+each because a change merged after 1.1.0 edited a file it binds. All 25 lane
+verdicts bind `scripts/windows-oracle/psdirect.ps1`, which the realm fix (#157)
+changed; several also bind other files changed since, among them
+`src/gpo_studio/export.py`, `gpp.py`, `registry_pol.py`, `validation.py` and
+`publication.py` (the measured user-side Scripts tool GUID and #151's plan
+binding) and `safe_io.py` (non-blocking opens). WP-0's manifest binds by commit, not by file hashes, and stays live
 until the batch at F replaces it. Nothing certified by these runs is claimed
 for 1.2.0; the batch at F must re-earn every lane, and the gate requires it to
 retire every pending verdict.
@@ -488,9 +492,24 @@ Gaps, stated rather than implied:
 - **Deployment profile unchanged:** one operator on loopback, no
   authentication, no TLS, no hosted or multi-user mode. The `actor` on each
   revision is claimed, not authenticated.
-- **1.0.0 limitations that still stand:** the PowerShell plan does not apply
-  WMI filter assignments, GPP or ILT predicates. GPMC backup export covers a
-  certified subset only.
+- **The PowerShell plan's limits.** It applies registry values, links,
+  security filtering, side status and GPO creation or rename, and no GPP
+  content (ILT predicates included). A GPO with a WMI filter gets no plan
+  (`wmi_filter_not_verifiable`): the plan can neither assign nor verify a
+  filter, so apply such a GPO through the GPMC backup and assign the filter in
+  GPMC. A link target that is not the declared domain or one of its OUs
+  (another domain, a child domain, a container, a site) is a validation
+  warning and gets no plan; site links are made in GPMC. Every GroupPolicy call
+  names the declared domain, and the plan stops unless that domain is
+  reachable under that name. It checks each link target with
+  `Get-GPInheritance` and binds its `objectGUID` before its first change, and
+  checks the GUID again immediately before writing the link. It modifies only
+  the GPO whose comment carries its binding marker unless the operator passes
+  `-AdoptExistingGpo`; the marker prevents accidents and is not
+  authentication. The plan is not transactional: what a stop after its checks
+  leaves behind, and how to recover, is in its header and the capability
+  matrix's [PowerShell plan accuracy](capability-matrix.md#powershell-plan-accuracy)
+  section. GPMC backup export covers a certified subset only.
 
 ## Schema and artifact identity
 
