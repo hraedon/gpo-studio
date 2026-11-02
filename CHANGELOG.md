@@ -9,7 +9,7 @@ Current version: `1.2.0`. The previous final release was `1.1.0`.
 
 ## [Unreleased]
 
-## [1.2.0] - YYYY-MM-DD
+## [1.2.0] - 2026-11-02
 
 > **Minor release.** 1.2.0 adds the ADMX folder dialog and the
 > `gpo-studio run --admx-dir` startup option (listed under Fixed), changes
