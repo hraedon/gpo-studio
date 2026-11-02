@@ -5,11 +5,50 @@ All notable changes to GPO Studio are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current version: `1.1.0`. The previous final release was `1.0.0`.
+Current version: `1.2.0`. The previous final release was `1.1.0`.
 
 ## [Unreleased]
 
+## [1.2.0] - YYYY-MM-DD
+
+> **Minor release.** 1.2.0 adds the ADMX folder dialog and the
+> `gpo-studio run --admx-dir` startup option (listed under Fixed), changes
+> behaviour in places (the entries marked as behaviour changes; read them
+> before upgrading), and fixes defects found in 1.1.0 and since: ADMX enum
+> loading and the settings browser's reading of stored rows, the editing
+> dialogs, clear errors for malformed input, the local Windows CI tooling,
+> registry-only recovery, the PowerShell plan's domain, GPO and link binding
+> and security filtering, and the ADMX template store; the security fixes are
+> listed under Security below. It is a minor release rather than a
+> `1.1.x` patch because `SECURITY.md` limits a patch to fixes. From 1.2.0,
+> `1.2.x` is the only supported line: `1.1.x` is no longer supported and no
+> `1.1.x` patch is planned, so upgrade to 1.2.0 (see `SECURITY.md`). The
+> workspace schema is still 4. AD discovery data cached by an earlier
+> version is deleted the first time 1.2.0 opens the workspace, and again
+> whenever a version earlier than 1.2.0 (one that does not record the
+> discovery-cache owner) has opened it since; moving between versions that
+> record the owner does not clear it, and two builds that report the same
+> version are not told apart. Only discovery records carrying 1.2.0's
+> format mark are served. Re-run discovery after upgrading. Fixed says exactly
+> when the cache is cleared and which hand-edited records are never served.
+> Apart from that clear and the two `workspace_meta` entries that record it,
+> nothing is migrated.
+>
+> The release's live evidence (the requalification of every lane at the
+> release's freeze commit) is in the
+> [1.2.0 evidence manifest](docs/release-evidence-1.2.0.md). The owner's
+> hands-on NVDA acceptance was waived for 1.2.0 and is recorded there as not
+> run.
+
 ### Changed
+
+- Release process: the CI and release job timeouts were raised before the
+  1.2.0 freeze, because workflows cannot change between the freeze commit and
+  the tag (#169): `test` from 55 to 90 minutes, `test-windows` from 90 to 150,
+  and the release workflow's `verify` from 60 to 120. On the runs measured
+  from 2026-10-31 to 2026-11-02, the Python 3.13 jobs took up to 49 minutes
+  (`test`) and 74 minutes (`test-windows`). The first `v1.1.0` tag's release
+  run was cancelled at a limit with a margin like the old ones.
 
 - Development dependency: vitest and its `@vitest/*` packages move from
   4.1.11 to 4.1.12, which clears two moderate `npm audit` advisories in
@@ -101,11 +140,13 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
     upper-case IPv6 subnet) that re-running discovery never overwrites. When
     this version opens a workspace, it deletes every cached discovery record,
     in the same transaction that records its own version, if either the
-    `discovery_cache_version` marker in `workspace_meta` is missing or older
-    than `2`, or `app_version` (which every version rewrites on each healthy,
-    writable open) differs from `discovery_cache_app_version` (which only
-    this version and later ones write), meaning another version opened the
-    workspace since. It then records itself in both. Upgrading with no other
+    `discovery_cache_version` marker in `workspace_meta` is missing, is not
+    decimal text or is below `2`, or `discovery_cache_app_version` (which only
+    this version and later ones write) is absent or differs from the
+    `app_version` stored before this open (which every version rewrites on
+    each healthy, writable open), meaning a version that does not record the
+    discovery-cache owner opened the workspace since. A newer marker alone
+    does not clear it. It then records itself in both. Upgrading with no other
     version in between keeps the cache. Two builds that report the same
     version (two commits of one release) are not told apart. The detection
     assumes the workspace lock holds: two versions run at the same time on
@@ -215,13 +256,18 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
   offering a free-text box, and enabling it is refused with
   `unsupported_element_kind` rather than `missing_element_value` (#142).
 
-- Stricter enum item parsing (#142). An enum is refused (no items) when an item
-  names no value or more than one (an empty `<value/>`, two values, or a
+- Stricter enum item parsing (#142). An enum is refused (no items) when an
+  item's value is empty or ambiguous (an empty `<value/>`, a `<value>` holding
+  more than one element, two `<value>` elements, two direct values, or a
   `<value>` beside a direct value), when a `<string>` has both a `value`
-  attribute and text (even whitespace-only text), when two items write the
-  same type and value, or when an explicit item `id` equals another item's
-  fallback id (bare or qualified). Before, the first item with that id won,
-  so which value a submitted id wrote depended on item order.
+  attribute and text (even whitespace-only text) or holds markup, when two
+  items write the same type and value, or when two explicit item ids are equal
+  or an explicit item `id` equals another item's fallback id (bare or
+  qualified). Before, the first item with that id won, so which value a
+  submitted id wrote depended on item order. An item with no value at all (a
+  bare `<item/>`) or with a value of a kind Studio does not read is not
+  refused: it is skipped, as in 1.1.0, and the enum keeps its other items. An
+  enum left with no items is refused.
   `<string>` text is kept exactly, including surrounding whitespace. Items
   that differ only in registry type keep a usable id: a fallback id stays
   `str(value)` when it is unique, and only colliding fallback ids are
@@ -535,7 +581,21 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Security
 
-Pre-1.1.1 security review, ten rounds. Both original findings predate 1.1.0.
+Pre-1.2.0 security review, ten rounds. Both original findings predate 1.1.0.
+
+The released versions `1.0.0` and `1.1.0` contain the PowerShell plan defects
+below: their plan named no domain, selected an existing GPO by GUID or else by
+name alone, never lowered `Authenticated Users`' `GpoApply` on a filtered GPO
+(the `$protected` list), removed other trustees with `-PermissionLevel None`
+without `-Replace`, which lowered nothing, and linked a GPO whose WMI filter it
+only named in a comment. This was checked against the `v1.0.0` and `v1.1.0` tags. The export
+review guard the two review entries below fix is new since 1.1.0, so they
+affect no released version. The other entries harden how exports are refused
+and were not checked against the released versions. No `1.1.x` patch is
+planned: from 1.2.0 only `1.2.x` is supported (see `SECURITY.md`), so run
+1.2.0 or later, and regenerate and review any `plan.ps1` or `apply.ps1`
+generated by an earlier version before running it. This section is the
+disclosure for these issues; no separate advisory is published.
 
 - **The PowerShell plan (`plan.ps1`, `apply.ps1`) is bound to the GPO's
   declared domain.** Every GroupPolicy cmdlet names `-Domain`, and before any
