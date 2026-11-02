@@ -1,0 +1,30 @@
+{
+  "control_gpo": "Studio-RSOP-Control",
+  "control_value_name": "Control",
+  "endpoint_user": "labauto1",
+  "expect_finding": "",
+  "group_member": "",
+  "group_name": "",
+  "loopback_mode": "disabled",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-CompFilterDenyReadUser",
+      "isolates": "WI-049, the fourth READ cell: a deny on GenericRead naming the USER, resolved on the COMPUTER side, with the computer's Read + Apply grant intact. The model says APPLIES on reasoning alone -- MS16-072 has the computer perform the retrieval with its own token, so a user-named ACE has no reader to act on -- and the pre-WI-047 union said BLOCKS. The user is named in the DACL and named to the model, so nothing here passes vacuously. DenyReadUserOnly PRESENT and Filter=denyReadUser winning => the reasoning holds. ABSENT => a user-named read deny does gate the computer side, the model has been over-promising it since WI-047, and the row below is the control that says the DACL write worked."
+    },
+    {
+      "gpo": "Studio-RSOP-CompFilterDenyRead",
+      "isolates": "a deny on READ naming the COMPUTER, with the Apply allow intact (WI-040). Read and Apply are two independent gates and this row denies only the first, so both Windows and -- since the fix -- the model keep this GPO off the target. DenyReadOnly is the sharp assertion: it must be ABSENT. Before the fix the model predicted it PRESENT, which is what the expected-finding verdict records. It gave up link order 1 to the row above when WI-049's unmeasured cell was added; the assertion that matters here is its unique value, and that does not depend on precedence."
+    },
+    {
+      "gpo": "Studio-RSOP-CompFilterAllow",
+      "isolates": "CONTROL, and the one that makes both deny-read rows mean something: the SAME Read+Apply grant, differing only in the absence of any read deny. If this GPO does not apply either, the run measured a broken DACL write rather than a read deny"
+    },
+    {
+      "gpo": "Studio-RSOP-Control",
+      "isolates": "CONTROL: default filtering, unconflicted. Absent => nothing applied."
+    }
+  ],
+  "scenario_id": "computer-security-filtering-deny-read",
+  "scope": "computer"
+}

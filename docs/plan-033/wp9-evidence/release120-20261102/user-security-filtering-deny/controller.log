@@ -1,0 +1,30 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=user-security-filtering-deny
+built rsop candidate for user-security-filtering-deny (7 GPOs) in /home/itadmin/gpo-batch-120b/tmp/rsop-user-candidate-20261102144026
+  predicted winners: AllowOnly=1(Studio-RSOP-FilterAllow), Control=present(Studio-RSOP-UserControl), DenyApplyCompOnly=1(Studio-RSOP-FilterDenyApplyComp), Filter=denyApplyComp(Studio-RSOP-FilterDenyApplyComp), NestedOnly=1(Studio-RSOP-FilterNested)
+  predicted denied:  Studio-RSOP-FilterDeny(security_filter_denied/security_filter_mismatch), Studio-RSOP-FilterDenyGroup(security_filter_denied/security_filter_mismatch), Studio-RSOP-FilterReadOnly(security_filter_mismatch)
+RUN_ID=rsop-user-observe-20261102144100-8113
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261102144100-8113
+PREFLIGHT_VALUES=
+RUN_ID=rsop-author-20261102144106-6858
+WORK_DIR=C:\gpo-studio\out\rsop-author-20261102144106-6858
+--- re-establishing the interactive session (group 'StudioRsopGroup') ---
+OperationStopped: /projects/gpo-studio-120b/scripts/windows-oracle/psdirect.ps1:382
+Line |
+ 382 |          $out = Receive-Job -Job $job -ErrorAction Stop
+     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | harness exited 1
+at <ScriptBlock>, <No file>: line 1
+at <ScriptBlock>, <No file>: line 5
+RUN_ID=rsop-user-observe-20261102144143-1388
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261102144143-1388
+RESESSION_PROBLEMS=
+RUN_ID=rsop-user-observe-20261102144155-5489
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261102144155-5489
+--- authoring cleanup ---
+{"run_id":"rsop-author-20261102144106-6858","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":"CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev","user_restored":true,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/home/itadmin/gpo-batch-120b/tmp/rsop-user-run-20261102144026
+CANDIDATE_DIR=/home/itadmin/gpo-batch-120b/tmp/rsop-user-candidate-20261102144026
+
+run rsop-user-observe-20261102144155-5489: state=pass (source f9715048fafa209069d9a5c2f78ae4a36d3a49e6, dirty=False)
+  loopback intended='disabled' observed='disabled'

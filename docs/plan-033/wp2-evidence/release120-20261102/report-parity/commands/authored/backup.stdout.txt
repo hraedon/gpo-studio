@@ -1,0 +1,12 @@
+﻿
+
+DisplayName     : zz-studio-rp-report-parity-20261102141241-1684-authored
+GpoId           : dfe7d59b-ea9f-4998-b63a-3cae432a4ce7
+Id              : 7ea3efc8-3b80-4b62-9fe4-846e40bb994b
+BackupDirectory : C:\gpo-studio\rp\261102141219\out\run\authored-backup
+CreationTime    : 11/2/2026 2:14:01 PM
+DomainName      : AD.LABDOMAIN.DEV
+Comment         : 
+
+
+

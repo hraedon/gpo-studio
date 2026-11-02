@@ -1,0 +1,15 @@
+﻿
+
+DistinguishedName        : cn={520985b6-dce0-49e7-9ffa-0b2e19556a68},cn=policie
+                           s,cn=system,DC=AD,DC=LABDOMAIN,DC=DEV
+gPCFileSysPath           : \\AD.LABDOMAIN.DEV\SysVol\AD.LABDOMAIN.DEV\Policies\
+                           {520985B6-DCE0-49E7-9FFA-0B2E19556A68}
+gPCMachineExtensionNames : [{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{B05566AC-FE9
+                           C-4368-BE01-7A4CBB6CBA11}]
+Name                     : {520985B6-DCE0-49E7-9FFA-0B2E19556A68}
+ObjectClass              : groupPolicyContainer
+ObjectGUID               : 20312d0f-b958-41b6-8daf-8ca2e149acfb
+
+
+
+

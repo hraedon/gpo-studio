@@ -1,0 +1,4 @@
+﻿HKLM\Software\Policies\GPOStudio\ReportParity :: MachineString [String]
+HKLM\Software\Policies\GPOStudio\ReportParity :: MachineDword [DWord]
+HKCU\Software\Policies\GPOStudio\ReportParity :: UserString [String]
+HKCU\Software\Policies\GPOStudio\ReportParity :: UserDword [DWord]

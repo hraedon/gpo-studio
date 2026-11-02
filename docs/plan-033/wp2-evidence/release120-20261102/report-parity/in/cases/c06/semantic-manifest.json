@@ -1,0 +1,88 @@
+{
+  "schema_version": "1",
+  "fixture_id": "wi01a-localgroups-gpmc",
+  "description": "Local Groups GPO authored via GPMC Editor — Machine scope (3 items: update/replace/delete) and User scope (1 item: create with FilterGroup ILT and userAction=REMOVE)",
+  "classification": "native-gpmc-authored",
+  "classification_note": "Authored through gpme.msc on Windows Server 2025 and captured via Backup-GPO. GPMC natively emitted all elements.",
+  "origin": {
+    "method": "Backup-GPO on Windows Server 2025 build 26100, PowerShell 5.1",
+    "domain": "ad.hraedon.com",
+    "captured_at": "2026-07-26T17:55:39Z",
+    "backup_id": "{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}",
+    "gpo_guid": "{E14A68FC-8520-4278-A415-FD0C40FD3409}",
+    "gpo_display_name": "WI01A-LocalGroups-GPMC"
+  },
+  "native_layout": {
+    "format": "gpmc-backup-v2",
+    "root": "{BACKUP_ID}/DomainSysvol/GPO",
+    "gpp_file": "Machine/Preferences/Groups/Groups.xml, User/Preferences/Groups/Groups.xml"
+  },
+  "items": [
+    {
+      "uid": "{A582B44E-6757-4CA0-AE25-03D28428C3E9}",
+      "windows_meaning": "Update built-in Administrators group: add HRAENET\\svc-gpolens and HRAENET\\lab-admins. Description set to 'Managed by GPO Studio'. Does not delete existing users/groups.",
+      "element": "Group",
+      "scope": "computer",
+      "action": "U",
+      "group_name": "Administrators (built-in)",
+      "group_sid": "S-1-5-32-544",
+      "members": [
+        {"name": "HRAENET\\svc-gpolens", "action": "ADD", "sid": "S-1-5-21-0000000000-0000000000-0000000000-5124"},
+        {"name": "HRAENET\\lab-admins", "action": "ADD", "sid": "S-1-5-21-0000000000-0000000000-0000000000-4674"}
+      ]
+    },
+    {
+      "uid": "{6BCFCE69-5856-4B58-9EFD-8836F8F6EAF7}",
+      "windows_meaning": "Replace built-in Power Users group: delete all existing users and groups, then add HRAENET\\dev-team. removePolicy=1.",
+      "element": "Group",
+      "scope": "computer",
+      "action": "R",
+      "group_name": "Power Users (built-in)",
+      "group_sid": "S-1-5-32-547",
+      "delete_all_users": true,
+      "delete_all_groups": true,
+      "members": [
+        {"name": "HRAENET\\dev-team", "action": "ADD", "sid": "S-1-5-21-0000000000-0000000000-0000000000-4673"}
+      ]
+    },
+    {
+      "uid": "{7E362A26-75C2-4307-B60D-335F634F8AAE}",
+      "windows_meaning": "Delete the local group 'test-delete-group'. Action Delete: remove the group if it exists.",
+      "element": "Group",
+      "scope": "computer",
+      "action": "D",
+      "group_name": "test-delete-group"
+    },
+    {
+      "uid": "{5DC5C290-D240-4D21-91AA-527199A653AD}",
+      "windows_meaning": "Create user-scope group 'dev-team' with userAction=REMOVE (remove members instead of add at user logon). Adds HRAENET\\ünïcode-test-group. FilterGroup ILT targets HRAENET\\Domain Users. FilterRunOnce promoted to apply_once.",
+      "element": "Group",
+      "scope": "user",
+      "action": "C",
+      "group_name": "dev-team",
+      "user_action": "REMOVE",
+      "item_level_targeting": ["FilterGroup", "FilterRunOnce"],
+      "members": [
+        {"name": "HRAENET\\ünïcode-test-group", "action": "ADD", "sid": "S-1-5-21-0000000000-0000000000-0000000000-4675"}
+      ]
+    }
+  ],
+  "parser_gaps": [
+    {
+      "gap": "parse_gpp_collection routes <Group> to parse_gpp_groups (GppGroup), not parse_gpp_local_groups; collection.local_groups is always empty",
+      "impact": "The collection-based parse path cannot produce GppLocalGroup items with groupSid fidelity",
+      "severity": "blocking"
+    },
+    {
+      "gap": "GppLocalGroup model has no group_sid or user_action field",
+      "impact": "groupSid and userAction attributes from GPMC are lost on the model path",
+      "severity": "high"
+    },
+    {
+      "gap": "collect_gpp_collections does not discover User/Preferences/Groups/Groups.xml from backup directories",
+      "impact": "User-scope group items are not imported via the public backup path",
+      "severity": "resolved",
+      "note": "collect_gpp_collections now discovers all GPP adapter files"
+    }
+  ]
+}

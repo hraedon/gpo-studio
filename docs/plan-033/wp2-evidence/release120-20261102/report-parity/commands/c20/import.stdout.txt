@@ -1,0 +1,16 @@
+﻿
+
+DisplayName      : zz-studio-rp-report-parity-20261102141241-1684-20
+DomainName       : AD.LABDOMAIN.DEV
+Owner            : LAB\Domain Admins
+Id               : 4c8cd020-904d-4fc3-8692-b8a38902f079
+GpoStatus        : AllSettingsEnabled
+Description      : Plan 033 WP-0 disposable fixture
+CreationTime     : 11/2/2026 2:12:27 PM
+ModificationTime : 11/2/2026 2:12:27 PM
+UserVersion      : AD Version: 1, SysVol Version: 1
+ComputerVersion  : AD Version: 1, SysVol Version: 1
+WmiFilter        : 
+
+
+

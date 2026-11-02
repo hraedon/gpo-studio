@@ -1,0 +1,294 @@
+﻿{
+    "run_id":  "rsop-author-20261102142032-7885",
+    "work_dir":  "C:\\gpo-studio\\out\\rsop-author-20261102142032-7885",
+    "command_dir":  "C:\\gpo-studio\\out\\rsop-author-20261102142032-7885\\commands",
+    "phase":  "setup",
+    "author_computer":  "LABMS01",
+    "target_computer":  "LabCL01",
+    "domain":  "AD.LABDOMAIN.DEV",
+    "domain_controller":  "LabDC01.ad.labdomain.dev",
+    "domain_dn":  "DC=ad,DC=labdomain,DC=dev",
+    "site_dn":  "CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=ad,DC=labdomain,DC=dev",
+    "policy_key":  "Software\\Policies\\StudioLab",
+    "original_dn":  "CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "original_parent":  "CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "child_ou_dn":  "OU=StudioRsopChild-20261102142032-4984,OU=StudioRsopParent-20261102142032-4984,OU=StudioRsop-20261102142032-4984,DC=ad,DC=labdomain,DC=dev",
+    "scope":  "computer",
+    "loopback_mode":  "disabled",
+    "target_user":  "",
+    "user_ou_dn":  "",
+    "user_original_dn":  null,
+    "user_original_parent":  null,
+    "user_sid":  null,
+    "group_name":  "",
+    "group_dn":  null,
+    "group_created":  false,
+    "group_sid":  null,
+    "group_member":  "",
+    "group_member_sid":  null,
+    "user_moved":  false,
+    "ous":  [
+                {
+                    "symbolic_name":  "StudioRsop",
+                    "key":  "root",
+                    "parent_key":  "domain",
+                    "name":  "StudioRsop-20261102142032-4984",
+                    "block_inheritance":  false,
+                    "parent_dn":  "DC=ad,DC=labdomain,DC=dev",
+                    "dn":  "OU=StudioRsop-20261102142032-4984,DC=ad,DC=labdomain,DC=dev",
+                    "created":  true
+                },
+                {
+                    "symbolic_name":  "StudioRsopParent",
+                    "key":  "parent",
+                    "parent_key":  "root",
+                    "name":  "StudioRsopParent-20261102142032-4984",
+                    "block_inheritance":  false,
+                    "parent_dn":  "OU=StudioRsop-20261102142032-4984,DC=ad,DC=labdomain,DC=dev",
+                    "dn":  "OU=StudioRsopParent-20261102142032-4984,OU=StudioRsop-20261102142032-4984,DC=ad,DC=labdomain,DC=dev",
+                    "created":  true
+                },
+                {
+                    "symbolic_name":  "StudioRsopChild",
+                    "key":  "child",
+                    "parent_key":  "parent",
+                    "name":  "StudioRsopChild-20261102142032-4984",
+                    "block_inheritance":  false,
+                    "parent_dn":  "OU=StudioRsopParent-20261102142032-4984,OU=StudioRsop-20261102142032-4984,DC=ad,DC=labdomain,DC=dev",
+                    "dn":  "OU=StudioRsopChild-20261102142032-4984,OU=StudioRsopParent-20261102142032-4984,OU=StudioRsop-20261102142032-4984,DC=ad,DC=labdomain,DC=dev",
+                    "created":  true
+                }
+            ],
+    "gpos":  [
+                 {
+                     "symbolic_name":  "Studio-RSOP-Site",
+                     "name":  "Studio-RSOP-Site-20261102142032-4984",
+                     "scope":  "site",
+                     "scope_dn":  "CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=ad,DC=labdomain,DC=dev",
+                     "order":  1,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+                                    {
+                                        "type":  "String",
+                                        "value":  "site",
+                                        "value_name":  "Precedence"
+                                    },
+                                    {
+                                        "type":  "String",
+                                        "value":  "1",
+                                        "value_name":  "SiteOnly"
+                                    }
+                                ],
+                     "user_values":  [
+
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "7a4583e3-d8f8-4231-8d5b-73d2ebc6c181",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-Domain",
+                     "name":  "Studio-RSOP-Domain-20261102142032-4984",
+                     "scope":  "domain",
+                     "scope_dn":  "DC=ad,DC=labdomain,DC=dev",
+                     "order":  1,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+                                    {
+                                        "type":  "String",
+                                        "value":  "domain",
+                                        "value_name":  "Precedence"
+                                    }
+                                ],
+                     "user_values":  [
+
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "aaedb0b2-1b53-4974-b214-9538fc95af20",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-Parent",
+                     "name":  "Studio-RSOP-Parent-20261102142032-4984",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopParent-20261102142032-4984,OU=StudioRsop-20261102142032-4984,DC=ad,DC=labdomain,DC=dev",
+                     "order":  1,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+                                    {
+                                        "type":  "String",
+                                        "value":  "parent",
+                                        "value_name":  "Precedence"
+                                    }
+                                ],
+                     "user_values":  [
+
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "be52feb5-8277-4c4e-b7eb-adbc1eccd4bb",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-ChildA",
+                     "name":  "Studio-RSOP-ChildA-20261102142032-4984",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20261102142032-4984,OU=StudioRsopParent-20261102142032-4984,OU=StudioRsop-20261102142032-4984,DC=ad,DC=labdomain,DC=dev",
+                     "order":  1,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+                                    {
+                                        "type":  "String",
+                                        "value":  "childA",
+                                        "value_name":  "Precedence"
+                                    }
+                                ],
+                     "user_values":  [
+
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "3158ceaa-54d1-4180-8e36-99f73dd8070a",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-ChildB",
+                     "name":  "Studio-RSOP-ChildB-20261102142032-4984",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20261102142032-4984,OU=StudioRsopParent-20261102142032-4984,OU=StudioRsop-20261102142032-4984,DC=ad,DC=labdomain,DC=dev",
+                     "order":  2,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+                                    {
+                                        "type":  "String",
+                                        "value":  "1",
+                                        "value_name":  "ChildBOnly"
+                                    },
+                                    {
+                                        "type":  "String",
+                                        "value":  "childB",
+                                        "value_name":  "Precedence"
+                                    }
+                                ],
+                     "user_values":  [
+
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "5772be5f-5b2d-419d-a3cf-6d29884f2e57",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-Control",
+                     "name":  "Studio-RSOP-Control-20261102142032-4984",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20261102142032-4984,OU=StudioRsopParent-20261102142032-4984,OU=StudioRsop-20261102142032-4984,DC=ad,DC=labdomain,DC=dev",
+                     "order":  3,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+                                    {
+                                        "type":  "String",
+                                        "value":  "present",
+                                        "value_name":  "Control"
+                                    }
+                                ],
+                     "user_values":  [
+
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "34aca132-df0c-4ff5-89d0-4a1b74bc9b20",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+
+                                            ]
+                 }
+             ],
+    "computer_moved":  true,
+    "authored_problems":  [
+
+                          ],
+    "setup_completed":  true,
+    "replication_run":  true,
+    "environment":  {
+                        "caption":  "Microsoft Windows Server 2025 Standard",
+                        "build":  "26100",
+                        "powershell_version":  "5.1.26100.33438",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US",
+                        "gp_module_version":  "1.0.0.0",
+                        "domain":  "AD.LABDOMAIN.DEV"
+                    },
+    "error":  null
+}

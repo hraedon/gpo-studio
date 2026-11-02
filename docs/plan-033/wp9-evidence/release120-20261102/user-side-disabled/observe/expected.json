@@ -1,0 +1,26 @@
+{
+  "control_gpo": "Studio-RSOP-UserControl",
+  "control_value_name": "Control",
+  "endpoint_user": "labauto1",
+  "expect_finding": "",
+  "group_member": "",
+  "group_name": "",
+  "loopback_mode": "disabled",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-UserSideOff",
+      "isolates": "a disabled user side must contribute NOTHING to the user scope"
+    },
+    {
+      "gpo": "Studio-RSOP-UserOn",
+      "isolates": "the same container, user side ENABLED: separates 'disabled sides work' from 'no user policy processed at all'"
+    },
+    {
+      "gpo": "Studio-RSOP-UserControl",
+      "isolates": "CONTROL: unconflicted, unfiltered. Absent => the experiment did not run."
+    }
+  ],
+  "scenario_id": "user-side-disabled",
+  "scope": "user"
+}

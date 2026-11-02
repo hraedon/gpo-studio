@@ -1,0 +1,125 @@
+expected.json sha256=7134e6dcb4a60482319fd720b7426a7621589114b8fe47842923fdfb6055920e
+{
+  "dimensions": [
+    "settings",
+    "gpo_guid",
+    "acl_security_filtering",
+    "wmi_association",
+    "links",
+    "description"
+  ],
+  "lane": "lifecycle-same-domain",
+  "operation_order": [
+    "copy",
+    "copy_with_acl",
+    "import_as_new",
+    "import_into_existing",
+    "restore_in_place"
+  ],
+  "operations": {
+    "copy": {
+      "cmdlet": "Copy-GPO -SourceGuid <guid> -TargetName <name>",
+      "plan_names_target_guid": false,
+      "preconditions": [
+        "no GPO named 'zz-target' exists in 'synthetic.test' when Copy-GPO runs; if one does, the result is that GPO (import_into_existing semantics for Import-GPO -CreateIfNeeded), not a new one"
+      ],
+      "requires_target_absent": true,
+      "survival": {
+        "acl_security_filtering": "defaulted",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "kept"
+      },
+      "target_identity": "windows_assigned",
+      "warnings": [
+        "the source GPO links a WMI filter; whether that filter still exists in the domain is not checked",
+        "links is predicted lost: re-establish it after copy",
+        "acl_security_filtering is predicted defaulted: re-establish it after copy",
+        "absence of a GPO named 'zz-target' is not checked"
+      ]
+    },
+    "copy_with_acl": {
+      "cmdlet": "Copy-GPO -SourceGuid <guid> -TargetName <name> -CopyAcl",
+      "plan_names_target_guid": false,
+      "preconditions": [
+        "no GPO named 'zz-target' exists in 'synthetic.test' when Copy-GPO runs; if one does, the result is that GPO (import_into_existing semantics for Import-GPO -CreateIfNeeded), not a new one"
+      ],
+      "requires_target_absent": true,
+      "survival": {
+        "acl_security_filtering": "kept",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "kept"
+      },
+      "target_identity": "windows_assigned",
+      "warnings": [
+        "the source GPO links a WMI filter; whether that filter still exists in the domain is not checked",
+        "links is predicted lost: re-establish it after copy_with_acl",
+        "absence of a GPO named 'zz-target' is not checked"
+      ]
+    },
+    "import_as_new": {
+      "cmdlet": "Import-GPO -BackupId <id> -Path <dir> -TargetName <name> -CreateIfNeeded",
+      "plan_names_target_guid": false,
+      "preconditions": [
+        "no GPO named 'zz-target' exists in 'synthetic.test' when Import-GPO runs; if one does, the result is that GPO (import_into_existing semantics for Import-GPO -CreateIfNeeded), not a new one"
+      ],
+      "requires_target_absent": true,
+      "survival": {
+        "acl_security_filtering": "defaulted",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "lost"
+      },
+      "target_identity": "windows_assigned",
+      "warnings": [
+        "links is predicted lost: re-establish it after import_as_new",
+        "wmi_association is predicted lost: re-establish it after import_as_new",
+        "acl_security_filtering is predicted defaulted: re-establish it after import_as_new",
+        "absence of a GPO named 'zz-target' is not checked"
+      ]
+    },
+    "import_into_existing": {
+      "cmdlet": "Import-GPO -BackupId <id> -Path <dir> -TargetGuid <guid> | -TargetName <name>",
+      "plan_names_target_guid": true,
+      "preconditions": [],
+      "requires_target_absent": false,
+      "survival": {
+        "acl_security_filtering": "replaced",
+        "description": "kept",
+        "gpo_guid": "replaced",
+        "links": "replaced",
+        "settings": "kept",
+        "wmi_association": "replaced"
+      },
+      "target_identity": "existing_target",
+      "warnings": []
+    },
+    "restore_in_place": {
+      "cmdlet": "Restore-GPO -BackupId <id> -Path <dir>",
+      "plan_names_target_guid": true,
+      "preconditions": [],
+      "requires_target_absent": false,
+      "survival": {
+        "acl_security_filtering": "kept",
+        "description": "kept",
+        "gpo_guid": "kept",
+        "links": "replaced",
+        "settings": "kept",
+        "wmi_association": "kept"
+      },
+      "target_identity": "source",
+      "warnings": [
+        "the source GPO links a WMI filter; whether that filter still exists in the domain is not checked"
+      ]
+    }
+  },
+  "predictions_are_hypotheses": true,
+  "schema_version": 1
+}

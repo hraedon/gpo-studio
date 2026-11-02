@@ -1,0 +1,7 @@
+fdeploy-cases.zip sha256=990505ea65565f6f8e6051a7d72fef21a0c3ad5c5651c9ec156f007319a99e7b
+expected.json sha256=5785e48019994bd47e7c958427a4df51417e39a285e720fefbf0e0f530e0fefd
+cases=4
+  r3-flags-1021: flags=1021 verbatim_r3=True fdeploy1_sha256=71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800
+  r3-flags-1020: flags=1020 verbatim_r3=False fdeploy1_sha256=dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b
+  r3-flags-1023: flags=1023 verbatim_r3=False fdeploy1_sha256=6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb
+  r3-flags-3069: flags=3069 verbatim_r3=False fdeploy1_sha256=863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b

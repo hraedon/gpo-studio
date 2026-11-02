@@ -1,0 +1,17 @@
+﻿
+
+DisplayName      : StudioFwLane-firewall-20261102141420-2589712-read
+DomainName       : AD.LABDOMAIN.DEV
+Owner            : LAB\Domain Admins
+Id               : 520985b6-dce0-49e7-9ffa-0b2e19556a68
+GpoStatus        : AllSettingsEnabled
+Description      : 
+CreationTime     : 11/2/2026 2:13:45 PM
+ModificationTime : 11/2/2026 2:13:52 PM
+UserVersion      : AD Version: 0, SysVol Version: 0
+ComputerVersion  : AD Version: 24, SysVol Version: 24
+WmiFilter        : 
+
+
+
+

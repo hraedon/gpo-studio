@@ -1,0 +1,12 @@
+﻿
+
+Authentication     : Required
+Encryption         : NotRequired
+OverrideBlockRules : True
+LocalUser          : Any
+RemoteUser         : Any
+RemoteMachine      : D:(A;;CC;;;WD)
+
+
+
+

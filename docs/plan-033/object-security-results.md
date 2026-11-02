@@ -1,6 +1,14 @@
 # Object-security serialization lane
 
-**Current qualification (2026-10-20):** `object-security-20261020073052-3290`, 20/20, on
+**Current qualification (2026-11-02):** `object-security-20261102141020-2204`, 20/20, on
+clean freeze commit `f9715048fafa209069d9a5c2f78ae4a36d3a49e6`
+([evidence](wp3-evidence/release120-20261102/object-security/verification.json),
+[release 1.2.0 batch](release120-batch.md)), tagged
+`evidence/object-security-20261102141020-2204`. It replaces the 1.1.0 re-freeze run below,
+whose verdict changes merged after 1.1.0 had expired (every lane binds
+`psdirect.ps1`, which #157 changed); its pack and tag are kept.
+
+**Previous qualification (2026-10-20):** `object-security-20261020073052-3290`, 20/20, on
 clean freeze commit `5ffa026516830139f8607ef5706f2bf8f4e002d5`
 ([evidence](wp3-evidence/release110-refreeze-20261020/object-security/verification.json),
 [release 1.1.0 re-freeze batch](release110-refreeze-batch.md)), tagged

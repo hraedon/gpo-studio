@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Files clsid="{215B2E53-57CE-475c-80FE-9EEC14635851}"><File clsid="{50BE44C8-567A-4ed1-B1D0-9234FE1F38AF}" name="" status="" image="2" changed="2026-07-27 21:21:32" uid="{78789154-D329-41E3-9CA1-38BBE1B40C9A}"><Properties action="U" fromPath="\\filesrv\app\vendor\*.*" targetPath="%APPDATA%\Vendor App\" readOnly="0" archive="0" hidden="0" suppress="0"/></File>
+	<File clsid="{50BE44C8-567A-4ed1-B1D0-9234FE1F38AF}" name="Ünïcödé&amp;.xml" status="Ünïcödé&amp;.xml" image="0" changed="2026-07-27 21:23:24" uid="{785E84A6-8D13-453E-9A3D-49A850D19345}"><Properties action="C" fromPath="\\filesrv\source\cönfig.xml" targetPath="%TEMP%\Ünïcödé&amp;.xml" readOnly="1" archive="1" hidden="1"/></File>
+	<File clsid="{50BE44C8-567A-4ed1-B1D0-9234FE1F38AF}" name="old.txt" status="old.txt" image="3" changed="2026-07-27 21:23:41" uid="{67F55D2B-7BEF-4A15-958D-AE64AA2F0C1B}"><Properties action="D" targetPath="%USERPROFILE%\Desktop\old.txt" readOnly="0" archive="1" hidden="0" suppress="1"/></File>
+</Files>

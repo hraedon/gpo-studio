@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Folders clsid="{77CC39E7-3D16-4f8f-AF86-EC0BBEE2C861}"><Folder clsid="{07DA02F5-F9CD-4397-A550-4AE21B6B4BD3}" name="" status="" image="1" changed="2026-07-27 21:26:00" uid="{BA4A4EB2-A418-42B2-BBAC-6A7856C377E6}"><Properties action="R" path="%APPDATA%\Vendor App\" deleteFolder="0" deleteSubFolders="0" deleteFiles="0" deleteReadOnly="0" deleteIgnoreErrors="0" readOnly="0" archive="0" hidden="0"/></Folder>
+	<Folder clsid="{07DA02F5-F9CD-4397-A550-4AE21B6B4BD3}" name="Pröjects &lt;&quot;&amp;&gt;" status="Pröjects &lt;&quot;&amp;&gt;" image="0" changed="2026-07-27 21:26:15" uid="{AAA0780D-70B1-4DAD-B362-A12756B516C3}"><Properties action="C" path="%USERPROFILE%\Pröjects &lt;&quot;&amp;&gt;" readOnly="1" archive="1" hidden="1"/></Folder>
+</Folders>

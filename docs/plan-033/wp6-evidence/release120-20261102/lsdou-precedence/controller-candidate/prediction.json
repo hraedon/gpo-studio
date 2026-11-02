@@ -1,0 +1,68 @@
+{
+  "applied_gpos": [
+    "Studio-RSOP-ChildA",
+    "Studio-RSOP-ChildB",
+    "Studio-RSOP-Control",
+    "Studio-RSOP-Domain",
+    "Studio-RSOP-Parent",
+    "Studio-RSOP-Site"
+  ],
+  "computer_group_memberships": [],
+  "denied_gpos": [],
+  "expect_finding": "",
+  "loopback_mode": "disabled",
+  "out_of_scope_gpos": [],
+  "query_id": "wp6b-lsdou-precedence",
+  "scenario_id": "lsdou-precedence",
+  "scope": "computer",
+  "target": {
+    "computer_name": "LabCL01",
+    "domain": "ad.labdomain.dev",
+    "site_name": "Default-First-Site-Name",
+    "user_name": ""
+  },
+  "unevaluable_gpos": [],
+  "user_group_memberships": [],
+  "warnings": [
+    "GPO 00000000-0000-0000-0000-0000000d0a11 is linked at the domain root DC=ad,DC=labdomain,DC=dev"
+  ],
+  "winners": [
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "1",
+      "value_name": "ChildBOnly",
+      "winning_gpo": "Studio-RSOP-ChildB"
+    },
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "present",
+      "value_name": "Control",
+      "winning_gpo": "Studio-RSOP-Control"
+    },
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [
+        "00000000-0000-0000-0000-00000000513e",
+        "00000000-0000-0000-0000-00000000c42d",
+        "00000000-0000-0000-0000-0000000a4e17",
+        "00000000-0000-0000-0000-0000000d0a11"
+      ],
+      "value": "childA",
+      "value_name": "Precedence",
+      "winning_gpo": "Studio-RSOP-ChildA"
+    },
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "1",
+      "value_name": "SiteOnly",
+      "winning_gpo": "Studio-RSOP-Site"
+    }
+  ]
+}

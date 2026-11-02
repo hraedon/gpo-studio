@@ -3119,16 +3119,17 @@ banked as superseded. `w22-r1` (verified) is the current evidence: the same byte
 expected values pinned to the banked ones, and the invocation verifiable against the
 committed run sheet.
 
-**Still open:** the requalification batch. The `export.py` change itself landed
-2026-10-23 (the user side writes its measured tool GUID `{40B66650-…}`;
-`test_user_side_pair_matches_the_capture` is un-xfailed and passing).
-`export.py` is bound by **six** lanes
-(`docs/plan-033/bound-source-cost.md`: endpoint, firewall, publication,
-scripts-metadata, wp1b and wp2); their refreeze verdicts are parked in
-`pending_requalification` until the batch re-runs all six at the shipping
-commit. After
-that, the separate logon/shutdown lane this item proposes, with the finalizer comparing
-the user pair against the captured value and pinning the report rows from a first run.
+**2026-11-02: requalified.** The `export.py` change landed 2026-10-23 (the user side
+writes its measured tool GUID `{40B66650-…}`; `test_user_side_pair_matches_the_capture`
+is un-xfailed and passing). The six lanes that bind `export.py` (endpoint, firewall,
+publication, scripts-metadata, wp1b and wp2) passed at the 1.2.0 freeze commit
+`f9715048fafa209069d9a5c2f78ae4a36d3a49e6` in the
+[release 1.2.0 batch](plan-033/release120-batch.md), which retired their parked
+refreeze verdicts.
+
+**Still open:** the separate logon/shutdown lane this item proposes, with the finalizer
+comparing the user pair against the captured value and pinning the report rows from a
+first run.
 
 ## WI-072 — serialize_gpp drops adapter root content the model retained
 

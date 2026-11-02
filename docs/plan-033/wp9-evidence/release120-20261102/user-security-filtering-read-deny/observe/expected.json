@@ -1,0 +1,34 @@
+{
+  "control_gpo": "Studio-RSOP-UserReadDenyControl",
+  "control_value_name": "Control",
+  "endpoint_user": "labauto1",
+  "expect_finding": "",
+  "group_member": "",
+  "group_name": "",
+  "loopback_mode": "disabled",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-UserDenyReadUser",
+      "isolates": "ROW A -- deny Read to the USER, Apply allow intact. At link order 1 so the shared Filter value is at stake and not just the unique one: if this row applies, the model's abstention cost it a winner it could have named. DenyReadUserOnly ABSENT => the user's own read deny is consulted for user-scope policy even though the computer performs the retrieval. PRESENT => it is not, and MS16-072's context switch is why."
+    },
+    {
+      "gpo": "Studio-RSOP-UserDenyReadComp",
+      "isolates": "ROW B -- deny Read to the COMPUTER on a USER-scope row; the shape no scenario has ever authored. The Apply allow still names the USER, so the only thing withheld is the reading principal's access. DenyReadCompOnly ABSENT => denying the reader blocks the user's policy as a side effect, which is the MS16-072 mechanism confirmed. Also the opportunistic evidence for WI-047: the model matched this deny on the user side only because `_filter_matches` unions both principals' identities."
+    },
+    {
+      "gpo": "Studio-RSOP-UserReadDenyAllow",
+      "isolates": "ROW C -- CONTROL, and the one that makes A and B readable: the SAME AU-Read + user-Apply grant, differing only in the absence of a read deny. AllowOnly ABSENT => the lane cannot observe an applied user GPO in this topology and the run is a LANE FAILURE, not a finding about either deny."
+    },
+    {
+      "gpo": "Studio-RSOP-UserReadDenyApply",
+      "isolates": "ROW D -- CONTROL for the other direction, and the one this corpus would have shipped without. A deny on APPLY for the user is CERTIFIED to block (WI-033, rsop-user-observe-20260804150527-3868), so DenyApplyOnly must be ABSENT. PRESENT => this harness cannot detect a blocked user GPO at all, every absence above means nothing, and the run is INCONCLUSIVE rather than a result."
+    },
+    {
+      "gpo": "Studio-RSOP-UserReadDenyControl",
+      "isolates": "CONTROL: default Authenticated Users Read+Apply, unfiltered and unconflicted. Absent => the experiment did not run at all. Distinct from row C: this one proves the USER SIDE resolved, C proves an explicitly filtered grant resolved."
+    }
+  ],
+  "scenario_id": "user-security-filtering-read-deny",
+  "scope": "user"
+}

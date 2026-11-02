@@ -1,6 +1,14 @@
 # Same-domain lifecycle — Windows results
 
-**Current qualification (2026-10-20):** `lifecycle-20261020073233-9178-40aaabfb07a44f6d`, 73/73, on
+**Current qualification (2026-11-02):** `lifecycle-20261102141155-6172-1237168f99c149d5`, 73/73, on
+clean freeze commit `f9715048fafa209069d9a5c2f78ae4a36d3a49e6`
+([evidence](wp7-evidence/release120-20261102/lifecycle/verification.json),
+[release 1.2.0 batch](release120-batch.md)), tagged
+`evidence/lifecycle-20261102141155-6172-1237168f99c149d5`. All 30 survival cells agreed again. It replaces the 1.1.0 re-freeze run below,
+whose verdict changes merged after 1.1.0 had expired (every lane binds
+`psdirect.ps1`, which #157 changed); its pack and tag are kept.
+
+**Previous qualification (2026-10-20):** `lifecycle-20261020073233-9178-40aaabfb07a44f6d`, 73/73, on
 clean freeze commit `5ffa026516830139f8607ef5706f2bf8f4e002d5`
 ([evidence](wp7-evidence/release110-refreeze-20261020/lifecycle/verification.json),
 [release 1.1.0 re-freeze batch](release110-refreeze-batch.md)), tagged

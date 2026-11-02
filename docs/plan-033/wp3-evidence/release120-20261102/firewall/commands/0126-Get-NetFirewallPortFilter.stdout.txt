@@ -1,0 +1,11 @@
+﻿
+
+Protocol      : UDP
+LocalPort     : Any
+RemotePort    : {65002-65003, 65010}
+IcmpType      : Any
+DynamicTarget : Any
+
+
+
+

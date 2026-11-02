@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="UserMulti" status="UserMulti" image="2" changed="2026-10-08 10:40:24" uid="{17BE1A05-D3F3-4432-ABFE-82824E8071E5}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_CURRENT_USER" key="Software\GPOStudio\GppRegistry" name="UserMulti" type="REG_MULTI_SZ" value="one two">
+      <Values>
+        <Value>one</Value>
+        <Value>two</Value>
+      </Values>
+    </Properties>
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="UserQword" status="UserQword" image="0" changed="2026-10-08 10:40:24" uid="{F836B443-AF68-4457-978F-FC19956E5EBE}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_CURRENT_USER" key="Software\GPOStudio\GppRegistry" name="UserQword" type="REG_QWORD" value="0000000100000000" />
+  </Registry>
+</RegistrySettings>

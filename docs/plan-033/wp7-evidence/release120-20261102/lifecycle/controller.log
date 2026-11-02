@@ -1,0 +1,460 @@
+expected.json sha256=7134e6dcb4a60482319fd720b7426a7621589114b8fe47842923fdfb6055920e
+{
+  "dimensions": [
+    "settings",
+    "gpo_guid",
+    "acl_security_filtering",
+    "wmi_association",
+    "links",
+    "description"
+  ],
+  "lane": "lifecycle-same-domain",
+  "operation_order": [
+    "copy",
+    "copy_with_acl",
+    "import_as_new",
+    "import_into_existing",
+    "restore_in_place"
+  ],
+  "operations": {
+    "copy": {
+      "cmdlet": "Copy-GPO -SourceGuid <guid> -TargetName <name>",
+      "plan_names_target_guid": false,
+      "preconditions": [
+        "no GPO named 'zz-target' exists in 'synthetic.test' when Copy-GPO runs; if one does, the result is that GPO (import_into_existing semantics for Import-GPO -CreateIfNeeded), not a new one"
+      ],
+      "requires_target_absent": true,
+      "survival": {
+        "acl_security_filtering": "defaulted",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "kept"
+      },
+      "target_identity": "windows_assigned",
+      "warnings": [
+        "the source GPO links a WMI filter; whether that filter still exists in the domain is not checked",
+        "links is predicted lost: re-establish it after copy",
+        "acl_security_filtering is predicted defaulted: re-establish it after copy",
+        "absence of a GPO named 'zz-target' is not checked"
+      ]
+    },
+    "copy_with_acl": {
+      "cmdlet": "Copy-GPO -SourceGuid <guid> -TargetName <name> -CopyAcl",
+      "plan_names_target_guid": false,
+      "preconditions": [
+        "no GPO named 'zz-target' exists in 'synthetic.test' when Copy-GPO runs; if one does, the result is that GPO (import_into_existing semantics for Import-GPO -CreateIfNeeded), not a new one"
+      ],
+      "requires_target_absent": true,
+      "survival": {
+        "acl_security_filtering": "kept",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "kept"
+      },
+      "target_identity": "windows_assigned",
+      "warnings": [
+        "the source GPO links a WMI filter; whether that filter still exists in the domain is not checked",
+        "links is predicted lost: re-establish it after copy_with_acl",
+        "absence of a GPO named 'zz-target' is not checked"
+      ]
+    },
+    "import_as_new": {
+      "cmdlet": "Import-GPO -BackupId <id> -Path <dir> -TargetName <name> -CreateIfNeeded",
+      "plan_names_target_guid": false,
+      "preconditions": [
+        "no GPO named 'zz-target' exists in 'synthetic.test' when Import-GPO runs; if one does, the result is that GPO (import_into_existing semantics for Import-GPO -CreateIfNeeded), not a new one"
+      ],
+      "requires_target_absent": true,
+      "survival": {
+        "acl_security_filtering": "defaulted",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "lost"
+      },
+      "target_identity": "windows_assigned",
+      "warnings": [
+        "links is predicted lost: re-establish it after import_as_new",
+        "wmi_association is predicted lost: re-establish it after import_as_new",
+        "acl_security_filtering is predicted defaulted: re-establish it after import_as_new",
+        "absence of a GPO named 'zz-target' is not checked"
+      ]
+    },
+    "import_into_existing": {
+      "cmdlet": "Import-GPO -BackupId <id> -Path <dir> -TargetGuid <guid> | -TargetName <name>",
+      "plan_names_target_guid": true,
+      "preconditions": [],
+      "requires_target_absent": false,
+      "survival": {
+        "acl_security_filtering": "replaced",
+        "description": "kept",
+        "gpo_guid": "replaced",
+        "links": "replaced",
+        "settings": "kept",
+        "wmi_association": "replaced"
+      },
+      "target_identity": "existing_target",
+      "warnings": []
+    },
+    "restore_in_place": {
+      "cmdlet": "Restore-GPO -BackupId <id> -Path <dir>",
+      "plan_names_target_guid": true,
+      "preconditions": [],
+      "requires_target_absent": false,
+      "survival": {
+        "acl_security_filtering": "kept",
+        "description": "kept",
+        "gpo_guid": "kept",
+        "links": "replaced",
+        "settings": "kept",
+        "wmi_association": "kept"
+      },
+      "target_identity": "source",
+      "warnings": [
+        "the source GPO links a WMI filter; whether that filter still exists in the domain is not checked"
+      ]
+    }
+  },
+  "predictions_are_hypotheses": true,
+  "schema_version": 1
+}
+LOCAL_RUN_DIR=/home/itadmin/gpo-batch-120b/tmp/gpo-studio/lifecycle-run-20261102141145-2585347
+CANDIDATE_DIR=/home/itadmin/gpo-batch-120b/tmp/gpo-studio/lifecycle-candidate-20261102141145-2585347
+{
+  "artifacts": {
+    "backup/manifest.xml": "ac888d35a0c3b3672588e086b9eaf232e56bd0aed705517831a030f248ae763b",
+    "backup/{0D54C2B9-EF22-42CC-9170-7137ACBAE7F7}/Backup.xml": "04d1b2d90e8e6a8b4ccf910ce7a7dacbabf73ae6bf526da7e136c599913e26ce",
+    "backup/{0D54C2B9-EF22-42CC-9170-7137ACBAE7F7}/DomainSysvol/GPO/GPO.cmt": "232750ae96fe8747cb2b2bf5a42c05c2d00c54e42c51ab45e48394b2ee4eccd2",
+    "backup/{0D54C2B9-EF22-42CC-9170-7137ACBAE7F7}/DomainSysvol/GPO/Machine/registry.pol": "77fd34eecdb710abb1aad4e7d92962d6e7c055a1f84f7cca26e40778e9a5b73d",
+    "backup/{0D54C2B9-EF22-42CC-9170-7137ACBAE7F7}/bkupInfo.xml": "137da290961c3892c968bdba8fb008cfce60b12dc02765def611a71b36b5e6e8",
+    "backup/{0D54C2B9-EF22-42CC-9170-7137ACBAE7F7}/gpreport.xml": "384e107f15ef566f075a42c5b0e143ab508a1bb9bf5858d241352a1016d357ad",
+    "builder.stdout.txt": "91d4a68386680a86c238ebb971f805d6d59a3540ac4a4d88c3f308228fd60967",
+    "commands/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/backup.stdout.txt": "d71536877880e192ead1a892ed60ddd8f3a6d25ff44e315222ba0c15ffe15870",
+    "commands/copy.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/copy.stdout.txt": "8e1e19ed47ec0519ec5d765362af63c915d9de6243e3a6b07e9e10dfbc9fec13",
+    "commands/copy_with_acl.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/copy_with_acl.stdout.txt": "a742bf42d752eb0dd3ca111c1fba013a40379f8cf7d61f2ab45842505c9f5604",
+    "commands/import_as_new.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import_as_new.stdout.txt": "fa3d66ca671a6d86edb1cf5c8c693d5f12cc300f36b1cbd2e13c2adc9bd3fb3c",
+    "commands/import_into_existing.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import_into_existing.stdout.txt": "c0ef239c0a27343b35a8b55a14ee16a4944424727ac92ed08504e03ed44b2cc1",
+    "commands/restore_in_place.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/restore_in_place.stdout.txt": "0691df54605f4d5a756f3575551ad412808ea120931625f689aa6cc45c90370c",
+    "deployed/run-lifecycle.ps1": "f65b0bb22ff902c66fd3f840f15162e3e43dacc661f28833fc424abdcae8c1fd",
+    "result.json": "0ba2255a02c78b4e46039b0c9666ff5d4c30b6f1ae9b4fa265d159d2d5f0159c"
+  },
+  "candidate": {
+    "builder.stdout.txt": "91d4a68386680a86c238ebb971f805d6d59a3540ac4a4d88c3f308228fd60967",
+    "expected.json": "7134e6dcb4a60482319fd720b7426a7621589114b8fe47842923fdfb6055920e"
+  },
+  "checks": {
+    "backup_bridge_reads_windows_backup": true,
+    "backup_names_the_source": true,
+    "cleanup_residual_empty": true,
+    "cleanup_state_restored": true,
+    "cleanup_succeeded": true,
+    "control_is_an_untouched_new_gpo": true,
+    "creation_inventory_complete": true,
+    "deployed_harness_matches_source": true,
+    "domain_recorded": true,
+    "environment_matches_frozen_spec": true,
+    "every_dimension_distinguishable": true,
+    "expectation_reproduces_from_bound_source": true,
+    "fixture_names_are_generated": true,
+    "harness_reported_no_error": true,
+    "member_server_host_role": true,
+    "operation_copy_succeeded": true,
+    "operation_copy_target_preexistence_measured": true,
+    "operation_copy_with_acl_succeeded": true,
+    "operation_copy_with_acl_target_preexistence_measured": true,
+    "operation_import_as_new_succeeded": true,
+    "operation_import_as_new_target_preexistence_measured": true,
+    "operation_import_into_existing_succeeded": true,
+    "operation_import_into_existing_target_preexistence_measured": true,
+    "operation_restore_in_place_succeeded": true,
+    "operation_restore_in_place_target_preexistence_measured": true,
+    "ownership_established": true,
+    "plan_target_identity.copy": true,
+    "plan_target_identity.copy_with_acl": true,
+    "plan_target_identity.import_as_new": true,
+    "plan_target_identity.import_into_existing": true,
+    "plan_target_identity.restore_in_place": true,
+    "pre_existing_target_untouched_until_its_import": true,
+    "raw_command_artifacts_complete": true,
+    "restore_graded_against_the_verified_perturbation": true,
+    "restore_perturbation_landed": true,
+    "result_gradable": true,
+    "result_schema_exact": true,
+    "run_id_matches_fixture": true,
+    "run_id_well_formed": true,
+    "snapshot_names_match_inventory": true,
+    "source_authored_as_specified": true,
+    "source_tree_clean": true,
+    "survival.copy.acl_security_filtering": true,
+    "survival.copy.description": true,
+    "survival.copy.gpo_guid": true,
+    "survival.copy.links": true,
+    "survival.copy.settings": true,
+    "survival.copy.wmi_association": true,
+    "survival.copy_with_acl.acl_security_filtering": true,
+    "survival.copy_with_acl.description": true,
+    "survival.copy_with_acl.gpo_guid": true,
+    "survival.copy_with_acl.links": true,
+    "survival.copy_with_acl.settings": true,
+    "survival.copy_with_acl.wmi_association": true,
+    "survival.import_as_new.acl_security_filtering": true,
+    "survival.import_as_new.description": true,
+    "survival.import_as_new.gpo_guid": true,
+    "survival.import_as_new.links": true,
+    "survival.import_as_new.settings": true,
+    "survival.import_as_new.wmi_association": true,
+    "survival.import_into_existing.acl_security_filtering": true,
+    "survival.import_into_existing.description": true,
+    "survival.import_into_existing.gpo_guid": true,
+    "survival.import_into_existing.links": true,
+    "survival.import_into_existing.settings": true,
+    "survival.import_into_existing.wmi_association": true,
+    "survival.restore_in_place.acl_security_filtering": true,
+    "survival.restore_in_place.description": true,
+    "survival.restore_in_place.gpo_guid": true,
+    "survival.restore_in_place.links": true,
+    "survival.restore_in_place.settings": true,
+    "survival.restore_in_place.wmi_association": true,
+    "target_authored_as_specified": true
+  },
+  "claim_checks": [
+    "backup_bridge_reads_windows_backup",
+    "plan_target_identity.copy",
+    "plan_target_identity.copy_with_acl",
+    "plan_target_identity.import_as_new",
+    "plan_target_identity.import_into_existing",
+    "plan_target_identity.restore_in_place",
+    "survival.copy.acl_security_filtering",
+    "survival.copy.description",
+    "survival.copy.gpo_guid",
+    "survival.copy.links",
+    "survival.copy.settings",
+    "survival.copy.wmi_association",
+    "survival.copy_with_acl.acl_security_filtering",
+    "survival.copy_with_acl.description",
+    "survival.copy_with_acl.gpo_guid",
+    "survival.copy_with_acl.links",
+    "survival.copy_with_acl.settings",
+    "survival.copy_with_acl.wmi_association",
+    "survival.import_as_new.acl_security_filtering",
+    "survival.import_as_new.description",
+    "survival.import_as_new.gpo_guid",
+    "survival.import_as_new.links",
+    "survival.import_as_new.settings",
+    "survival.import_as_new.wmi_association",
+    "survival.import_into_existing.acl_security_filtering",
+    "survival.import_into_existing.description",
+    "survival.import_into_existing.gpo_guid",
+    "survival.import_into_existing.links",
+    "survival.import_into_existing.settings",
+    "survival.import_into_existing.wmi_association",
+    "survival.restore_in_place.acl_security_filtering",
+    "survival.restore_in_place.description",
+    "survival.restore_in_place.gpo_guid",
+    "survival.restore_in_place.links",
+    "survival.restore_in_place.settings",
+    "survival.restore_in_place.wmi_association"
+  ],
+  "comparison": {
+    "backup_bridge": {
+      "backup_id": "{0D54C2B9-EF22-42CC-9170-7137ACBAE7F7}",
+      "created_at": "2026-11-02T14:11:58",
+      "files": [
+        "GPO.cmt",
+        "Machine/registry.pol"
+      ],
+      "gpo_display_name": "zz-studio-lifecycle-20261102141155-6172-1237168f99c149d5-source",
+      "gpo_guid": "235c8ccd-fad6-492c-9d7b-0bdfea0d1442",
+      "has_wmi_filter": true,
+      "wmi_filter_name": "zz-studio-lifecycle-20261102141155-6172-1237168f99c149d5-src-wmi",
+      "wmi_filter_name_is_source_filter": true,
+      "wmi_filter_reference": "MSFT_SomFilter.ID=\"{1a92cfd6-3434-40e1-bae3-e1015cf8ae60}\",Domain=\"AD.LABDOMAIN.DEV\"",
+      "wmi_reference_names_source_filter": true,
+      "wmi_reference_names_target_filter": false
+    },
+    "mismatches": [],
+    "observed_survival": {
+      "copy": {
+        "acl_security_filtering": "defaulted",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "kept"
+      },
+      "copy_with_acl": {
+        "acl_security_filtering": "kept",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "kept"
+      },
+      "import_as_new": {
+        "acl_security_filtering": "defaulted",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "lost"
+      },
+      "import_into_existing": {
+        "acl_security_filtering": "replaced",
+        "description": "kept",
+        "gpo_guid": "replaced",
+        "links": "replaced",
+        "settings": "kept",
+        "wmi_association": "replaced"
+      },
+      "restore_in_place": {
+        "acl_security_filtering": "kept",
+        "description": "kept",
+        "gpo_guid": "kept",
+        "links": "replaced",
+        "settings": "kept",
+        "wmi_association": "kept"
+      }
+    },
+    "predicted_survival": {
+      "copy": {
+        "acl_security_filtering": "defaulted",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "kept"
+      },
+      "copy_with_acl": {
+        "acl_security_filtering": "kept",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "kept"
+      },
+      "import_as_new": {
+        "acl_security_filtering": "defaulted",
+        "description": "kept",
+        "gpo_guid": "defaulted",
+        "links": "lost",
+        "settings": "kept",
+        "wmi_association": "lost"
+      },
+      "import_into_existing": {
+        "acl_security_filtering": "replaced",
+        "description": "kept",
+        "gpo_guid": "replaced",
+        "links": "replaced",
+        "settings": "kept",
+        "wmi_association": "replaced"
+      },
+      "restore_in_place": {
+        "acl_security_filtering": "kept",
+        "description": "kept",
+        "gpo_guid": "kept",
+        "links": "replaced",
+        "settings": "kept",
+        "wmi_association": "kept"
+      }
+    }
+  },
+  "comparison_error": null,
+  "environment": {
+    "computer_system_domain": "ad.labdomain.dev",
+    "computer_system_domain_role": 3,
+    "computer_system_name": "LABMS01",
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.33438",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "environment_violations": [],
+  "harness_error": null,
+  "harness_valid": true,
+  "lane_checks": [
+    "backup_names_the_source",
+    "cleanup_residual_empty",
+    "cleanup_state_restored",
+    "cleanup_succeeded",
+    "control_is_an_untouched_new_gpo",
+    "creation_inventory_complete",
+    "deployed_harness_matches_source",
+    "domain_recorded",
+    "environment_matches_frozen_spec",
+    "every_dimension_distinguishable",
+    "expectation_reproduces_from_bound_source",
+    "fixture_names_are_generated",
+    "harness_reported_no_error",
+    "member_server_host_role",
+    "operation_copy_succeeded",
+    "operation_copy_target_preexistence_measured",
+    "operation_copy_with_acl_succeeded",
+    "operation_copy_with_acl_target_preexistence_measured",
+    "operation_import_as_new_succeeded",
+    "operation_import_as_new_target_preexistence_measured",
+    "operation_import_into_existing_succeeded",
+    "operation_import_into_existing_target_preexistence_measured",
+    "operation_restore_in_place_succeeded",
+    "operation_restore_in_place_target_preexistence_measured",
+    "ownership_established",
+    "pre_existing_target_untouched_until_its_import",
+    "raw_command_artifacts_complete",
+    "restore_graded_against_the_verified_perturbation",
+    "restore_perturbation_landed",
+    "result_gradable",
+    "result_schema_exact",
+    "run_id_matches_fixture",
+    "run_id_well_formed",
+    "snapshot_names_match_inventory",
+    "source_authored_as_specified",
+    "source_tree_clean",
+    "target_authored_as_specified"
+  ],
+  "passed": true,
+  "predictions_agree": true,
+  "run_id": "lifecycle-20261102141155-6172-1237168f99c149d5",
+  "schema_version": 1,
+  "source": {
+    "banked_copies": [
+      "run-lifecycle.ps1"
+    ],
+    "commit": "f9715048fafa209069d9a5c2f78ae4a36d3a49e6",
+    "dirty": false,
+    "files": {
+      "backup.py": "07f6f37723b0a4730b526180174e6a9f42d8d69195477e85004e26d136ea0df6",
+      "build-lifecycle-candidate.py": "46949143894f48d30da537bc872808829b308cac804caf2b282b726fb8a61503",
+      "finalize_lifecycle_run.py": "37e2696b47766e745875f0f4c26d1ff17eb7dc85a05299c460b307f356ce8b64",
+      "lifecycle.py": "2ff140201f76afe35fdad40a31757784af5b607ce6fe2fa3246b004028a04ce8",
+      "oracle_evidence.py": "337e6443c978b0981fa46e70b7aaa627903922577b4347a6abc8a522441fd3f2",
+      "psdirect.ps1": "307ee9f55a2302442eea09e8b94f23c6ef5a4a5763b0e53baf37294abb36c192",
+      "run-lifecycle-oracle.sh": "d749e69fa218d4fdd1e5fbf7eb6eed09cac89f41203c788f7368c6b18caeb808",
+      "run-lifecycle.ps1": "f65b0bb22ff902c66fd3f840f15162e3e43dacc661f28833fc424abdcae8c1fd"
+    },
+    "paths": {
+      "backup.py": "src/gpo_studio/backup.py",
+      "build-lifecycle-candidate.py": "scripts/plan-033/build-lifecycle-candidate.py",
+      "finalize_lifecycle_run.py": "scripts/windows-oracle/finalize_lifecycle_run.py",
+      "lifecycle.py": "src/gpo_studio/lifecycle.py",
+      "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+      "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+      "run-lifecycle-oracle.sh": "scripts/windows-oracle/run-lifecycle-oracle.sh",
+      "run-lifecycle.ps1": "scripts/windows-oracle/run-lifecycle.ps1"
+    }
+  },
+  "transport": "psdirect"
+}
+EVIDENCE_TAG=created evidence/lifecycle-20261102141155-6172-1237168f99c149d5 at f9715048fafa — push it: git push origin evidence/lifecycle-20261102141155-6172-1237168f99c149d5

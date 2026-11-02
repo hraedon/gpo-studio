@@ -10,175 +10,333 @@
     "sdist_sha256": "resolved by the tagged release workflow",
     "sbom_sha256": "resolved by the tagged release workflow"
   },
-  "freeze": null,
+  "freeze": {
+    "commit": "f9715048fafa209069d9a5c2f78ae4a36d3a49e6",
+    "batch_manifest": "docs/plan-033/release120-batch.json"
+  },
   "evidence": {
-    "requalification": "pending: every lane live at the freeze commit F (the re-freeze commit; the first freeze's batch at a4306361e4829449ced64d173978dcb532d2814c, 26 of 26 on 2026-11-02, was never banked and certifies nothing) (26: WP-0's manifest and 25 lane verdicts) re-run at F in one batch; the banking commit B replaces this entry with the batch's record (note, batch_manifest, executed_utc, frozen_commit, lanes_started, runs_passed, not_passed, successors, runs, post_batch_directory_check, retired, pending_requalification) and sets freeze",
-    "qualification_before_freeze": {
+    "requalification": {
+      "note": "docs/plan-033/release120-batch.md",
+      "batch_manifest": "docs/plan-033/release120-batch.json",
+      "executed_utc": "2026-11-02",
+      "frozen_commit": "f9715048fafa209069d9a5c2f78ae4a36d3a49e6",
+      "lanes_started": 26,
+      "runs_passed": 26,
+      "not_passed": [],
+      "successors": [],
+      "runs": [
+        {
+          "name": "wp0",
+          "run_id": "live-synthetic-registry-basic-20261102140640-6683",
+          "checks": "pass"
+        },
+        {
+          "name": "wp1b",
+          "run_id": "wp1b-writer-20261102140736-4397",
+          "checks": "pass"
+        },
+        {
+          "name": "wp2",
+          "run_id": "wp2-native-import-20261102140826-7467",
+          "checks": "18/18"
+        },
+        {
+          "name": "wp3-member",
+          "run_id": "wp3-security-template-20261102140906-1647",
+          "checks": "20/20"
+        },
+        {
+          "name": "wp3-dc",
+          "run_id": "wp3-security-template-20261102140836-7161",
+          "checks": "20/20"
+        },
+        {
+          "name": "object-security",
+          "run_id": "object-security-20261102141020-2204",
+          "checks": "20/20"
+        },
+        {
+          "name": "scripts-metadata",
+          "run_id": "scripts-r10-20261102141051-8240",
+          "checks": "20/20"
+        },
+        {
+          "name": "publication",
+          "run_id": "publication-completeness-20261102141125-6887",
+          "checks": "21/21"
+        },
+        {
+          "name": "lifecycle",
+          "run_id": "lifecycle-20261102141155-6172-1237168f99c149d5",
+          "checks": "73/73"
+        },
+        {
+          "name": "report-parity",
+          "run_id": "report-parity-20261102141241-1684",
+          "checks": "26/26"
+        },
+        {
+          "name": "firewall",
+          "run_id": "firewall-20261102141420-2589712",
+          "checks": "36/36"
+        },
+        {
+          "name": "fdeploy",
+          "run_id": "fd-20261102141636-5061",
+          "checks": "29/29"
+        },
+        {
+          "name": "endpoint",
+          "run_id": "endpoint-observe-20261102141748-2070",
+          "checks": "pass"
+        },
+        {
+          "name": "lsdou-precedence",
+          "run_id": "rsop-observe-20261102142041-3460",
+          "checks": "pass"
+        },
+        {
+          "name": "disabled-block-enforced",
+          "run_id": "rsop-observe-20261102142234-5360",
+          "checks": "pass"
+        },
+        {
+          "name": "wmi-filtering",
+          "run_id": "rsop-observe-20261102142419-3472",
+          "checks": "pass"
+        },
+        {
+          "name": "wmi-filtering-error",
+          "run_id": "rsop-observe-20261102142605-7801",
+          "checks": "pass"
+        },
+        {
+          "name": "computer-security-filtering",
+          "run_id": "rsop-observe-20261102142752-1196",
+          "checks": "pass"
+        },
+        {
+          "name": "computer-security-filtering-deny-read",
+          "run_id": "rsop-observe-20261102142938-5258",
+          "checks": "pass"
+        },
+        {
+          "name": "loopback-merge",
+          "run_id": "rsop-user-observe-20261102143130-9149",
+          "checks": "pass"
+        },
+        {
+          "name": "loopback-replace",
+          "run_id": "rsop-user-observe-20261102143344-2571",
+          "checks": "pass"
+        },
+        {
+          "name": "user-side-disabled",
+          "run_id": "rsop-user-observe-20261102143556-1486",
+          "checks": "pass"
+        },
+        {
+          "name": "user-security-filtering",
+          "run_id": "rsop-user-observe-20261102143845-8266",
+          "checks": "pass"
+        },
+        {
+          "name": "user-security-filtering-deny",
+          "run_id": "rsop-user-observe-20261102144155-5489",
+          "checks": "pass"
+        },
+        {
+          "name": "user-security-filtering-read-deny",
+          "run_id": "rsop-user-observe-20261102144427-7670",
+          "checks": "pass"
+        },
+        {
+          "name": "computer-security-filtering-group-deny",
+          "run_id": "rsop-observe-20261102144719-3861",
+          "checks": "pass"
+        }
+      ],
+      "post_batch_directory_check": {
+        "result": "clean",
+        "captured_utc": "2026-11-02T14:47:47Z",
+        "directory": "docs/plan-033/release120-cleanup/directory.json",
+        "collector": "docs/plan-033/release120-cleanup/collector.ps1"
+      },
+      "retired": [
+        "every verdict pending requalification at F: the release 1.1.0 re-freeze batch's 25 lane verdicts at 5ffa026516830139f8607ef5706f2bf8f4e002d5, which changes merged after 1.1.0 had expired, and its WP-0 manifest, replaced as wp0_manifest"
+      ],
+      "pending_requalification": [],
+      "run_id_stamps": "compared at one-second precision with the window's start truncated to the second, every run id's stamp falls inside its lane's driver window except wp3-dc's, which the domain controller stamped with its own clock 45 seconds before the lane started (42 in the 1.1.0 re-freeze batch); separately, three times the controller's clock read up to 0.73 seconds earlier at a lane's start than at the end of the lane before it, and the post-batch check's capture time (the DC's clock) reads about 52 seconds before the driver's end although the controller wrote the file about 15 seconds after it",
+      "files_banked": "1572, the same per-lane file counts as the release 1.1.0 re-freeze batch; every check count is that batch's too",
+      "first_freeze_batch": "the first freeze commit a4306361e4829449ced64d173978dcb532d2814c was requalified 26 of 26 on 2026-11-02 (12:15:08Z to 13:02:10Z); that batch was never banked, certifies nothing, and its evidence tags were never pushed"
+    },
+    "previous_release_requalification": {
       "release": "1.1.0",
       "note": "docs/plan-033/release110-refreeze-batch.md",
       "batch_manifest": "docs/plan-033/release110-refreeze-batch.json",
       "frozen_commit": "5ffa026516830139f8607ef5706f2bf8f4e002d5",
       "lanes": 26,
-      "pending_requalification": 25,
-      "pending_reason": "changes merged after 1.1.0 edited files the lanes bind: all 25 lane verdicts bind scripts/windows-oracle/psdirect.ps1, which the realm fix (#157) changed; several also bind other files changed since, among them src/gpo_studio/export.py, gpp.py, registry_pol.py, validation.py and publication.py (the measured user-side Scripts tool GUID and #151's plan binding) and safe_io.py (non-blocking opens). docs/plan-033/verdict-registry.json holds the list, and the gate requires the batch at F to retire every one",
       "runs": [
         {
           "name": "wp0",
           "run_id": "live-synthetic-registry-basic-20261020072705-9695",
           "checks": "pass",
-          "state": "live until the batch at F (WP-0 binds by commit, so it is not in pending_requalification)"
+          "state": "replaced as wp0_manifest by the release 1.2.0 batch"
         },
         {
           "name": "wp1b",
           "run_id": "wp1b-writer-20261020072808-8446",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "wp2",
           "run_id": "wp2-native-import-20261020072858-5525",
           "checks": "18/18",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "wp3-member",
           "run_id": "wp3-security-template-20261020072938-4029",
           "checks": "20/20",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "wp3-dc",
           "run_id": "wp3-security-template-20261020072911-9635",
           "checks": "20/20",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "object-security",
           "run_id": "object-security-20261020073052-3290",
           "checks": "20/20",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "scripts-metadata",
           "run_id": "scripts-r10-20261020073126-4216",
           "checks": "20/20",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "publication",
           "run_id": "publication-completeness-20261020073202-7563",
           "checks": "21/21",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "lifecycle",
           "run_id": "lifecycle-20261020073233-9178-40aaabfb07a44f6d",
           "checks": "73/73",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "report-parity",
           "run_id": "report-parity-20261020073320-2127",
           "checks": "26/26",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "firewall",
           "run_id": "firewall-20261020073459-2222842",
           "checks": "36/36",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "fdeploy",
           "run_id": "fd-20261020073719-5157",
           "checks": "29/29",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "endpoint",
           "run_id": "endpoint-observe-20261020073835-9781",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "lsdou-precedence",
           "run_id": "rsop-observe-20261020074127-4290",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "disabled-block-enforced",
           "run_id": "rsop-observe-20261020074322-5597",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "wmi-filtering",
           "run_id": "rsop-observe-20261020074546-9797",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "wmi-filtering-error",
           "run_id": "rsop-observe-20261020074753-3255",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "computer-security-filtering",
           "run_id": "rsop-observe-20261020074945-9317",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "computer-security-filtering-deny-read",
           "run_id": "rsop-observe-20261020075135-6601",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "loopback-merge",
           "run_id": "rsop-user-observe-20261020075328-1230",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "loopback-replace",
           "run_id": "rsop-user-observe-20261020075545-2837",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "user-side-disabled",
           "run_id": "rsop-user-observe-20261020075802-7706",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "user-security-filtering",
           "run_id": "rsop-user-observe-20261020080055-6849",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "user-security-filtering-deny",
           "run_id": "rsop-user-observe-20261020080359-8373",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "user-security-filtering-read-deny",
           "run_id": "rsop-user-observe-20261020080623-7133",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         },
         {
           "name": "computer-security-filtering-group-deny",
           "run_id": "rsop-observe-20261020080904-2605",
           "checks": "pass",
-          "state": "pending requalification"
+          "state": "retired by the release 1.2.0 batch"
         }
-      ]
+      ],
+      "expired_because": "changes merged after 1.1.0 edited files the lanes bind: all 25 lane verdicts bind scripts/windows-oracle/psdirect.ps1, which the realm fix (#157) changed; several also bind other files changed since, among them src/gpo_studio/export.py, gpp.py, registry_pol.py, validation.py and publication.py (the measured user-side Scripts tool GUID and #151's plan binding) and safe_io.py (non-blocking opens). the batch at F retired every one",
+      "retired_at_B": 25,
+      "superseded": "history since B: the batch at F retired every verdict of it"
     },
     "workspace_upgrade": {
       "from_release": "1.1.0",
@@ -193,15 +351,15 @@
       "automated": "frontend CI job and release verify job: workspace axe scan, keyboard, focus, dark theme, and open-dialog axe scans of the Security template, Folder Redirection and RSOP prediction dialogs (RSOP in light and dark themes, populated and with validation errors; Security template and Folder Redirection populated in a 360-pixel-wide window)",
       "hands_on_screen_reader": "not run: the owner waived the hands-on NVDA acceptance for 1.2.0 on 2026-11-01; the dialogs changed, but no NVDA pass was performed; it was not passed, and no screen-reader result is claimed for the interface added since 1.0"
     },
-    "lane_verdicts": "pending: requalified by the release 1.2.0 batch at the freeze commit F, every lane at that one commit; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",
+    "lane_verdicts": "requalified by the release 1.2.0 batch at the freeze commit f9715048fafa209069d9a5c2f78ae4a36d3a49e6 (the re-freeze commit), every lane at that one commit; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",
     "remaining_before_approval": [
-      "all 26 live lanes requalified at F in one batch, banked in commit B whose parent is F, evidence and records only, with freeze set in this report (pending)",
-      "freeze commit F: every product change for 1.2.0 merged, __version__ 1.2.0 and SECURITY.md making 1.2.x the only supported line from 1.2.0 (both done in the preparation; the SECURITY.md change is the owner's decision of 2026-11-01), and the CHANGELOG.md 1.2.0 heading dated 2026-11-02 by the first freeze commit a4306361e4829449ced64d173978dcb532d2814c and kept by the re-freeze commit, its child, which fixes tests/test_current_qualification.py (a test that failed once B set freeze, and tests are frozen at F) and is F from here on (pending)",
+      "all 26 live lanes requalified at F in one batch, banked in commit B whose parent is F, evidence and records only, with freeze set in this report: done (2026-11-02), the release 1.2.0 batch, 26 of 26 at the re-freeze commit f9715048fafa209069d9a5c2f78ae4a36d3a49e6 (docs/plan-033/release120-batch.json); the first freeze's batch at a4306361e4829449ced64d173978dcb532d2814c was never banked, and the release 1.1.0 re-freeze batch at 5ffa026516830139f8607ef5706f2bf8f4e002d5 is history",
+      "freeze commit F: every product change for 1.2.0 merged, __version__ 1.2.0 and SECURITY.md making 1.2.x the only supported line from 1.2.0 (both done in the preparation; the SECURITY.md change is the owner's decision of 2026-11-01), and the CHANGELOG.md 1.2.0 heading dated 2026-11-02 by the first freeze commit a4306361e4829449ced64d173978dcb532d2814c: done, and kept by the re-freeze commit f9715048fafa209069d9a5c2f78ae4a36d3a49e6, its child, which fixes tests/test_current_qualification.py (a test that failed once B set freeze) and is F; CI on F passed (run 41458740923: every ci.yml job; test (3.13) 31 of 90 minutes, test-windows (3.13) 74 of 150)",
       "owner's hands-on NVDA acceptance: waived for 1.2.0 by the owner on 2026-11-01 (the dialogs changed, but no NVDA pass was performed); not run",
       "automated evidence, recorded after A by the tagged release workflow run, not a precondition of approval: the published release-evidence.md and release-evidence-report.json carry the tag, source commit, workflow run URL, id, attempt and ref, and the wheel, sdist and SBOM hashes, and state that release-identity, ci, identifier-gate and verify passed before publish and that verify checked coverage against the floor; the job ids and that run's coverage total are in the workflow run itself, not in the assets",
       "final approval in a records-only commit A after B: status approved, manifest line 5; tag v1.2.0 on A, on main (pending)"
     ],
     "authorization": "full requalification of every lane at a freeze commit F authorized by the owner on 2026-10-29; shipped as 1.2.0, not a 1.1.x patch, by owner decision on 2026-11-01 (it adds features and changes behaviour, and SECURITY.md limits a 1.1.x patch to fixes)",
-    "refreeze": "1.2.0 is frozen a second time: the first freeze commit a4306361e4829449ced64d173978dcb532d2814c was requalified 26 of 26 on 2026-11-02 (12:15:08Z to 13:02:10Z), but test_a_predecessor_report_that_is_not_its_release_fails in tests/test_current_qualification.py holds only while this report's freeze is null, so it fails once B sets freeze, and the release gate freezes every test at F; that batch was never banked and its evidence tags were never pushed; the re-freeze commit, the child of a4306361, fixes the test and these records and changes no application code"
+    "refreeze": "1.2.0 is frozen a second time: the first freeze commit a4306361e4829449ced64d173978dcb532d2814c was requalified 26 of 26 on 2026-11-02 (12:15:08Z to 13:02:10Z), but test_a_predecessor_report_that_is_not_its_release_fails in tests/test_current_qualification.py holds only while this report's freeze is null, so it fails once B sets freeze, and the release gate freezes every test at F; that batch was never banked and its evidence tags were never pushed; the re-freeze commit, the child of a4306361, fixes the test and these records and changes no application code; every lane was requalified again at it on 2026-11-02"
   }
 }
