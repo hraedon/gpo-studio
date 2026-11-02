@@ -39,8 +39,11 @@ jobs:
     # 3.13 job (owner approved raising CI timeouts, 2026-10-12). Run
     # 39361251167 (the first v1.1.0 tag, 2026-10-20 UTC): 3.13 took 35m20s
     # (pytest 34m54s), only 1.13x under 40; 3.14 took 14m22s. 55 min is about
-    # 1.55x the 3.13 job.
-    timeout-minutes: 55
+    # 1.55x the 3.13 job. Before the 1.2.0 freeze (runs 41243511805,
+    # 41390953990, 41407125042 on main, 2026-10-31 to 2026-11-02 UTC), 3.13
+    # took 33, 47 and 31 min and PR #166's head took 48m48s: 1.13x under 55,
+    # the margin the first v1.1.0 tag lost. 90 min is about 1.85x the slowest.
+    timeout-minutes: 90
     strategy:
       matrix:
         python-version: ["3.13", "3.14"]
@@ -113,8 +116,11 @@ jobs:
     # 3.13 estimate. Run 39361251167 (the first v1.1.0 tag, 2026-10-20 UTC):
     # 3.13 took 62m23s (pytest 61m48s), 1.44x under 90; 3.14 took 35m47s.
     # Dropping branch coverage on 3.13 is the structural fix, left to an owner
-    # decision after 1.1.0.
-    timeout-minutes: 90
+    # decision after 1.1.0. Before the 1.2.0 freeze (runs 41243511805,
+    # 41390953990, 41407125042 on main, 2026-10-31 to 2026-11-02 UTC), 3.13
+    # took 64, 74 and 57 min and PR #166's head took 71 min: 1.22x under 90.
+    # 150 min is about 2x the slowest.
+    timeout-minutes: 150
     strategy:
       matrix:
         python-version: ["3.13", "3.14"]
