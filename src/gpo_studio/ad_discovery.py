@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from typing import Any, cast
 
@@ -31,8 +32,6 @@ _MAX_GPO_RESULTS = 10000
 _MAX_SITE_RESULTS = 1000
 _MAX_SUBNET_RESULTS = 1000
 
-_CIDR_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$")
-
 _DISCOVERY_KINDS = frozenset({
     "gpo-studio-discovery-forest",
     "gpo-studio-discovery-domain",
@@ -41,6 +40,39 @@ _DISCOVERY_KINDS = frozenset({
     "gpo-studio-discovery-gpos",
     "gpo-studio-discovery-principals",
 })
+
+
+# PowerShell shared by the scripts that read directory search results.
+#
+# A missing attribute is an EMPTY ResultPropertyValueCollection, not $null, and
+# PowerShell treats that object as true: ``if ($_.Properties['x']) { ...[0] }``
+# took the true branch and printed null (#148 live review: netbios_name,
+# display_name). Windows PowerShell 5.1 also cannot index that collection with
+# -1, so object_class was always empty. These read by Count and by an explicit
+# last index. Neither is used for objectGUID: a function returning a byte[]
+# would unroll it.
+#
+# ConvertTo-LdapFilterValue escapes an assertion value per RFC 4515 section 3:
+# '*', '(', ')', '\' and NUL become \2a, \28, \29, \5c and \00.
+_PS_VALUE_HELPERS = [
+    "function Get-FirstValue($values) {",
+    "    if ($null -ne $values -and $values.Count -gt 0) { [string]$values[0] } else { '' }",
+    "}",
+    "function Get-LastValue($values) {",
+    "    if ($null -ne $values -and $values.Count -gt 0) "
+    "{ [string]$values[$values.Count - 1] } else { '' }",
+    "}",
+    "function ConvertTo-LdapFilterValue([string]$value) {",
+    "    $sb = New-Object System.Text.StringBuilder",
+    "    foreach ($c in $value.ToCharArray()) {",
+    "        if ($c -eq [char]0x2a -or $c -eq [char]0x28 -or $c -eq [char]0x29 "
+    "-or $c -eq [char]0x5c -or $c -eq [char]0) {",
+    "            [void]$sb.AppendFormat('\\{0:x2}', [int]$c)",
+    "        } else { [void]$sb.Append($c) }",
+    "    }",
+    "    $sb.ToString()",
+    "}",
+]
 
 
 def _ps_param(value: str, parameter: str) -> str:
@@ -102,6 +134,21 @@ def _require_kind(data: dict[str, Any], expected: str) -> None:
         ])
 
 
+def _text(value: object, name: str) -> str:
+    # str() turned null into the text "None" and a list into "[...]" (#148
+    # live review): only a JSON string is text.
+    if not isinstance(value, str):
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="invalid_string_field",
+                message=f"Field {name!r} must be a string.",
+                path=name,
+            )
+        ])
+    return value
+
+
 def _str_field(data: dict[str, Any], name: str) -> str:
     value = data.get(name)
     if value is None:
@@ -113,7 +160,13 @@ def _str_field(data: dict[str, Any], name: str) -> str:
                 path=name,
             )
         ])
-    return str(value)
+    return _text(value, name)
+
+
+def _optional_str(data: dict[str, Any], name: str, default: str = "") -> str:
+    """An optional text field: absent or null is ``default``, never "None"."""
+    value = data.get(name)
+    return default if value is None else _text(value, name)
 
 
 def _str_list(data: dict[str, Any], name: str) -> tuple[str, ...]:
@@ -127,7 +180,7 @@ def _str_list(data: dict[str, Any], name: str) -> tuple[str, ...]:
                 path=name,
             )
         ])
-    return tuple(str(item) for item in value)
+    return tuple(_text(item, name) for item in value)
 
 
 def _validate_guid(value: str, path: str) -> None:
@@ -154,16 +207,81 @@ def _validate_sid(value: str, path: str) -> None:
         ])
 
 
-def _validate_cidr(value: str, path: str) -> None:
-    if not value or not _CIDR_RE.fullmatch(value):
-        raise ValidationError([
+_IPV4_ADDRESS = re.compile(r"(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}")
+_PREFIX = re.compile(r"[1-9][0-9]{0,2}")
+
+
+def _canonical_ipv6(address: ipaddress.IPv6Address) -> str:
+    """RFC 5952 section 4 text, in hexadecimal only.
+
+    Leading zeros dropped, "::" replacing the longest run of two or more zero
+    fields (the first of equal runs), never a single zero field, lower case.
+    Written out here rather than taken from ``str()``, which prints an
+    IPv4-mapped address in dotted form.
+    """
+    fields = [(int(address) >> (16 * (7 - i))) & 0xFFFF for i in range(8)]
+    best_start, best_length, start = -1, 1, None
+    for index, field in enumerate([*fields, 1]):
+        if field == 0 and start is None:
+            start = index
+        elif field != 0 and start is not None:
+            if index - start > best_length:
+                best_start, best_length = start, index - start
+            start = None
+    text = [format(field, "x") for field in fields]
+    if best_start < 0:
+        return ":".join(text)
+    head = ":".join(text[:best_start])
+    tail = ":".join(text[best_start + best_length:])
+    return f"{head}::{tail}"
+
+
+def _subnet_name(value: str, path: str) -> str:
+    """An AD subnet object name, per MS-ADTS "Subnet Object"
+    (learn.microsoft.com/openspecs/windows_protocols/ms-adts/255d4630-f033-4289-8db6-c36060b47e17).
+
+    One "/"; a prefix with no leading zeros, 1-32 (IPv4) or 1-128 (IPv6). An
+    IPv4 address in dotted decimal with no leading zeros, no host bits set,
+    and not equal to its own mask. An IPv6 address in RFC 5952 canonical text,
+    compared case-insensitively, with no host-bit rule (the spec lists
+    ``a:b::c:d:0:0/64`` as valid) and so no zone ID or dotted form.
+
+    Returns the name with an IPv6 address in lower case: AD compares names
+    case-insensitively, so ``2001:DB8::/32`` and ``2001:db8::/32`` are one
+    subnet and must be one cache key. IPv4 names are already unique.
+    """
+    def refuse() -> ValidationError:
+        return ValidationError([
             ValidationIssue(
                 severity="error",
                 code="invalid_cidr_format",
-                message=f"Invalid CIDR format: {value!r}",
+                message=f"Invalid AD subnet name: {value!r}",
                 path=path,
             )
         ])
+
+    address_text, slash, prefix_text = value.partition("/")
+    if not slash or "/" in prefix_text or not _PREFIX.fullmatch(prefix_text):
+        raise refuse()
+    prefix = int(prefix_text)
+    if _IPV4_ADDRESS.fullmatch(address_text):
+        if prefix > 32 or any(int(part) > 255 for part in address_text.split(".")):
+            raise refuse()
+        address = int(ipaddress.IPv4Address(address_text))
+        mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF
+        if address & ~mask & 0xFFFFFFFF or address == mask:
+            raise refuse()
+        return value
+    if prefix > 128 or "%" in address_text or "." in address_text:
+        raise refuse()
+    try:
+        ipv6 = ipaddress.IPv6Address(address_text)
+    except ValueError:
+        raise refuse() from None
+    canonical = _canonical_ipv6(ipv6)
+    if address_text.lower() != canonical:
+        raise refuse()
+    return f"{canonical}/{prefix}"
 
 
 def _parse_trust_direction(value: str) -> TrustDirection:
@@ -245,7 +363,7 @@ def _parse_gpo_link(raw: object) -> GPOLink:
                 path="gpo_links.order",
             )
         ])
-    link_id = str(raw.get("id", ""))
+    link_id = _optional_str(raw, "id")
     if not link_id:
         raise ValidationError([
             ValidationIssue(
@@ -257,7 +375,7 @@ def _parse_gpo_link(raw: object) -> GPOLink:
         ])
     return GPOLink(
         id=link_id,
-        target=str(raw.get("target", "")),
+        target=_optional_str(raw, "target"),
         enabled=_bool_field(raw, "enabled", True, "gpo_links.enabled"),
         enforced=_bool_field(raw, "enforced", False, "gpo_links.enforced"),
         order=order,
@@ -377,6 +495,7 @@ def discovery_script_domain(domain: str = "") -> str:
         "# Generated by GPO Studio. Run on a domain-joined machine; output is JSON to stdout.",
         f"param([string]$Domain = {domain_param})",
         "$ErrorActionPreference = 'Stop'",
+        *_PS_VALUE_HELPERS,
         # $Domain is a [string] parameter: assigning the Domain object to it
         # converted it back to its name, so every property below was null
         # (#148 review). The object gets its own variable.
@@ -389,12 +508,34 @@ def discovery_script_domain(domain: str = "") -> str:
         "}",
         "$domainControllers = @($adDomain.DomainControllers | ForEach-Object { $_.Name })",
         "$root = $adDomain.GetDirectoryEntry()",
-        "$searcher = New-Object System.DirectoryServices.DirectorySearcher($root)",
-        "$searcher.Filter = '(objectClass=domain)'",
+        "$domainDn = [string]$root.distinguishedName",
+        # The NetBIOS name is not on the domain object: it is nETBIOSName on the
+        # domain's crossRef in CN=Partitions of the configuration partition,
+        # the entry whose nCName is the domain's DN (#148 live review).
+        "$rootDse = [ADSI]\"LDAP://$($adDomain.Name)/RootDSE\"",
+        "$configNc = [string]$rootDse.configurationNamingContext",
+        "$searcher = New-Object System.DirectoryServices.DirectorySearcher("
+        "[ADSI]\"LDAP://$($adDomain.Name)/CN=Partitions,$configNc\")",
+        "$searcher.SearchScope = 'OneLevel'",
+        "$searcher.Filter = \"(&(objectClass=crossRef)"
+        "(nCName=$(ConvertTo-LdapFilterValue $domainDn)))\"",
         "$searcher.PropertiesToLoad.Add('nETBIOSName') | Out-Null",
-        "$domainEntry = $searcher.FindOne()",
-        "$netbios = if ($domainEntry -and $domainEntry.Properties['nETBIOSName']) "
-        "{ $domainEntry.Properties['nETBIOSName'][0] } else { '' }",
+        "$crossRef = $searcher.FindOne()",
+        "$netbios = if ($crossRef) { Get-FirstValue $crossRef.Properties['nETBIOSName'] } "
+        "else { '' }",
+        # .NET's DomainMode has no Windows Server 2025 value and reports
+        # Unknown for it. msDS-Behavior-Version 10 is Windows Server 2025
+        # (MS-ADTS 6.1.4.2); any other level .NET cannot name is reported by
+        # number rather than guessed.
+        "$functionalLevel = $adDomain.DomainMode.ToString()",
+        "if ($functionalLevel -eq 'Unknown') {",
+        "    $levels = @($root.'msDS-Behavior-Version')",
+        "    if ($levels.Count -gt 0) {",
+        "        $level = [int]$levels[0]",
+        "        $functionalLevel = if ($level -eq 10) { 'Windows2025Domain' } "
+        "else { \"Level $level\" }",
+        "    }",
+        "}",
         "$result = @{",
         "    kind = 'gpo-studio-discovery-domain'",
         "    dns_name = $adDomain.Name",
@@ -403,7 +544,7 @@ def discovery_script_domain(domain: str = "") -> str:
         "    pdc_emulator = $adDomain.PdcRoleOwner.Name",
         "    rid_master = $adDomain.RidRoleOwner.Name",
         "    infrastructure_master = $adDomain.InfrastructureRoleOwner.Name",
-        "    functional_level = $adDomain.DomainMode.ToString()",
+        "    functional_level = $functionalLevel",
         "}",
         "ConvertTo-Json -InputObject $result -Depth 10",
     ]
@@ -416,7 +557,7 @@ def parse_domain(data: dict[str, Any]) -> DomainInfo:
     _check_nesting_depth(data)
     return DomainInfo(
         dns_name=_str_field(data, "dns_name"),
-        netbios_name=str(data.get("netbios_name", "")),
+        netbios_name=_optional_str(data, "netbios_name"),
         domain_controllers=_str_list(data, "domain_controllers"),
         pdc_emulator=_str_field(data, "pdc_emulator"),
         rid_master=_str_field(data, "rid_master"),
@@ -528,8 +669,9 @@ def _parse_site(data: dict[str, Any]) -> SiteInfo:
                 path="sites.subnets",
             )
         ])
-    for cidr in subnets_raw:
-        _validate_cidr(str(cidr), "sites.subnets")
+    site_subnets = tuple(
+        _subnet_name(_text(cidr, "sites.subnets"), "sites.subnets") for cidr in subnets_raw
+    )
     site_links_raw = data.get("site_links", [])
     if not isinstance(site_links_raw, list):
         raise ValidationError([
@@ -542,9 +684,9 @@ def _parse_site(data: dict[str, Any]) -> SiteInfo:
         ])
     return SiteInfo(
         name=name,
-        description=str(data.get("description", "")),
-        subnets=tuple(str(s) for s in subnets_raw),
-        site_links=tuple(str(s) for s in site_links_raw),
+        description=_optional_str(data, "description"),
+        subnets=site_subnets,
+        site_links=_str_list(data, "site_links") if "site_links" in data else (),
     )
 
 
@@ -558,17 +700,21 @@ def _parse_subnet(data: dict[str, Any]) -> SubnetInfo:
                 path="subnets",
             )
         ])
-    cidr = _str_field(data, "cidr")
-    _validate_cidr(cidr, "subnets.cidr")
+    cidr = _subnet_name(_str_field(data, "cidr"), "subnets.cidr")
     return SubnetInfo(
         cidr=cidr,
         site_name=_str_field(data, "site_name"),
-        description=str(data.get("description", "")),
+        description=_optional_str(data, "description"),
     )
 
 
 def discovery_script_ous(domain: str, search_base: str = "") -> str:
-    """Generate a PowerShell script that collects OUs and their GPO links."""
+    """Generate a PowerShell script that collects OUs and their GPO links.
+
+    The domain head is a scope of management too: its own links (the Default
+    Domain Policy) were never collected because the search matched only OUs
+    (#148 live review). It is emitted as one more entry.
+    """
     domain_param = _ps_param(domain, "Domain")
     search_base_param = _ps_param(search_base, "SearchBase")
     lines = [
@@ -578,13 +724,15 @@ def discovery_script_ous(domain: str, search_base: str = "") -> str:
         f"    [string]$SearchBase = {search_base_param}",
         ")",
         "$ErrorActionPreference = 'Stop'",
+        *_PS_VALUE_HELPERS,
         "$ctx = New-Object "
         "System.DirectoryServices.ActiveDirectory.DirectoryContext('Domain', $Domain)",
         "$adDomain = [System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($ctx)",
-        "$rootDn = $adDomain.GetDirectoryEntry().distinguishedName",
+        "$rootDn = [string]$adDomain.GetDirectoryEntry().distinguishedName",
         "if (-not $SearchBase) { $SearchBase = $rootDn }",
         "$searcher = New-Object System.DirectoryServices.DirectorySearcher([ADSI]\"LDAP://$SearchBase\")",
-        "$searcher.Filter = '(objectCategory=organizationalUnit)'",
+        "$searcher.Filter = "
+        "'(|(objectCategory=organizationalUnit)(objectCategory=domainDNS))'",
         "$searcher.PageSize = 1000",
         "$searcher.PropertiesToLoad.Add('name') | Out-Null",
         "$searcher.PropertiesToLoad.Add('distinguishedName') | Out-Null",
@@ -592,24 +740,39 @@ def discovery_script_ous(domain: str, search_base: str = "") -> str:
         "$searcher.PropertiesToLoad.Add('gPLink') | Out-Null",
         "$results = $searcher.FindAll()",
         "$ous = @($results | ForEach-Object {",
-        "    $dn = $_.Properties['distinguishedName'][0]",
-        "    $name = $_.Properties['name'][0]",
-        "    $description = if ($_.Properties['description']) "
-        "{ $_.Properties['description'][0] } else { '' }",
-        "    $gplink = if ($_.Properties['gPLink']) "
-        "{ $_.Properties['gPLink'][0] } else { '' }",
+        "    $dn = Get-FirstValue $_.Properties['distinguishedName']",
+        "    $name = Get-FirstValue $_.Properties['name']",
+        "    $description = Get-FirstValue $_.Properties['description']",
+        "    $gplink = Get-FirstValue $_.Properties['gPLink']",
+        # The whole value must be gPLink entries (GPMC leaves a single space
+        # when the last link is removed). Matching fragments dropped a
+        # malformed entry silently and renumbered the rest; an incomplete link
+        # list is worse than no discovery, so the run stops (#164 review).
+        r"    if ($gplink -notmatch '^\s*(\[LDAP://[^;\]]+;[0-9]{1,10}\]\s*)*$') {",
+        "        throw \"Malformed gPLink on ${dn}: $gplink\"",
+        "    }",
+        r"    $linkMatches = @([regex]::Matches($gplink, '\[LDAP://([^;\]]+);([0-9]+)\]', "
+        "'IgnoreCase'))",
         "    $links = @()",
-        "    if ($gplink) {",
-        "        $order = 0",
-        r"        foreach ($m in [regex]::Matches($gplink, '\[LDAP://([^;]+);(\d+)\]')) {",
-        "            $order++",
-        "            $links += @{",
-        "                id = [guid]::NewGuid().ToString()",
-        "                target = $m.Groups[1].Value",
-        "                enabled = ([int]$m.Groups[2].Value -band 1) -ne 0",
-        "                enforced = ([int]$m.Groups[2].Value -band 2) -ne 0",
-        "                order = $order",
-        "            }",
+        # gPLink lists a scope's links from lowest to highest precedence: GPMC
+        # puts a new link first, at the lowest precedence, and the LAST entry
+        # is link order 1. Order is counted from the end (#148 live review).
+        # Option bit 0x1 means the link is DISABLED and 0x2 enforced
+        # (MS-GPOL 2.2.2); "enabled" read bit 0x1 as enabled (#160).
+        "    for ($i = $linkMatches.Count - 1; $i -ge 0; $i--) {",
+        "        $m = $linkMatches[$i]",
+        # A DWORD: [int] threw on values above Int32 and stopped the run
+        # without saying why.
+        "        $options = [long]$m.Groups[2].Value",
+        "        if ($options -gt 4294967295) {",
+        "            throw \"gPLink option $options on $dn is not a DWORD\"",
+        "        }",
+        "        $links += @{",
+        "            id = [guid]::NewGuid().ToString()",
+        "            target = $m.Groups[1].Value",
+        "            enabled = ($options -band 1) -eq 0",
+        "            enforced = ($options -band 2) -ne 0",
+        "            order = $linkMatches.Count - $i",
         "        }",
         "    }",
         "    @{",
@@ -680,8 +843,8 @@ def _parse_ou(data: dict[str, Any]) -> OrganizationalUnit:
     return OrganizationalUnit(
         distinguished_name=_str_field(data, "distinguished_name"),
         name=_str_field(data, "name"),
-        parent_dn=str(data.get("parent_dn", "")),
-        description=str(data.get("description", "")),
+        parent_dn=_optional_str(data, "parent_dn"),
+        description=_optional_str(data, "description"),
         gpo_links=links,
     )
 
@@ -693,6 +856,7 @@ def discovery_script_gpos(domain: str = "") -> str:
         "# Generated by GPO Studio. Run on a domain-joined machine; output is JSON to stdout.",
         f"param([string]$Domain = {domain_param})",
         "$ErrorActionPreference = 'Stop'",
+        *_PS_VALUE_HELPERS,
         "$forest = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()",
         "$adDomain = if ($Domain) {",
         "    $forest.Domains | Where-Object { $_.Name -eq $Domain } | Select-Object -First 1",
@@ -710,11 +874,9 @@ def discovery_script_gpos(domain: str = "") -> str:
         "$results = $searcher.FindAll()",
         "$gpos = @($results | ForEach-Object {",
         "    @{",
-        "        guid = $_.Properties['name'][0]",
-        "        name = if ($_.Properties['displayName']) "
-        "{ $_.Properties['displayName'][0] } else { '' }",
-        "        gpc_file_sys_path = if ($_.Properties['gPCFileSysPath']) "
-        "{ $_.Properties['gPCFileSysPath'][0] } else { '' }",
+        "        guid = Get-FirstValue $_.Properties['name']",
+        "        name = Get-FirstValue $_.Properties['displayName']",
+        "        gpc_file_sys_path = Get-FirstValue $_.Properties['gPCFileSysPath']",
         "    }",
         "})",
         "$result = @{",
@@ -728,7 +890,12 @@ def discovery_script_gpos(domain: str = "") -> str:
 
 
 def parse_gpos_discovery(data: dict[str, Any]) -> dict[str, Any]:
-    """Validate GPO discovery JSON and return it for caching."""
+    """Validate GPO discovery JSON and return the validated document for caching.
+
+    Only the validated fields are returned: the caller keyed the cache with
+    ``str(domain)``, so a null domain was stored under "None", and the other
+    fields went into the cache unchecked (#164 review).
+    """
     _require_kind(data, "gpo-studio-discovery-gpos")
     _check_nesting_depth(data)
     gpos_raw = data.get("gpos", [])
@@ -750,6 +917,8 @@ def parse_gpos_discovery(data: dict[str, Any]) -> dict[str, Any]:
                 path="gpos",
             )
         ])
+    domain = _str_field(data, "domain")
+    gpos: list[dict[str, str]] = []
     for idx, raw in enumerate(gpos_raw):
         if not isinstance(raw, dict):
             raise ValidationError([
@@ -760,9 +929,14 @@ def parse_gpos_discovery(data: dict[str, Any]) -> dict[str, Any]:
                     path=f"gpos[{idx}]",
                 )
             ])
-        guid = str(raw.get("guid", ""))
+        guid = _optional_str(raw, "guid")
         _validate_guid(guid, f"gpos[{idx}].guid")
-    return data
+        gpos.append({
+            "guid": guid,
+            "name": _optional_str(raw, "name"),
+            "gpc_file_sys_path": _optional_str(raw, "gpc_file_sys_path"),
+        })
+    return {"kind": "gpo-studio-discovery-gpos", "domain": domain, "gpos": gpos}
 
 
 def discovery_script_principal_search(
@@ -785,16 +959,9 @@ def discovery_script_principal_search(
         f"    [string]$SearchBase = {search_base_param}",
         ")",
         "$ErrorActionPreference = 'Stop'",
-        "function Escape-LdapFilter($s) {",
-        "    $sb = New-Object System.Text.StringBuilder",
-        "    foreach ($c in $s.ToCharArray()) {",
-        "        if ($c -eq '*' -or $c -eq '(' -or $c -eq ')' -or $c -eq '\\' "
-        "-or $c -eq [char]0) {",
-        "            [void]$sb.AppendFormat('\\{0:x2}', [int]$c)",
-        "        } else { [void]$sb.Append($c) }",
-        "    }",
-        "    $sb.ToString()",
-        "}",
+        *_PS_VALUE_HELPERS,
+        # An empty assertion value, as in (sAMAccountName=), is refused by AD.
+        "if ($SearchTerm -eq '') { throw 'A search term is required' }",
         "$forest = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()",
         "$adDomain = if ($Domain) {",
         "    $forest.Domains | Where-Object { $_.Name -eq $Domain } | Select-Object -First 1",
@@ -805,22 +972,34 @@ def discovery_script_principal_search(
         "$root = if ($SearchBase) { [ADSI]\"LDAP://$SearchBase\" } "
         "else { $adDomain.GetDirectoryEntry() }",
         "$searcher = New-Object System.DirectoryServices.DirectorySearcher($root)",
-        "$classFilter = if ($ObjectClass) { \"(objectClass=$ObjectClass)\" } "
+        # Each filter component carries its own parentheses: the class filter
+        # was wrapped in a second pair, (&((objectClass=user))...), which RFC
+        # 4515 does not allow; and a name search always added (objectSid=),
+        # an empty value AD refuses (#148 live review).
+        "$classFilter = if ($ObjectClass) "
+        "{ \"(objectClass=$(ConvertTo-LdapFilterValue $ObjectClass))\" } "
         "else { '(objectCategory=*)' }",
-        "$sidBytes = $null",
-        "try {",
-        "    $sid = New-Object System.Security.Principal.SecurityIdentifier($SearchTerm)",
-        "    $sidBytes = New-Object byte[] $sid.BinaryLength",
-        "    $sid.GetBinaryForm($sidBytes, 0)",
-        "} catch {",
-        "    $sidBytes = $null",
+        "$escaped = ConvertTo-LdapFilterValue $SearchTerm",
+        "$terms = @(\"(sAMAccountName=$escaped)\", \"(cn=$escaped)\")",
+        # Only the literal S-1-... form is a SID: the SecurityIdentifier
+        # constructor also accepts SDDL aliases, so a search for "DA" or "BA"
+        # matched Domain Admins or BUILTIN\Administrators by SID (#164 review).
+        # An identifier authority of 2^32 or more is written in hexadecimal
+        # (MS-DTYP 2.4.2.1, "S-1-0x010000000000-1"); the constructor checks it.
+        # Case-insensitive: MS-DTYP's ABNF strings are, and Windows accepts
+        # "s-1-..." (#164 review). "S-1-5", with no subauthority, is not a SID.
+        "if ($SearchTerm -match '^S-1-(0x[0-9A-F]{1,12}|[0-9]+)(-[0-9]+)+$') {",
+        "    try {",
+        "        $sid = New-Object System.Security.Principal.SecurityIdentifier($SearchTerm)",
+        "        $sidBytes = New-Object byte[] $sid.BinaryLength",
+        "        $sid.GetBinaryForm($sidBytes, 0)",
+        "        $sidHex = ($sidBytes | ForEach-Object { '\\{0:x2}' -f $_ }) -join ''",
+        "        $terms += \"(objectSid=$sidHex)\"",
+        "    } catch {",
+        "        # Not a SID Windows accepts: search by name only.",
+        "    }",
         "}",
-        "$sidHex = if ($sidBytes) { ($sidBytes | ForEach-Object { '\\{0:x2}' -f $_ }) -join '' } "
-        "else { '' }",
-        "$escaped = Escape-LdapFilter $SearchTerm",
-        "$filter = \"(&($classFilter)(|"
-        "(sAMAccountName=$escaped)(cn=$escaped)(objectSid=$sidHex)))\"",
-        "$searcher.Filter = $filter",
+        "$searcher.Filter = \"(&$classFilter(|$($terms -join '')))\"",
         "$searcher.PageSize = 100",
         "$searcher.PropertiesToLoad.Add('objectGUID') | Out-Null",
         "$searcher.PropertiesToLoad.Add('objectSid') | Out-Null",
@@ -836,29 +1015,20 @@ def discovery_script_principal_search(
         "    $guid = [guid]$_.Properties['objectGUID'][0]",
         "    $sid = New-Object System.Security.Principal.SecurityIdentifier("
         "$_.Properties['objectSid'][0], 0)",
-        "    $sidHistory = @()",
-        "    if ($_.Properties['sIDHistory']) {",
         # @(): a single value would otherwise be emitted as a string, and
         # the importer requires a list (#148 review).
-        "        $sidHistory = @($_.Properties['sIDHistory'] | ForEach-Object { "
+        "    $sidHistory = @($_.Properties['sIDHistory'] | ForEach-Object { "
         "(New-Object System.Security.Principal.SecurityIdentifier($_, 0)).Value })",
-        "    }",
-        "    $objectClass = if ($_.Properties['objectClass']) "
-        "{ $_.Properties['objectClass'][-1] } else { '' }",
         "    @{",
         "        kind = 'gpo-studio-discovery-principal'",
         "        object_guid = $guid.ToString()",
         "        object_sid = $sid.Value",
         "        sid_history = $sidHistory",
-        "        object_class = $objectClass",
-        "        sam_account_name = if ($_.Properties['sAMAccountName']) "
-        "{ $_.Properties['sAMAccountName'][0] } else { '' }",
-        "        display_name = if ($_.Properties['displayName']) "
-        "{ $_.Properties['displayName'][0] } else { '' }",
-        "        canonical_name = if ($_.Properties['canonicalName']) "
-        "{ $_.Properties['canonicalName'][0] } else { '' }",
-        "        distinguished_name = if ($_.Properties['distinguishedName']) "
-        "{ $_.Properties['distinguishedName'][0] } else { '' }",
+        "        object_class = Get-LastValue $_.Properties['objectClass']",
+        "        sam_account_name = Get-FirstValue $_.Properties['sAMAccountName']",
+        "        display_name = Get-FirstValue $_.Properties['displayName']",
+        "        canonical_name = Get-FirstValue $_.Properties['canonicalName']",
+        "        distinguished_name = Get-FirstValue $_.Properties['distinguishedName']",
         "        domain = $adDomain.Name",
         "        source_dc = $hostname",
         "        collected_at = (Get-Date -Format 'o')",
@@ -925,22 +1095,22 @@ def _parse_principal(data: dict[str, Any]) -> PrincipalInfo:
             )
         ])
     for idx, sid in enumerate(sid_history_raw):
-        _validate_sid(str(sid), f"sid_history[{idx}]")
+        _validate_sid(_text(sid, f"sid_history[{idx}]"), f"sid_history[{idx}]")
     resolution_state = _parse_resolution_state(
-        str(data.get("resolution_state", "resolved"))
+        _optional_str(data, "resolution_state", "resolved")
     )
     return PrincipalInfo(
         object_guid=object_guid,
         object_sid=object_sid,
-        sid_history=tuple(str(s) for s in sid_history_raw),
+        sid_history=tuple(sid_history_raw),
         object_class=_str_field(data, "object_class"),
-        sam_account_name=str(data.get("sam_account_name", "")),
-        display_name=str(data.get("display_name", "")),
-        canonical_name=str(data.get("canonical_name", "")),
-        distinguished_name=str(data.get("distinguished_name", "")),
-        domain=str(data.get("domain", "")),
-        source_dc=str(data.get("source_dc", "")),
-        collected_at=str(data.get("collected_at", "")),
+        sam_account_name=_optional_str(data, "sam_account_name"),
+        display_name=_optional_str(data, "display_name"),
+        canonical_name=_optional_str(data, "canonical_name"),
+        distinguished_name=_optional_str(data, "distinguished_name"),
+        domain=_optional_str(data, "domain"),
+        source_dc=_optional_str(data, "source_dc"),
+        collected_at=_optional_str(data, "collected_at"),
         resolution_state=resolution_state,
     )
 

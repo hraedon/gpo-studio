@@ -41,6 +41,100 @@ Current version: `1.1.0`. The previous final release was `1.0.0`.
 
 ### Fixed
 
+- Discovery, from a read-only run of every generated script against a lab
+  domain (#148 review, round 4):
+  - OU discovery read the `gPLink` option bit `0x1` as *enabled*; it means
+    the link is **disabled** (`0x2` is enforced). Every enabled link imported
+    as disabled and every disabled link as enabled (#160).
+  - Link `order` counted from the start of `gPLink`; the last entry is link
+    order 1 (GPMC adds a new link first, at the lowest precedence). Order is
+    now counted from the end.
+  - The domain head's own links (the Default Domain Policy) were never
+    discovered: the search matched only OUs. The domain head is now included.
+  - The principal search wrapped its class filter in a second pair of
+    parentheses, `(&((objectClass=user))…)`, and a name search always added
+    `(objectSid=)`, which AD refuses, so every search by name failed. Filters
+    are now well formed, the object class is escaped like the search term
+    (RFC 4515), and an empty search term is refused.
+  - A missing attribute printed `null`, which the importer stored as the text
+    `"None"` (NetBIOS name, display name). Missing attributes now print as
+    empty text, and the importers refuse a non-text value in a text field
+    instead of converting it with `str()`.
+  - The NetBIOS name was read from the domain object; it is read from the
+    domain's crossRef in the configuration partition.
+  - `object_class` was always empty under Windows PowerShell 5.1, which cannot
+    index a search result value collection with `-1`.
+  - IPv6 site subnets were refused. Subnet names are now checked against the
+    MS-ADTS subnet-name rules for each family: IPv4 in dotted decimal with no
+    leading zeros, no host bits and not equal to its own mask; IPv6 in RFC
+    5952 canonical text (case-insensitive, so no zone ID, dotted form or
+    extra zeros), with no host-bit rule; a prefix of 1–32 or 1–128 with no
+    leading zeros. An IPv6 name is stored in lower case, so one subnet is one
+    cache record.
+  - A Windows Server 2025 domain reported its functional level as `Unknown`;
+    it reports `Windows2025Domain`, and any other level .NET cannot name is
+    reported as `Level N`.
+  - An estate import whose GPO GUID was null reported it as `'None'`.
+  - The GPO inventory import cached its document under `str(domain)` (a
+    null domain became the key `"None"`) and stored its other fields
+    unchecked. The domain is now required text, and each GPO's name and file
+    system path are optional text.
+  - OU discovery matched gPLink entries as fragments, so a malformed entry
+    disappeared and the remaining links were renumbered, and an option value
+    above Int32 stopped the run without saying why. The whole value is now
+    parsed; a malformed gPLink or an option that is not a DWORD stops the
+    whole OU discovery run with an error naming the OU, and no output is
+    printed for any OU.
+  - A principal search for an SDDL alias such as `DA` or `BA` also matched
+    that well-known principal by SID. Only a literal SID (`S-1-…`, in either
+    case, with a decimal or `0x` hexadecimal authority and at least one
+    subauthority) is searched as a SID.
+  - Discovery imports wrote some documents one record per transaction (each
+    OU, each principal) and a sites import wrote its sites and subnets
+    separately, so a failed write left part of the document cached behind an
+    error. Every discovery import now writes its document in one transaction.
+  - **Discovery data cached by earlier builds is cleared on upgrade, and
+    again whenever an earlier build has opened the workspace in between;
+    re-run discovery afterwards.** Those records are wrong, not just old: OU
+    links with the enabled flag inverted and the order reversed, the text
+    `"None"` for missing values, and keys (an inventory under `"None"`, an
+    upper-case IPv6 subnet) that re-running discovery never overwrites. When
+    this version opens a workspace, it deletes every cached discovery record,
+    in the same transaction that records its own version, if either the
+    `discovery_cache_version` marker in `workspace_meta` is missing or older
+    than `2`, or `app_version` (which every version rewrites on each healthy,
+    writable open) differs from `discovery_cache_app_version` (which only
+    this version and later ones write), meaning another version opened the
+    workspace since. It then records itself in both. Upgrading with no other
+    version in between keeps the cache. Two builds that report the same
+    version (two commits of one release) are not told apart. The detection
+    assumes the workspace lock holds: two versions run at the same time on
+    one workspace through different paths to it (a symbolic link, say) take
+    different locks and defeat it. Nothing else in the workspace refers to
+    the discovery cache.
+  - Every discovery record this version writes also begins with a format
+    mark, and only marked records are served (get, list, principal search,
+    kinds and summary); a record without it is treated as absent until an
+    import writes the same kind and key. A format mark anywhere inside a
+    document, however its key is spelled in JSON, is removed at every level
+    of the parsed document on import and on read. Readers fetch each record
+    as bytes and decode it strictly, so a record that cannot be served is
+    skipped rather than failing the response or degrading the workspace. The
+    summary and kinds count marked records that SQLite considers valid JSON.
+    Exactly these hand-edited records are counted but never served: one
+    whose stored text is not valid UTF-8; one with an integer over Python's
+    4,300-digit limit; one with a float that overflows (`1e309`); one with a
+    NUL character after the document, with or without text after it; one
+    nested 101 to 1,000 container levels deep, counting the document itself;
+    and one with a key or string that is not Unicode text (an escaped lone
+    surrogate such as `"\ud800"`). This version never writes one. The
+    mark alone cannot prove which version wrote a record: version 1.1.0's GPO
+    inventory import stores the request body as given, so a body that
+    supplies the mark keeps it, which is why another version opening the
+    workspace clears the cache. The readers select marked rows by text in
+    SQL instead of parsing every document, and a cached row that is not JSON
+    no longer reports the workspace as corrupt.
+
 - **Editing dialogs ask before Esc or × discards a change** (#140). After a
   field is changed, or a row is added, removed or reordered, closing one of the
   seventeen editing dialogs with Esc or its × button asks "Discard your

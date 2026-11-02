@@ -4956,21 +4956,21 @@ def get_sites_discovery_script(request: Request) -> dict[str, str]:
 def import_sites_discovery(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """Import AD sites and subnets discovery JSON output."""
     sites, subnets = parse_sites(body)
-    store = _store(request)
-    for site in sites:
-        store.cache_discovery(
-            "site",
-            site.name,
-            json.dumps(site.to_dict(), separators=(",", ":"), sort_keys=True),
-            collected_at=_now(),
-        )
-    for subnet in subnets:
-        store.cache_discovery(
-            "subnet",
-            subnet.cidr,
-            json.dumps(subnet.to_dict(), separators=(",", ":"), sort_keys=True),
-            collected_at=_now(),
-        )
+    now = _now()
+    # One transaction for both kinds: a failed subnet write leaves the cached
+    # sites as they were (#164 review).
+    _store(request).cache_discovery_batch([
+        *(
+            ("site", site.name,
+             json.dumps(site.to_dict(), separators=(",", ":"), sort_keys=True), "", now)
+            for site in sites
+        ),
+        *(
+            ("subnet", subnet.cidr,
+             json.dumps(subnet.to_dict(), separators=(",", ":"), sort_keys=True), "", now)
+            for subnet in subnets
+        ),
+    ])
     return {"cached": True, "sites": len(sites), "subnets": len(subnets)}
 
 
@@ -4987,14 +4987,14 @@ def get_ous_discovery_script(
 def import_ous_discovery(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """Import OU discovery JSON output."""
     ous = parse_ous(body)
-    store = _store(request)
-    for ou in ous:
-        store.cache_discovery(
-            "ou",
-            ou.distinguished_name,
-            json.dumps(ou.to_dict(), separators=(",", ":"), sort_keys=True),
-            collected_at=_now(),
-        )
+    now = _now()
+    # One transaction per document: a failed write leaves the cache as it was
+    # (#164 review; one transaction per OU committed the earlier ones).
+    _store(request).cache_discovery_batch([
+        ("ou", ou.distinguished_name,
+         json.dumps(ou.to_dict(), separators=(",", ":"), sort_keys=True), "", now)
+        for ou in ous
+    ])
     return {"cached": True, "count": len(ous)}
 
 
@@ -5012,14 +5012,13 @@ def import_gpos_discovery(request: Request, body: dict[str, Any]) -> dict[str, A
     """Import GPO inventory discovery JSON output."""
     validated = parse_gpos_discovery(body)
     store = _store(request)
-    key = str(validated.get("domain", ""))
     store.cache_discovery(
         "gpos",
-        key,
+        validated["domain"],
         json.dumps(validated, separators=(",", ":"), sort_keys=True),
         collected_at=_now(),
     )
-    return {"cached": True, "count": len(validated.get("gpos", []))}
+    return {"cached": True, "count": len(validated["gpos"])}
 
 
 @app.get("/api/discovery/principals/script")
@@ -5045,15 +5044,17 @@ def import_principals_discovery(
 ) -> dict[str, Any]:
     """Import principal search discovery JSON output."""
     principals = parse_principals(body)
-    store = _store(request)
-    for principal in principals:
-        store.cache_discovery(
+    # One transaction per document, as for every discovery import (#164 review).
+    _store(request).cache_discovery_batch([
+        (
             "principal",
             principal.object_guid,
             json.dumps(principal.to_dict(), separators=(",", ":"), sort_keys=True),
-            source_dc=principal.source_dc,
-            collected_at=principal.collected_at,
+            principal.source_dc,
+            principal.collected_at,
         )
+        for principal in principals
+    ])
     return {"cached": True, "count": len(principals)}
 
 

@@ -87,7 +87,9 @@ def parse_estate(data: dict[str, Any]) -> list[GPO]:
                 )
             ])
         # The raw value, not a stripped copy (final-r7: one GUID validator).
-        original_guid = str(raw.get("guid", ""))
+        # str() made a null GUID the text "None" in the refusal (#148 live review).
+        guid_value = raw.get("guid")
+        original_guid = guid_value if isinstance(guid_value, str) else ""
         if guid_problem(original_guid) is not None:
             issues.append(
                 ValidationIssue(

@@ -1242,6 +1242,24 @@ table.
 `ad_discovery.py`, `wmi_filter.py` (Plan 023) and `gpp_adapters.py` (Plan 024).
 They are reachable from the API, so they are live authoring surfaces whose
 output no independent Windows oracle has checked.
+The sites import checks each subnet name against the MS-ADTS "Subnet Object"
+rules, which require IPv6 names in RFC 5952 section 4 hexadecimal form. Windows'
+own formatter writes a mapped, compatible or ISATAP address with a dotted IPv4
+tail (`::ffff:192.0.2.0/120`); if AD returns a subnet name spelled that way,
+the whole sites import is refused with `invalid_cidr_format`, by design: no
+read of a real directory has yet shown whether `ActiveDirectorySubnet.Name`
+ever returns that spelling.
+The discovery cache is cleared whenever another version has opened the
+workspace since this one; two builds that report the same version (two commits
+of one release) are not told apart, and the detection assumes the workspace
+lock holds, which two versions running at once through path aliases defeat.
+The discovery summary counts marked records that SQLite considers valid JSON.
+Exactly these hand-edited records are counted but never served: stored text that
+is not valid UTF-8; an integer over Python's 4,300-digit limit; a float that
+overflows (`1e309`); a NUL character after the document, with or without text
+after it; nesting of 101 to 1,000 container levels, counting the document
+itself; and a key or string that is not Unicode text (an escaped lone
+surrogate). GPO Studio never writes one.
 
 - **`publication.py` and `publisher.py` do not weaken the charter.** Neither
   writes anything, and the web process still never writes to AD or SYSVOL.
