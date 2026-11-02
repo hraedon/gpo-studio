@@ -415,9 +415,9 @@ floor (the total stays in that job's log), and the artifact hashes. Local
 success is not release evidence.
 
 Local pre-release observation, **not release evidence**: on 2026-11-02, on the
-preparation branch at `4f9f8c1` (Python 3.14 on a Linux development host; CI
-runs Python 3.13 and 3.14), the full Python suite passed (14878 passed, 160
-skipped) with total branch coverage of 92.47 percent against the 84 percent
+preparation branch at `8b1fa0b` (Python 3.14 on a Linux development host; CI
+runs Python 3.13 and 3.14), the full Python suite passed (15096 passed, 160
+skipped) with total branch coverage of 92.50 percent against the 84 percent
 floor and every per-module floor met (`scripts/check_coverage.py`), as did
 ruff and `mypy src`. No distribution was built for this observation. The
 tagged run rebuilds and rechecks everything; its artifacts, not these, are the
