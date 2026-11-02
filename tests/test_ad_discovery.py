@@ -1579,3 +1579,134 @@ def test_without_json_functions_counts_and_served_rows_agree(
     finally:
         monkeypatch.undo()
         store.close()
+
+
+# --- #164 round 8: rows a response cannot carry, invalid UTF-8, depth ---------
+
+
+def _row(store: WorkspaceStore, data: str | bytes, *, kind: str | bytes = "principal") -> None:
+    store._connection.execute(
+        "INSERT INTO estate_discovery(kind, key, data_json, source_dc, collected_at)"
+        " VALUES(CAST(? AS TEXT), 'handmade', CAST(? AS TEXT), '', '')",
+        (kind, data),
+    )
+    store._connection.commit()
+
+
+def _without_json_functions(store: WorkspaceStore, monkeypatch) -> None:
+    real_execute = store._connection.execute
+
+    class Wrapped:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def execute(self, sql, params=()):
+            if "json_valid" in sql:
+                raise sqlite3.OperationalError("no such function: json_valid")
+            return real_execute(sql, params)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    monkeypatch.setattr(store, "_connection", Wrapped(store._connection))
+
+
+def _http_search(store: WorkspaceStore, monkeypatch) -> list[dict[str, Any]]:
+    monkeypatch.setattr(app.state, "store", store, raising=False)
+    monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+    response = TestClient(app, base_url="http://127.0.0.1").get(
+        "/api/discovery/principals", params={"q": ""}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["items"]
+
+
+@pytest.mark.parametrize("path", ["sql", "fallback"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        _PREFIX + _PRINCIPAL_TAIL + ',"v":{"\\ud800":1}}',
+        _PREFIX + '"\\udfff":1,' + _PRINCIPAL_TAIL + "}",
+        _PREFIX + _PRINCIPAL_TAIL + ',"v":["\\ud800"]}',
+    ],
+    ids=["nested-key", "root-key", "string-value"],
+)
+def test_a_row_a_response_cannot_carry_is_never_served(
+    tmp_path, monkeypatch, path: str, text: str
+) -> None:
+    # #164 review: a lone-surrogate key was served and then failed the whole
+    # search response (422 stored_text_not_encodable).
+    store = WorkspaceStore(tmp_path / "surrogate.db")
+    try:
+        _import_principals(store, monkeypatch)
+        _row(store, text)
+        if path == "fallback":
+            _without_json_functions(store, monkeypatch)
+        items = _http_search(store, monkeypatch)
+        assert [item["sam_account_name"] for item in items] == [
+            _VALID_PRINCIPALS["principals"][0]["sam_account_name"]
+        ]
+        assert not store.is_degraded
+        # Valid JSON to SQLite, so the SQL count includes it (documented).
+        assert store.discovery_summary() == {"principal": 2 if path == "sql" else 1}
+    finally:
+        monkeypatch.undo()
+        store.close()
+
+
+_INVALID_UTF8 = {
+    "ff": b"\xff",
+    "lone-continuation": b"\x80",
+    "encoded-surrogate": b"\xed\xa0\x80",
+}
+
+
+@pytest.mark.parametrize("path", ["sql", "fallback"])
+@pytest.mark.parametrize("bad", _INVALID_UTF8.values(), ids=_INVALID_UTF8.keys())
+def test_invalid_utf8_in_a_cached_row_never_degrades_the_workspace(
+    tmp_path, monkeypatch, path: str, bad: bytes
+) -> None:
+    # #164 review: fetching such TEXT raised in the driver, which marked the
+    # workspace degraded (503 on search and summary).
+    store = WorkspaceStore(tmp_path / "utf8.db")
+    try:
+        _import_principals(store, monkeypatch)
+        _row(store, (_PREFIX + _PRINCIPAL_TAIL + ',"v":"').encode() + bad + b'"}')
+        _row(store, (_PREFIX + _PRINCIPAL_TAIL + "}").encode(), kind=b"principal\xff")
+        if path == "fallback":
+            _without_json_functions(store, monkeypatch)
+        items = _http_search(store, monkeypatch)
+        assert len(items) == 1
+        assert len(store.list_discovery("principal")) == 1
+        with pytest.raises(NotFoundError):
+            store.get_discovery("principal", "handmade")
+        # The bad document is valid JSON to SQLite, so the SQL count includes
+        # it (documented); the kind that is not UTF-8 is skipped by both.
+        assert store.discovery_summary() == {"principal": 2 if path == "sql" else 1}
+        assert store.list_discovery_kinds() == ["principal"]
+        assert not store.is_degraded
+    finally:
+        monkeypatch.undo()
+        store.close()
+
+
+@pytest.mark.parametrize(
+    ("levels", "counted", "served"),
+    [(100, True, True), (101, True, False), (1000, True, False), (1001, False, False)],
+)
+def test_depth_boundaries_in_total_container_levels(
+    tmp_path, monkeypatch, levels: int, counted: bool, served: bool
+) -> None:
+    # Levels count every array and object, the document itself included:
+    # served up to 100, counted by SQLite's json_valid() up to 1,000.
+    nested = "[" * (levels - 1) + "]" * (levels - 1)
+    store = WorkspaceStore(tmp_path / f"depth{levels}.db")
+    try:
+        _import_principals(store, monkeypatch)
+        _row(store, _PREFIX + _PRINCIPAL_TAIL + ',"n":' + nested + "}")
+        assert store.discovery_summary() == {"principal": 2 if counted else 1}
+        names = [p["sam_account_name"] for p in store.list_discovery("principal")]
+        assert ("handmade" in names) is served
+        assert len(_http_search(store, monkeypatch)) == (2 if served else 1)
+    finally:
+        store.close()

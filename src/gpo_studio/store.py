@@ -744,8 +744,14 @@ def _without_format_marks(value: Any) -> Any:
 
 
 def _strip_marks_within_depth(document: dict[str, Any], limit: int) -> bool:
-    """Remove the format mark at every level of a freshly decoded document, in
-    one pass that also refuses nesting deeper than ``limit``."""
+    """Remove the format mark at every level of a freshly decoded document.
+
+    The same pass refuses what a response cannot carry: nesting deeper than
+    ``limit`` levels, and a key or string that is not Unicode text (a lone
+    surrogate such as ``"\\ud800"``). A lone-surrogate key passed every
+    other check and then failed the whole search response, which the API
+    reports as 422 stored_text_not_encodable (#164 review).
+    """
     stack: list[tuple[Any, int]] = [(document, 0)]
     while stack:
         item, depth = stack.pop()
@@ -753,12 +759,26 @@ def _strip_marks_within_depth(document: dict[str, Any], limit: int) -> bool:
             return False
         if isinstance(item, dict):
             item.pop(DISCOVERY_FORMAT_FIELD, None)
+            if not all(_is_text(key) for key in item):
+                return False
             children = item.values()
         else:
             children = item
-        stack.extend(
-            (child, depth + 1) for child in children if isinstance(child, dict | list)
-        )
+        for child in children:
+            if isinstance(child, dict | list):
+                stack.append((child, depth + 1))
+            elif isinstance(child, str) and not _is_text(child):
+                return False
+    return True
+
+
+def _is_text(value: str) -> bool:
+    if value.isascii():
+        return True
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
     return True
 
 
@@ -805,7 +825,7 @@ def _stamp_discovery(data_json: str) -> str:
 _DISCOVERY_MAX_DEPTH = 100
 
 
-def _current_discovery(data_json: str) -> dict[str, Any] | None:
+def _current_discovery(data_json: str | bytes) -> dict[str, Any] | None:
     """A cached document of this build's format, without its marks; else None.
 
     A record without the mark was written by an earlier build, including one
@@ -823,6 +843,14 @@ def _current_discovery(data_json: str) -> dict[str, Any] | None:
     json_valid() accepts but this refuses is counted by the summary and never
     served; this build never writes one.
     """
+    if isinstance(data_json, bytes):
+        # Readers fetch the stored bytes: SQLite TEXT need not be valid UTF-8,
+        # and decoding it in the driver raised, which marked the whole
+        # workspace degraded (#164 review). Strict: no surrogates either.
+        try:
+            data_json = data_json.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
     if not data_json.startswith(_DISCOVERY_PREFIX):
         return None
     try:
@@ -832,6 +860,17 @@ def _current_discovery(data_json: str) -> dict[str, Any] | None:
     if not isinstance(data, dict) or not _strip_marks_within_depth(data, _DISCOVERY_MAX_DEPTH):
         return None
     return data
+
+
+def _utf8(value: bytes | str | None) -> str | None:
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return None
+    try:
+        return value.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 class WorkspaceStore:
@@ -1090,7 +1129,7 @@ class WorkspaceStore:
         """Documents of this build's format matching ``where``, ordered by key."""
         try:
             rows = self._connection.execute(
-                f"SELECT data_json FROM estate_discovery WHERE {where}"
+                f"SELECT CAST(data_json AS BLOB) AS data_json FROM estate_discovery WHERE {where}"
                 f" AND {_CURRENT_DISCOVERY} ORDER BY key",
                 (*params, *_CURRENT_DISCOVERY_PARAMS),
             ).fetchall()
@@ -1099,7 +1138,7 @@ class WorkspaceStore:
                 raise
             # SQLite without JSON functions: the prefix in SQL, the rest here.
             rows = self._connection.execute(
-                f"SELECT data_json FROM estate_discovery WHERE {where}"
+                f"SELECT CAST(data_json AS BLOB) AS data_json FROM estate_discovery WHERE {where}"
                 f" AND {_DISCOVERY_PREFIX_RANGE} ORDER BY key",
                 (*params, *_CURRENT_DISCOVERY_PARAMS),
             ).fetchall()
@@ -1108,24 +1147,29 @@ class WorkspaceStore:
         ]
 
     def _current_discovery_counts(self) -> dict[str, int]:
+        # Kinds and documents are fetched as bytes, so a hand-made value that
+        # is not UTF-8 is skipped rather than raising in the driver (#164).
         try:
             rows = self._connection.execute(
-                f"SELECT kind, COUNT(*) AS n FROM estate_discovery WHERE {_CURRENT_DISCOVERY}"
-                " GROUP BY kind",
+                "SELECT CAST(kind AS BLOB) AS kind, COUNT(*) AS n FROM estate_discovery"
+                f" WHERE {_CURRENT_DISCOVERY} GROUP BY kind",
                 _CURRENT_DISCOVERY_PARAMS,
             ).fetchall()
-            return {str(row["kind"]): int(row["n"]) for row in rows}
+            return {
+                kind: int(row["n"]) for row in rows if (kind := _utf8(row["kind"])) is not None
+            }
         except sqlite3.OperationalError as error:
             if "no such function: json_valid" not in str(error).lower():
                 raise
         return dict(Counter(
-            str(row["kind"])
+            kind
             for row in self._connection.execute(
-                "SELECT kind, data_json FROM estate_discovery"
-                f" WHERE {_DISCOVERY_PREFIX_RANGE}",
+                "SELECT CAST(kind AS BLOB) AS kind, CAST(data_json AS BLOB) AS data_json"
+                f" FROM estate_discovery WHERE {_DISCOVERY_PREFIX_RANGE}",
                 _CURRENT_DISCOVERY_PARAMS,
             ).fetchall()
-            if _current_discovery(row["data_json"]) is not None
+            if (kind := _utf8(row["kind"])) is not None
+            and _current_discovery(row["data_json"]) is not None
         ))
 
     def _encode_snapshot_payload(self, gpo: GPO) -> tuple[str, list[RetainedDocument]]:

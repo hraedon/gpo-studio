@@ -1253,9 +1253,13 @@ The discovery cache is cleared whenever another version has opened the
 workspace since this one; two builds that report the same version (two commits
 of one release) are not told apart, and the detection assumes the workspace
 lock holds, which two versions running at once through path aliases defeat.
-The discovery summary counts marked records that SQLite considers valid JSON; a
-hand-edited record the reader cannot decode (an integer over Python's 4,300-digit
-limit, a trailing NUL) may be counted but is never served.
+The discovery summary counts marked records that SQLite considers valid JSON.
+Exactly these hand-edited records are counted but never served: stored text that
+is not valid UTF-8; an integer over Python's 4,300-digit limit; a float that
+overflows (`1e309`); a NUL character after the document, with or without text
+after it; nesting of 101 to 1,000 container levels, counting the document
+itself; and a key or string that is not Unicode text (an escaped lone
+surrogate). GPO Studio never writes one.
 
 - **`publication.py` and `publisher.py` do not weaken the charter.** Neither
   writes anything, and the web process still never writes to AD or SYSVOL.
