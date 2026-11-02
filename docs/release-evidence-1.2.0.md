@@ -449,8 +449,28 @@ Gaps, stated rather than implied:
 
 ## Upgrade and rollback
 
-- Workspace schema stays 4, as in 1.1.0. Opening a 1.1.0 workspace with 1.2.0
-  migrates nothing.
+- Workspace schema stays 4, as in 1.1.0. AD discovery data cached by an
+  earlier version is deleted when 1.2.0 opens the workspace, in the same
+  transaction that records 1.2.0, if the `discovery_cache_version` marker in
+  `workspace_meta` is missing or older than 2 (so on the first open after an
+  upgrade from 1.1.x), or if `app_version` differs from
+  `discovery_cache_app_version`, meaning another version has opened the
+  workspace since. Two builds that report the same version are not told
+  apart, and the detection assumes the workspace lock holds: two versions run
+  at once through different paths to one workspace (a symbolic link, say)
+  defeat it. Re-run discovery after upgrading.
+- Only discovery records carrying 1.2.0's format mark are served; an unmarked
+  record is treated as absent until an import writes the same kind and key.
+  Exactly these hand-edited records are counted by the summary but never
+  served: stored text that is not valid UTF-8; an integer over Python's
+  4,300-digit limit; a float that overflows (`1e309`); a NUL character after
+  the document, with or without text after it; nesting of 65 to 1,000
+  container levels, counting the document itself (64 is the deepest served);
+  and a key or string that is not Unicode text (an escaped lone surrogate).
+  1.2.0 never writes one.
+- Apart from that clear and the two `workspace_meta` entries that record it
+  (`discovery_cache_version`, `discovery_cache_app_version`), nothing is
+  migrated.
 - Moving from 1.0.0 is as for 1.1.0: the in-place migration from schema 1 to
   4, without a backup, held by `tests/test_release_upgrade_from_1_0_0.py` and
   rehearsed by `scripts/rehearse_upgrade_rollback.py` (see the
@@ -461,8 +481,8 @@ Gaps, stated rather than implied:
   is listed as unresolved instead of shown as valid, a policy whose stored
   rows share an editor ID can no longer be edited, and a setting written by
   1.1.0 or earlier whose policy or element ID contains `-user-` or
-  `-computer-` is refused on reconfigure. Nothing is rewritten; the changelog
-  says how to recover each.
+  `-computer-` is refused on reconfigure. None of those rows is rewritten; the
+  changelog says how to recover each.
 - Operator procedure: [Windows quickstart](windows-quickstart.md#upgrade-to-another-release)
   and [workspace recovery](workspace-recovery.md#upgrading-and-rolling-back-across-a-schema-change).
 

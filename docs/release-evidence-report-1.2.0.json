@@ -184,9 +184,10 @@
       "from_release": "1.1.0",
       "from_schema": 4,
       "to_schema": 4,
-      "migration": "none: the schema is unchanged",
+      "migration": "the schema stays 4; when 1.2.0 opens a workspace it deletes every cached AD discovery record, in the same transaction that records 1.2.0, if the discovery_cache_version marker in workspace_meta is missing or older than 2 (the first open after an upgrade from 1.1.x) or app_version differs from discovery_cache_app_version (another version opened the workspace since); two builds that report the same version are not told apart, and two versions running at once through different paths to one workspace defeat the detection; re-run discovery after upgrading; apart from that clear and the two workspace_meta entries that record it, nothing is migrated",
       "rollback": "restore the pre-upgrade backup; running 1.1.0 against a workspace 1.2.0 has written is not claimed",
-      "upgrade_from_1_0_0": "as for 1.1.0: tests/test_release_upgrade_from_1_0_0.py and scripts/rehearse_upgrade_rollback.py, schema 1 to 4"
+      "upgrade_from_1_0_0": "as for 1.1.0: tests/test_release_upgrade_from_1_0_0.py and scripts/rehearse_upgrade_rollback.py, schema 1 to 4",
+      "discovery_records_served": "only records carrying 1.2.0's format mark; an unmarked record is absent until an import writes the same kind and key; counted by the summary but never served, exactly: stored text that is not valid UTF-8, an integer over Python's 4,300-digit limit, a float that overflows (1e309), a NUL character after the document (with or without text after it), nesting of 65 to 1,000 container levels counting the document itself (64 is the deepest served), and a key or string that is not Unicode text (an escaped lone surrogate); 1.2.0 never writes one"
     },
     "accessibility": {
       "automated": "frontend CI job and release verify job: workspace axe scan, keyboard, focus, dark theme, and open-dialog axe scans of the Security template, Folder Redirection and RSOP prediction dialogs (RSOP in light and dark themes, populated and with validation errors; Security template and Folder Redirection populated in a 360-pixel-wide window)",
